@@ -1,0 +1,61 @@
+version: 2
+
+linters:
+  enable:
+    - asasalint
+    - asciicheck
+    - bidichk
+    - contextcheck
+    - decorder
+    - durationcheck
+    - errcheck
+    - errorlint
+    - exptostd
+    - fatcontext
+    - gocheckcompilerdirectives
+    - gochecksumtype
+    - goconst
+    - godoclint
+    - gosmopolitan
+    - grouper
+    - iface
+    - importas
+    - mirror
+    - misspell
+    - musttag
+    - noctx
+    - perfsprint
+    - prealloc
+    - reassign
+    - recvcheck
+    - sloglint
+    - testifylint
+    - thelper
+    - unconvert
+    - wastedassign
+    - whitespace
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - goconst
+  settings:
+    goconst:
+      min-len: 4
+      min-occurrences: 4
+    recvcheck:
+      # value String/MarshalJSON alongside pointer UnmarshalJSON is the standard
+      # enum shape, not a mistake; read-only helpers like AsText follow the same rule
+      exclusions:
+        - "*.String"
+        - "*.AsText"
+    gosmopolitan:
+      allow-time-local: true
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+
+run:
+  timeout: 600s

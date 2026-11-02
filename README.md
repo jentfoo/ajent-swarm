@@ -73,10 +73,11 @@ make lint                 # gofmt + golangci-lint + go vet
 
 ### Frontend
 
-The UI lives in `web/` (Vite, React, TypeScript). Build output is committed
-to `pkg/web/dist` and embedded through `go:embed`, so a plain `make build`
-serves the last generated bundle; run `make dist` after changing anything
-under `web/`. Frontend work needs pnpm (`PNPM=... make dist` overrides).
+The UI lives in `web/` (Vite, React, TypeScript). Build output goes to
+`pkg/web/dist`, which is generated not committed: Go-only targets compile
+against a minimal placeholder and `make build` rebuilds the real bundle
+automatically whenever `web/` changes. Frontend work needs pnpm
+(`PNPM=... make dist` overrides).
 
 ```sh
 cd web

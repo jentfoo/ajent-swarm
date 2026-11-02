@@ -72,8 +72,5 @@ jobs:
           cache-dependency-path: web/pnpm-lock.yaml
 
       - name: Lint, typecheck and test
-        run: |
-          make web-check
-          # Fail if the committed embed is stale against web/ sources
-          git diff --exit-code pkg/web/dist
+        run: make web-check
 

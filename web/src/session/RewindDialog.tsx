@@ -5,17 +5,20 @@ import { sessions as sessionAPI } from '../api/endpoints'
 import type { RewindCandidate, RewindKind } from '../api/types'
 
 // RewindDialog offers the fork candidates GET /candidates derived: user
-// prompts re-send, assistant replies and compaction targets are allowed, and
-// everything else never lists. The current head is marked by the server; a
-// refusal surfaces as a toast and the picker stays open.
+// prompts re-send (their text prefills the composer for an edit), assistant
+// replies and compaction targets are allowed, and everything else never
+// lists. Rows render as the context tree the server laid out; a refusal
+// surfaces as a toast and the picker stays open.
 export function RewindDialog({
   sessionId,
   onClose,
   onToast,
+  onPrefill,
 }: {
   sessionId: string
   onClose: () => void
   onToast: (text: string, level?: 'info' | 'error') => void
+  onPrefill: (text: string) => void
 }) {
   const [candidates, setCandidates] = useState<RewindCandidate[] | null>(null)
   const [loadError, setLoadError] = useState('')
@@ -42,6 +45,10 @@ export function RewindDialog({
     try {
       await sessionAPI.rewind(sessionId, c.id)
       onToast(`Rewound onto ${kindLabel(c.kind)}.`, 'info')
+      if (c.text !== undefined && c.text !== '') {
+        onPrefill(c.text) // rewinding a prompt opens it for editing
+        if (c.truncated) onToast('The prompt was too large to prefill in full.', 'error')
+      }
       onClose()
     } catch (err) {
       onToast(err instanceof ApiError ? err.message : 'Rewind refused.', 'error')
@@ -71,10 +78,14 @@ export function RewindDialog({
               type="button"
               disabled={busyId !== ''}
               title={`${kindLabel(c.kind)}${c.isHead ? ' · current head' : ''}`}
+              className={`rewind-row ${c.active ? 'active-branch' : ''}`}
+              style={{ paddingLeft: `calc(${(c.depth ?? 0) * 1.1}em + 0.4em)` }}
               onClick={() => void rewind(c)}
             >
               <span className="badge">{kindLabel(c.kind)}</span>
               {c.isHead && <span className="badge accent">head</span>}
+              {c.active && !c.isHead && <span className="badge ok-badge">current</span>}
+              <span className="rewind-guide muted mono">{c.guide}</span>
               <span className="rewind-label">{c.label || c.id}</span>
             </button>
           ))}

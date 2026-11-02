@@ -84,8 +84,10 @@ pre {
 
 /* --- layout chrome --- */
 
+/* definite height so inner regions own their scrolling: the workspace rail
+   and transcript never share a scrollbar with each other or the page */
 .app-shell {
-  min-height: 100vh;
+  height: 100vh;
   display: flex;
   flex-direction: column;
 }
@@ -138,6 +140,7 @@ main.content {
   max-width: 1200px;
   width: 100%;
   margin: 0 auto;
+  overflow-y: auto; /* pages scroll inside the shell, never the window */
 }
 
 /* mobile chrome swaps navigation to a bottom bar */
@@ -285,7 +288,7 @@ label {
 .session-screen {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 4rem);
+  height: 100%; /* the hosting shell bounds it; overflow stays internal */
   min-height: 0;
 }
 .session-header {
@@ -859,10 +862,73 @@ label {
   font-size: var(--fs-small);
 }
 
-/* the hosted session view fills whatever hosts it */
-.workspace-main .session-screen,
-.tile-body .session-screen {
-  height: 100%;
+.rail-row.kind-awaiting {
+  border-left: 3px solid var(--border);
+}
+
+/* composer @-path completion */
+.composer-box {
+  position: relative;
+  display: flex;
+}
+.at-menu {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  margin: 0;
+  padding: calc(var(--unit) * 1);
+  list-style: none;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  max-height: 16rem;
+  overflow-y: auto;
+  z-index: 12;
+}
+.at-menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font-family: var(--font-mono);
+  font-size: var(--fs-small);
+  background: none;
+}
+.at-menu button.active {
+  background: color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
+/* rewind picker rows carry their tree placement inline */
+.rewind-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 55vh;
+  overflow-y: auto;
+}
+.rewind-row {
+  font-family: var(--font-mono);
+  text-align: left;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: calc(var(--unit) * 1);
+  max-width: 100%;
+}
+.rewind-row.active-branch {
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+}
+.rewind-guide {
+  flex: none;
+  white-space: pre;
+}
+.rewind-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ok-badge {
+  background: color-mix(in srgb, var(--ok) 25%, transparent);
+  color: var(--ok);
 }
 
 /* tile mode */
@@ -911,7 +977,54 @@ label {
   background: var(--surface-2);
   border-bottom: 1px solid var(--border);
   min-height: 28px;
-  overflow-x: auto;
+  overflow-x: visible; /* the add menu may hang below the strip */
+}
+.tile-add {
+  margin-left: auto;
+  position: relative;
+}
+.tile-add summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 0 calc(var(--unit) * 2);
+  border-radius: var(--radius);
+  color: var(--muted);
+  user-select: none;
+}
+.tile-add summary::-webkit-details-marker {
+  display: none;
+}
+.tile-add[open] summary,
+.tile-add summary:hover {
+  background: var(--surface);
+  color: var(--text);
+}
+.tile-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 2px);
+  min-width: 14rem;
+  max-height: 18rem;
+  overflow-y: auto;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: calc(var(--unit) * 1);
+  z-index: 14;
+}
+.tile-menu-row {
+  display: flex;
+  gap: 2px;
+}
+.tile-menu-row button:first-child {
+  flex: 1;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tile-menu-split {
+  color: var(--muted);
 }
 .tile-tab {
   display: flex;

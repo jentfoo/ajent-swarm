@@ -105,6 +105,7 @@ export default function SessionView({ sessionId: hostedId }: { sessionId?: strin
           sessionId={sessionId}
           onClose={() => setShowRewind(false)}
           onToast={pushToast}
+          onPrefill={setDraft} // a rewound prompt lands in the composer to edit
         />
       )}
       <Composer

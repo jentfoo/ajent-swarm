@@ -252,6 +252,24 @@ func (s *apiServer) handleSessionSnapshot(w http.ResponseWriter, r *http.Request
 	}
 }
 
+// filesReply answers one @-completion query for the composer.
+type filesReply struct {
+	Items []fleet.FileSuggestion `json:"items"`
+}
+
+// handleSessionFiles completes @ file paths against the session's working
+// directory; an unreadable target answers empty rather than failing.
+func (s *apiServer) handleSessionFiles(w http.ResponseWriter, r *http.Request) {
+	items, err := s.fleet.Files(r.Context(), r.PathValue("id"), r.URL.Query().Get("query"))
+	switch {
+	case err == nil:
+		writeJSON(w, http.StatusOK, filesReply{Items: items})
+	case writeCommandFailure(w, err):
+	default:
+		writeError(w, http.StatusInternalServerError, "internal_error", "")
+	}
+}
+
 // handleAttention serves the per-live-session digest behind the inbox rail
 // and notification badges; no session stream is subscribed anywhere.
 func (s *apiServer) handleAttention(w http.ResponseWriter, _ *http.Request) {

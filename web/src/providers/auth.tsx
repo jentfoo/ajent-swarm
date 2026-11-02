@@ -10,6 +10,7 @@ export interface AuthContextValue {
   status: AuthStatus
   username?: string
   via?: string
+  home?: string // the service host's home directory, for ~-relative paths
   login: (username: string, password: string) => Promise<void>
   bootstrap: (password: string) => Promise<void>
   logout: () => Promise<void>
@@ -22,7 +23,7 @@ const AuthContext = createContext<AuthContextValue | null>(null)
 // expired sessions land on the login screen with the current location kept.
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>('loading')
-  const [principal, setPrincipal] = useState<{ username?: string; via?: string }>({})
+  const [principal, setPrincipal] = useState<{ username?: string; via?: string; home?: string }>({})
 
   useEffect(() => {
     let alive = true
@@ -31,7 +32,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .then((me) => {
         if (!alive) return
         setStatus('authed')
-        setPrincipal({ username: me.username, via: me.via })
+        setPrincipal({ username: me.username, via: me.via, home: me.home })
       })
       .catch((err: unknown) => {
         if (!alive) return
@@ -57,7 +58,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (username: string, password: string) => {
     await auth.login(username, password)
     const me = await auth.me()
-    setPrincipal({ username: me.username, via: me.via })
+    setPrincipal({ username: me.username, via: me.via, home: me.home })
     setStatus('authed')
   }, [])
 
@@ -82,11 +83,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       status,
       username: principal.username,
       via: principal.via,
+      home: principal.home,
       login,
       bootstrap,
       logout,
     }),
-    [status, principal.username, principal.via, login, bootstrap, logout],
+    [status, principal.username, principal.via, principal.home, login, bootstrap, logout],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

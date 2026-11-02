@@ -55,11 +55,12 @@ describe('attention derivation', () => {
     expect(open.dialogId).toBe(3)
     expect(open.since).toBe(1_000)
 
-    // a settled dialog leaves the plain working/idle facts
+    // a settled dialog leaves an agent waiting for its next prompt
     const settled = deriveItem(
       row({ sessionId: 's1', pid: 11, openInteractions: 0, running: false, idle: true }),
     )
-    expect(settled.kind).toBe('idle')
+    expect(settled.kind).toBe('awaiting')
+    expect(settled.reason).toBe('waiting for a prompt')
   })
 
   it('raises needs review after an unacknowledged turn end, not before', () => {
@@ -81,9 +82,10 @@ describe('attention derivation', () => {
     expect(ended.reason).toBe('turn complete')
     expect(ended.turnEnd).toBe(900)
 
-    // acting covers the turn: acknowledgment moves the ledger forward
+    // acting covers the turn: acknowledgment moves the ledger forward, and
+    // the agent drops back to awaiting its next prompt
     ackTurn('s2', 900)
-    expect(deriveItem(row({ sessionId: 's2', lastTurnEnd: 900 })).kind).toBe('idle')
+    expect(deriveItem(row({ sessionId: 's2', lastTurnEnd: 900 })).kind).toBe('awaiting')
 
     // a newer turn end raises review again
     expect(deriveItem(row({ sessionId: 's2', lastTurnEnd: 1_500 })).kind).toBe('needs-review')
@@ -100,7 +102,7 @@ describe('attention derivation', () => {
         dialogPrompt: 'still open',
       }),
     )
-    expect(sameRun.kind).toBe('idle') // checked off stays settled
+    expect(sameRun.kind).toBe('awaiting') // checked off stays settled, still waiting
 
     // a restarted process reuses dialog ids: a new pid must re-raise
     const freshRun = deriveItem(
@@ -164,7 +166,8 @@ describe('attention ranking', () => {
       deriveItem(row({ sessionId: 'old-turn', lastTurnEnd: 200 })),
       deriveItem(row({ sessionId: 'new-turn', lastTurnEnd: 400 })),
       deriveItem(row({ sessionId: 'worker', running: true, idle: false })),
-      deriveItem(row({ sessionId: 'zzz-snoozing' })),
+      deriveItem(row({ sessionId: 'aaa-snoozing' })),
+      deriveItem(row({ sessionId: 'zzz-snoozing', activity: 'tests green' })),
     ]
     const ranked = rankAttention(items)
     expect(ranked.needs.map((i) => i.sessionId)).toEqual([
@@ -174,7 +177,9 @@ describe('attention ranking', () => {
       'old-turn',
     ])
     expect(ranked.working.map((i) => i.sessionId)).toEqual(['worker'])
-    expect(ranked.idle.map((i) => i.sessionId)).toEqual(['zzz-snoozing'])
+    // agents waiting for a prompt land after the actionable rows, name-sorted
+    expect(ranked.awaiting.map((i) => i.sessionId)).toEqual(['aaa-snoozing', 'zzz-snoozing'])
+    expect(ranked.awaiting[1].reason).toBe('tests green')
     expect(ranked.needsInputCount).toBe(2)
   })
 })

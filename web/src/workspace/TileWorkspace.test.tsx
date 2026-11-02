@@ -133,7 +133,8 @@ describe('TileWorkspace', () => {
     renderTile()
     await waitFor(() => expect(sockets.length).toBeGreaterThan(0))
     act(() => sockets[0].open())
-    await screen.findByText('right') // tab strips rendered
+    // the tab strips render alongside each pane's add-session picker menu
+    await screen.findAllByText('right')
 
     const user = userEvent.setup()
     await user.click(screen.getByLabelText('Close right'))

@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 	"net/http"
+	"os"
 
 	"github.com/jentfoo/ajent-swarm/pkg/auth"
 )
@@ -42,6 +43,14 @@ func (s *apiServer) handleLogout(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// meReply is the GET /api/me answer. Home is the service host's home
+// directory, so clients can render workspace paths relative to ~.
+type meReply struct {
+	Username string `json:"username"`
+	Via      string `json:"via"`
+	Home     string `json:"home,omitempty"`
+}
+
 // handleMe reports the authenticated principal; unauthenticated callers get
 // 401 so the placeholder page can pick its form.
 func (s *apiServer) handleMe(w http.ResponseWriter, r *http.Request) {
@@ -49,10 +58,11 @@ func (s *apiServer) handleMe(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{
-		"username": p.Username,
-		"via":      p.Via,
-	})
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = "" // no home to fold paths against; clients show absolutes
+	}
+	writeJSON(w, http.StatusOK, meReply{Username: p.Username, Via: p.Via, Home: home})
 }
 
 // handleBootstrap sets the first password. Loopback peers only unless

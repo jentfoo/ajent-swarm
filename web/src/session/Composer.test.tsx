@@ -36,6 +36,48 @@ const okSubmit = () =>
     return Response.json({})
   })
 
+describe('Composer @-completion', () => {
+  it('offers files after an @ token and Tab accepts one', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string | URL) => {
+        if (String(url).includes('/files')) {
+          return Response.json({ items: [{ path: 'src/main.go' }, { path: 'src/', dir: true }] })
+        }
+        return Response.json({})
+      }),
+    )
+    const onSubmit = vi.fn()
+    render(Harness({ onSubmit }))
+
+    const box = screen.getByLabelText('Prompt')
+    await user.type(box, 'look at @ma')
+
+    const menu = await screen.findByRole('listbox', { name: 'Path suggestions' })
+    expect(menu).toBeInTheDocument()
+    await user.tab()
+
+    // the token became the completed path; files end with a space
+    expect((box as HTMLTextAreaElement).value).toBe('look at @src/main.go ')
+  })
+
+  it('sends on Enter while no menu is open', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({ items: [] })),
+    )
+    const onSubmit = vi.fn()
+    render(Harness({ onSubmit }))
+
+    await user.type(screen.getByLabelText('Prompt'), '@nothing-here{Enter}')
+    // no suggestions appeared, so Enter kept its send role
+    expect(onSubmit).toHaveBeenCalledOnce()
+    expect(onSubmit.mock.calls[0]![0]).toBe('@nothing-here')
+  })
+})
+
 describe('Composer submit flow', () => {
   it('sends on Enter with a client-minted pendingId and clears the draft', async () => {
     const user = userEvent.setup()

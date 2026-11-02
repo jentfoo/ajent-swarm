@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/go-analyze/bulk"
 	"github.com/jentfoo/ajent/pkg/ctl"
+	"github.com/jentfoo/ajent/pkg/llm"
 	"github.com/jentfoo/ajent/pkg/session"
 )
 
@@ -54,6 +56,8 @@ type view struct {
 	lastTurnEnd int64  // unix milliseconds, 0 when no turn ended yet
 	lastStop    string // stop reason the last turn ended with
 	lastStopErr string // transport or context failure that ended it
+
+	firstPrompt string // the session's first typed user prompt, for auto-naming
 
 	entries    []entryRecord // committed entries in arrival order, oldest first
 	seen       map[string]struct{}
@@ -108,7 +112,11 @@ func buildView(snap ctl.State, branch []session.Entry, watermark uint64) *view {
 	}
 
 	for _, e := range branch {
-		v.appendEntry(wireEntry(e))
+		we := wireEntry(e)
+		v.appendEntry(we)
+		if v.firstPrompt == "" {
+			v.firstPrompt = firstUserPrompt(we) // resumed sessions name too
+		}
 	}
 	return v
 }
@@ -133,6 +141,9 @@ func (v *view) apply(ev ctl.Event) {
 			return
 		}
 		v.appendEntry(d.Entry)
+		if v.firstPrompt == "" {
+			v.firstPrompt = firstUserPrompt(d.Entry)
+		}
 
 	case ctl.EventBranchChanged: // committed family, the head's other event
 		var d ctl.BranchChangedData
@@ -298,6 +309,24 @@ func (v *view) activityPreview() string {
 		return ""
 	}
 	return rows[0].Text
+}
+
+// firstUserPrompt returns the typed user text of a committed message entry,
+// "" for everything else. It mirrors ajent's own prompt classification:
+// user role, not system-injected, not a tool-result carrier.
+func firstUserPrompt(e ctl.Entry) string {
+	if e.Type != string(session.TypeMessage) || len(e.Data) == 0 {
+		return ""
+	}
+	var md session.MessageData
+	if json.Unmarshal(e.Data, &md) != nil {
+		return ""
+	}
+	if md.Message.Role != llm.RoleUser || md.Injected ||
+		llm.OnlyToolResults(md.Message.Content) {
+		return ""
+	}
+	return strings.TrimSpace(llm.JoinText(md.Message.Content))
 }
 
 // snapshot rebuilds the state.get shape from what events have kept current.

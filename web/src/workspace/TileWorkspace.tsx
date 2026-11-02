@@ -2,8 +2,10 @@ import { useCallback, useMemo, useRef, useState } from 'react'
 import type { DragEvent, PointerEvent as ReactPointerEvent } from 'react'
 
 import { useSwarm } from '../providers/swarm'
+import { useAuth } from '../providers/auth'
 import { useWorkspace } from '../providers/workspace'
 import SessionView from '../screens/SessionView'
+import { displayName } from '../session/names'
 import { useWorkspaceKeys } from './keys'
 import type { Direction } from './keys'
 import { ShortcutOverlay } from './ShortcutOverlay'
@@ -21,6 +23,7 @@ const resizeStep = 0.05
 // tabs with their final state until closed.
 export default function TileWorkspace() {
   const { sessions } = useSwarm()
+  const auth = useAuth()
   const { profile, setTileLayout, itemFor } = useWorkspace()
   const { tree, focusedPaneId } = profile.tile
 
@@ -50,9 +53,9 @@ export default function TileWorkspace() {
   const nameFor = useCallback(
     (sessionId: string) => {
       const s = sessions.find((row) => row.sessionId === sessionId)
-      return s?.name || (sessionId.length <= 12 ? sessionId : sessionId.slice(0, 8) + '…')
+      return s ? displayName(s, auth.home) : shortID(sessionId)
     },
-    [sessions],
+    [sessions, auth.home],
   )
 
   // The next session nowhere open in the tree, for splits and pickers.
@@ -74,6 +77,24 @@ export default function TileWorkspace() {
     (paneId: string, sessionId: string) => {
       if (!tree) return
       commit(closeTab(tree, paneId, sessionId), paneId)
+    },
+    [commit, tree],
+  )
+
+  // openSession places a session beside the others: as a tab in the chosen
+  // pane, or split out into a fresh one. Sessions already open just activate.
+  const openInTree = useCallback(
+    (sessionId: string, paneId?: string, split?: boolean) => {
+      if (!tree) {
+        commit(openTab(null, sessionId))
+        return
+      }
+      if (split && paneId) {
+        const { tree: next, paneId: fresh } = splitPane(tree, paneId, 'row', sessionId, 'after')
+        commit(next, fresh)
+        return
+      }
+      commit(openTab(tree, sessionId, paneId), paneId)
     },
     [commit, tree],
   )
@@ -253,6 +274,7 @@ export default function TileWorkspace() {
           nameFor={nameFor}
           onFocusPane={focusPane}
           onCloseTab={closeInPane}
+          onOpenSession={openInTree}
           onStartDrag={startDrag}
           onDropZone={dropOnPane}
           onAllowDrop={allowDrop}
@@ -274,6 +296,7 @@ interface NodeProps {
   nameFor: (sessionId: string) => string
   onFocusPane: (paneId: string) => void
   onCloseTab: (paneId: string, sessionId: string) => void
+  onOpenSession: (sessionId: string, paneId?: string, split?: boolean) => void
   onStartDrag: (ev: DragEvent, sessionId: string, paneId: string) => void
   onDropZone: (paneId: string, zone: string) => void
   onAllowDrop: (ev: DragEvent, paneId: string, zone: string) => void
@@ -342,8 +365,8 @@ function Divider({
   )
 }
 
-// PaneView is one pane: its tab strip above a hosted SessionView, with drop
-// zones for tabs (strip) and edges (split).
+// PaneView is one pane: its tab strip above a hosted SessionView, with an
+// add-session picker, drop zones for tabs (strip) and edges (split).
 function PaneView({
   pane,
   focused,
@@ -353,6 +376,7 @@ function PaneView({
   nameFor,
   onFocusPane,
   onCloseTab,
+  onOpenSession,
   onStartDrag,
   onDropZone,
   onAllowDrop,
@@ -419,6 +443,10 @@ function PaneView({
             </div>
           )
         })}
+        <SessionPicker
+          nameFor={nameFor}
+          onOpen={(sessionId, split) => onOpenSession(sessionId, pane.id, split)}
+        />
       </div>
 
       {dragging &&
@@ -436,4 +464,69 @@ function PaneView({
       </div>
     </div>
   )
+}
+
+// SessionPicker is the tab strip's + affordance: every known session opens as
+// a tab here (a second button splits it into its own pane), so several
+// sessions stream side by side without touching the keyboard.
+function SessionPicker({
+  nameFor,
+  onOpen,
+}: {
+  nameFor: (sessionId: string) => string
+  onOpen: (sessionId: string, split?: boolean) => void
+}) {
+  const { sessions } = useSwarm()
+  const ref = useRef<HTMLDetailsElement>(null)
+  // Live sessions first, then the rest; each keeps its listing order.
+  const ordered = useMemo(() => {
+    const live = sessions.filter((s) => s.state === ChildState.Online)
+    const rest = sessions.filter((s) => s.state !== ChildState.Online)
+    return [...live, ...rest]
+  }, [sessions])
+
+  const close = () => {
+    if (ref.current?.open) ref.current.open = false
+  }
+  const pick = (sessionId: string, split?: boolean) => {
+    close()
+    onOpen(sessionId, split)
+  }
+
+  return (
+    <details className="tile-add" ref={ref} title="Open a session in this pane">
+      <summary aria-label="Add a session to this pane">+</summary>
+      {ordered.length === 0 ? (
+        <div className="tile-menu muted">No sessions known.</div>
+      ) : (
+        <div className="tile-menu" role="menu">
+          {ordered.map((s) => (
+            <div key={s.sessionId} className="tile-menu-row">
+              <button
+                type="button"
+                role="menuitem"
+                title={nameFor(s.sessionId)}
+                onClick={() => pick(s.sessionId)}
+              >
+                {nameFor(s.sessionId)}
+              </button>
+              <button
+                type="button"
+                className="tile-menu-split"
+                aria-label={`Split pane with ${nameFor(s.sessionId)}`}
+                title="Open in a new split beside this pane"
+                onClick={() => pick(s.sessionId, true)}
+              >
+                ⊞
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </details>
+  )
+}
+
+function shortID(id: string): string {
+  return id.length <= 12 ? id : id.slice(0, 8) + '…'
 }

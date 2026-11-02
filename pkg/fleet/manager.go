@@ -54,6 +54,10 @@ type Options struct {
 	LaunchWait  time.Duration // spawn-to-socket deadline
 	ExitGrace   time.Duration // /exit settles before SIGTERM
 	TermGrace   time.Duration // SIGTERM before SIGKILL
+
+	// NoNaming turns off auto-naming: unnamed sessions never get the one-shot
+	// labeler run over their first prompt.
+	NoNaming bool
 }
 
 // Manager tracks every live ajent instance and owns its actors' lifecycles.
@@ -72,6 +76,7 @@ type Manager struct {
 	launchWait  time.Duration
 	exitGrace   time.Duration
 	termGrace   time.Duration
+	noNaming    bool
 
 	ctx      context.Context
 	cancel   context.CancelFunc
@@ -87,6 +92,7 @@ type Manager struct {
 	nudge          chan struct{}
 	children       map[int]*childProc // by pid, running and exited
 	childBySession map[string]int
+	named          map[string]struct{} // sessions whose auto-name already ran
 }
 
 // New builds a manager; Start begins the registry watch.
@@ -107,12 +113,14 @@ func New(opts Options) *Manager {
 		launchWait:      cmpOr(opts.LaunchWait, launchWaitDefault),
 		exitGrace:       cmpOr(opts.ExitGrace, exitGraceDefault),
 		termGrace:       cmpOr(opts.TermGrace, termGraceDefault),
+		noNaming:        opts.NoNaming,
 		actors:          make(map[actorKey]*sessionActor),
 		subs:            make(map[int64]*subscription),
 		bySession:       make(map[string]map[int64]*subscription),
 		nudge:           make(chan struct{}, 1),
 		children:        make(map[int]*childProc),
 		childBySession:  make(map[string]int),
+		named:           make(map[string]struct{}),
 	}
 	if m.optsOwned == nil {
 		m.optsOwned = func(ctl.Instance) bool { return false }

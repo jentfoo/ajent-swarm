@@ -107,6 +107,7 @@ func serve(opts Options, stderr io.Writer) int {
 		ChildrenDir: childrenDir,
 		ChildStore:  childStore{st: st},
 		KillOnExit:  opts.KillChildren,
+		NoNaming:    opts.NoSessionNaming,
 	})
 	fleetMgr.Start(ctx)
 	defer fleetMgr.Stop()

@@ -1,9 +1,11 @@
 // The one client-side attention model every surface consumes: the inbox rail,
 // tile tab badges, the title bar count and the desktop notification bridge.
 //
-// Two attention kinds rise from the digest plus this ledger:
+// Three attention kinds rise from the digest plus this ledger:
 //   - needs input: open dialogs, ranked by oldest wait
 //   - needs review: an idle session after a turn end not yet acknowledged
+//   - awaiting: an idle agent waiting for its next prompt (rendered in the
+//     rail's Needs input section, but never badged or notified)
 //
 // Acknowledging happens by acting (answering the dialog, submitting a prompt)
 // or an explicit check-off. The ledger persists in localStorage keyed by
@@ -12,7 +14,7 @@
 // collide with the previous run's acknowledgments.
 import type { AttentionRow } from '../api/types'
 
-export type AttentionKind = 'needs-input' | 'needs-review' | 'working' | 'idle'
+export type AttentionKind = 'needs-input' | 'needs-review' | 'awaiting' | 'working'
 
 export interface AttentionItem {
   sessionId: string
@@ -149,9 +151,10 @@ export function ackedTurn(sessionId: string): number {
 // --- derivation ---
 
 // deriveItem folds one digest row and the ledger into the session's current
-// attention: needs input beats needs review beats working beats idle. The
-// digest names only the oldest open dialog, so a session with that one
-// acknowledged still shows a generic count while further dialogs wait.
+// attention: needs input beats needs review, then an idle agent is awaiting
+// its next prompt, and only busy sessions are working. The digest names only
+// the oldest open dialog, so a session with that one acknowledged still shows
+// a generic count while further dialogs wait.
 export function deriveItem(row: AttentionRow): AttentionItem {
   const pid = row.pid ?? 0
   const busy = row.running || row.spinning === true
@@ -191,21 +194,31 @@ export function deriveItem(row: AttentionRow): AttentionItem {
     }
   }
 
+  if (!busy) {
+    return {
+      ...base,
+      kind: 'awaiting',
+      reason: row.activity?.trim() || 'waiting for a prompt',
+      since: 0,
+    }
+  }
+
   return {
     ...base,
-    kind: busy ? 'working' : 'idle',
+    kind: 'working',
     reason: row.activity ?? '',
     since: 0,
   }
 }
 
-// rankAttention renders the rail's two fixed sections: needs input first
-// (dialogs by oldest wait, then unreviewed completions newest first), working
-// and idle below in stable name order so rows never reshuffle mid-flight.
+// rankAttention renders the rail's two fixed sections. Needs input first:
+// dialogs by oldest wait, then unreviewed completions newest first, then idle
+// agents waiting for a prompt in stable name order so rows never reshuffle
+// mid-flight. Working below, also name-stable.
 export function rankAttention(items: readonly AttentionItem[]): {
   needs: AttentionItem[]
+  awaiting: AttentionItem[]
   working: AttentionItem[]
-  idle: AttentionItem[]
   needsInputCount: number
 } {
   const needsInput = items.filter((i) => i.kind === 'needs-input').sort((a, b) => a.since - b.since)
@@ -215,8 +228,8 @@ export function rankAttention(items: readonly AttentionItem[]): {
   const byName = (a: AttentionItem, b: AttentionItem) => a.sessionId.localeCompare(b.sessionId)
   return {
     needs: [...needsInput, ...needsReview],
+    awaiting: items.filter((i) => i.kind === 'awaiting').sort(byName),
     working: items.filter((i) => i.kind === 'working').sort(byName),
-    idle: items.filter((i) => i.kind === 'idle').sort(byName),
     needsInputCount: needsInput.length,
   }
 }

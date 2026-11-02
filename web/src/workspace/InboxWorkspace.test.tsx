@@ -50,6 +50,16 @@ function attentionRows(): AttentionRow[] {
   ]
 }
 
+function waitingRow(): AttentionRow {
+  return {
+    sessionId: '01WAITING00000000',
+    pid: 4,
+    openInteractions: 0,
+    running: false,
+    idle: true,
+  }
+}
+
 function sessionsList() {
   return [
     { sessionId: DIALOG, name: 'dialog session', state: 'online', spawnedBy: 'external' },
@@ -162,6 +172,7 @@ describe('InboxWorkspace', () => {
   }
 
   it('renders mixed sections: dialogs by oldest wait, reviews, then working', async () => {
+    attention = [...attentionRows(), waitingRow()]
     renderInbox()
     await openSocket()
 
@@ -170,13 +181,16 @@ describe('InboxWorkspace', () => {
     expect(rows[0]).toContain('allow write access?')
     expect(rows[1]).toContain('review session')
     expect(rows[1]).toContain('turn complete')
-    expect(rows[2]).toContain('worker session')
-    expect(rows[2]).toContain('reading main.go')
+    // agents waiting for a prompt sit in Needs input before the busy rows
+    expect(rows[2]).toContain('01WAITIN…')
+    expect(rows[2]).toContain('waiting for a prompt')
+    expect(rows[3]).toContain('worker session')
+    expect(rows[3]).toContain('reading main.go')
 
-    // section headers keep their counts
+    // section headers keep their counts: two actionable rows plus one waiting
     expect(within(rail()).getByText('Needs input')).toBeInTheDocument()
     expect(within(rail()).getByText(/Working/)).toBeInTheDocument()
-    expect(screen.getByText('(2)')).toBeInTheDocument() // two rows need the user
+    expect(screen.getByText('(3)')).toBeInTheDocument()
   })
 
   it('shows empty states when nothing lives', async () => {
@@ -184,7 +198,7 @@ describe('InboxWorkspace', () => {
     renderInbox()
 
     expect(await screen.findByText('Nothing waits on you.')).toBeInTheDocument()
-    expect(screen.getByText('No other live sessions.')).toBeInTheDocument()
+    expect(screen.getByText('No busy sessions.')).toBeInTheDocument()
     expect(screen.getByText('Select a session from the rail.')).toBeInTheDocument()
   })
 

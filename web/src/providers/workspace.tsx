@@ -24,8 +24,8 @@ interface WorkspaceContextValue {
 
   // One derived attention model, consumed by both modes and the badge.
   needs: AttentionItem[] // dialogs by oldest wait, then unreviewed newest first
+  awaiting: AttentionItem[] // idle agents waiting for their next prompt
   working: AttentionItem[]
-  idle: AttentionItem[]
   needsInputCount: number
   itemFor(sessionId: string): AttentionItem | undefined
 
@@ -118,8 +118,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       selectInboxSession,
       setTileLayout,
       needs: ranked.needs,
+      awaiting: ranked.awaiting,
       working: ranked.working,
-      idle: ranked.idle,
       needsInputCount: ranked.needsInputCount,
       itemFor,
       acknowledgeDialog,

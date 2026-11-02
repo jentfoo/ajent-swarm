@@ -1,12 +1,14 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router'
 
 import { ApiError } from '../api/client'
-import { fleet, sessions as sessionAPI } from '../api/endpoints'
-import type { LaunchMode, SessionStatus } from '../api/types'
+import { fleet, models as modelsAPI, sessions as sessionAPI } from '../api/endpoints'
+import type { LaunchRequest, SavedSession, SessionStatus } from '../api/types'
 import { ChildState } from '../api/types'
 import { useSwarm } from '../providers/swarm'
+import { useAuth } from '../providers/auth'
+import { displayName, tildePath } from '../session/names'
 
 // SessionsHome is the live instance grid: model, workspace and seat badges
 // beside quick actions per session, with a compact launch panel. Open walks
@@ -14,6 +16,8 @@ import { useSwarm } from '../providers/swarm'
 // standalone deep link.
 export default function SessionsHome() {
   const { sessions } = useSwarm()
+  const auth = useAuth()
+  const home = auth.home
   const [launching, setLaunching] = useState(false)
 
   return (
@@ -29,14 +33,14 @@ export default function SessionsHome() {
         </button>
       </div>
 
-      {launching && <LaunchPanel />}
+      {launching && <LaunchPanel home={home} />}
 
       {sessions.length === 0 ? (
         <p className="muted">No live sessions. Launch one or start `ajent --serve` yourself.</p>
       ) : (
         <div className="grid">
           {sessions.map((s) => (
-            <SessionCard key={s.sessionId} status={s} />
+            <SessionCard key={s.sessionId} status={s} home={home} />
           ))}
         </div>
       )}
@@ -44,25 +48,26 @@ export default function SessionsHome() {
   )
 }
 
-function SessionCard({ status: s }: { status: SessionStatus }) {
+function SessionCard({ status: s, home }: { status: SessionStatus; home?: string }) {
   const stateClass =
     s.state === ChildState.Online
       ? 'ok'
       : s.state === ChildState.Exited || s.state === ChildState.Gone
         ? 'danger'
         : 'warn'
+  const label = displayName(s, home)
 
   return (
     <div className="card">
       <div>
         {s.name ? (
           <>
-            <Link to={`/s/${encodeURIComponent(s.sessionId)}`}>{s.name}</Link>{' '}
+            <Link to={`/s/${encodeURIComponent(s.sessionId)}`}>{label}</Link>{' '}
             <span className="muted mono">{shortID(s.sessionId)}</span>
           </>
         ) : (
-          <Link to={`/s/${encodeURIComponent(s.sessionId)}`} className="mono">
-            {shortID(s.sessionId)}
+          <Link to={`/s/${encodeURIComponent(s.sessionId)}`} title={s.workspace ?? s.sessionId}>
+            {label}
           </Link>
         )}
       </div>
@@ -139,27 +144,79 @@ function StopButton({ sessionId }: { sessionId: string }) {
   )
 }
 
-function LaunchPanel() {
+function LaunchPanel({ home }: { home?: string }) {
   const navigate = useNavigate()
-  const [workspace, setWorkspace] = useState('')
-  const [mode, setMode] = useState<LaunchMode>('new')
+  const { sessions } = useSwarm()
+
+  // Workspaces come from every session we have seen, live or saved, most
+  // recently used first; the custom entry reveals a free-text input.
+  const [saved, setSaved] = useState<SavedSession[]>([])
+  const [models, setModels] = useState<string[]>([])
+  useEffect(() => {
+    let alive = true
+    fleet
+      .saved()
+      .then((rows) => alive && setSaved(rows))
+      .catch(() => {})
+    return () => {
+      alive = false
+    }
+  }, [])
+  useEffect(() => {
+    let alive = true
+    modelsAPI
+      .list()
+      .then((rows) => {
+        if (!alive) return
+        setModels([...new Set(rows.map((r) => r.current.key))].sort())
+      })
+      .catch(() => {})
+    return () => {
+      alive = false
+    }
+  }, [])
+  const workspaceOptions = useMemo(() => {
+    const seen: string[] = []
+    for (const s of [...sessions, ...saved]) {
+      if (s.workspace && !seen.includes(s.workspace)) seen.push(s.workspace)
+    }
+    return seen
+  }, [sessions, saved])
+
+  const [workspaceChoice, setWorkspaceChoice] = useState('') // '' = custom
+  const [customWorkspace, setCustomWorkspace] = useState('')
+  const workspace = workspaceChoice === '' ? customWorkspace : workspaceChoice
+
+  // No mode picker: empty target launches new; a saved-session id resumes it;
+  // anything else is a create-or-resume session name.
   const [target, setTarget] = useState('')
+  const launchRequest = useCallback((): LaunchRequest | string => {
+    if (workspace.trim() === '') return 'Pick the working directory to start under.'
+    const t = target.trim()
+    if (t === '') return { workspace: workspace.trim(), mode: 'new' }
+    const savedHit = saved.find((row) => row.id === t)
+    if (savedHit !== undefined) {
+      return { workspace: workspace.trim(), mode: 'resume', target: savedHit.target }
+    }
+    return { workspace: workspace.trim(), mode: 'session', target: t }
+  }, [workspace, target, saved])
+
   const [model, setModel] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
   const submit = async (ev: FormEvent) => {
     ev.preventDefault()
-    if (busy || workspace.trim() === '') return
+    if (busy) return
+    const req = launchRequest()
+    if (typeof req === 'string') {
+      setError(req)
+      return
+    }
     setBusy(true)
     setError('')
     try {
-      const res = await fleet.launch({
-        workspace: workspace.trim(),
-        mode,
-        target: mode === 'resume' || mode === 'session' ? target.trim() : undefined,
-        model: model.trim() === '' ? undefined : model.trim(),
-      })
+      const res = await fleet.launch({ ...req, model: model.trim() === '' ? undefined : model })
       navigate(`/s/${encodeURIComponent(res.sessionId)}`)
     } catch (err) {
       setBusy(false)
@@ -167,38 +224,48 @@ function LaunchPanel() {
     }
   }
 
-  const needsTarget = mode === 'resume' || mode === 'session'
-
   return (
     <form className="card" onSubmit={submit} style={{ marginBottom: '1em' }}>
       <label>
-        Workspace directory
-        <input
-          placeholder="/home/you/project"
-          required
-          value={workspace}
-          onChange={(ev) => setWorkspace(ev.target.value)}
-        />
+        Working directory
+        <select value={workspaceChoice} onChange={(ev) => setWorkspaceChoice(ev.target.value)}>
+          <option value="">Custom path…</option>
+          {workspaceOptions.map((w) => (
+            <option key={w} value={w}>
+              {tildePath(w, home)}
+            </option>
+          ))}
+        </select>
       </label>
+      {workspaceChoice === '' && (
+        <label>
+          Directory path
+          <input
+            placeholder="/home/you/project"
+            value={customWorkspace}
+            onChange={(ev) => setCustomWorkspace(ev.target.value)}
+          />
+        </label>
+      )}
       <div style={{ display: 'flex', gap: '0.5em', flexWrap: 'wrap' }}>
         <label>
-          Mode
-          <select value={mode} onChange={(ev) => setMode(ev.target.value as LaunchMode)}>
-            <option value="new">new</option>
-            <option value="resume">resume</option>
-            <option value="continue">continue</option>
-            <option value="session">session name</option>
-          </select>
+          Session id or name (optional)
+          <input
+            placeholder="empty starts a new session"
+            value={target}
+            onChange={(ev) => setTarget(ev.target.value)}
+          />
         </label>
-        {needsTarget && (
-          <label>
-            Target
-            <input value={target} onChange={(ev) => setTarget(ev.target.value)} />
-          </label>
-        )}
         <label>
-          Model (optional)
-          <input value={model} onChange={(ev) => setModel(ev.target.value)} />
+          Model
+          <select value={model} onChange={(ev) => setModel(ev.target.value)}>
+            <option value="">ajent default</option>
+            {models.map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+          </select>
         </label>
       </div>
       {error && <p className="error-text">{error}</p>}

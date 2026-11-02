@@ -31,6 +31,7 @@ type cliFlags struct {
 	ajentBin             string // --ajent-bin: ajent binary path override
 	allowRemoteBootstrap bool   // --allow-remote-bootstrap: non-loopback may set the first password
 	killChildren         bool   // --kill-children-on-shutdown: take spawned children down at exit
+	noNaming             bool   // --no-naming: never auto-name sessions from their first prompt
 	runRetentionDays     int    // --run-retention-days: prune run history older than this
 	runRetentionMax      int    // --run-retention-max: cap on stored run rows
 
@@ -58,6 +59,8 @@ func parseFlags(argv []string) (cliFlags, error) {
 		"let a non-loopback peer set the first password")
 	fs.BoolVar(&f.killChildren, "kill-children-on-shutdown", false,
 		"terminate sessions swarm spawned when the service exits (default: they outlive it)")
+	fs.BoolVar(&f.noNaming, "no-naming", false,
+		"skip auto-naming unnamed sessions from their first prompt")
 	fs.IntVar(&f.runRetentionDays, "run-retention-days", 30,
 		"prune scheduled-run history and child logs older than this many days (0 keeps forever)")
 	fs.IntVar(&f.runRetentionMax, "run-retention-max", 10000,

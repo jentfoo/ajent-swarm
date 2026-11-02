@@ -412,6 +412,8 @@ func (a *sessionActor) handle(m actorMsg) {
 		a.handleSnapshot(msg)
 	case msgModelDiscover:
 		a.handleModelDiscover(msg)
+	case msgRename:
+		a.handleRename(msg)
 	case msgRewindSource:
 		src := rewindSource{path: a.transcript, ok: a.view != nil}
 		if a.view != nil {
@@ -435,6 +437,9 @@ func (a *sessionActor) applyEvent(ev ctl.Event) {
 		return
 	}
 	a.refreshStatus()
+	if ev.Name == ctl.EventEntryAppend { // the first prompt may name the session
+		a.mgr.maybeNameSession(a)
+	}
 }
 
 // attachSub registers one subscriber with the current state: init first, then

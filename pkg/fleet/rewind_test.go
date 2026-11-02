@@ -136,3 +136,60 @@ func TestRewindCandidateLabels(t *testing.T) {
 		assert.Equal(t, "padded\nlines", res.Candidates[0].Label)
 	})
 }
+
+func TestRewindCandidateTreePlacement(t *testing.T) {
+	t.Parallel()
+
+	// one trunk turn plus an abandoned fork: the second prompt branches off u1
+	entries := []session.Entry{
+		prompt(t, "u1", "", "first"),
+		mustEntry(t, "a2", "u1", session.TypeMessage,
+			session.MessageData{Message: llm.Text(llm.RoleAssistant, "reply")}),
+		prompt(t, "u3", "u1", "forked"),
+	}
+	res := rewindCandidates(entries, "a2") // the trunk reply is live
+	require.Len(t, res.Candidates, 3)
+
+	byID := make(map[string]RewindCandidate, len(res.Candidates))
+	for _, c := range res.Candidates {
+		byID[c.ID] = c
+	}
+	assert.Equal(t, 0, byID["u1"].Depth) // the trunk stays flat
+	assert.Equal(t, 1, byID["a2"].Depth) // every branch of a fork indents
+	assert.Equal(t, 1, byID["u3"].Depth)
+	assert.True(t, byID["a2"].Active)    // the live head's chain marks itself
+	assert.False(t, byID["u3"].Active)   // abandoned forks read as inactive
+	assert.Equal(t, "├── ", byID["a2"].Guide)
+}
+
+func TestRewindCandidateText(t *testing.T) {
+	t.Parallel()
+
+	t.Run("user prompts carry full text", func(t *testing.T) {
+		t.Parallel()
+		res := rewindCandidates([]session.Entry{prompt(t, "u1", "", "  the whole prompt ")}, "")
+		require.Len(t, res.Candidates, 1)
+		assert.Equal(t, "  the whole prompt ", res.Candidates[0].Text)
+		assert.False(t, res.Candidates[0].Truncated)
+	})
+
+	t.Run("oversized text truncates with the flag", func(t *testing.T) {
+		t.Parallel()
+		res := rewindCandidates([]session.Entry{
+			prompt(t, "u1", "", strings.Repeat("x", rewindTextMax+10)),
+		}, "")
+		require.Len(t, res.Candidates, 1)
+		assert.Equal(t, rewindTextMax, len([]rune(res.Candidates[0].Text)))
+		assert.True(t, res.Candidates[0].Truncated)
+	})
+
+	t.Run("assistant rows carry no text", func(t *testing.T) {
+		t.Parallel()
+		res := rewindCandidates([]session.Entry{
+			mustEntry(t, "a1", "", session.TypeMessage,
+				session.MessageData{Message: llm.Text(llm.RoleAssistant, "reply")}),
+		}, "")
+		require.Len(t, res.Candidates, 1)
+		assert.Empty(t, res.Candidates[0].Text)
+	})
+}

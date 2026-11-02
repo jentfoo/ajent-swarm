@@ -2,20 +2,23 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
 
 import { useSwarm } from '../providers/swarm'
+import { useAuth } from '../providers/auth'
 import { useWorkspace } from '../providers/workspace'
 import SessionView from '../screens/SessionView'
+import { displayName } from '../session/names'
 import { useWorkspaceKeys } from './keys'
 import { ShortcutOverlay } from './ShortcutOverlay'
 import type { AttentionItem } from './attention'
 
 // InboxWorkspace answers "what needs me right now": a ranked rail of
 // attention (open dialogs by oldest wait, then unreviewed completions newest
-// first, working agents collapsed below) beside exactly one SessionView. The
-// selected session persists in the layout profile; recently viewed sessions
-// stay warm in the store, so swapping rows is instant.
+// first, agents waiting for a prompt after those) beside exactly one
+// SessionView. The selected session persists in the layout profile; recently
+// viewed sessions stay warm in the store, so swapping rows is instant.
 export default function InboxWorkspace() {
   const { sessions } = useSwarm()
-  const { needs, working, idle, acknowledgeItem, profile, selectInboxSession } = useWorkspace()
+  const auth = useAuth()
+  const { needs, awaiting, working, acknowledgeItem, profile, selectInboxSession } = useWorkspace()
 
   const [searchParams, setSearchParams] = useSearchParams()
   const selected = profile.inbox.selectedSessionId
@@ -28,7 +31,7 @@ export default function InboxWorkspace() {
     setSearchParams({}, { replace: true })
   }, [searchParams, selectInboxSession, setSearchParams])
 
-  const rows = useMemo(() => [...needs, ...working, ...idle], [needs, working, idle])
+  const rows = useMemo(() => [...needs, ...awaiting, ...working], [needs, awaiting, working])
   const [cursorId, setCursorId] = useState<string | null>(selected ?? rows[0]?.sessionId ?? null)
 
   // The cursor follows reality: a row that leaves the queue moves to the next.
@@ -41,9 +44,9 @@ export default function InboxWorkspace() {
   const nameFor = useCallback(
     (sessionId: string) => {
       const s = sessions.find((row) => row.sessionId === sessionId)
-      return s?.name || shortID(sessionId)
+      return s ? displayName(s, auth.home) : shortID(sessionId)
     },
-    [sessions],
+    [sessions, auth.home],
   )
 
   const railRef = useRef<HTMLDivElement>(null)
@@ -100,32 +103,35 @@ export default function InboxWorkspace() {
           <span className="rail-meta">
             {item.kind === 'needs-input' && <span className="badge danger">input</span>}
             {item.kind === 'needs-review' && <span className="badge warn">review</span>}
-            {section === 'below' &&
-              (item.running ? (
+            {section === 'below' ? (
+              item.running ? (
                 <span className="badge accent">running</span>
               ) : (
                 <span className="badge">idle</span>
-              ))}
+              )
+            ) : (
+              item.kind === 'awaiting' && <span className="badge">waiting</span>
+            )}
             {section === 'needs' && item.since > 0 && (
               <span className="muted rail-wait">{waited(item.since, now)}</span>
             )}
-            <button
-              type="button"
-              className="rail-check"
-              aria-label={`Mark ${nameFor(item.sessionId)} reviewed`}
-              onClick={(ev) => {
-                ev.stopPropagation()
-                acknowledgeItem(item)
-              }}
-            >
-              ✓
-            </button>
+            {item.kind !== 'awaiting' && (
+              <button
+                type="button"
+                className="rail-check"
+                aria-label={`Mark ${nameFor(item.sessionId)} reviewed`}
+                onClick={(ev) => {
+                  ev.stopPropagation()
+                  acknowledgeItem(item)
+                }}
+              >
+                ✓
+              </button>
+            )}
           </span>
         </span>
         <span className="rail-reason">
-          {section === 'below'
-            ? item.reason || (item.running ? 'working…' : 'waiting for a prompt')
-            : item.reason}
+          {item.reason || (section === 'below' ? 'working…' : '')}
         </span>
       </div>
     )
@@ -136,22 +142,22 @@ export default function InboxWorkspace() {
       <div className="inbox-rail" ref={railRef} aria-label="Inbox queue">
         <div className="rail-section">
           <div className="rail-section-title">
-            Needs input {needs.length > 0 && <span className="muted">({needs.length})</span>}
+            Needs input{' '}
+            {needs.length + awaiting.length > 0 && (
+              <span className="muted">({needs.length + awaiting.length})</span>
+            )}
           </div>
-          {needs.length === 0 && <div className="rail-empty muted">Nothing waits on you.</div>}
-          {needs.map((item) => renderRow(item, 'needs'))}
+          {needs.length + awaiting.length === 0 && (
+            <div className="rail-empty muted">Nothing waits on you.</div>
+          )}
+          {[...needs, ...awaiting].map((item) => renderRow(item, 'needs'))}
         </div>
         <div className="rail-section">
           <div className="rail-section-title">
-            Working{' '}
-            {working.length + idle.length > 0 && (
-              <span className="muted">({working.length + idle.length})</span>
-            )}
+            Working {working.length > 0 && <span className="muted">({working.length})</span>}
           </div>
-          {working.length + idle.length === 0 && (
-            <div className="rail-empty muted">No other live sessions.</div>
-          )}
-          {[...working, ...idle].map((item) => renderRow(item, 'below'))}
+          {working.length === 0 && <div className="rail-empty muted">No busy sessions.</div>}
+          {working.map((item) => renderRow(item, 'below'))}
         </div>
       </div>
 

@@ -22,6 +22,10 @@ const (
 	// candidateLabelMax caps each label so the picker feed stays list-sized;
 	// full bodies stay on the entries endpoints.
 	candidateLabelMax = 160
+
+	// rewindTextMax caps one candidate's carried prompt text; past it the
+	// prefill marks itself truncated rather than shipping megabytes.
+	rewindTextMax = 32 << 10
 )
 
 // RewindCandidate is one rewirable entry in the transcript tree, every fork
@@ -33,6 +37,15 @@ type RewindCandidate struct {
 	TS       int64  `json:"ts"` // unix milliseconds
 	Label    string `json:"label,omitempty"`
 	IsHead   bool   `json:"isHead"`
+
+	// Tree placement from ajent's own picker walk, so a browser renders the
+	// same context tree the TUI does. Text carries the full prompt of user
+	// rows for rewind-and-edit prefill; Truncated marks where it was cut.
+	Depth     int    `json:"depth,omitempty"`
+	Guide     string `json:"guide,omitempty"`
+	Active    bool   `json:"active,omitempty"` // on the current head's path
+	Text      string `json:"text,omitempty"`
+	Truncated bool   `json:"truncated,omitempty"`
 }
 
 // RewindCandidates answers the rewind picker: the live head beside every fork
@@ -72,9 +85,15 @@ func (m *Manager) Candidates(ctx context.Context, sessionID string) (RewindCandi
 }
 
 // rewindCandidates classifies a transcript tree's rewirable entries in file
-// order, which is creation order for the append-only JSONL.
+// order, which is creation order for the append-only JSONL. Tree placement
+// comes from ajent's own picker walk over the same entries.
 func rewindCandidates(entries []session.Entry, head string) RewindCandidates {
 	out := RewindCandidates{Head: head, Candidates: []RewindCandidate{}}
+	placement := make(map[string]session.TreeRow, len(entries))
+	for _, row := range session.TreeRows(entries, head) {
+		placement[row.ID] = row
+	}
+
 	for _, e := range entries {
 		var kind, label string
 		switch e.Type {
@@ -104,16 +123,32 @@ func rewindCandidates(entries []session.Entry, head string) RewindCandidates {
 			continue
 		}
 
-		out.Candidates = append(out.Candidates, RewindCandidate{
+		c := RewindCandidate{
 			ID:       e.ID,
 			ParentID: e.ParentID,
 			Kind:     kind,
 			TS:       e.TS,
 			Label:    truncateLabel(label),
 			IsHead:   e.ID == head,
-		})
+		}
+		if row, ok := placement[e.ID]; ok {
+			c.Depth, c.Guide, c.Active = row.Depth, row.Guide, row.Active
+		}
+		if kind == CandidateUser { // the prefill a rewind-and-edit starts from
+			c.Text, c.Truncated = candidateText(label)
+		}
+		out.Candidates = append(out.Candidates, c)
 	}
 	return out
+}
+
+// candidateText bounds one prompt's full text, reporting when it was cut.
+func candidateText(s string) (string, bool) {
+	runes := []rune(s)
+	if len(runes) <= rewindTextMax {
+		return s, false
+	}
+	return string(runes[:rewindTextMax]), true
 }
 
 // isUserPrompt applies ajent's own prompt classification: typed user text,

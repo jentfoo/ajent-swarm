@@ -4,6 +4,7 @@ import type {
   AttentionRow,
   CtlState,
   EntriesPage,
+  FilesReply,
   LaunchRequest,
   LaunchResult,
   MeReply,
@@ -14,6 +15,7 @@ import type {
   ResolveReply,
   RewindCandidates,
   RewindReply,
+  SavedSession,
   SessionStatus,
   SubmitReply,
 } from './types'
@@ -33,11 +35,13 @@ export const fleet = {
   attention: () => get<AttentionRow[]>('/api/attention'),
   launch: (req: LaunchRequest) =>
     request<LaunchResult>('/api/sessions', { method: 'POST', body: req }),
+  saved: () => get<SavedSession[]>('/api/saved-sessions'),
 }
 
-// Models listing; with ?session= it opens ajent's own picker for that
-// session, answered later through resolve.
+// Model listing; ?session= opens ajent's own picker for that session,
+// answered later through resolve. Bare returns one row per live session.
 export const models = {
+  list: () => get<ModelRow[]>('/api/models'),
   discover: (sessionId: string) =>
     get<ModelRow[]>(`/api/models?session=${encodeURIComponent(sessionId)}`),
 }
@@ -66,6 +70,10 @@ export const sessions = {
   recall: (id: string) => post<RecallRow>(withID(id, '/recall')),
   candidates: (id: string, signal?: AbortSignal) =>
     get<RewindCandidates>(withID(id, '/candidates'), { signal }),
+  files: (id: string, query: string, signal?: AbortSignal) => {
+    const params = new URLSearchParams({ query })
+    return get<FilesReply>(`${withID(id, '/files')}?${params}`, { signal })
+  },
   attach: (id: string, file: File) => {
     const form = new FormData()
     form.append('file', file)

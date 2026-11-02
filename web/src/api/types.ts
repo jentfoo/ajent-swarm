@@ -222,6 +222,7 @@ export interface EntriesPage {
 export interface MeReply {
   username: string
   via: string
+  home?: string // service host's home dir, for ~-relative workspace labels
 }
 
 // --- session command payloads, mirroring pkg/api/handlers_sessions.go ---
@@ -271,7 +272,9 @@ export interface ModelRow {
 export type RewindKind = 'user' | 'assistant' | 'compaction'
 
 // RewindCandidate is one rewirable entry of the transcript tree, every fork
-// included; anything upstream refuses never lists here.
+// included; anything upstream refuses never lists here. Depth and Guide draw
+// the context tree; Active marks the current head's path; Text carries a user
+// prompt in full for rewind-and-edit prefill.
 export interface RewindCandidate {
   id: string
   parentId?: string
@@ -279,6 +282,11 @@ export interface RewindCandidate {
   ts: number // unix milliseconds
   label?: string
   isHead: boolean
+  depth?: number
+  guide?: string
+  active?: boolean
+  text?: string
+  truncated?: boolean
 }
 
 export interface RewindCandidates {
@@ -289,6 +297,33 @@ export interface RewindCandidates {
 // AttachmentReply names where an upload landed for @-reference submits.
 export interface AttachmentReply {
   path: string
+}
+
+// FileSuggestion is one @-completion candidate from GET /files: the replacement
+// fragment for the composer token, directories carrying their trailing slash.
+export interface FileSuggestion {
+  path: string
+  dir?: boolean
+}
+
+export interface FilesReply {
+  items: FileSuggestion[]
+}
+
+// SavedSession is one row of the resume picker listing, most recently used
+// first; target is what a launch passes back for the row.
+export interface SavedSession {
+  id: string
+  name?: string
+  target: string
+  workspace?: string
+  model?: string
+  startedMs?: number
+  updatedMs: number
+  messages: number
+  first?: string
+  blocked: boolean // recorded in a newer format; resume would refuse it
+  live: boolean // tracked by the fleet right now
 }
 
 export type LaunchMode = 'new' | 'resume' | 'continue' | 'session'

@@ -9,7 +9,7 @@ test test-all: .SHELLFLAGS := -o pipefail -c
 _FILTER := | { grep -v "no test files" || true; }; exit $${PIPESTATUS[0]}
 endif
 
-.PHONY: build clean test test-all test-cover bench fmt-changed lint
+.PHONY: build clean test test-all test-integration test-cover bench fmt-changed lint
 
 build:
 	@mkdir -p bin
@@ -25,6 +25,11 @@ test:
 
 test-all:
 	go test -race -cover ./... $(_FILTER)
+
+# builds the binary and exercises daemon mode end to end; guarded so unit
+# runs stay hermetic (see docs/phases/02-service-skeleton.md)
+test-integration:
+	AJENT_SWARM_INTEGRATION=1 go test -count=1 -run 'TestDaemonLifecycle' ./pkg/app
 
 test-cover:
 	go test -race -coverprofile=test.out ./... && go tool cover --html=test.out

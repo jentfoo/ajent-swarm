@@ -1,0 +1,88 @@
+import { useState } from 'react'
+import type { FormEvent } from 'react'
+import { Navigate, useLocation, useNavigate } from 'react-router'
+
+import { ApiError } from '../api/client'
+import { useAuth } from '../providers/auth'
+
+// LoginScreen signs in with the unix account. The location state carries
+// where an expired session started, so signing in returns there.
+export default function LoginScreen() {
+  const { login, status } = useAuth()
+  const navigate = useNavigate()
+  const location = useLocation()
+
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  if (status === 'authed') {
+    // Already signed in (a parallel tab logged in, or back-navigation).
+    return <Navigate to={fromLocation(location.state) || '/'} replace />
+  }
+
+  const submit = async (ev: FormEvent) => {
+    ev.preventDefault()
+    if (busy) return
+    setBusy(true)
+    setError('')
+    try {
+      await login(username.trim(), password)
+      navigate(fromLocation(location.state) || '/', { replace: true })
+    } catch (err) {
+      setBusy(false)
+      setError(describeFailure(err))
+    }
+  }
+
+  return (
+    <div className="auth-screen">
+      <form className="card auth-card" onSubmit={submit}>
+        <h1>ajent-swarm</h1>
+        <p className="muted">Sign in with your unix account.</p>
+        <label>
+          Username
+          <input
+            name="username"
+            autoComplete="username"
+            autoFocus
+            required
+            value={username}
+            onChange={(ev) => setUsername(ev.target.value)}
+          />
+        </label>
+        <label>
+          Password
+          <input
+            name="password"
+            type="password"
+            autoComplete="current-password"
+            required
+            value={password}
+            onChange={(ev) => setPassword(ev.target.value)}
+          />
+        </label>
+        {error && <p className="error-text">{error}</p>}
+        <button className="primary" type="submit" disabled={busy}>
+          Sign in
+        </button>
+      </form>
+    </div>
+  )
+}
+
+function fromLocation(state: unknown): string {
+  const from = (state as { from?: unknown } | null)?.from
+  return typeof from === 'string' ? from : ''
+}
+
+function describeFailure(err: unknown): string {
+  if (err instanceof ApiError && err.code === 'invalid_credentials') {
+    return 'Wrong username or password.'
+  }
+  if (err instanceof ApiError && err.code === 'network_error') {
+    return 'Service unreachable; is ajent-swarm running?'
+  }
+  return err instanceof Error ? `Login failed: ${err.message}` : 'Login failed.'
+}

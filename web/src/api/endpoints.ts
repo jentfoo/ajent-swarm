@@ -1,10 +1,11 @@
-import { get, post, postForm, request } from './client'
+import { del, get, post, postForm, put, request } from './client'
 import type {
   AttachmentReply,
   AttentionRow,
   CtlState,
   EntriesPage,
   FilesReply,
+  Job,
   LaunchRequest,
   LaunchResult,
   MeReply,
@@ -15,7 +16,10 @@ import type {
   ResolveReply,
   RewindCandidates,
   RewindReply,
+  Run,
+  SavedEntriesPage,
   SavedSession,
+  SchedulePreview,
   SessionStatus,
   SubmitReply,
 } from './types'
@@ -36,6 +40,13 @@ export const fleet = {
   launch: (req: LaunchRequest) =>
     request<LaunchResult>('/api/sessions', { method: 'POST', body: req }),
   saved: () => get<SavedSession[]>('/api/saved-sessions'),
+  // Offline transcript read for a recorded session; before continues the walk
+  // back in time from a previous page's cursor.
+  savedEntries: (id: string, before = '', limit = 200) => {
+    const params = new URLSearchParams({ limit: String(limit) })
+    if (before !== '') params.set('before', before)
+    return get<SavedEntriesPage>(`/api/saved-sessions/${encodeURIComponent(id)}/entries?${params}`)
+  },
 }
 
 // Model listing; ?session= opens ajent's own picker for that session,
@@ -78,5 +89,26 @@ export const sessions = {
     const form = new FormData()
     form.append('file', file)
     return postForm<AttachmentReply>(withID(id, '/attachments'), form)
+  },
+}
+
+// Scheduled jobs and their run history. preview evaluates one draft schedule
+// server-side through the trigger loop's own arithmetic.
+export const jobsApi = {
+  list: () => get<Job[]>('/api/jobs'),
+  create: (job: Partial<Job>) => post<Job>('/api/jobs', job),
+  update: (id: number, job: Partial<Job>) => put<Job>(`/api/jobs/${id}`, job),
+  remove: (id: number) => del<void>(`/api/jobs/${id}`),
+  fire: (id: number) => post<Run>(`/api/jobs/${id}/run`),
+  preview: (job: Partial<Job>, count = 3, signal?: AbortSignal) =>
+    post<SchedulePreview>('/api/jobs/preview', { ...job, count }, { signal }),
+}
+
+// Run history across every job; ?job= narrows to one.
+export const runsApi = {
+  list: (jobId?: number, limit = 200) => {
+    const params = new URLSearchParams({ limit: String(limit) })
+    if (jobId !== undefined) params.set('job', String(jobId))
+    return get<Run[]>(`/api/runs?${params}`)
   },
 }

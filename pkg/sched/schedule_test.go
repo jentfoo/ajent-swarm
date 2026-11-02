@@ -77,7 +77,8 @@ func TestNextAfterDailyDSTEdges(t *testing.T) {
 	s := Schedule{Kind: store.ScheduleDaily, DailyTime: "02:30", Loc: mustLoc(t, loc)}
 
 	// spring forward skips 02:30; Go normalizes the nonexistent wall clock to
-	// its valid instant under the post-transition offset (EDT = UTC-4)
+	// its valid pre-transition reading (01:30 EST = UTC-5), the same instant
+	// 02:30 EDT would have been
 	spring := atZone(t, loc, "2025-03-09 01:00:00") // clocks jump 02:00 -> 03:00
 	next, err := s.NextAfter(spring.Add(-time.Hour), spring)
 	require.NoError(t, err)
@@ -255,4 +256,107 @@ func TestValidateJobNormalizesDefaults(t *testing.T) {
 	j.SessionTarget = " 01ABC "
 	j.SpawnMode = "resume"
 	require.NoError(t, ValidateJob(&j))
+}
+
+func TestPreviewTimesIntervalAnchorsOnCreation(t *testing.T) {
+	t.Parallel()
+	j := sampleJob(store.ScheduleInterval)
+	j.IntervalSeconds = 1800
+	j.CreatedAt = atZone(t, "UTC", "2025-05-01 12:00:00")
+	from := atZone(t, "UTC", "2025-05-02 09:47:00")
+
+	times, err := PreviewTimes(j, from, 3)
+	require.NoError(t, err)
+	require.Len(t, times, 3)
+	// slots march the creation anchor, exactly as the trigger loop advances
+	assert.Equal(t, "2025-05-02 10:00", times[0].UTC().Format("2006-01-02 15:04"))
+	assert.Equal(t, "2025-05-02 10:30", times[1].UTC().Format("2006-01-02 15:04"))
+	assert.Equal(t, "2025-05-02 11:00", times[2].UTC().Format("2006-01-02 15:04"))
+}
+
+func TestPreviewTimesDailyDSTBoundaries(t *testing.T) {
+	t.Parallel()
+	loc := "America/New_York"
+	j := sampleJob(store.ScheduleDaily)
+	j.DailyTime = "02:30"
+	j.TZ = loc
+	j.CreatedAt = atZone(t, loc, "2025-01-01 00:00:00")
+
+	t.Run("spring_forward", func(t *testing.T) {
+		// the 02:30 wall clock does not exist on 2025-03-09; Go normalizes it
+		// to its post-transition instant (02:30 EDT = 06:30Z), and each later
+		// day fires at that same UTC time while EDT lasts
+		from := atZone(t, loc, "2025-03-09 01:00:00")
+		times, err := PreviewTimes(j, from, 3)
+		require.NoError(t, err)
+		for i, want := range []string{"06:30", "06:30", "06:30"} {
+			assert.Equal(t, want+" UTC", times[i].UTC().Format("15:04 MST"), "slot %d", i)
+		}
+	})
+
+	t.Run("fall_back", func(t *testing.T) {
+		// 2025-11-02 repeats 01:xx; the 02:30 slot resolves to one instant
+		// (02:30 EST = 07:30Z)
+		from := atZone(t, loc, "2025-11-02 00:59:00")
+		times, err := PreviewTimes(j, from, 2)
+		require.NoError(t, err)
+		for i, want := range []string{"07:30", "07:30"} {
+			assert.Equal(t, want+" UTC", times[i].UTC().Format("15:04 MST"), "slot %d", i)
+		}
+	})
+}
+
+func TestPreviewTimesOnceAndErrors(t *testing.T) {
+	t.Parallel()
+	now := atZone(t, "UTC", "2025-05-01 12:00:00")
+
+	t.Run("once_answers_its_slot", func(t *testing.T) {
+		j := sampleJob(store.ScheduleOnce)
+		slot := now.Add(2 * time.Hour)
+		j.NextRunAt = &slot
+		times, err := PreviewTimes(j, now, 3)
+		require.NoError(t, err)
+		require.Len(t, times, 1) // a once job has exactly one fire
+		assert.True(t, times[0].Equal(slot))
+	})
+
+	t.Run("once_requires_slot", func(t *testing.T) {
+		j := sampleJob(store.ScheduleOnce)
+		_, err := PreviewTimes(j, now, 3)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "next_run_at")
+	})
+
+	t.Run("unknown_kind_errors", func(t *testing.T) {
+		j := sampleJob("weekly")
+		_, err := PreviewTimes(j, now, 3)
+		require.Error(t, err)
+	})
+
+	t.Run("zero_count_answers_nothing", func(t *testing.T) {
+		j := sampleJob(store.ScheduleInterval)
+		times, err := PreviewTimes(j, now, 0)
+		require.NoError(t, err)
+		assert.Empty(t, times)
+	})
+
+	t.Run("zero_created_anchors_on_from", func(t *testing.T) {
+		// what a save does for a brand-new draft: anchor at that moment
+		j := sampleJob(store.ScheduleInterval)
+		j.IntervalSeconds = 600
+		times, err := PreviewTimes(j, now, 2)
+		require.NoError(t, err)
+		assert.True(t, times[0].Equal(now.Add(10*time.Minute)))
+	})
+}
+
+func TestCheckWorkspace(t *testing.T) {
+	t.Parallel()
+
+	t.Run("directory_passes", func(t *testing.T) {
+		require.NoError(t, CheckWorkspace(t.TempDir()))
+	})
+	t.Run("missing_fails", func(t *testing.T) {
+		require.Error(t, CheckWorkspace("/nonexistent-swarm-check"))
+	})
 }

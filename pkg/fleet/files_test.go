@@ -83,9 +83,9 @@ func TestManagerFiles(t *testing.T) {
 	m, home := newTestFleet(t, nil)
 	f := fleettest.New(t, home, fleettest.Options{SessionID: "01FILES000000000000"})
 	f.SetSnapshot(ctl.State{
-		Session:    ctl.Session{ID: f.SessionID()},
-		Workspace:  root,
-		Cwd:        root,
+		Session:   ctl.Session{ID: f.SessionID()},
+		Workspace: root,
+		Cwd:       root,
 	})
 	f.WriteRegistry(t, os.Getpid(), time.Now())
 	waitForState(t, m, f.SessionID(), ChildOnline)

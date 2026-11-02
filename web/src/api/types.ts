@@ -328,6 +328,69 @@ export interface SavedSession {
 
 export type LaunchMode = 'new' | 'resume' | 'continue' | 'session'
 
+// --- scheduler shapes, mirroring pkg/store/jobs.go ---
+
+export type ScheduleKind = 'once' | 'interval' | 'daily'
+export type MissPolicy = 'skip' | 'fire_late'
+export type OverlapPolicy = 'run' | 'skip_if_running'
+export type RunStatus = 'running' | 'awaiting_input' | 'ok' | 'failed' | 'timeout' | 'skipped'
+
+// Job is one scheduled job row from /api/jobs. nextRunAt stays null while the
+// job is disabled or has nothing left to fire.
+export interface Job {
+  id: number
+  name: string
+  workspace: string
+  commandPrefix?: string
+  prompt?: string
+  spawnMode: LaunchMode
+  sessionTarget?: string
+  model?: string
+  permission?: string
+  enabled: boolean
+  scheduleKind: ScheduleKind
+  intervalSeconds?: number
+  dailyTime?: string // HH:MM wall clock in tz
+  tz?: string // IANA name; absent means server local
+  nextRunAt?: string | null
+  onMissed: MissPolicy
+  overlap: OverlapPolicy
+  timeoutMinutes?: number // zero means the service default applies
+  keepAlive: boolean
+  createdAt: string
+}
+
+// Run is one row of run history from /api/runs. sessionId stays absent until
+// the launch path returned one; a skipped run never launched anything.
+export interface Run {
+  id: number
+  jobId?: number // unlinked when its job was deleted
+  sessionId?: string
+  prompt?: string
+  trigger: 'schedule' | 'manual'
+  status: RunStatus
+  startedAt: string
+  finishedAt?: string
+  error?: string
+}
+
+// SchedulePreview is POST /api/jobs/preview's reply: the next fires of one
+// draft schedule plus what its workspace path check made of the filesystem.
+export interface SchedulePreview {
+  times: string[]
+  workspaceError?: string
+}
+
+// SavedEntriesPage is one page of an offline transcript read, oldest first,
+// with the cursor to continue back in time.
+export interface SavedEntriesPage {
+  sessionId: string
+  head: string // the derived branch tip
+  path?: string
+  entries: Entry[]
+  cursor?: string
+}
+
 export interface LaunchRequest {
   workspace: string
   mode?: LaunchMode

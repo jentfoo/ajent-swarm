@@ -86,7 +86,8 @@ func (s Schedule) NextAfter(created time.Time, from time.Time) (time.Time, error
 		y, m, d := local.Date()
 		next := time.Date(y, m, d, hh, mm, 0, 0, s.Loc)
 		if !next.After(from) { // today's wall time passed: fire tomorrow
-			next = next.AddDate(0, 0, 1)
+			y2, m2, d2 := local.AddDate(0, 0, 1).Date()
+			next = time.Date(y2, m2, d2, hh, mm, 0, 0, s.Loc)
 		}
 		return next, nil
 
@@ -129,6 +130,52 @@ func InitialNext(j store.Job, from time.Time) (*time.Time, error) {
 	return &next, nil
 }
 
+// CheckWorkspace validates one workspace path the way job validation and the
+// editor's preview both do: it must exist and be a directory.
+func CheckWorkspace(path string) error {
+	fi, err := os.Stat(path)
+	switch {
+	case err == nil && !fi.IsDir():
+		return fmt.Errorf("workspace %s is not a directory", path)
+	case err != nil:
+		return fmt.Errorf("workspace %s: %w", path, err)
+	}
+	return nil
+}
+
+// PreviewTimes returns up to count scheduled fires strictly after from,
+// evaluated with the trigger loop's own arithmetic: interval slots stay
+// anchored on the job's creation (a zero CreatedAt anchors on from, matching
+// what a save would store) and daily times resolve in the job's zone per fire.
+// Once jobs answer their single stored slot.
+func PreviewTimes(j store.Job, from time.Time, count int) ([]time.Time, error) {
+	if j.ScheduleKind == store.ScheduleOnce {
+		if j.NextRunAt == nil || j.NextRunAt.IsZero() {
+			return nil, errors.New("a once schedule requires next_run_at")
+		}
+		return []time.Time{*j.NextRunAt}, nil
+	}
+	sched, err := scheduleOf(j)
+	if err != nil {
+		return nil, err
+	}
+	created := j.CreatedAt
+	if created.IsZero() {
+		created = from
+	}
+	out := make([]time.Time, 0, max(count, 0))
+	prev := from
+	for range count {
+		next, err := sched.NextAfter(created, prev)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, next)
+		prev = next
+	}
+	return out, nil
+}
+
 // ValidateJob normalizes and validates one job's fields. It mirrors the
 // launch path's flag rules so a stored job always spawns cleanly; it reports
 // the first problem found.
@@ -144,12 +191,8 @@ func ValidateJob(j *store.Job) error {
 	if j.Workspace == "" {
 		return errors.New("workspace is required")
 	}
-	fi, err := os.Stat(j.Workspace)
-	switch {
-	case err == nil && !fi.IsDir():
-		return fmt.Errorf("workspace %s is not a directory", j.Workspace)
-	case err != nil:
-		return fmt.Errorf("workspace %s: %w", j.Workspace, err)
+	if err := CheckWorkspace(j.Workspace); err != nil {
+		return err
 	}
 
 	j.SpawnMode = strings.TrimSpace(j.SpawnMode)
@@ -165,7 +208,7 @@ func ValidateJob(j *store.Job) error {
 			return errors.New("spawn mode resume needs a session target")
 		}
 	case fleet.LaunchSession:
-		if _, err = session.ValidateName(j.SessionTarget); err != nil {
+		if _, err := session.ValidateName(j.SessionTarget); err != nil {
 			return err
 		}
 	}
@@ -209,11 +252,11 @@ func ValidateJob(j *store.Job) error {
 			return errors.New("interval_seconds is too large")
 		}
 	case store.ScheduleDaily:
-		if _, _, err = parseDailyTime(j.DailyTime); err != nil {
+		if _, _, err := parseDailyTime(j.DailyTime); err != nil {
 			return err
 		}
 		j.TZ = strings.TrimSpace(j.TZ)
-		if _, err = locationOf(j.TZ); err != nil {
+		if _, err := locationOf(j.TZ); err != nil {
 			return err
 		}
 	default:

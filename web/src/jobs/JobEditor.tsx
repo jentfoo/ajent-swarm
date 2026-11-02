@@ -1,0 +1,457 @@
+import { useEffect, useMemo, useState } from 'react'
+import type { FormEvent } from 'react'
+
+import { ApiError } from '../api/client'
+import { jobsApi } from '../api/endpoints'
+import type { Job } from '../api/types'
+import { defaultDraft, draftFromJob, toPayload, validateDraft } from './jobDraft'
+import type { DraftErrors, JobDraft } from './jobDraft'
+import { formatSlot, intervalUnits, scheduleKindLabels } from './schedule'
+
+// Permission startup flags, matching phase 04's launcher.
+const permissionOptions = [
+  { value: '', label: 'ajent default (asks)' },
+  { value: 'read-only', label: 'read-only' },
+  { value: 'allow-auto', label: 'allow-auto' },
+  { value: 'allow-autowrite', label: 'allow-autowrite' },
+  { value: 'allow-all', label: 'allow-all' },
+]
+
+// Timezone candidates for the daily picker; free text always works.
+function timezoneCandidates(): string[] {
+  try {
+    const zones = Intl.supportedValuesOf?.('timeZone')
+    if (zones && zones.length > 0) return [...zones]
+  } catch {
+    // Engines without the API answer nothing; typing a zone still works.
+  }
+  return []
+}
+
+// JobEditor is the one form for creating and editing jobs: mode chooser,
+// launch facts matching phase 04's launcher, prompt, missed-run policy,
+// timeout and keep-alive. The next three fire times preview live through
+// POST /api/jobs/preview, which also checks the workspace path.
+export function JobEditor({
+  job,
+  workspaces,
+  models,
+  onSaved,
+  onCancel,
+}: {
+  job?: Job // editing an existing row; absent creates one
+  workspaces: string[]
+  models: string[]
+  onSaved: (job: Job | undefined) => void // undefined after a delete
+  onCancel: () => void
+}) {
+  const [draft, setDraft] = useState<JobDraft>(() => (job ? draftFromJob(job) : defaultDraft()))
+  const errors: DraftErrors = useMemo(() => validateDraft(draft), [draft])
+  const [previewTimes, setPreviewTimes] = useState<string[]>([])
+  const [workspaceError, setWorkspaceError] = useState('')
+  const [previewError, setPreviewError] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState('')
+  const [confirmDelete, setConfirmDelete] = useState(false)
+
+  // Debounced draft preview: the backend owns scheduling semantics and checks
+  // the workspace against its own filesystem; further edits abort in flight.
+  useEffect(() => {
+    const controller = new AbortController()
+    const timer = setTimeout(async () => {
+      try {
+        const res = await jobsApi.preview(
+          { ...toPayload(draft), createdAt: job?.createdAt },
+          3,
+          controller.signal,
+        )
+        setPreviewTimes(res.times)
+        setWorkspaceError(res.workspaceError ?? '')
+        setPreviewError('')
+      } catch (err) {
+        if ((err as Error | undefined)?.name === 'AbortError') return
+        setPreviewError(err instanceof ApiError ? err.detail || err.message : 'Preview failed.')
+      }
+    }, 350)
+    return () => {
+      controller.abort()
+      clearTimeout(timer)
+    }
+  }, [draft, job?.createdAt])
+
+  const patch = (fields: Partial<JobDraft>) => setDraft((d) => ({ ...d, ...fields }))
+
+  const save = async (ev: FormEvent) => {
+    ev.preventDefault()
+    if (saving || Object.keys(errors).length > 0) return
+    setSaving(true)
+    setSaveError('')
+    try {
+      const saved =
+        job !== undefined
+          ? await jobsApi.update(job.id, toPayload(draft, job.id))
+          : await jobsApi.create(toPayload(draft))
+      onSaved(saved)
+    } catch (err) {
+      setSaveError(err instanceof ApiError ? err.message : 'Saving the job failed.')
+      setSaving(false)
+    }
+  }
+
+  const remove = async () => {
+    if (job === undefined || saving) return
+    setSaving(true)
+    try {
+      await jobsApi.remove(job.id)
+      onSaved(undefined)
+    } catch (err) {
+      setSaveError(err instanceof ApiError ? err.message : 'Deleting the job failed.')
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={onCancel}>
+      <form
+        className="card modal job-editor"
+        role="dialog"
+        aria-label={job !== undefined ? `Edit job ${draft.name}` : 'New job'}
+        onClick={(ev) => ev.stopPropagation()}
+        onSubmit={save}
+      >
+        <h2 style={{ marginTop: 0, fontSize: 'inherit' }}>
+          {job !== undefined ? `Edit “${draft.name || 'job'}”` : 'New job'}
+        </h2>
+
+        <div className="form-grid">
+          <label>
+            Name
+            <input
+              value={draft.name}
+              onChange={(ev) => patch({ name: ev.target.value })}
+              aria-invalid={errors.name !== undefined}
+            />
+            {errors.name && <FieldError text={errors.name} />}
+          </label>
+
+          <label>
+            Workspace directory
+            <input
+              list="job-workspaces"
+              placeholder="/home/you/project"
+              value={draft.workspace}
+              onChange={(ev) => patch({ workspace: ev.target.value })}
+              aria-invalid={errors.workspace !== undefined || workspaceError !== ''}
+            />
+            <datalist id="job-workspaces">
+              {workspaces.map((w) => (
+                <option key={w} value={w} />
+              ))}
+            </datalist>
+            {(errors.workspace ?? workspaceError) && (
+              <FieldError text={(errors.workspace ?? workspaceError)!} />
+            )}
+          </label>
+
+          <label>
+            Session start
+            <select
+              value={draft.spawnMode}
+              onChange={(ev) => patch({ spawnMode: ev.target.value as JobDraft['spawnMode'] })}
+            >
+              <option value="new">New session</option>
+              <option value="resume">Resume by id or name</option>
+              <option value="continue">Continue most recent</option>
+              <option value="session">Create-or-resume by name</option>
+            </select>
+          </label>
+
+          {(draft.spawnMode === 'resume' || draft.spawnMode === 'session') && (
+            <label>
+              Session target
+              <input
+                placeholder={
+                  draft.spawnMode === 'resume' ? '01JABC… or session-name' : 'session-name'
+                }
+                value={draft.sessionTarget}
+                onChange={(ev) => patch({ sessionTarget: ev.target.value })}
+                aria-invalid={errors.sessionTarget !== undefined}
+              />
+              {errors.sessionTarget && <FieldError text={errors.sessionTarget} />}
+            </label>
+          )}
+
+          <label>
+            Model
+            <input
+              list="job-models"
+              placeholder="ajent default"
+              value={draft.model}
+              onChange={(ev) => patch({ model: ev.target.value })}
+            />
+            <datalist id="job-models">
+              {models.map((m) => (
+                <option key={m} value={m} />
+              ))}
+            </datalist>
+          </label>
+
+          <label>
+            Permission
+            <select
+              value={draft.permission}
+              onChange={(ev) => patch({ permission: ev.target.value })}
+            >
+              {permissionOptions.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        <p className="muted small-note">
+          Unattended runs park at tool dialogs: jobs that must finish alone usually want allow-auto
+          or allow-all.
+        </p>
+
+        <h3>Schedule</h3>
+        <div className="form-grid">
+          <label>
+            Mode
+            <select
+              value={draft.scheduleKind}
+              onChange={(ev) =>
+                patch({ scheduleKind: ev.target.value as JobDraft['scheduleKind'] })
+              }
+            >
+              {(Object.keys(scheduleKindLabels) as Array<keyof typeof scheduleKindLabels>).map(
+                (kind) => (
+                  <option key={kind} value={kind}>
+                    {scheduleKindLabels[kind]}
+                  </option>
+                ),
+              )}
+            </select>
+          </label>
+
+          {draft.scheduleKind === 'once' && (
+            <label>
+              Fire at
+              <input
+                type="datetime-local"
+                value={draft.onceAt}
+                onChange={(ev) => patch({ onceAt: ev.target.value })}
+                aria-invalid={errors.onceAt !== undefined}
+              />
+              {errors.onceAt && <FieldError text={errors.onceAt} />}
+            </label>
+          )}
+
+          {draft.scheduleKind === 'interval' && (
+            <>
+              <label>
+                Every
+                <input
+                  type="number"
+                  min={1}
+                  step="any"
+                  value={draft.intervalValue}
+                  onChange={(ev) => patch({ intervalValue: Number(ev.target.value) })}
+                  aria-invalid={errors.interval !== undefined}
+                />
+                {errors.interval && <FieldError text={errors.interval} />}
+              </label>
+              <label>
+                Unit
+                <select
+                  value={draft.intervalUnit}
+                  onChange={(ev) =>
+                    patch({ intervalUnit: ev.target.value as JobDraft['intervalUnit'] })
+                  }
+                >
+                  {intervalUnits.map((u) => (
+                    <option key={u} value={u}>
+                      {u}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </>
+          )}
+
+          {draft.scheduleKind === 'daily' && (
+            <>
+              <label>
+                At (HH:MM)
+                <input
+                  placeholder="09:00"
+                  value={draft.dailyTime}
+                  onChange={(ev) => patch({ dailyTime: ev.target.value })}
+                  aria-invalid={errors.dailyTime !== undefined}
+                />
+                {errors.dailyTime && <FieldError text={errors.dailyTime} />}
+              </label>
+              <label>
+                Timezone
+                <input
+                  list="job-timezones"
+                  placeholder="server local"
+                  value={draft.tz}
+                  onChange={(ev) => patch({ tz: ev.target.value })}
+                />
+                <datalist id="job-timezones">
+                  {timezoneCandidates().map((tz) => (
+                    <option key={tz} value={tz} />
+                  ))}
+                </datalist>
+              </label>
+            </>
+          )}
+
+          {draft.scheduleKind !== 'once' && (
+            <label>
+              Missed run
+              <select
+                value={draft.onMissed}
+                onChange={(ev) => patch({ onMissed: ev.target.value as JobDraft['onMissed'] })}
+              >
+                <option value="skip">Skip and continue</option>
+                <option value="fire_late">Fire once late</option>
+              </select>
+            </label>
+          )}
+        </div>
+
+        {previewError !== '' ? (
+          <p className="error-text">{previewError}</p>
+        ) : (
+          previewTimes.length > 0 && (
+            <div className="schedule-preview" data-testid="schedule-preview">
+              <span className="muted">Next runs</span>
+              <ol>
+                {previewTimes.map((t, i) => (
+                  <li key={i}>
+                    {formatSlot(t, draft.scheduleKind === 'daily' ? draft.tz : undefined)}
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )
+        )}
+
+        <h3>Prompt</h3>
+        <label>
+          Prompt (empty jobs just launch the session)
+          <textarea
+            rows={4}
+            placeholder="What should ajent do on each run?"
+            value={draft.prompt}
+            onChange={(ev) => patch({ prompt: ev.target.value })}
+          />
+        </label>
+
+        <h3>Advanced</h3>
+        <div className="form-grid">
+          <label>
+            Command prefix (optional)
+            <input
+              placeholder="e.g. docker run -i myimage"
+              value={draft.commandPrefix}
+              onChange={(ev) => patch({ commandPrefix: ev.target.value })}
+              aria-invalid={errors.commandPrefix !== undefined}
+            />
+            {errors.commandPrefix ? (
+              <FieldError text={errors.commandPrefix} />
+            ) : (
+              draft.commandPrefix !== '' && (
+                <span className="warn-text small-note">
+                  Injection risk: this runs via sh -c with the ajent command appended and quoted,
+                  but everything else is yours to quote.
+                </span>
+              )
+            )}
+          </label>
+
+          <label>
+            Timeout (minutes, 0 = service default)
+            <input
+              type="number"
+              min={0}
+              value={draft.timeoutMinutes}
+              onChange={(ev) => patch({ timeoutMinutes: Number(ev.target.value) })}
+              aria-invalid={errors.timeoutMinutes !== undefined}
+            />
+            {errors.timeoutMinutes && <FieldError text={errors.timeoutMinutes} />}
+          </label>
+
+          <label>
+            Overlap
+            <select
+              value={draft.overlap}
+              onChange={(ev) => patch({ overlap: ev.target.value as JobDraft['overlap'] })}
+            >
+              <option value="run">Run even if the previous run is live</option>
+              <option value="skip_if_running">Skip while the previous run is live</option>
+            </select>
+          </label>
+
+          <span className="check-row">
+            <input
+              type="checkbox"
+              id="job-keep-alive"
+              checked={draft.keepAlive}
+              onChange={(ev) => patch({ keepAlive: ev.target.checked })}
+            />
+            <label htmlFor="job-keep-alive">Keep the session running after each run</label>
+          </span>
+
+          <span className="check-row">
+            <input
+              type="checkbox"
+              id="job-enabled"
+              checked={draft.enabled}
+              onChange={(ev) => patch({ enabled: ev.target.checked })}
+            />
+            <label htmlFor="job-enabled">Enabled</label>
+          </span>
+        </div>
+
+        {saveError && <p className="error-text">{saveError}</p>}
+
+        <div className="editor-actions">
+          {job !== undefined && (
+            <button
+              type="button"
+              onClick={() => (confirmDelete ? void remove() : setConfirmDelete(true))}
+              onBlur={() => setConfirmDelete(false)}
+              disabled={saving}
+            >
+              {confirmDelete ? 'Really delete?' : 'Delete…'}
+            </button>
+          )}
+          <span className="spacer" style={{ flex: 1 }} />
+          <button type="button" onClick={onCancel} disabled={saving}>
+            Cancel
+          </button>
+          <button
+            className="primary"
+            type="submit"
+            disabled={saving || Object.keys(errors).length > 0}
+          >
+            {job !== undefined ? 'Save changes' : 'Create job'}
+          </button>
+        </div>
+      </form>
+    </div>
+  )
+}
+
+function FieldError({ text }: { text: string }) {
+  return (
+    <span className="error-text field-error" role="alert">
+      {text}
+    </span>
+  )
+}

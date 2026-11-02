@@ -4,7 +4,8 @@ import type { ReactElement } from 'react'
 import { useAuth } from './providers/auth'
 import AppShell from './shell/AppShell'
 import BootstrapScreen from './screens/BootstrapScreen'
-import JobsPlaceholder from './screens/JobsPlaceholder'
+import JobsHome from './screens/JobsHome'
+import RunsHistory from './screens/RunsHistory'
 import SessionView from './screens/SessionView'
 import SessionsHome from './screens/SessionsHome'
 import WorkspaceRoute from './screens/WorkspaceRoute'
@@ -36,7 +37,9 @@ export default function AuthGate(): ReactElement {
         <Route path="/tile" element={<WorkspaceRoute mode="tile" />} />
         <Route path="/sessions" element={<SessionsHome />} />
         <Route path="/s/:sessionId" element={<SessionView />} />
-        <Route path="/jobs/*" element={<JobsPlaceholder />} />
+        <Route path="/jobs" element={<JobsHome />} />
+        <Route path="/jobs/runs" element={<RunsHistory />} />
+        <Route path="/jobs/:jobId" element={<JobsHome />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </AppShell>

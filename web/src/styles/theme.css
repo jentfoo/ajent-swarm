@@ -1134,3 +1134,170 @@ label {
   align-items: center;
   gap: calc(var(--unit) * 2);
 }
+
+/* --- scheduler UI (phase 10) --- */
+
+.jobs-table,
+.runs-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.jobs-table th,
+.runs-table th {
+  text-align: left;
+  color: var(--muted);
+  font-size: var(--fs-small);
+  font-weight: 500;
+  padding: calc(var(--unit) * 1) calc(var(--unit) * 2);
+  border-bottom: 1px solid var(--border);
+}
+.jobs-table td,
+.runs-table td {
+  padding: calc(var(--unit) * 2) calc(var(--unit) * 2);
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+.run-row,
+.jobs-table tbody tr {
+  cursor: pointer;
+}
+.run-row:hover {
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+.run-prompt-cell {
+  max-width: 24rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.run-error-excerpt {
+  max-width: 16rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* jobs area sub-navigation */
+.job-tabs {
+  display: flex;
+  gap: calc(var(--unit) * 3);
+  margin-bottom: calc(var(--unit) * 3);
+}
+.job-tabs a {
+  color: var(--muted);
+  padding: calc(var(--unit) * 1) 0;
+}
+.job-tabs a.active {
+  color: var(--text);
+  border-bottom: 2px solid var(--accent);
+}
+
+.runs-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--unit) * 1);
+  margin: 0;
+}
+
+/* editor form */
+.job-editor {
+  width: min(44rem, 94vw);
+}
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: calc(var(--unit) * 2) calc(var(--unit) * 4);
+}
+.job-editor h3 {
+  margin: calc(var(--unit) * 3) 0 calc(var(--unit) * 1);
+  font-size: inherit;
+  color: var(--muted);
+}
+.field-error {
+  display: block;
+  margin-top: calc(var(--unit) * 1);
+}
+.small-note {
+  display: block;
+  font-size: var(--fs-small);
+}
+.warn-text {
+  color: var(--warn);
+}
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--unit) * 2);
+  margin-bottom: calc(var(--unit) * 2);
+  color: var(--muted);
+  font-size: var(--fs-small);
+}
+.check-row label {
+  margin: 0;
+  color: inherit;
+}
+.toggle-row {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--unit) * 1);
+  color: var(--muted);
+  font-size: var(--fs-small);
+}
+.editor-actions {
+  display: flex;
+  gap: calc(var(--unit) * 2);
+  margin-top: calc(var(--unit) * 4);
+}
+
+/* schedule preview beside the editor's mode chooser */
+.schedule-preview {
+  margin-top: calc(var(--unit) * 3);
+  padding: calc(var(--unit) * 2) calc(var(--unit) * 3);
+  background: var(--surface-2);
+  border-radius: var(--radius);
+}
+.schedule-preview ol {
+  margin: calc(var(--unit) * 1) 0 0;
+  padding-left: calc(var(--unit) * 4);
+}
+
+/* run detail */
+.run-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: calc(var(--unit) * 1) calc(var(--unit) * 4);
+  margin: 0;
+}
+.run-facts dt {
+  color: var(--muted);
+  font-size: var(--fs-small);
+}
+.run-facts dd {
+  margin: 0;
+}
+.run-prompt {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* recorded transcript inside run history */
+.transcript-preview {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  padding: calc(var(--unit) * 2) calc(var(--unit) * 3);
+  max-height: 55vh;
+  overflow-y: auto;
+}
+
+/* the editor fills small screens, so mobile gets a full-screen form */
+@media (max-width: 48rem) {
+  .modal.job-editor,
+  .modal.run-detail {
+    width: 100vw;
+    height: 100vh;
+    max-height: 100vh;
+    border-radius: 0;
+    overflow-y: auto;
+  }
+}

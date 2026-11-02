@@ -1,0 +1,315 @@
+package sched
+
+import (
+	"context"
+	"log/slog"
+	"sync"
+	"time"
+
+	"github.com/jentfoo/ajent-swarm/pkg/store"
+)
+
+// Trigger loop defaults.
+const (
+	maxTick         = 10 * time.Second // never sleep past this, even with nothing due
+	missedGrace     = 2 * time.Minute  // a slot older than this counts as missed
+	sweepEvery      = time.Hour        // retention cadence after the startup sweep
+	defaultRunLimit = 4                // global concurrent runs
+	defaultTimeout  = 30 * time.Minute // when a job sets no timeout_minutes
+	interruptedNote = "interrupted by a service restart"
+)
+
+// Options tunes the scheduler; zero values take production defaults.
+type Options struct {
+	Log    *slog.Logger
+	Store  *store.Store
+	Runner Runner
+
+	MaxConcurrent     int           // global cap of live runs
+	Tick              time.Duration // trigger loop's maximum sleep between checks
+	MissedGrace       time.Duration // slots older than this follow the missed policy
+	RunTimeoutDefault time.Duration
+	RetentionDays     int // run rows and child logs older than this prune away, 0 keeps forever
+	RetentionMax      int // run row count cap, 0 unbounded
+
+	ChildrenDir string // child log directory for retention sweeps; may be empty
+}
+
+// withDefaults resolves the production fallbacks.
+func (o *Options) withDefaults() {
+	if o.Log == nil {
+		o.Log = slog.Default()
+	}
+	if o.MaxConcurrent <= 0 {
+		o.MaxConcurrent = defaultRunLimit
+	}
+	if o.Tick <= 0 {
+		o.Tick = maxTick
+	}
+	if o.MissedGrace <= 0 {
+		o.MissedGrace = missedGrace
+	}
+	if o.RunTimeoutDefault <= 0 {
+		o.RunTimeoutDefault = defaultTimeout
+	}
+}
+
+// Scheduler triggers jobs and drives their runs to completion.
+type Scheduler struct {
+	opts   Options
+	log    *slog.Logger
+	store  *store.Store
+	runner Runner
+
+	ctx      context.Context // run bookkeeping detaches from shutdown cancellation
+	baseCtx  context.Context
+	cancel   context.CancelFunc
+	nudge    chan struct{}
+	wg       sync.WaitGroup
+	stopOnce sync.Once
+}
+
+// New builds a scheduler over one store and fleet runner; Start begins the
+// trigger loop.
+func New(opts Options) *Scheduler {
+	opts.withDefaults()
+	s := &Scheduler{
+		opts:   opts,
+		log:    opts.Log,
+		store:  opts.Store,
+		runner: opts.Runner,
+		nudge:  make(chan struct{}, 1),
+	}
+	// watchers and manual fires may run before Start; Start swaps in the
+	// service's own context
+	s.baseCtx, s.cancel = context.WithCancel(context.Background())
+	s.ctx = context.WithoutCancel(s.baseCtx)
+	return s
+}
+
+// Start sweeps interrupted runs and begins the trigger loop until Stop.
+func (s *Scheduler) Start(ctx context.Context) {
+	if s.cancel != nil { // retire the placeholder contexts New installed
+		s.cancel()
+	}
+	bookkeeping := context.WithoutCancel(ctx) // run records outlive every caller
+	s.baseCtx, s.cancel = context.WithCancel(ctx)
+	s.ctx = bookkeeping
+
+	if n, err := s.store.FailInterruptedRuns(bookkeeping, time.Now(), interruptedNote); err != nil {
+		s.log.Warn("interrupted-run sweep failed", "err", err)
+	} else if n > 0 {
+		s.log.Info("marked runs interrupted by restart", "count", n)
+	}
+
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		s.loop()
+	}()
+}
+
+// Stop ends the trigger loop and every run watcher. Live run rows stay as
+// they are: the next Start marks them failed with the interrupted reason.
+func (s *Scheduler) Stop() {
+	s.stopOnce.Do(func() {
+		if s.cancel != nil {
+			s.cancel()
+		}
+		s.wg.Wait()
+	})
+}
+
+// Nudge wakes the trigger loop at once, so job edits take effect without
+// waiting out the tick.
+func (s *Scheduler) Nudge() {
+	select {
+	case s.nudge <- struct{}{}:
+	default:
+	}
+}
+
+// loop is the single trigger goroutine: sleep until the earliest scheduled
+// fire or a nudge, clamped to a short maximum tick, then claim every due job.
+func (s *Scheduler) loop() {
+	s.sweep() // one retention pass at startup keeps long-gone installs bounded
+
+	nextSweep := time.Now().Add(sweepEvery)
+	for s.baseCtx.Err() == nil {
+		untilDue := s.opts.Tick
+		if earliest, err := s.store.EarliestNextRun(s.ctx); err != nil {
+			s.log.Warn("reading the schedule failed", "err", err)
+		} else if earliest != nil {
+			if d := time.Until(*earliest); d < untilDue {
+				untilDue = max(d, 0)
+			}
+		}
+
+		select {
+		case <-s.baseCtx.Done():
+			return
+		case <-s.nudge:
+		case <-time.After(untilDue):
+		}
+
+		now := time.Now()
+		due, err := s.store.DueJobs(s.ctx, now)
+		if err != nil {
+			s.log.Warn("reading due jobs failed", "err", err)
+			continue
+		}
+		for _, j := range due {
+			s.fireDue(j, now)
+		}
+
+		if !now.Before(nextSweep) {
+			nextSweep = s.sweep()
+		}
+	}
+}
+
+// fireDue claims one due slot: missed jobs follow their on_missed policy and
+// the schedule always advances before any launch. A claimed run then executes
+// asynchronously; a skipped or refused slot only records its row.
+func (s *Scheduler) fireDue(j store.Job, now time.Time) {
+	slot := *j.NextRunAt
+
+	// decide what happens to this slot before claiming it: the claim itself
+	// advances next_run_at optimistically, so restarts never double-fire
+	var newNext *time.Time // nil clears the schedule (a fired one-shot)
+	if j.ScheduleKind != store.ScheduleOnce {
+		next, err := InitialNext(j, now)
+		if err != nil {
+			s.log.Error("job schedule is broken", "job", j.Name, "err", err)
+			return
+		}
+		newNext = next
+	}
+
+	run := s.baseRun(j, store.TriggerSchedule, now)
+	late := now.Sub(slot) > s.opts.MissedGrace
+	if late && (j.ScheduleKind == store.ScheduleOnce || j.OnMissed == store.MissSkip) {
+		run.Status = store.RunSkipped // the slot is beyond its grace window
+		if j.ScheduleKind == store.ScheduleOnce {
+			run.Error = "skipped: one-shot missed its slot at " + slot.Format(time.RFC3339)
+		} else {
+			run.Error = "skipped: slot at " + slot.Format(time.RFC3339) +
+				" was missed while the service was away"
+		}
+	}
+
+	id, final, claimed, err := s.store.StartScheduledFire(s.ctx, j.ID, slot, newNext,
+		j.Overlap == store.OverlapSkipIfRunning, s.opts.MaxConcurrent, run)
+	if err != nil {
+		s.log.Warn("claiming a fire failed", "job", j.Name, "err", err)
+		return
+	}
+	if !claimed { // advanced or deleted elsewhere; nothing to do
+		return
+	}
+	run.ID = id
+	run.Status = final
+
+	switch final {
+	case store.RunSkipped:
+		s.log.Info("run skipped", "job", j.Name, "reason", run.Error)
+	default:
+		s.log.Info("firing job", "job", j.Name,
+			"late", late && j.OnMissed == store.MissFireLate)
+		s.wg.Add(1) // claimed before the goroutine starts, so Stop never races it
+		go s.execute(run, j)
+	}
+}
+
+// baseRun seeds the run row every fire starts from.
+func (s *Scheduler) baseRun(j store.Job, trigger string, now time.Time) store.Run {
+	jobID := j.ID
+	return store.Run{
+		JobID:     &jobID,
+		Prompt:    j.Prompt,
+		Trigger:   trigger,
+		Status:    store.RunRunning,
+		StartedAt: now,
+	}
+}
+
+// FireNow manually fires one job regardless of its schedule or enabled state.
+// The overlap policy and the global run limit still apply. The returned row
+// is what was recorded; execution continues in the background.
+func (s *Scheduler) FireNow(ctx context.Context, jobID int64) (store.Run, error) {
+	j, err := s.store.JobByID(ctx, jobID)
+	if err != nil {
+		return store.Run{}, err
+	}
+
+	run := s.baseRun(j, store.TriggerManual, time.Now())
+	id, err := s.store.BeginManualRun(ctx, j.ID,
+		j.Overlap == store.OverlapSkipIfRunning, s.opts.MaxConcurrent, run)
+	if err != nil {
+		return store.Run{}, err
+	}
+	run.ID = id
+
+	s.log.Info("manual fire", "job", j.Name)
+	s.wg.Add(1)
+	go s.execute(run, j)
+	return run, nil
+}
+
+// Job and run reads and writes for the API layer; the scheduler owns no
+// cached job state, so these pass straight through to the store.
+
+// Jobs lists every stored job.
+func (s *Scheduler) Jobs(ctx context.Context) ([]store.Job, error) { return s.store.Jobs(ctx) }
+
+// JobByID returns one stored job by id.
+func (s *Scheduler) JobByID(ctx context.Context, id int64) (store.Job, error) {
+	return s.store.JobByID(ctx, id)
+}
+
+// CreateJob stores one new job and wakes the trigger loop, so an immediately
+// due fire does not wait out the tick.
+func (s *Scheduler) CreateJob(ctx context.Context, j store.Job) (int64, error) {
+	id, err := s.store.CreateJob(ctx, j)
+	if err != nil {
+		return 0, err
+	}
+	s.Nudge()
+	return id, nil
+}
+
+// UpdateJob writes one job's fields.
+func (s *Scheduler) UpdateJob(ctx context.Context, j store.Job) error {
+	return s.store.UpdateJob(ctx, j)
+}
+
+// DeleteJob removes one job and unlinks its runs.
+func (s *Scheduler) DeleteJob(ctx context.Context, id int64) error {
+	return s.store.DeleteJob(ctx, id)
+}
+
+// Runs lists run history newest first, optionally one job's only.
+func (s *Scheduler) Runs(ctx context.Context, jobID int64, limit int) ([]store.Run, error) {
+	return s.store.Runs(ctx, jobID, limit)
+}
+
+// sweep prunes run rows and child logs by age and count. Returns when the
+// next sweep is due.
+func (s *Scheduler) sweep() time.Time {
+	if s.opts.RetentionDays > 0 || s.opts.RetentionMax > 0 {
+		var cutoff time.Time
+		if s.opts.RetentionDays > 0 {
+			cutoff = time.Now().AddDate(0, 0, -s.opts.RetentionDays)
+		}
+		n, err := s.store.PruneRuns(s.ctx, cutoff, s.opts.RetentionMax)
+		if err != nil {
+			s.log.Warn("run retention sweep failed", "err", err)
+		} else if n > 0 {
+			s.log.Info("pruned run history", "count", n)
+		}
+		if s.opts.ChildrenDir != "" && !cutoff.IsZero() {
+			pruneChildLogs(s.opts.ChildrenDir, cutoff, s.log)
+		}
+	}
+	return time.Now().Add(sweepEvery)
+}

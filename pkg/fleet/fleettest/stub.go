@@ -32,6 +32,7 @@ type Options struct {
 	Name       string
 	Token      string // writer token; a fixed default when empty
 	Protocol   int    // hello protocol override; the real one when zero
+	PID        int    // hello pid override; this process when zero
 	Unrecorded bool   // recording off: backfill is an error to report
 	Refuses    bool   // attach with control always refuses, seat-held
 }
@@ -50,6 +51,7 @@ type Stub struct {
 	name      string
 	token     string
 	protocol  int
+	pid       int
 
 	mu       sync.Mutex
 	seq      uint64 // one number space per session lifetime
@@ -99,7 +101,12 @@ func New(t *testing.T, home string, opts Options) *Stub {
 	if protocol == 0 {
 		protocol = ctl.Protocol
 	}
+	pid := opts.PID
+	if pid == 0 {
+		pid = os.Getpid()
+	}
 	f := &Stub{
+		pid:          pid,
 		ln:           ln,
 		home:         home,
 		sessionID:    opts.SessionID,
@@ -301,7 +308,7 @@ func (f *Stub) serveConn(conn net.Conn) {
 		Workspace:      stubWorkspace,
 		Cwd:            "/repo",
 		Serve:          true,
-		PID:            os.Getpid(),
+		PID:            f.pid,
 		TranscriptPath: transcript,
 		Token:          f.token,
 	}))

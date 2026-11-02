@@ -11,6 +11,7 @@ import (
 
 	"github.com/jentfoo/ajent-swarm/pkg/auth"
 	"github.com/jentfoo/ajent-swarm/pkg/fleet"
+	"github.com/jentfoo/ajent-swarm/pkg/sched"
 	"github.com/jentfoo/ajent-swarm/pkg/web"
 )
 
@@ -47,6 +48,11 @@ var apiMethods = map[string]string{
 	"/api/saved-sessions":              http.MethodGet,
 	"/api/saved-sessions/{id}/entries": http.MethodGet,
 
+	"/api/jobs":          "GET, POST",
+	"/api/jobs/{id}":     "GET, PUT, DELETE",
+	"/api/jobs/{id}/run": http.MethodPost,
+	"/api/runs":          http.MethodGet,
+
 	"/api/tokens":        "GET, POST",
 	"/api/tokens/{name}": http.MethodDelete,
 }
@@ -54,8 +60,9 @@ var apiMethods = map[string]string{
 // Config wires the API handler to its collaborators; all fields are required.
 type Config struct {
 	Auth                 *auth.Service
-	Fleet                *fleet.Manager // session listing, streams and commands
-	AllowRemoteBootstrap bool           // --allow-remote-bootstrap: non-loopback may set the first password
+	Fleet                *fleet.Manager   // session listing, streams and commands
+	Sched                *sched.Scheduler // job CRUD, manual fires and run history
+	AllowRemoteBootstrap bool             // --allow-remote-bootstrap: non-loopback may set the first password
 	Log                  *slog.Logger
 }
 
@@ -63,6 +70,7 @@ type Config struct {
 type apiServer struct {
 	auth                 *auth.Service
 	fleet                *fleet.Manager
+	sched                *sched.Scheduler
 	allowRemoteBootstrap bool
 }
 
@@ -70,7 +78,12 @@ type apiServer struct {
 // around an API subtree gated by auth, plus the SPA at root. Static assets
 // stay reachable so the login page can render in every bootstrap state.
 func Handler(cfg Config) http.Handler {
-	srv := &apiServer{auth: cfg.Auth, fleet: cfg.Fleet, allowRemoteBootstrap: cfg.AllowRemoteBootstrap}
+	srv := &apiServer{
+		auth:                 cfg.Auth,
+		fleet:                cfg.Fleet,
+		sched:                cfg.Sched,
+		allowRemoteBootstrap: cfg.AllowRemoteBootstrap,
+	}
 
 	apiMux := http.NewServeMux()
 	apiMux.HandleFunc("POST "+pathLogin, srv.handleLogin)
@@ -96,6 +109,14 @@ func Handler(cfg Config) http.Handler {
 	apiMux.HandleFunc("GET /api/models", srv.handleModels)
 	apiMux.HandleFunc("GET /api/saved-sessions", srv.handleSavedSessions)
 	apiMux.HandleFunc("GET /api/saved-sessions/{id}/entries", srv.handleSavedEntries)
+
+	apiMux.HandleFunc("GET /api/jobs", srv.handleJobList)
+	apiMux.HandleFunc("POST /api/jobs", srv.handleJobCreate)
+	apiMux.HandleFunc("GET /api/jobs/{id}", srv.handleJobGet)
+	apiMux.HandleFunc("PUT /api/jobs/{id}", srv.handleJobUpdate)
+	apiMux.HandleFunc("DELETE /api/jobs/{id}", srv.handleJobDelete)
+	apiMux.HandleFunc("POST /api/jobs/{id}/run", srv.handleJobFire)
+	apiMux.HandleFunc("GET /api/runs", srv.handleRuns)
 
 	apiMux.HandleFunc("GET /api/tokens", srv.handleTokenList)
 	apiMux.HandleFunc("POST /api/tokens", srv.handleTokenCreate)

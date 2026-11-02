@@ -19,39 +19,51 @@ func TestParseFlags(t *testing.T) {
 		{
 			name: "defaults",
 			argv: nil,
-			want: cliFlags{port: defaultPort, host: "127.0.0.1"},
+			want: cliFlags{port: defaultPort, host: "127.0.0.1",
+				runRetentionDays: 30, runRetentionMax: 10000},
 		},
 		{
 			name: "explicit values",
 			argv: []string{"--port", "9000", "--host", "0.0.0.0", "--state", "/tmp/swarm",
 				"--pidfile", "/tmp/pid", "--log", "/tmp/log", "--ajent-bin", "/usr/bin/ajent"},
 			want: cliFlags{port: 9000, host: "0.0.0.0", state: "/tmp/swarm",
-				pidfile: "/tmp/pid", logPath: "/tmp/log", ajentBin: "/usr/bin/ajent"},
+				pidfile: "/tmp/pid", logPath: "/tmp/log", ajentBin: "/usr/bin/ajent",
+				runRetentionDays: 30, runRetentionMax: 10000},
 		},
 		{
 			name: "equals form",
 			argv: []string{"--port=1234", "--host=::1"},
-			want: cliFlags{port: 1234, host: "::1"},
+			want: cliFlags{port: 1234, host: "::1", runRetentionDays: 30, runRetentionMax: 10000},
 		},
 		{
 			name: "daemon flag",
 			argv: []string{"--daemon"},
-			want: cliFlags{port: defaultPort, host: "127.0.0.1", daemon: true},
+			want: cliFlags{port: defaultPort, host: "127.0.0.1", daemon: true,
+				runRetentionDays: 30, runRetentionMax: 10000},
 		},
 		{
 			name: "password given",
 			argv: []string{"--password", "hunter2"},
-			want: cliFlags{port: defaultPort, host: "127.0.0.1", password: "hunter2", passwordGiven: true},
+			want: cliFlags{port: defaultPort, host: "127.0.0.1", password: "hunter2",
+				passwordGiven: true, runRetentionDays: 30, runRetentionMax: 10000},
 		},
 		{
 			name: "remote bootstrap allowed",
 			argv: []string{"--allow-remote-bootstrap"},
-			want: cliFlags{port: defaultPort, host: "127.0.0.1", allowRemoteBootstrap: true},
+			want: cliFlags{port: defaultPort, host: "127.0.0.1", allowRemoteBootstrap: true,
+				runRetentionDays: 30, runRetentionMax: 10000},
 		},
 		{
 			name: "kill children on shutdown",
 			argv: []string{"--kill-children-on-shutdown"},
-			want: cliFlags{port: defaultPort, host: "127.0.0.1", killChildren: true},
+			want: cliFlags{port: defaultPort, host: "127.0.0.1", killChildren: true,
+				runRetentionDays: 30, runRetentionMax: 10000},
+		},
+		{
+			name: "retention overrides",
+			argv: []string{"--run-retention-days", "7", "--run-retention-max", "500"},
+			want: cliFlags{port: defaultPort, host: "127.0.0.1",
+				runRetentionDays: 7, runRetentionMax: 500},
 		},
 	}
 
@@ -116,6 +128,16 @@ func TestValidate(t *testing.T) {
 			name:    "empty password rejected",
 			flags:   cliFlags{port: defaultPort, password: "   ", passwordGiven: true},
 			wantErr: "--password must not be empty",
+		},
+		{
+			name:    "negative retention days",
+			flags:   cliFlags{port: defaultPort, runRetentionDays: -1},
+			wantErr: "--run-retention-days must not be negative",
+		},
+		{
+			name:    "negative retention max",
+			flags:   cliFlags{port: defaultPort, runRetentionMax: -5},
+			wantErr: "--run-retention-max must not be negative",
 		},
 	}
 

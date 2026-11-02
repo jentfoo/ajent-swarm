@@ -7,17 +7,22 @@ Central controller for managing multiple [ajent](https://github.com/jentfoo/ajen
 
 ## Status
 
-Phase 02 (service skeleton), phase 03 (fleet manager) and phase 04 (launch and
-resume) are implemented: flags, SQLite state store, unix-user auth with bcrypt
-passwords, the HTTP server shell serving an embedded placeholder UI, daemon
-modes, plus the fleet: a registry watch spawning one actor per live ajent
-instance, seat ownership, watermark reconciliation, and a multiplexed
-`/api/stream` WebSocket that fans reconciled state out to any number of
-viewers. Swarm can now launch `ajent --serve` children (new, resumed,
+Phases 02 through 06 are implemented: flags, SQLite state store, unix-user
+auth with bcrypt passwords, the HTTP server shell serving an embedded
+placeholder UI, daemon modes, plus the fleet: a registry watch spawning one
+actor per live ajent instance, seat ownership, watermark reconciliation, and a
+multiplexed `/api/stream` WebSocket that fans reconciled state out to any
+number of viewers. Swarm can launch `ajent --serve` children (new, resumed,
 continued, or create-or-resume by name), track them to exit with captured
 logs, stop them through `/exit` with signal fallback, re-adopt them across
-restarts, and list saved sessions with offline transcript browsing. The REST
-command contract and real frontend arrive in later phases (see `docs/phases/`).
+restarts, and list saved sessions with offline transcript browsing; the full
+command API proxies submit, interrupt, mode changes, rewind, dialogs and
+recalls onto live sessions. A persistent scheduler defines jobs (one-shot,
+interval or daily in any IANA zone) that launch headless runs on schedule with
+optional shell prefixes and prompts, watch them settle through the control
+socket, park at permission barriers as `awaiting_input`, and record full run
+history under bounded retention. The real frontend arrives in later phases
+(see `docs/phases/`).
 
 ## Requirements
 

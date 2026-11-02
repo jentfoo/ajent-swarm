@@ -1,0 +1,417 @@
+package sched
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"slices"
+	"strings"
+	"time"
+
+	"github.com/jentfoo/ajent-swarm/pkg/fleet"
+	"github.com/jentfoo/ajent-swarm/pkg/store"
+	"github.com/jentfoo/ajent/pkg/ctl"
+)
+
+// Run execution tuning. The submit window covers a session that is still
+// starting and a resumed one whose old dialog is about to clear; a refusal
+// after it records the failure instead of hanging.
+const (
+	framesQueue    = 256
+	submitWait     = 15 * time.Second
+	submitEvery    = 500 * time.Millisecond
+	resubscribeGap = 250 * time.Millisecond
+	maxRunError    = 8 << 10 // launch failures carry log tails; keep rows bounded
+)
+
+// Runner is the fleet surface every run goes through: spawn (or resume) a
+// serve session, drive it over the control socket and watch its stream.
+type Runner interface {
+	Launch(ctx context.Context, req fleet.LaunchRequest) (fleet.LaunchResult, error)
+	Submit(ctx context.Context, sessionID string, params ctl.SubmitParams) error
+	StopSession(ctx context.Context, sessionID string) error
+	Subscribe(sessionID string, deliver func([]byte), onDrop func()) (*fleet.Subscription, error)
+	Unsubscribe(sub *fleet.Subscription)
+}
+
+// ensure the manager keeps satisfying the runner surface.
+var _ Runner = (*fleet.Manager)(nil)
+
+// execute drives one claimed run to a terminal row: launch, submit the
+// prompt with its synthetic pendingId, watch the stream until the prompt
+// settles or the timeout lands, then record the outcome and tear the session
+// down unless keep_alive says otherwise. Runs detached from callers so a slow
+// launch never blocks the trigger loop.
+func (s *Scheduler) execute(run store.Run, j store.Job) {
+	defer s.wg.Done()
+
+	ctx := s.baseCtx
+
+	res, err := s.runner.Launch(ctx, fleet.LaunchRequest{
+		Workspace:     j.Workspace,
+		Mode:          fleet.LaunchMode(j.SpawnMode),
+		Target:        j.SessionTarget,
+		Model:         j.Model,
+		Permission:    j.Permission,
+		CommandPrefix: j.CommandPrefix,
+	})
+	if err != nil {
+		s.finish(run, j, store.RunFailed, err.Error())
+		return
+	}
+	run.SessionID = res.SessionID
+	if err := s.store.UpdateRun(s.ctx, run); err != nil {
+		s.log.Warn("run session not persisted", "run", run.ID, "err", err)
+	}
+
+	if j.Prompt == "" { // a launcher job: serving is the whole deliverable
+		s.finish(run, j, store.RunOK, "")
+		return
+	}
+
+	frames := make(chan []byte, framesQueue)
+	watching := make(chan struct{})
+	go s.pump(res.SessionID, frames, watching)
+	defer close(watching)
+
+	if err = s.submitPrompt(ctx, run); err != nil {
+		s.finish(run, j, store.RunFailed, err.Error())
+		return
+	}
+
+	status, note := s.awaitSettled(run, j, frames)
+	s.finish(run, j, status, note)
+}
+
+// pump keeps one live subscription on the session's stream for as long as
+// watching lasts: it re-subscribes after an overflow drop and retries while no
+// actor tracks the session yet. Frames flow into out; drops need no signal,
+// because every fresh subscription greets with a reconciling init.
+func (s *Scheduler) pump(sessionID string, out chan<- []byte, done <-chan struct{}) {
+	for {
+		select {
+		case <-done:
+			return
+		default:
+		}
+
+		dropped := make(chan struct{}, 1)
+		sub, err := s.runner.Subscribe(sessionID,
+			func(b []byte) { // a wedged watcher loses the subscription fail-open
+				select {
+				case out <- b:
+				default:
+				}
+			},
+			func() {
+				select {
+				case dropped <- struct{}{}:
+				default:
+				}
+			})
+		if err != nil {
+			select {
+			case <-done:
+				return
+			case <-time.After(resubscribeGap):
+			}
+			continue
+		}
+
+		select {
+		case <-done:
+			s.runner.Unsubscribe(sub)
+			return
+		case <-dropped: // the queue overflowed; rebuild on a fresh subscription
+			s.runner.Unsubscribe(sub)
+		}
+	}
+}
+
+// submitPrompt delivers the run's prompt, retrying briefly so a still-starting
+// session or an old dialog that is about to clear does not fail the fire
+// outright. A refusal after the window lands in history instead of hanging.
+func (s *Scheduler) submitPrompt(ctx context.Context, run store.Run) error {
+	sessionID := run.SessionID
+	deadline := time.Now().Add(submitWait)
+	var last error
+	for {
+		err := s.runner.Submit(ctx, sessionID, ctl.SubmitParams{
+			Line:      run.Prompt,
+			PendingID: pendingID(run),
+		})
+		if err == nil {
+			return nil
+		}
+		last = err
+
+		switch {
+		case ctx.Err() != nil:
+			return fmt.Errorf("submit cancelled: %w", ctx.Err())
+		case time.Now().After(deadline):
+			return fmt.Errorf("submit refused after retrying for %s: %w",
+				submitWait, last)
+		case retriable(err):
+			select { // brief pause between attempts
+			case <-ctx.Done():
+				return fmt.Errorf("submit cancelled: %w", ctx.Err())
+			case <-time.After(submitEvery):
+			}
+		default:
+			return fmt.Errorf("submit refused: %s", err.Error())
+		}
+	}
+}
+
+// retriable reports whether one submit refusal may clear on its own: a session
+// that is still starting or reconnecting, and a queue worth retrying.
+func retriable(err error) bool {
+	if errors.Is(err, fleet.ErrUnknownSession) {
+		return true // the actor has not attached yet
+	}
+	var ce *ctl.Error
+	if !errors.As(err, &ce) {
+		return false
+	}
+	switch ce.Code {
+	case ctl.CodeUnavailable, ctl.CodeBusy:
+		return true
+	default:
+		return false
+	}
+}
+
+// watchState is the run watcher's reconciled view of one session.
+type watchState struct {
+	pid string // the run's pendingId
+
+	landed   bool // a committed entry carries our pendingId in its queueIds
+	idle     bool // the prompt's rest state flipped true after landing
+	dialogs  int  // open dialogs from the latest init, tracked by events since
+	awaiting bool // awaiting_input recorded on the run row
+	stopped  bool // the session itself ended
+}
+
+// outcome is a terminal watcher conclusion; an empty status keeps waiting.
+type outcome struct {
+	status string
+	err    string
+}
+
+// apply folds one raw stream frame into the state, reporting any terminal
+// conclusion it implies. persist records transient status flips on the run row.
+func (w *watchState) apply(raw []byte, persist func(status string)) outcome {
+	var head struct {
+		Type string `json:"type"`
+	}
+	if json.Unmarshal(raw, &head) != nil {
+		return outcome{}
+	}
+
+	switch head.Type {
+	case fleet.FrameInit: // full replacement: reset the reconciled view
+		var f fleet.InitFrame
+		if err := json.Unmarshal(raw, &f); err == nil {
+			w.dialogs = len(f.State.Interactions)
+			if w.landed && f.State.Idle {
+				w.idle = true
+			}
+			for _, e := range f.Entries {
+				if landsEntry(e, w.pid) {
+					w.landed = true
+				}
+			}
+		}
+
+	case fleet.FrameEvent:
+		var f fleet.EventFrame
+		if err := json.Unmarshal(raw, &f); err == nil {
+			return w.applyEvent(f.Event, persist)
+		}
+
+	case fleet.FrameChild: // swarm lifecycle facts only it knows
+		var f fleet.ChildFrame
+		if err := json.Unmarshal(raw, &f); err == nil &&
+			(f.State == fleet.ChildExited || f.State == fleet.ChildGone) {
+			w.stopped = true
+		}
+	}
+
+	return w.settle(persist)
+}
+
+// applyEvent folds one upstream event into the state.
+func (w *watchState) applyEvent(ev ctl.Event, persist func(string)) outcome {
+	switch ev.Name {
+	case ctl.EventEntryAppend:
+		var d ctl.EntryData
+		if err := ev.Decode(&d); err == nil && landsEntry(d.Entry, w.pid) {
+			w.landed = true
+		}
+
+	case ctl.EventQueueDropped: // the prompt left the queue without committing
+		if !w.landed {
+			var d ctl.QueueDroppedData
+			if err := ev.Decode(&d); err == nil &&
+				slices.ContainsFunc(d.Rows, func(r ctl.QueueRow) bool { return r.ID == w.pid }) {
+				return outcome{store.RunFailed,
+					fmt.Sprintf("prompt dropped before it ran (cause %s)", orNone(d.Cause))}
+			}
+		}
+
+	case ctl.EventInteractionPending:
+		w.dialogs++
+
+	case ctl.EventInteractionSettled:
+		if w.dialogs > 0 {
+			w.dialogs--
+		}
+
+	case ctl.EventIdle:
+		var d ctl.IdleData
+		if err := ev.Decode(&d); err == nil && d.Idle && w.landed {
+			w.idle = true
+		}
+
+	case ctl.EventSessionExit: // always the last event before close
+		var d ctl.SessionExitData
+		_ = ev.Decode(&d)
+		if w.landed { // the prompt's work happened; a clean end completes it
+			return outcome{store.RunOK, ""}
+		}
+		return outcome{store.RunFailed,
+			"session exited before the run settled: " + orNone(d.Reason)}
+	}
+
+	return w.settle(persist)
+}
+
+// settle derives transient status flips and any terminal conclusion from the
+// reconciled state.
+func (w *watchState) settle(persist func(status string)) outcome {
+	if w.stopped && !w.landed {
+		return outcome{store.RunFailed, "session ended before it accepted the prompt"}
+	}
+	switch {
+	case w.dialogs > 0 && !w.awaiting: // parked at a tool barrier or question
+		w.awaiting = true
+		persist(store.RunAwaitingInput)
+	case w.dialogs == 0 && w.awaiting:
+		w.awaiting = false
+		persist(store.RunRunning)
+	}
+	if w.landed && w.idle && w.dialogs == 0 {
+		return outcome{store.RunOK, ""}
+	}
+	return outcome{}
+}
+
+// awaitSettled consumes the run's stream until it concludes or its bounded
+// timeout lands. The budget runs from the row's start, so launch time counts.
+func (s *Scheduler) awaitSettled(run store.Run, j store.Job, frames <-chan []byte) (string, string) {
+	w := &watchState{pid: pendingID(run)}
+	persist := func(status string) {
+		run.Status = status
+		if err := s.store.UpdateRun(s.ctx, run); err != nil {
+			s.log.Warn("run status not persisted", "run", run.ID, "err", err)
+		}
+	}
+
+	timeout := s.opts.RunTimeoutDefault
+	if j.TimeoutMinutes > 0 {
+		timeout = time.Duration(j.TimeoutMinutes) * time.Minute
+	}
+	timer := time.NewTimer(time.Until(run.StartedAt.Add(timeout)))
+	defer timer.Stop()
+
+	for {
+		select {
+		case <-timer.C:
+			return store.RunTimeout, w.timeoutNote()
+
+		case <-s.baseCtx.Done():
+			return store.RunFailed, interruptedNote
+
+		case raw := <-frames:
+			if o := w.apply(raw, persist); o.status != "" {
+				return o.status, o.err
+			}
+		}
+	}
+}
+
+// timeoutNote explains what the run was doing when its budget ran out.
+func (w *watchState) timeoutNote() string {
+	if w.dialogs > 0 || w.awaiting {
+		return "parked at an open dialog until the timeout"
+	}
+	if !w.landed {
+		return "session never accepted the prompt before the timeout"
+	}
+	return "prompt did not settle before the timeout"
+}
+
+// landsEntry reports whether one committed entry is our prompt's landing.
+func landsEntry(e ctl.Entry, pid string) bool {
+	if e.Type != "message" || len(e.Data) == 0 {
+		return false
+	}
+	var data struct {
+		QueueIDs []string `json:"queueIds"`
+	}
+	if json.Unmarshal(e.Data, &data) != nil {
+		return false
+	}
+	return slices.Contains(data.QueueIDs, pid)
+}
+
+// orNone renders an empty free-form reason as a word instead of nothing.
+func orNone(s string) string {
+	if strings.TrimSpace(s) == "" {
+		return "no reason given"
+	}
+	return s
+}
+
+// finish records the terminal status, then tears the session down unless the
+// job keeps it alive. Bookkeeping detaches from shutdown cancellation so a
+// stopping service still writes what it knows.
+func (s *Scheduler) finish(run store.Run, j store.Job, status string, note string) {
+	fin := time.Now()
+	run.Status = status
+	run.FinishedAt = &fin
+	run.Error = note[:min(len(note), maxRunError)]
+	if err := s.store.UpdateRun(s.ctx, run); err != nil {
+		s.log.Warn("run outcome not persisted", "run", run.ID, "err", err)
+	}
+	s.log.Info("run finished", "job", j.ID, "session", run.SessionID,
+		"status", status)
+
+	if !s.stopAfter(run) {
+		return
+	}
+	if err := s.runner.StopSession(s.ctx, run.SessionID); err != nil {
+		s.log.Warn("run session could not be stopped", "session",
+			run.SessionID, "err", err)
+	}
+}
+
+// stopAfter reports whether a finished run tears its session down: only runs
+// that launched one, for jobs without keep-alive (or whose job went away).
+func (s *Scheduler) stopAfter(run store.Run) bool {
+	if run.JobID == nil || run.SessionID == "" {
+		return false // nothing spawned, nothing to tear down
+	}
+	j, err := s.store.JobByID(s.ctx, *run.JobID)
+	if err != nil {
+		return true // a deleted job's session is nobody's to keep alive
+	}
+	return !j.KeepAlive
+}
+
+// pendingID is the synthetic correlation every fire derives from its run id,
+// so queue rows and committed entries resolve deterministically.
+func pendingID(run store.Run) string {
+	return fmt.Sprintf("run-%d", run.ID)
+}

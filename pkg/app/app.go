@@ -17,6 +17,8 @@ type Options struct {
 	AjentBin             string // ajent binary override
 	AllowRemoteBootstrap bool   // non-loopback peers may set the first password
 	KillChildren         bool   // terminate spawned children when the service exits
+	RunRetentionDays     int    // prune run history older than this many days, 0 keeps forever
+	RunRetentionMax      int    // cap on stored run rows, 0 keeps unlimited
 }
 
 // Run starts the service and returns the process exit code. With Daemon set it

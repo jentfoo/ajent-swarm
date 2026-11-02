@@ -43,5 +43,7 @@ func run(argv []string, stdout, stderr io.Writer) int {
 		AjentBin:             f.ajentBin,
 		AllowRemoteBootstrap: f.allowRemoteBootstrap,
 		KillChildren:         f.killChildren,
+		RunRetentionDays:     f.runRetentionDays,
+		RunRetentionMax:      f.runRetentionMax,
 	}, argv, stdout, stderr)
 }

@@ -2,6 +2,7 @@ package fleet
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -43,6 +44,63 @@ func TestLaunchArgv(t *testing.T) {
 			assert.Equal(t, strings.Join(tt.want[1:], " "), tt.req.summary())
 		})
 	}
+}
+
+func TestLaunchArgvCommandPrefix(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name   string
+		prefix string
+		target string // rides the argv as hostile content
+		want   string // the sh script argv[2]
+	}{
+		{
+			name:   "plain_prefix",
+			prefix: "exec env FOO=bar",
+			target: "daily",
+			want:   `exec env FOO=bar '/opt/ajent' '--serve' '--session' 'daily'`,
+		},
+		{
+			name:   "hostile_args_stay_literal",
+			prefix: "timeout 300",
+			target: `x'; $(rm -rf /); 'y`,
+			want:   `timeout 300 '/opt/ajent' '--serve' '--session' 'x'\''; $(rm -rf /); '\''y'`,
+		},
+		{
+			name:   "subshell_attempt_quoted",
+			prefix: "sh -c",
+			target: `one; two && three | four`,
+			want:   `sh -c '/opt/ajent' '--serve' '--session' 'one; two && three | four'`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := LaunchRequest{Workspace: "/w", Mode: LaunchSession,
+				Target: tt.target, CommandPrefix: tt.prefix}
+			argv := req.argv("/opt/ajent")
+			require.Len(t, argv, 3)
+			assert.Equal(t, "sh", argv[0])
+			assert.Equal(t, "-c", argv[1])
+			assert.Equal(t, tt.want, argv[2])
+		})
+	}
+}
+
+func TestShellQuoteRunsThroughSh(t *testing.T) {
+	t.Parallel()
+	// the quoting contract, proven against a real shell: every hostile arg
+	// must survive as one literal word
+	args := []string{"", "plain", `two words`, `$HOME`, "`whoami`", "a'b\"c",
+		"semi;pipe|amp&", "$(danger)"}
+	quoted := make([]string, 0, len(args))
+	for _, a := range args {
+		quoted = append(quoted, shellQuote(a))
+	}
+	run := exec.CommandContext(t.Context(), "sh", "-c",
+		`printf '%s\n' `+strings.Join(quoted, " "))
+	out, err := run.Output()
+	require.NoError(t, err)
+	assert.Equal(t, strings.Join(args, "\n")+"\n", string(out))
 }
 
 func TestLaunchValidate(t *testing.T) {

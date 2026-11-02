@@ -19,6 +19,7 @@ import (
 	"github.com/jentfoo/ajent-swarm/pkg/api"
 	"github.com/jentfoo/ajent-swarm/pkg/auth"
 	"github.com/jentfoo/ajent-swarm/pkg/fleet"
+	"github.com/jentfoo/ajent-swarm/pkg/sched"
 	"github.com/jentfoo/ajent-swarm/pkg/store"
 )
 
@@ -98,19 +99,32 @@ func serve(opts Options, stderr io.Writer) int {
 	}
 	log.Info("ajent binary ready", "path", bin, "version", version)
 
+	childrenDir := filepath.Join(dir, childrenDirName)
 	fleetMgr := fleet.New(fleet.Options{
 		Log:         log,
 		AjentBin:    bin,
-		ChildrenDir: filepath.Join(dir, childrenDirName),
+		ChildrenDir: childrenDir,
 		ChildStore:  childStore{st: st},
 		KillOnExit:  opts.KillChildren,
 	})
 	fleetMgr.Start(ctx)
 	defer fleetMgr.Stop()
 
+	scheduler := sched.New(sched.Options{
+		Log:           log,
+		Store:         st,
+		Runner:        fleetMgr,
+		RetentionDays: opts.RunRetentionDays,
+		RetentionMax:  opts.RunRetentionMax,
+		ChildrenDir:   childrenDir,
+	})
+	scheduler.Start(ctx)
+	defer scheduler.Stop() // stops before the fleet: no run launches into teardown
+
 	handler := api.Handler(api.Config{
 		Auth:                 svc,
 		Fleet:                fleetMgr,
+		Sched:                scheduler,
 		AllowRemoteBootstrap: opts.AllowRemoteBootstrap,
 		Log:                  log,
 	})

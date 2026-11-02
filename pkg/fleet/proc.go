@@ -45,11 +45,12 @@ var launchPermissions = []string{PermReadOnly, PermAllowAuto, PermAllowAutowrite
 // LaunchRequest asks for one headless ajent session as a child of the
 // service. Resume modes map onto ajent flags exactly.
 type LaunchRequest struct {
-	Workspace  string     `json:"workspace"`            // directory the child runs in
-	Mode       LaunchMode `json:"mode,omitempty"`       // new, resume, continue, session
-	Target     string     `json:"target,omitempty"`     // id or name for resume, name for session
-	Model      string     `json:"model,omitempty"`      // --model key
-	Permission string     `json:"permission,omitempty"` // one of the permission flags, or empty
+	Workspace     string     `json:"workspace"`            // directory the child runs in
+	Mode          LaunchMode `json:"mode,omitempty"`       // new, resume, continue, session
+	Target        string     `json:"target,omitempty"`     // id or name for resume, name for session
+	Model         string     `json:"model,omitempty"`      // --model key
+	Permission    string     `json:"permission,omitempty"` // one of the permission flags, or empty
+	CommandPrefix string     `json:"commandPrefix,omitempty"`
 }
 
 // LaunchResult reports a launched child: the session id it registered under
@@ -113,7 +114,7 @@ func (r LaunchRequest) validate() error {
 	} else if !fi.IsDir() {
 		return invalidLaunch("workspace %s is not a directory", r.Workspace)
 	}
-	if !slices.Contains(launchModes, r.Mode) {
+	if !ValidLaunchMode(string(r.Mode)) {
 		return invalidLaunch("unknown mode %q; want new, resume, continue or session", r.Mode)
 	}
 	switch r.Mode {
@@ -126,7 +127,7 @@ func (r LaunchRequest) validate() error {
 			return invalidLaunch("%v", err)
 		}
 	}
-	if r.Permission != "" && !slices.Contains(launchPermissions, r.Permission) {
+	if !ValidPermission(r.Permission) {
 		return invalidLaunch("unknown permission %q; want one of %s",
 			r.Permission, strings.Join(launchPermissions, ", "))
 	}
@@ -134,37 +135,67 @@ func (r LaunchRequest) validate() error {
 }
 
 // argv builds the child command line: serve mode plus the mode, model and
-// permission flags the request names.
+// permission flags the request names. A command prefix runs via sh -c with
+// the ajent argv appended and quoted, so untrusted flag values cannot break
+// out of their arguments.
 func (r LaunchRequest) argv(bin string) []string {
 	r = r.normalized()
-	out := []string{bin, "--serve"}
+	base := []string{bin, "--serve"}
 	switch r.Mode {
 	case LaunchResume:
-		out = append(out, "--resume", r.Target)
+		base = append(base, "--resume", r.Target)
 	case LaunchContinue:
-		out = append(out, "--continue")
+		base = append(base, "--continue")
 	case LaunchSession:
-		out = append(out, "--session", r.Target)
+		base = append(base, "--session", r.Target)
 	}
 	if r.Model != "" {
-		out = append(out, "--model", r.Model)
+		base = append(base, "--model", r.Model)
 	}
 	switch r.Permission {
 	case PermReadOnly:
-		out = append(out, "--read-only")
+		base = append(base, "--read-only")
 	case PermAllowAuto:
-		out = append(out, "--allow-auto")
+		base = append(base, "--allow-auto")
 	case PermAllowAutowrite:
-		out = append(out, "--allow-autowrite")
+		base = append(base, "--allow-autowrite")
 	case PermAllowAll:
-		out = append(out, "--allow-all")
+		base = append(base, "--allow-all")
 	}
-	return out
+	if r.CommandPrefix == "" {
+		return base
+	}
+	quoted := make([]string, 0, len(base))
+	for _, arg := range base {
+		quoted = append(quoted, shellQuote(arg))
+	}
+	return []string{"sh", "-c", r.CommandPrefix + " " + strings.Join(quoted, " ")}
+}
+
+// ValidLaunchMode reports whether mode names a launch mode.
+func ValidLaunchMode(mode string) bool {
+	return slices.Contains(launchModes, LaunchMode(mode))
+}
+
+// ValidPermission reports whether permission is an allowed startup flag; the
+// empty string counts as one, meaning no explicit flag.
+func ValidPermission(permission string) bool {
+	return permission == "" || slices.Contains(launchPermissions, permission)
 }
 
 // summary renders the argv a listing shows: the flags after the binary.
 func (r LaunchRequest) summary() string {
 	return strings.Join(r.argv("ajent")[1:], " ")
+}
+
+// shellQuote single-quotes one argument for sh, so hostile content stays a
+// literal. An embedded quote closes, escapes and reopens the quoted run.
+func shellQuote(arg string) string {
+	if arg == "" {
+		return "''"
+	}
+	const esc = `'\''` // close, escaped quote, reopen
+	return "'" + strings.ReplaceAll(arg, "'", esc) + "'"
 }
 
 // ChildRecord is the persisted fact set for one ajent process swarm spawned.

@@ -31,6 +31,8 @@ type cliFlags struct {
 	ajentBin             string // --ajent-bin: ajent binary path override
 	allowRemoteBootstrap bool   // --allow-remote-bootstrap: non-loopback may set the first password
 	killChildren         bool   // --kill-children-on-shutdown: take spawned children down at exit
+	runRetentionDays     int    // --run-retention-days: prune run history older than this
+	runRetentionMax      int    // --run-retention-max: cap on stored run rows
 
 	passwordGiven bool // --password appeared, so an empty value is a usage error
 }
@@ -56,6 +58,10 @@ func parseFlags(argv []string) (cliFlags, error) {
 		"let a non-loopback peer set the first password")
 	fs.BoolVar(&f.killChildren, "kill-children-on-shutdown", false,
 		"terminate sessions swarm spawned when the service exits (default: they outlive it)")
+	fs.IntVar(&f.runRetentionDays, "run-retention-days", 30,
+		"prune scheduled-run history and child logs older than this many days (0 keeps forever)")
+	fs.IntVar(&f.runRetentionMax, "run-retention-max", 10000,
+		"keep at most this many run rows of history (0 keeps unlimited)")
 
 	if err := fs.Parse(argv); err != nil {
 		return f, err
@@ -71,6 +77,12 @@ func (f cliFlags) validate() error {
 	}
 	if f.passwordGiven && strings.TrimSpace(f.password) == "" {
 		return errors.New("--password must not be empty")
+	}
+	if f.runRetentionDays < 0 {
+		return errors.New("--run-retention-days must not be negative")
+	}
+	if f.runRetentionMax < 0 {
+		return errors.New("--run-retention-max must not be negative")
 	}
 	return nil
 }

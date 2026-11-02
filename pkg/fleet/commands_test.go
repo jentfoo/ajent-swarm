@@ -1,0 +1,93 @@
+package fleet
+
+import (
+	"context"
+	"os"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	fleettest "github.com/jentfoo/ajent-swarm/pkg/fleet/fleettest"
+	"github.com/jentfoo/ajent/pkg/ctl"
+)
+
+func TestSessionCommandsRoute(t *testing.T) {
+	m, home := newTestFleet(t, nil)
+	f := fleettest.New(t, home, fleettest.Options{SessionID: "01CMDS000000000000"})
+	f.Result(ctl.MethodInterrupt, ctl.InterruptResult{Stopped: "turn"})
+	// the view seeds from backfill at attach, so the snapshot comes first
+	f.SetSnapshot(ctl.State{Model: ctl.ModelState{Key: "p/m"}, Running: true})
+	f.WriteRegistry(t, os.Getpid(), time.Now())
+	waitForState(t, m, f.SessionID(), ChildOnline)
+
+	t.Run("unknown session is refused before dialing", func(t *testing.T) {
+		ctx := context.Background()
+		require.ErrorIs(t, m.Submit(ctx, "01NOBODY00000000", ctl.SubmitParams{Line: "hi"}), ErrUnknownSession)
+		_, err := m.Interrupt(ctx, "01NOBODY00000000")
+		require.ErrorIs(t, err, ErrUnknownSession)
+	})
+
+	t.Run("first write lazily claims the seat", func(t *testing.T) {
+		require.Empty(t, f.SeatHolder()) // external sessions attach as observers
+		require.NoError(t, m.Submit(context.Background(), f.SessionID(), ctl.SubmitParams{Line: "hi"}))
+		assert.Equal(t, holderName, f.SeatHolder())
+
+		var claims int
+		for _, req := range f.Received() { // later writes skip the claim entirely
+			if req.Method == ctl.MethodAttach {
+				claims++
+			}
+		}
+		assert.Equal(t, 1, claims)
+	})
+
+	t.Run("interrupt carries what stopped", func(t *testing.T) {
+		stopped, err := m.Interrupt(context.Background(), f.SessionID())
+		require.NoError(t, err)
+		assert.Equal(t, "turn", stopped)
+	})
+
+	t.Run("snapshot serves the reconciled state", func(t *testing.T) {
+		st, err := m.Snapshot(context.Background(), f.SessionID())
+		require.NoError(t, err)
+		assert.Equal(t, "p/m", st.Model.Key)
+		assert.True(t, st.Running)
+	})
+}
+
+func TestSessionCommandsSurfaceRefusals(t *testing.T) {
+	m, home := newTestFleet(t, nil)
+	f := fleettest.New(t, home, fleettest.Options{SessionID: "01CMDREJECT00000", Refuses: true})
+	f.WriteRegistry(t, os.Getpid(), time.Now())
+	waitForState(t, m, f.SessionID(), ChildOnline)
+
+	// a displaced seat is never taken by force from a command path
+	err := m.Submit(context.Background(), f.SessionID(), ctl.SubmitParams{Line: "hi"})
+	require.Error(t, err)
+	var wire *ctl.Error
+	require.ErrorAs(t, err, &wire)
+	assert.Equal(t, ctl.CodeSeatHeld, wire.Code)
+
+	_, err = m.Interrupt(context.Background(), f.SessionID())
+	require.ErrorAs(t, err, &wire)
+	assert.Equal(t, ctl.CodeSeatHeld, wire.Code)
+}
+
+func TestSessionCommandsScriptedRefusals(t *testing.T) {
+	m, home := newTestFleet(t, nil)
+	f := fleettest.New(t, home, fleettest.Options{SessionID: "01CMDBUSY00000000"})
+	f.Refuse(ctl.MethodSubmit, ctl.CodeBusy, "prompt queue is full")
+	f.WriteRegistry(t, os.Getpid(), time.Now())
+	waitForState(t, m, f.SessionID(), ChildOnline)
+
+	err := m.Submit(context.Background(), f.SessionID(), ctl.SubmitParams{Line: "hi"})
+	require.Error(t, err)
+	var wire *ctl.Error
+	require.ErrorAs(t, err, &wire)
+	assert.Equal(t, ctl.CodeBusy, wire.Code) // retryable once the queue drains
+
+	// the seat claim did land: only the submit itself was refused
+	assert.Equal(t, holderName, f.SeatHolder())
+}

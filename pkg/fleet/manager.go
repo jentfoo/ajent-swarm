@@ -516,6 +516,41 @@ func (m *Manager) Sessions() []Status {
 	return out
 }
 
+// Attention is one live session's row of the cheap inbox feed.
+type Attention struct {
+	SessionID        string `json:"sessionId"`
+	OpenInteractions int    `json:"openInteractions"`
+	Running          bool   `json:"running"`
+	Idle             bool   `json:"idle"`
+	LastTurnEnd      int64  `json:"lastTurnEnd,omitempty"` // unix milliseconds
+}
+
+// Attention summarizes every live session from its actor's reconciled view,
+// one row each, sorted by session id. Exited sessions drop out; a degraded
+// connection keeps its last known facts until tracking ends.
+func (m *Manager) Attention() []Attention {
+	m.mu.Lock()
+	actors := bulk.MapValuesSlice(m.actors)
+	m.mu.Unlock()
+
+	out := make([]Attention, 0, len(actors))
+	for _, a := range actors {
+		st := a.status.Load()
+		if st.State == ChildExited || !st.served {
+			continue // never attached or already ended: nothing to attend to
+		}
+		out = append(out, Attention{
+			SessionID:        st.SessionID,
+			OpenInteractions: st.OpenInteractions,
+			Running:          st.Running,
+			Idle:             st.Idle,
+			LastTurnEnd:      st.LastTurnEnd,
+		})
+	}
+	slices.SortFunc(out, func(a, b Attention) int { return strings.Compare(a.SessionID, b.SessionID) })
+	return out
+}
+
 // decorateChild folds a child record's spawn facts into a listing row.
 func decorateChild(st *Status, rec ChildRecord) {
 	st.SpawnedBy = SpawnedBySwarm

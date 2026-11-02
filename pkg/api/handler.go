@@ -34,6 +34,16 @@ var apiMethods = map[string]string{
 	"/api/sessions/{id}/entries":       http.MethodGet,
 	"/api/sessions/{id}/stop":          http.MethodPost,
 	"/api/sessions/{id}/take-control":  http.MethodPost,
+	"/api/sessions/{id}/submit":        http.MethodPost,
+	"/api/sessions/{id}/interrupt":     http.MethodPost,
+	"/api/sessions/{id}/mode":          http.MethodPost,
+	"/api/sessions/{id}/rewind":        http.MethodPost,
+	"/api/sessions/{id}/resolve":       http.MethodPost,
+	"/api/sessions/{id}/recall":        http.MethodPost,
+	"/api/sessions/{id}/candidates":    http.MethodGet,
+	"/api/sessions/{id}/snapshot":      http.MethodGet,
+	"/api/attention":                   http.MethodGet,
+	"/api/models":                      http.MethodGet,
 	"/api/saved-sessions":              http.MethodGet,
 	"/api/saved-sessions/{id}/entries": http.MethodGet,
 
@@ -74,6 +84,16 @@ func Handler(cfg Config) http.Handler {
 	apiMux.HandleFunc("GET /api/sessions/{id}/entries", srv.handleSessionEntries)
 	apiMux.HandleFunc("POST /api/sessions/{id}/stop", srv.handleStop)
 	apiMux.HandleFunc("POST /api/sessions/{id}/take-control", srv.handleTakeControl)
+	apiMux.HandleFunc("POST /api/sessions/{id}/submit", srv.handleSessionSubmit)
+	apiMux.HandleFunc("POST /api/sessions/{id}/interrupt", srv.handleSessionInterrupt)
+	apiMux.HandleFunc("POST /api/sessions/{id}/mode", srv.handleSessionMode)
+	apiMux.HandleFunc("POST /api/sessions/{id}/rewind", srv.handleSessionRewind)
+	apiMux.HandleFunc("POST /api/sessions/{id}/resolve", srv.handleSessionResolve)
+	apiMux.HandleFunc("POST /api/sessions/{id}/recall", srv.handleSessionRecall)
+	apiMux.HandleFunc("GET /api/sessions/{id}/candidates", srv.handleSessionCandidates)
+	apiMux.HandleFunc("GET /api/sessions/{id}/snapshot", srv.handleSessionSnapshot)
+	apiMux.HandleFunc("GET /api/attention", srv.handleAttention)
+	apiMux.HandleFunc("GET /api/models", srv.handleModels)
 	apiMux.HandleFunc("GET /api/saved-sessions", srv.handleSavedSessions)
 	apiMux.HandleFunc("GET /api/saved-sessions/{id}/entries", srv.handleSavedEntries)
 

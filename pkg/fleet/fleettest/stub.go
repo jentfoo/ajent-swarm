@@ -8,6 +8,8 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -34,6 +36,12 @@ type Options struct {
 	Refuses    bool   // attach with control always refuses, seat-held
 }
 
+// RecordedRequest is one request the stub received beside its raw params.
+type RecordedRequest struct {
+	Method string
+	Params json.RawMessage
+}
+
 // Stub is a minimal ajent serving session bound under <home>/control.
 type Stub struct {
 	ln        net.Listener
@@ -52,6 +60,12 @@ type Stub struct {
 	refuse   bool
 	conns    map[*stubConn]struct{}
 	dials    int // served hellos, so tests count dials
+
+	refuseScript  map[string]*ctl.Error // scripted per-method refusals
+	resultScript  map[string]any        // scripted success payloads
+	pickerOptions []string              // set: bare /model opens this picker
+	dialogSeq     uint64                // broker-assigned dialog ids
+	requests      []RecordedRequest
 }
 
 // New binds a stub's socket under home and starts accepting. Callers still
@@ -86,15 +100,17 @@ func New(t *testing.T, home string, opts Options) *Stub {
 		protocol = ctl.Protocol
 	}
 	f := &Stub{
-		ln:        ln,
-		home:      home,
-		sessionID: opts.SessionID,
-		name:      opts.Name,
-		token:     opts.Token,
-		protocol:  protocol,
-		recordTo:  recordTo,
-		conns:     make(map[*stubConn]struct{}),
-		refuse:    opts.Refuses,
+		ln:           ln,
+		home:         home,
+		sessionID:    opts.SessionID,
+		name:         opts.Name,
+		token:        opts.Token,
+		protocol:     protocol,
+		recordTo:     recordTo,
+		conns:        make(map[*stubConn]struct{}),
+		refuse:       opts.Refuses,
+		refuseScript: make(map[string]*ctl.Error),
+		resultScript: make(map[string]any),
 	}
 	f.snap.Session.ID = f.sessionID
 	f.snap.Session.Name = opts.Name
@@ -219,6 +235,36 @@ func (f *Stub) SessionID() string { return f.sessionID }
 // Path reports the socket path this stub listens on.
 func (f *Stub) Path() string { return f.ln.Addr().String() }
 
+// Refuse scripts one method to always answer this coded refusal, before any
+// seat check, so consumers can test their error mapping per code.
+func (f *Stub) Refuse(method, code, message string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.refuseScript[method] = &ctl.Error{Code: code, Message: message}
+}
+
+// Result scripts one method's success payload; the default reply is empty.
+func (f *Stub) Result(method string, result any) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.resultScript[method] = result
+}
+
+// OpenPickerOnSubmit scripts bare /model submits to open a pick dialog with
+// these option labels, like ajent's own model picker. Nil disables.
+func (f *Stub) OpenPickerOnSubmit(options []string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.pickerOptions = options
+}
+
+// Received returns every request the stub has served, oldest first.
+func (f *Stub) Received() []RecordedRequest {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.requests)
+}
+
 func (f *Stub) acceptLoop() {
 	for {
 		conn, err := f.ln.Accept()
@@ -284,6 +330,9 @@ func (f *Stub) serveConn(conn net.Conn) {
 
 // handle answers one request; false closes the connection.
 func (c *stubConn) handle(req ctl.Request) bool {
+	if rp, ok := c.s.scripted(req); ok {
+		return c.reply(rp)
+	}
 	switch req.Method {
 	case ctl.MethodState:
 		c.s.mu.Lock()
@@ -312,21 +361,82 @@ func (c *stubConn) handle(req ctl.Request) bool {
 		return c.reply(ctl.Reply{ID: req.ID,
 			Result: ctl.EncodeData(ctl.AttachResult{Control: true})})
 
-	case ctl.MethodSubmit, ctl.MethodInterrupt, ctl.MethodModeCycle,
-		ctl.MethodInputSet, ctl.MethodQueueRecall, ctl.MethodRewind:
+	case ctl.MethodSubmit:
+		if !c.requireSeat(req) {
+			return true
+		}
+		var p ctl.SubmitParams
+		_ = json.Unmarshal(req.Params, &p)
 		c.s.mu.Lock()
-		held := c.s.heldConn == c
+		pick := c.s.pickerOptions != nil && strings.TrimSpace(p.Line) == modelLine
+		seq := c.s.seq
+		if pick {
+			c.s.openPickerLocked()
+		}
+		c.s.mu.Unlock()
+		return c.reply(ctl.Reply{ID: req.ID, Seq: seq})
+
+	case ctl.MethodInterrupt, ctl.MethodModeCycle,
+		ctl.MethodInputSet, ctl.MethodQueueRecall, ctl.MethodRewind,
+		ctl.MethodResolve, ctl.MethodSeatYield:
+		if !c.requireSeat(req) {
+			return true
+		}
+		c.s.mu.Lock()
 		seq := c.s.seq
 		c.s.mu.Unlock()
-		if !held { // every write method requires the seat
-			return c.reply(ctl.Reply{ID: req.ID, Seq: seq,
-				Error: ctl.Errf(ctl.CodeObserver, "observers cannot write")})
-		}
 		return c.reply(ctl.Reply{ID: req.ID, Seq: seq})
 
 	default:
 		return c.reply(ctl.Reply{ID: req.ID,
 			Error: ctl.Errf(ctl.CodeUnknownMethod, "unknown method %q", req.Method)})
+	}
+}
+
+// requireSeat answers an observer refusal when this connection holds no seat.
+func (c *stubConn) requireSeat(req ctl.Request) bool {
+	c.s.mu.Lock()
+	held := c.s.heldConn == c
+	seq := c.s.seq
+	c.s.mu.Unlock()
+	if held {
+		return true
+	}
+	c.reply(ctl.Reply{ID: req.ID, Seq: seq,
+		Error: ctl.Errf(ctl.CodeObserver, "observers cannot write")})
+	return false
+}
+
+// scripted answers a request whose reply the test fixed, recording it first.
+func (f *Stub) scripted(req ctl.Request) (ctl.Reply, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.requests = append(f.requests, RecordedRequest{Method: req.Method, Params: req.Params})
+	if err, ok := f.refuseScript[req.Method]; ok {
+		return ctl.Reply{ID: req.ID, Seq: f.seq, Error: err}, true
+	}
+	if res, ok := f.resultScript[req.Method]; ok {
+		return ctl.Reply{ID: req.ID, Seq: f.seq, Result: ctl.EncodeData(res)}, true
+	}
+	return ctl.Reply{}, false
+}
+
+// modelLine is the submit that opens ajent's own model picker.
+const modelLine = "/model"
+
+// openPickerLocked broadcasts one pending pick dialog with fresh options.
+// mu must be held.
+func (f *Stub) openPickerLocked() {
+	f.dialogSeq++
+	f.seq++
+	ev := ctl.NewEvent(ctl.EventInteractionPending, f.seq, ctl.InteractionPendingData{
+		ID:      f.dialogSeq,
+		Kind:    "pick",
+		Prompt:  "Select model",
+		Options: f.pickerOptions,
+	})
+	for c := range f.conns {
+		_ = c.enc.Encode(ev)
 	}
 }
 

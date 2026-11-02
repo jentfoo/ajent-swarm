@@ -66,6 +66,8 @@ type Status struct {
 	LogPath   string `json:"logPath,omitempty"`
 	ExitCode  *int   `json:"exitCode,omitempty"`
 	LogTail   string `json:"logTail,omitempty"`
+
+	served bool // the actor attached at least once, so view facts are real
 }
 
 // actorMsg is one mailbox message; the actor goroutine owns everything else.
@@ -90,6 +92,13 @@ type msgEntries struct {
 	before string
 	limit  int
 	reply  chan entriesPage
+}
+
+// rewindSource carries what a transcript-tree read needs beside the live head.
+type rewindSource struct {
+	head string // current branch tip from the reconciled view
+	path string // transcript file the hello named
+	ok   bool   // a view exists to take the head from
 }
 
 // entriesPage answers one paging request.
@@ -118,13 +127,14 @@ type sessionActor struct {
 	token string // original writer token, kept for Followable
 
 	// actor-goroutine-confined state below
-	conn    *client.Conn
-	gen     uint64 // connection generation; stale messages drop by it
-	view    *view
-	pending map[*subscription]struct{} // subscribers waiting for the first backfill
-	state   string
-	detail  string
-	backoff time.Duration
+	conn       *client.Conn
+	transcript string // transcript file this instance's hello named
+	gen        uint64 // connection generation; stale messages drop by it
+	view       *view
+	pending    map[*subscription]struct{} // subscribers waiting for the first backfill
+	state      string
+	detail     string
+	backoff    time.Duration
 }
 
 // atomicStatus keeps the listing row readable off the actor goroutine.
@@ -259,6 +269,7 @@ func (a *sessionActor) follow() (ctl.Instance, bool) {
 // prepare claims the seat per policy and seeds the view from backfill.
 func (a *sessionActor) prepare(conn *client.Conn, hello ctl.Hello) error {
 	a.inst.PID = hello.PID
+	a.transcript = hello.TranscriptPath
 	if a.mgr.ownedInstance(a.inst) { // spawned by swarm: force-claim as holder swarm
 		cctx, cancel := context.WithTimeout(a.ctx, client.CallWait)
 		defer cancel()
@@ -373,6 +384,28 @@ func (a *sessionActor) handle(m actorMsg) {
 			page.entries, page.cursor = a.view.pageEntries(msg.before, msg.limit)
 		}
 		msg.reply <- page
+	case msgSubmit:
+		a.handleSubmit(msg)
+	case msgInterrupt:
+		a.handleInterrupt(msg)
+	case msgModeCycle:
+		a.handleModeCycle(msg)
+	case msgRewind:
+		a.handleRewind(msg)
+	case msgResolve:
+		a.handleResolve(msg)
+	case msgRecall:
+		a.handleRecall(msg)
+	case msgSnapshot:
+		a.handleSnapshot(msg)
+	case msgModelDiscover:
+		a.handleModelDiscover(msg)
+	case msgRewindSource:
+		src := rewindSource{path: a.transcript, ok: a.view != nil}
+		if a.view != nil {
+			src.head = a.view.head
+		}
+		msg.reply <- src
 	}
 }
 
@@ -464,15 +497,9 @@ func (a *sessionActor) handleStop(msg msgStop) {
 		msg.reply <- errors.New("session is not connected")
 		return
 	}
-	if !a.view.seat.Yours {
-		cctx, cancel := context.WithTimeout(a.ctx, client.CallWait)
-		defer cancel()
-		if _, err := a.conn.ClaimSeat(cctx, holderName, false); err != nil {
-			msg.reply <- err // seat-held names its holder
-			return
-		}
-		a.view.seat = ctl.SeatState{Held: true, Holder: holderName, Yours: true}
-		a.refreshStatus()
+	if err := a.ensureWriteSeat(); err != nil {
+		msg.reply <- err // seat-held names its holder
+		return
 	}
 	cctx, cancel := context.WithTimeout(a.ctx, client.CallWait)
 	defer cancel()
@@ -541,6 +568,7 @@ func (a *sessionActor) refreshStatus() {
 		PID:       a.inst.PID,
 	}
 	if a.view != nil {
+		st.served = true // the listing and attention feeds only trust a seeded view
 		st.Name = a.view.session.Name
 		st.Workspace = a.view.workspace
 		st.Model = a.view.model.Key

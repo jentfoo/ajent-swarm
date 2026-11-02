@@ -67,7 +67,7 @@ export interface PrintCard {
   markdown: string
 }
 
-export type PendingState = 'pending' | 'queued' | 'committed' | 'dropped'
+export type PendingState = 'pending' | 'queued' | 'committed' | 'failed' | 'dropped'
 
 // PendingSubmit is one optimistic prompt row, resolved by queue events or the
 // committed entry's queueIds, never by text.
@@ -75,6 +75,24 @@ export interface PendingSubmit {
   id: string
   text: string
   state: PendingState
+}
+
+// DroppedQueueRow is one queued prompt a removal cleared, kept briefly so
+// the chips can badge why it left: interrupt, rewind or recalled.
+export interface DroppedQueueRow {
+  id: string
+  text: string
+  cause?: string
+}
+
+// DialogOutcome is the real result of a dialog answered elsewhere. Free-text
+// answers never echo on the wire, so text outcomes carry no body.
+export interface DialogOutcome {
+  id: number
+  answered: boolean
+  cancelled: boolean
+  index?: number
+  indexes?: number[]
 }
 
 // ChainInfo describes the visible transcript branch: ids oldest first,
@@ -98,6 +116,9 @@ export interface AppliedSessionState {
   prints: PrintCard[]
   diffs: DiffView[] // newest last, bounded
   pendings: PendingSubmit[]
+  droppedRows: DroppedQueueRow[] // recent queue.dropped rows, badged with their cause
+  resolvedElsewhere: DialogOutcome[] // dialogs settled without this viewer's answer
+  ownDialogs: Set<number> // dialog ids this client answered; suppresses the outcome card
 
   exitReason?: string // set once session.exit applies; the run ended cleanly
 
@@ -111,12 +132,16 @@ export type ApplierAction =
   | { type: 'snapshot'; state: CtlState }
   | { type: 'backfill'; entries: Entry[] }
   | { type: 'pendingSubmitted'; pendingId: string; text: string }
+  | { type: 'pendingFailed'; pendingId: string }
+  | { type: 'dialogAnswered'; dialogId: number }
 
 // Bounds keeping the ephemeral surfaces finite across long sessions.
 const maxNotices = 50
 const maxPrints = 20
 const maxDiffs = 10
 const maxPendings = 100
+const maxDroppedRows = 20
+const maxOutcomes = 5
 
 export function initialSessionState(): AppliedSessionState {
   return {
@@ -130,6 +155,9 @@ export function initialSessionState(): AppliedSessionState {
     prints: [],
     diffs: [],
     pendings: [],
+    droppedRows: [],
+    resolvedElsewhere: [],
+    ownDialogs: new Set(),
     lastTurnEndAt: 0,
     healTick: 0,
   }
@@ -205,6 +233,26 @@ export function applierReducer(
       next.pendings = [...state.pendings, row].slice(-maxPendings)
       return next
     }
+    case 'pendingFailed': {
+      // A refused submit never reached the queue; the draft stays in the composer.
+      const failed = state.pendings.find((p) => p.id === action.pendingId)
+      if (!failed || failed.state !== 'pending') return state
+      const next = cloneShallow(state)
+      next.pendings = state.pendings.map((p) =>
+        p.id === action.pendingId ? { ...p, state: 'failed' as const } : p,
+      )
+      return next
+    }
+    case 'dialogAnswered': {
+      // Recording our own answer keeps the settled event from painting an
+      // "answered elsewhere" card for a dialog this viewer resolved.
+      if (state.ownDialogs.has(action.dialogId)) return state
+      const next = cloneShallow(state)
+      const own = new Set(state.ownDialogs)
+      own.add(action.dialogId)
+      next.ownDialogs = own
+      return next
+    }
   }
 }
 
@@ -256,6 +304,7 @@ function applyEvent(state: AppliedSessionState, ev: WireEvent): AppliedSessionSt
       // The head follows the committed family wherever it lands.
       next.snapshot = { ...next.snapshot, head: entry.id }
       insertEntry(next, entry)
+      drainLiveCoveredBy(next, entry)
       recomputeChain(next)
       return next
     }
@@ -308,12 +357,20 @@ function applyEvent(state: AppliedSessionState, ev: WireEvent): AppliedSessionSt
     }
 
     case 'queue.dropped': {
-      const d = decode<{ rows?: QueueRow[] }>(ev.data)
+      const d = decode<{ rows?: QueueRow[]; cause?: string }>(ev.data)
       if (d === undefined) return keepSeq(state, ev.seq)
       // Rows are dropped by id: secret redaction means text may be empty.
       const dropped = new Set((d.rows ?? []).map((row) => row.id))
       const rows = (next.snapshot.queuedRows ?? []).filter((row) => !dropped.has(row.id))
       next.snapshot = { ...next.snapshot, queuedRows: rows, queued: rows.length }
+      for (const row of d.rows ?? []) {
+        if (!isValidId(row.id)) continue
+        next.droppedRows = boundedAppend(
+          next.droppedRows,
+          { id: row.id, text: row.text ?? '', cause: d.cause },
+          maxDroppedRows,
+        )
+      }
       next.pendings = reconcilePendings(next.pendings, undefined, dropped)
       return next
     }
@@ -438,11 +495,37 @@ function applyEvent(state: AppliedSessionState, ev: WireEvent): AppliedSessionSt
     }
 
     case 'interaction.settled': {
-      const id = decode<{ id?: number }>(ev.data)?.id
-      if (!id) return keepSeq(state, ev.seq)
+      const d = decode<{
+        id?: number
+        answered?: boolean
+        cancelled?: boolean
+        index?: number
+        indexes?: number[]
+      }>(ev.data)
+      if (!d?.id) return keepSeq(state, ev.seq)
       next.snapshot = {
         ...next.snapshot,
-        interactions: (next.snapshot.interactions ?? []).filter((dlg) => dlg.id !== id),
+        interactions: (next.snapshot.interactions ?? []).filter((dlg) => dlg.id !== d.id),
+      }
+      const own = next.ownDialogs.has(d.id)
+      if (!own && (d.answered || d.cancelled)) {
+        // Real outcome, never an error: another surface won the answer race.
+        next.resolvedElsewhere = boundedAppend(
+          state.resolvedElsewhere,
+          {
+            id: d.id,
+            answered: d.answered ?? false,
+            cancelled: d.cancelled ?? false,
+            index: d.index,
+            indexes: d.indexes,
+          },
+          maxOutcomes,
+        )
+      }
+      if (own) {
+        const remaining = new Set(next.ownDialogs)
+        remaining.delete(d.id)
+        next.ownDialogs = remaining
       }
       return next
     }
@@ -656,6 +739,92 @@ function reconcilePendings(
     if (queuedSet.has(p.id)) return { ...p, state: 'queued' }
     return p
   })
+}
+
+// --- echo fidelity ---
+
+// drainLiveCoveredBy removes what a committed entry already covers from the
+// live turn buffer, so streamed content hands off to its committed block
+// exactly once instead of rendering twice. Assistant entries carry this
+// step's text and thinking; carrier messages fold results under their calls,
+// which is when the live tool cards retire.
+function drainLiveCoveredBy(state: AppliedSessionState, entry: Entry): void {
+  if (!state.live || entry.type !== 'message') return
+  const d = decode<MessageEntryData>(entry.data)
+  const role = d?.message?.role
+  const blocks = contentBlocks(d?.message?.content)
+  if (blocks.length === 0) return
+
+  let live = state.live
+  let changed = false
+  if (role === 'assistant') {
+    // Reversed so several same-family blocks peel off the painted tail in
+    // content order; forward iteration would only ever match the last one.
+    for (let i = blocks.length - 1; i >= 0; i--) {
+      const block = blocks[i]
+      if (block.type === 'text') {
+        const rest = stripSuffix(live.text, textOf(block))
+        if (rest !== live.text) {
+          live = { ...live, text: rest }
+          changed = true
+        }
+      } else if (block.type === 'thinking') {
+        const rest = stripSuffix(live.thinking, textOf(block))
+        if (rest !== live.thinking) {
+          live = { ...live, thinking: rest }
+          changed = true
+        }
+      }
+    }
+  } else if (role === 'user') {
+    const resultIds = new Set(
+      blocks
+        .filter((b) => b.type === 'tool_result' && isValidId(toolCallId(b)))
+        .map((b) => toolCallId(b)!),
+    )
+    if (resultIds.size > 0) {
+      const tools = live.tools.filter((t) => !resultIds.has(t.id))
+      changed = tools.length !== live.tools.length
+      live = { ...live, tools }
+    }
+  }
+  if (changed) state.live = live
+}
+
+// stripSuffix removes one occurrence of covered from the end of painted,
+// where streamed deltas accumulate. A mismatch means the wire showed less
+// than the entry commits; the painted prefix stays and nothing is lost.
+function stripSuffix(painted: string, covered: string): string {
+  if (covered === '' || !painted.endsWith(covered)) return painted
+  return painted.slice(0, painted.length - covered.length)
+}
+
+// --- content block helpers shared with the view's own decoding ---
+
+interface ContentBlockData {
+  text?: string
+  id?: string
+  name?: string
+  input?: unknown
+  callId?: string
+}
+
+export interface ContentBlockView {
+  type?: string
+  data?: ContentBlockData & { mediaType?: string }
+}
+
+function contentBlocks(content: unknown): ContentBlockView[] {
+  return Array.isArray(content) ? (content as ContentBlockView[]) : []
+}
+
+function textOf(block: ContentBlockView): string {
+  return block.data?.text ?? ''
+}
+
+function toolCallId(block: ContentBlockView): string | undefined {
+  const id = block.data?.callId ?? block.data?.id
+  return isValidId(id) ? id : undefined
 }
 
 // --- small helpers ---

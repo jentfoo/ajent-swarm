@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { applierReducer, initialSessionState } from './eventApplier'
 import type { ApplierAction, AppliedSessionState } from './eventApplier'
 import { entry, ev, initFrame, messageEntry, testState } from './testFixtures'
+import type { Entry } from '../api/types'
 import type { CtlState, WireEvent } from '../api/types'
 
 // Events pass straight through; actions carry their own type tag.
@@ -147,7 +148,6 @@ describe('applierReducer dialogs', () => {
     prompt: 'Allow write access?',
     options: ['allow', 'deny'],
   })
-
   it('survives a resnapshot across an open dialog', () => {
     let s = apply(initialSessionState(), ev('interaction.pending', 1, dialog(7)))
     expect(s.snapshot.interactions).toHaveLength(1)
@@ -172,6 +172,32 @@ describe('applierReducer dialogs', () => {
     s = apply(s, ev('interaction.pending', 2, reshaped))
     expect(s.snapshot.interactions).toEqual([reshaped])
   })
+
+  it('records the real outcome when a dialog settles elsewhere', () => {
+    let s = apply(initialSessionState(), ev('interaction.pending', 1, dialog(7)))
+    s = apply(s, ev('interaction.settled', 2, { id: 7, kind: 'confirm', answered: true, index: 1 }))
+    expect(s.snapshot.interactions).toEqual([])
+    expect(s.resolvedElsewhere).toEqual([{ id: 7, answered: true, cancelled: false, index: 1 }])
+
+    // A cancel settles too, never as an error.
+    s = apply(initialSessionState(), ev('interaction.pending', 1, dialog(8)), {
+      type: 'event',
+      event: ev('interaction.settled', 2, { id: 8, kind: 'confirm', cancelled: true }),
+    })
+    expect(s.resolvedElsewhere).toEqual([{ id: 8, answered: false, cancelled: true }])
+  })
+
+  it('suppresses the elsewhere outcome for dialogs this client answered', () => {
+    let s = apply(initialSessionState(), ev('interaction.pending', 1, dialog(7)))
+    s = apply(s, { type: 'dialogAnswered', dialogId: 7 })
+    s = apply(s, ev('interaction.settled', 2, { id: 7, kind: 'confirm', answered: true, index: 0 }))
+    expect(s.resolvedElsewhere).toEqual([])
+
+    // The local marker clears with the settle so a reused id stays honest.
+    s = apply(initialSessionState(), ev('interaction.pending', 3, dialog(7)))
+    s = apply(s, ev('interaction.settled', 4, { id: 7, kind: 'confirm', answered: true, index: 0 }))
+    expect(s.resolvedElsewhere).toHaveLength(1)
+  })
 })
 
 describe('applierReducer queue rows', () => {
@@ -195,6 +221,21 @@ describe('applierReducer queue rows', () => {
 
     s = apply(s, ev('queue.dropped', 2, { rows: [{ id: 's2', text: '' }], cause: 'recalled' }))
     expect(s.snapshot.queuedRows).toEqual([{ id: 'c1', text: 'explain this diff' }])
+  })
+
+  it('badges dropped rows with their cause', () => {
+    const s = apply(
+      initialSessionState(),
+      ev('queued', 1, {
+        rows: [
+          { id: 'a', text: 'one' },
+          { id: 'b', text: 'two' },
+        ],
+      }),
+      ev('queue.dropped', 2, { rows: [{ id: 'a', text: 'one' }], cause: 'interrupt' }),
+    )
+    expect(s.snapshot.queuedRows).toEqual([{ id: 'b', text: 'two' }])
+    expect(s.droppedRows).toEqual([{ id: 'a', text: 'one', cause: 'interrupt' }])
   })
 
   it('resolves optimistic submits by queueIds on the committed entry', () => {
@@ -243,6 +284,20 @@ describe('applierReducer queue rows', () => {
     )
     s = apply(s, { type: 'init', frame: initFrame(queuedInit, []) })
     expect(s.pendings).toEqual([{ id: 'p1', text: 'kept', state: 'queued' }])
+  })
+
+  it('marks refused submits failed without touching queued rows', () => {
+    let s = apply(
+      initialSessionState(),
+      { type: 'pendingSubmitted', pendingId: 'p1', text: 'fix' },
+      ev('queued', 1, { rows: [{ id: 'other', text: 'already queued' }] }),
+    )
+    s = apply(s, { type: 'pendingFailed', pendingId: 'p1' })
+    expect(s.pendings).toEqual([{ id: 'p1', text: 'fix', state: 'failed' }])
+
+    // A resolved row never reverts on a late failure.
+    s = apply(s, { type: 'pendingFailed', pendingId: 'other' })
+    expect(s.pendings).toHaveLength(1)
   })
 })
 
@@ -366,6 +421,17 @@ describe('applierReducer resnapshot poll-only fields', () => {
   })
 })
 
+// assistantWith builds one committed message entry with arbitrary blocks;
+// role defaults to assistant, which is what the echo rules drain.
+function assistantWith(content: unknown[], role = 'assistant'): Entry {
+  return entry(
+    '01A',
+    undefined,
+    'message',
+    JSON.parse(JSON.stringify({ message: { role, content } })),
+  )
+}
+
 function zeroUsage() {
   return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0 }
 }
@@ -381,5 +447,78 @@ describe('applierReducer lifecycle', () => {
   it('ignores unknown events without breaking the stream', () => {
     const s = apply(initialSessionState(), ev('future.event', 1, { anything: true }))
     expect(s.seq).toBe(1)
+  })
+})
+
+describe('applierReducer echo fidelity', () => {
+  it('drains streamed text and thinking when the entry commits', () => {
+    let s = apply(
+      initialSessionState(),
+      ev('turn.start', 1, { model: 'm' }),
+      ev('thinking.delta', 2, { delta: 'hmm' }),
+      ev('text.delta', 3, { delta: 'Hello ' }),
+      ev('text.delta', 4, { delta: 'streamed world' }),
+    )
+    expect(s.live?.text).toBe('Hello streamed world')
+
+    const committed = assistantWith([
+      { type: 'thinking', data: { text: 'hmm' } },
+      { type: 'text', data: { text: 'Hello streamed world' } },
+    ])
+    s = apply(s, ev('entry.append', 5, { entry: committed }))
+    // the buffer empties instead of double-rendering at turn end
+    expect(s.live?.text).toBe('')
+    expect(s.live?.thinking).toBe('')
+    expect(s.live).not.toBeNull()
+  })
+
+  it('retires a live tool card when its carrier commits', () => {
+    let s = apply(
+      initialSessionState(),
+      ev('turn.start', 1, { model: 'm' }),
+      ev('tool.start', 2, { id: 'c1', name: 'read_file', input: '{}' }),
+      ev('tool.output', 3, { id: 'c1', delta: 'contents' }),
+    )
+    expect(s.live?.tools).toHaveLength(1)
+
+    const assistant = assistantWith([{ type: 'tool_call', data: { id: 'c1', name: 'read_file' } }])
+    s = apply(s, ev('entry.append', 4, { entry: assistant }))
+    // between the call's commit and its results, the live card still paints
+    expect(s.live?.tools).toHaveLength(1)
+
+    const carrier = assistantWith(
+      [{ type: 'tool_result', data: { callId: 'c1', content: [] } }],
+      'user',
+    )
+    s = apply(s, ev('entry.append', 5, { entry: carrier }))
+    expect(s.live?.tools).toHaveLength(0)
+  })
+
+  it('drains every same-family block when several commit together', () => {
+    let s = apply(
+      initialSessionState(),
+      ev('turn.start', 1, { model: 'm' }),
+      ev('text.delta', 2, { delta: 'before toolafter tool' }),
+    )
+    const committed = assistantWith([
+      { type: 'text', data: { text: 'before tool' } },
+      { type: 'tool_call', data: { id: 'c1', name: 'bash' } },
+      { type: 'text', data: { text: 'after tool' } },
+    ])
+    s = apply(s, ev('entry.append', 3, { entry: committed }))
+    // both painted copies drain, not just the one ending the buffer
+    expect(s.live?.text).toBe('')
+  })
+
+  it('keeps streamed text when the committed entry carries something new', () => {
+    let s = apply(
+      initialSessionState(),
+      ev('turn.start', 1, { model: 'm' }),
+      ev('text.delta', 2, { delta: 'streamed' }),
+    )
+    const committed = assistantWith([{ type: 'text', data: { text: 'committed' } }])
+    s = apply(s, ev('entry.append', 3, { entry: committed }))
+    // a mismatch leaves the painted prefix; nothing is lost
+    expect(s.live?.text).toBe('streamed')
   })
 })

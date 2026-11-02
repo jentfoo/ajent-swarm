@@ -82,7 +82,22 @@ export async function request<T>(path: string, opts: RequestOptions = {}): Promi
     if (cause instanceof Error && cause.name === 'AbortError') throw cause
     throw new ApiError(0, 'network_error', `request to ${path} failed`)
   }
+  return unwrap<T>(res)
+}
 
+// postForm uploads one multipart body; the browser supplies the boundary.
+export async function postForm<T>(path: string, form: FormData): Promise<T> {
+  let res: Response
+  try {
+    res = await fetch(path, { method: 'POST', body: form, credentials: 'same-origin' })
+  } catch {
+    throw new ApiError(0, 'network_error', `request to ${path} failed`)
+  }
+  return unwrap<T>(res)
+}
+
+// unwrap turns every failure into an ApiError carrying the structured body.
+async function unwrap<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const err = await errorBody(res)
     if (res.status === 401) notifyUnauthorized(err)

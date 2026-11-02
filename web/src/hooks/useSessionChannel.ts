@@ -3,7 +3,7 @@ import { useCallback, useEffect, useReducer, useRef, useSyncExternalStore } from
 import type { Entry } from '../api/types'
 import { sessions as sessionAPI } from '../api/endpoints'
 import { applierReducer, initialSessionState } from '../state/eventApplier'
-import type { AppliedSessionState } from '../state/eventApplier'
+import type { ApplierAction, AppliedSessionState } from '../state/eventApplier'
 import type { SessionPhase } from '../stream/swarmStream'
 import { usePoll } from './usePoll'
 import { useSwarm } from '../providers/swarm'
@@ -16,8 +16,11 @@ export interface SessionChannel {
   state: AppliedSessionState
   phase: SessionPhase
   // loadOlder pages one block of committed history older than what we hold,
-  // proving the lazy backfill path before the transcript view arrives.
-  loadOlder: () => Promise<void>
+  // answering whether a page arrived (false when the server ran dry).
+  loadOlder: () => Promise<boolean>
+  // dispatch feeds local actions (optimistic rows, locally answered dialogs)
+  // through the same reducer the wire frames use.
+  dispatch: (action: ApplierAction) => void
 }
 
 // useSessionChannel owns one session's reconciled state: it subscribes through
@@ -105,9 +108,9 @@ export function useSessionChannel(sessionId: string): SessionChannel {
     }
   }, [stream, sessionId, state.healTick])
 
-  const loadOlder = useCallback(async () => {
+  const loadOlder = useCallback(async (): Promise<boolean> => {
     const oldest = stateRef.current.chain.oldestId
-    if (oldest === '') return // nothing held to page from yet
+    if (oldest === '') return false // nothing held to page from yet
     try {
       const res: { entries: Entry[]; cursor?: string } = await sessionAPI.entries(
         sessionId,
@@ -115,10 +118,11 @@ export function useSessionChannel(sessionId: string): SessionChannel {
         pageLimit,
       )
       dispatch({ type: 'backfill', entries: res.entries })
+      return res.entries.length > 0
     } catch {
-      // A failed page leaves state untouched; the button stays for a retry.
+      return false // a failed page leaves state untouched; the button stays for a retry
     }
   }, [sessionId])
 
-  return { state, phase, loadOlder }
+  return { state, phase, loadOlder, dispatch }
 }

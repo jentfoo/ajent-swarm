@@ -43,6 +43,7 @@ var apiMethods = map[string]string{
 	"/api/sessions/{id}/recall":        http.MethodPost,
 	"/api/sessions/{id}/candidates":    http.MethodGet,
 	"/api/sessions/{id}/snapshot":      http.MethodGet,
+	"/api/sessions/{id}/attachments":   http.MethodPost,
 	"/api/attention":                   http.MethodGet,
 	"/api/models":                      http.MethodGet,
 	"/api/saved-sessions":              http.MethodGet,
@@ -62,6 +63,7 @@ type Config struct {
 	Auth                 *auth.Service
 	Fleet                *fleet.Manager   // session listing, streams and commands
 	Sched                *sched.Scheduler // job CRUD, manual fires and run history
+	AttachmentsDir       string           // where composer uploads land for @-reference submits
 	AllowRemoteBootstrap bool             // --allow-remote-bootstrap: non-loopback may set the first password
 	Log                  *slog.Logger
 }
@@ -71,6 +73,7 @@ type apiServer struct {
 	auth                 *auth.Service
 	fleet                *fleet.Manager
 	sched                *sched.Scheduler
+	attachmentsDir       string
 	allowRemoteBootstrap bool
 }
 
@@ -82,6 +85,7 @@ func Handler(cfg Config) http.Handler {
 		auth:                 cfg.Auth,
 		fleet:                cfg.Fleet,
 		sched:                cfg.Sched,
+		attachmentsDir:       cfg.AttachmentsDir,
 		allowRemoteBootstrap: cfg.AllowRemoteBootstrap,
 	}
 
@@ -105,6 +109,7 @@ func Handler(cfg Config) http.Handler {
 	apiMux.HandleFunc("POST /api/sessions/{id}/recall", srv.handleSessionRecall)
 	apiMux.HandleFunc("GET /api/sessions/{id}/candidates", srv.handleSessionCandidates)
 	apiMux.HandleFunc("GET /api/sessions/{id}/snapshot", srv.handleSessionSnapshot)
+	apiMux.HandleFunc("POST /api/sessions/{id}/attachments", srv.handleSessionAttachment)
 	apiMux.HandleFunc("GET /api/attention", srv.handleAttention)
 	apiMux.HandleFunc("GET /api/models", srv.handleModels)
 	apiMux.HandleFunc("GET /api/saved-sessions", srv.handleSavedSessions)

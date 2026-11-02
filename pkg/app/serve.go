@@ -24,10 +24,11 @@ import (
 )
 
 const (
-	swarmDirName    = "swarm"     // default state dir beside ajent's own data
-	logFileName     = "swarm.log" // daemon log inside the state dir
-	pidFileName     = "swarm.pid" // pid file inside the state dir
-	childrenDirName = "children"  // child logs inside the state dir
+	swarmDirName    = "swarm"       // default state dir beside ajent's own data
+	logFileName     = "swarm.log"   // daemon log inside the state dir
+	pidFileName     = "swarm.pid"   // pid file inside the state dir
+	childrenDirName = "children"    // child logs inside the state dir
+	attachDirName   = "attachments" // composer uploads referenced by @path
 )
 
 // serve resolves paths, locks the instance and runs until SIGINT or SIGTERM.
@@ -125,6 +126,7 @@ func serve(opts Options, stderr io.Writer) int {
 		Auth:                 svc,
 		Fleet:                fleetMgr,
 		Sched:                scheduler,
+		AttachmentsDir:       filepath.Join(dir, attachDirName),
 		AllowRemoteBootstrap: opts.AllowRemoteBootstrap,
 		Log:                  log,
 	})

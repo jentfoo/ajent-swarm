@@ -215,6 +215,73 @@ export interface MeReply {
   via: string
 }
 
+// --- session command payloads, mirroring pkg/api/handlers_sessions.go ---
+
+export interface SubmitReply {
+  pendingId: string // the echoed correlation optimistic rows resolve by
+}
+
+export interface ModeReply {
+  mode?: string // empty when no gate exists
+}
+
+export interface RewindReply {
+  head: string
+}
+
+// ResolveAnswer carries exactly one answer shape, validated upstream.
+export interface ResolveAnswer {
+  dialogId: number
+  index?: number
+  indexes?: number[]
+  text?: string
+  chat?: boolean
+  cancel?: boolean
+}
+
+export interface ResolveReply {
+  settled: boolean // a first answer had already won; benign everywhere
+}
+
+// RecallRow names the queued prompt that left for edit-and-resubmit.
+export interface RecallRow {
+  id?: string
+  text?: string
+}
+
+// ModelRow is one session's model facts from GET /api/models. Options and
+// DialogID appear only when discovery opened ajent's own picker; answer it
+// through resolve or cancel it, never leave it stranded.
+export interface ModelRow {
+  sessionId: string
+  current: ModelState
+  options?: string[]
+  dialogId?: number
+}
+
+export type RewindKind = 'user' | 'assistant' | 'compaction'
+
+// RewindCandidate is one rewirable entry of the transcript tree, every fork
+// included; anything upstream refuses never lists here.
+export interface RewindCandidate {
+  id: string
+  parentId?: string
+  kind: RewindKind
+  ts: number // unix milliseconds
+  label?: string
+  isHead: boolean
+}
+
+export interface RewindCandidates {
+  head: string
+  candidates: RewindCandidate[]
+}
+
+// AttachmentReply names where an upload landed for @-reference submits.
+export interface AttachmentReply {
+  path: string
+}
+
 export type LaunchMode = 'new' | 'resume' | 'continue' | 'session'
 
 export interface LaunchRequest {

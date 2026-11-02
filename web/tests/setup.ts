@@ -28,4 +28,6 @@ if (typeof window !== 'undefined') {
       return 72
     },
   })
+  // jsdom ships no implementation; the inbox cursor only keeps rows in view.
+  Element.prototype.scrollIntoView = () => {}
 }

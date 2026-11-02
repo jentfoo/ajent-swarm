@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -533,19 +534,43 @@ func TestAttentionHandler(t *testing.T) {
 		return len(rows) == 1 && rows[0].SessionID == f.SessionID() && rows[0].Running
 	}, 2*time.Second, 5*time.Millisecond)
 
+	f.Broadcast(ctl.EventActivity, ctl.ActivityRow{Key: "k", Text: "reading main.go", Rank: 1})
 	f.Broadcast(ctl.EventInteractionPending, ctl.InteractionPendingData{
-		ID: 3, Kind: "decision", Prompt: "allow write?",
+		ID: 3, Kind: "decision", Prompt: "allow write?\nbe careful",
 	})
 	require.Eventually(h.t, func() bool {
 		rows := h.mgr.Attention()
-		return len(rows) == 1 && rows[0].OpenInteractions == 1
+		row := rows[0]
+		return len(rows) == 1 && row.OpenInteractions == 1 &&
+			row.DialogID == 3 && row.DialogPrompt == "allow write? be careful" && row.DialogAt > 0
 	}, 2*time.Second, 5*time.Millisecond)
 
 	f.Broadcast(ctl.EventTurnEnd, ctl.TurnEndData{Stop: "end_turn"})
 	require.Eventually(h.t, func() bool {
 		rows := h.mgr.Attention()
-		return len(rows) == 1 && rows[0].LastTurnEnd > 0 && !rows[0].Running
+		row := rows[0]
+		return len(rows) == 1 && row.LastTurnEnd > 0 && !row.Running &&
+			row.LastStop == "end_turn" && row.Activity == "reading main.go"
 	}, 2*time.Second, 5*time.Millisecond)
+
+	t.Run("settled dialogs drop their digest facts", func(t *testing.T) {
+		f.Broadcast(ctl.EventInteractionSettled, ctl.InteractionSettledData{ID: 3, Kind: "decision", Answered: true})
+		require.Eventually(h.t, func() bool {
+			row := h.mgr.Attention()[0]
+			return row.OpenInteractions == 0 && row.DialogID == 0 && row.DialogPrompt == "" && row.DialogAt == 0
+		}, 2*time.Second, 5*time.Millisecond)
+	})
+
+	t.Run("digest text caps at one bounded line", func(t *testing.T) {
+		long := strings.Repeat("x", 400)
+		f.Broadcast(ctl.EventInteractionPending, ctl.InteractionPendingData{ID: 4, Prompt: long})
+		require.Eventually(h.t, func() bool {
+			row := h.mgr.Attention()[0]
+			return row.DialogID == 4
+		}, 2*time.Second, 5*time.Millisecond)
+		row := h.mgr.Attention()[0]
+		assert.Len(t, []rune(row.DialogPrompt), fleet.MaxDigestText+1) // the ellipsis rides along
+	})
 
 	t.Run("exited sessions drop out", func(t *testing.T) {
 		f.Exit("all done")

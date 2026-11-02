@@ -194,13 +194,22 @@ export interface SessionStatus {
   logTail?: string
 }
 
-// AttentionRow is one live session's row of GET /api/attention.
+// AttentionRow is one live session's row of GET /api/attention. The digest
+// facts (dialog, last stop, activity) carry the inbox rail's one-line reasons.
 export interface AttentionRow {
   sessionId: string
+  pid?: number
   openInteractions: number
   running: boolean
+  spinning?: boolean
   idle: boolean
   lastTurnEnd?: number // unix milliseconds
+  dialogId?: number // oldest open dialog
+  dialogPrompt?: string // its prompt, one line
+  dialogAt?: number // when swarm first saw it, unix milliseconds
+  lastStop?: string // stop reason of the last turn
+  lastStopErr?: string
+  activity?: string // top activity row, one line
 }
 
 // EntriesPage is one page of committed history plus the cursor to continue.

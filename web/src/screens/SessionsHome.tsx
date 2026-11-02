@@ -9,8 +9,9 @@ import { ChildState } from '../api/types'
 import { useSwarm } from '../providers/swarm'
 
 // SessionsHome is the live instance grid: model, workspace and seat badges
-// beside quick actions per session, with a compact launch panel. The desktop
-// workspace modes (inbox, tiles) build on this listing in phase 09.
+// beside quick actions per session, with a compact launch panel. Open walks
+// into the inbox workspace with the session selected; /s/:id stays the
+// standalone deep link.
 export default function SessionsHome() {
   const { sessions } = useSwarm()
   const [launching, setLaunching] = useState(false)
@@ -20,6 +21,9 @@ export default function SessionsHome() {
       <div className="session-header">
         <h1 style={{ margin: 0, fontSize: 'inherit' }}>Sessions</h1>
         <span className="spacer" style={{ flex: 1 }} />
+        <Link to="/inbox">
+          <button type="button">Open workspace</button>
+        </Link>
         <button type="button" onClick={() => setLaunching((v) => !v)}>
           {launching ? 'Close' : 'Launch session'}
         </button>
@@ -101,7 +105,7 @@ function ActionsBar({
 }) {
   return (
     <div style={{ display: 'flex', gap: '0.5em', marginTop: '0.4em' }}>
-      <Link to={`/s/${encodeURIComponent(sessionId)}`}>
+      <Link to={`/inbox?session=${encodeURIComponent(sessionId)}`}>
         <button type="button">Open</button>
       </Link>
       {spawnedBy === 'swarm' && state !== ChildState.Exited && <StopButton sessionId={sessionId} />}

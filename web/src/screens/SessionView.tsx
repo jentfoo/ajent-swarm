@@ -5,6 +5,7 @@ import { ApiError } from '../api/client'
 import { sessions as sessionAPI } from '../api/endpoints'
 import { useSessionChannel } from '../hooks/useSessionChannel'
 import type { SessionPhase } from '../stream/swarmStream'
+import { useWorkspace } from '../providers/workspace'
 import { Composer } from '../session/Composer'
 import { DialogDock } from '../session/DialogDock'
 import { QueuedPrompts } from '../session/QueuedPrompts'
@@ -21,10 +22,13 @@ interface Toast {
 
 // SessionView is the single-session experience: status header with controls,
 // virtualized transcript over reconciled state, dialog dock above a
-// queue-aware composer. Phase 09 tiles this view and phase 11 reuses it.
-export default function SessionView() {
-  const { sessionId = '' } = useParams()
+// queue-aware composer. The workspace modes host it by sessionId; the
+// /s/:sessionId route keeps a standalone focused view for deep links.
+export default function SessionView({ sessionId: hostedId }: { sessionId?: string }) {
+  const params = useParams()
+  const sessionId = hostedId ?? params.sessionId ?? ''
   const { state, phase, loadOlder, dispatch } = useSessionChannel(sessionId)
+  const { acknowledgeDialog, acknowledgeTurn } = useWorkspace()
   const snap = state.snapshot
 
   const [draft, setDraft] = useState('')
@@ -85,7 +89,10 @@ export default function SessionView() {
         sessionId={sessionId}
         dialogs={dialogs}
         outcomes={state.resolvedElsewhere}
-        onAnsweredLocally={(dialogId) => dispatch({ type: 'dialogAnswered', dialogId })}
+        onAnsweredLocally={(dialogId) => {
+          dispatch({ type: 'dialogAnswered', dialogId })
+          acknowledgeDialog(sessionId, dialogId) // acting clears the inbox row
+        }}
       />
       <QueuedPrompts
         queuedRows={snap.queuedRows ?? []}
@@ -106,9 +113,12 @@ export default function SessionView() {
         onChange={setDraft}
         disabled={composerDisabled}
         disabledReason={disabledReason}
-        onSubmit={(line, pendingId) =>
+        onSubmit={(line, pendingId) => {
           dispatch({ type: 'pendingSubmitted', pendingId, text: line })
-        }
+          // Sending feedback counts as acting: any unreviewed completion
+          // before now is settled, a later turn will re-raise.
+          acknowledgeTurn(sessionId, Date.now())
+        }}
         onSubmitFailed={(pendingId) => dispatch({ type: 'pendingFailed', pendingId })}
       />
 

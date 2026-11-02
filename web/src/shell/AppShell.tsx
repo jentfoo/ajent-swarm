@@ -1,18 +1,60 @@
-import { Link, useLocation } from 'react-router'
+import { Link, useLocation, useNavigate } from 'react-router'
 import type { ReactNode } from 'react'
 
 import { useSwarm } from '../providers/swarm'
+import { useWorkspace } from '../providers/workspace'
 import { useAuth } from '../providers/auth'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 
 // AppShell is the one chrome with two variants: the desktop pane-capable bar
 // and a bottom navigation under the mobile breakpoint. The workspace mode
-// switch (inbox versus tile) arrives in phase 09 on top of this shell.
+// switch and the attention badge live here on desktop.
 export default function AppShell({ children }: { children: ReactNode }) {
   const { connection, theme, density, setTheme, setDensity } = useSwarm()
+  const { needsInputCount, profile, setMode, notificationPermission, requestNotifications } =
+    useWorkspace()
   const auth = useAuth()
   const mobile = useMediaQuery('(max-width: 48rem)')
   const location = useLocation()
+  const navigate = useNavigate()
+
+  const switchMode = (mode: 'inbox' | 'tile') => {
+    setMode(mode)
+    navigate(mode === 'tile' ? '/tile' : '/inbox')
+  }
+
+  const attention = () => {
+    if (needsInputCount === 0) return null
+    return (
+      <button
+        type="button"
+        className="attend-badge"
+        title={`${needsInputCount} session(s) need input`}
+        aria-label={`${needsInputCount} sessions need input`}
+        onClick={() => navigate('/inbox')}
+      >
+        {needsInputCount}
+      </button>
+    )
+  }
+
+  const notifications = () => {
+    const permission = notificationPermission()
+    if (permission === 'denied' || permission === 'unsupported') return null
+    return (
+      <button
+        type="button"
+        className={permission === 'granted' ? 'bell on' : 'bell'}
+        title={
+          permission === 'granted' ? 'Desktop notifications are on' : 'Enable desktop notifications'
+        }
+        aria-label="Toggle desktop notifications"
+        onClick={() => requestNotifications()}
+      >
+        {permission === 'granted' ? '🔔' : '🔕'}
+      </button>
+    )
+  }
 
   return (
     <div className="app-shell">
@@ -22,13 +64,41 @@ export default function AppShell({ children }: { children: ReactNode }) {
         </Link>
         <nav>
           <Link to="/" className={location.pathname === '/' ? 'active' : ''}>
+            Workspace
+          </Link>
+          <Link
+            to="/sessions"
+            className={location.pathname.startsWith('/sessions') ? 'active' : ''}
+          >
             Sessions
           </Link>
           <Link to="/jobs" className={location.pathname.startsWith('/jobs') ? 'active' : ''}>
             Jobs
           </Link>
         </nav>
+        {!mobile && (
+          <div className="ws-switcher" role="group" aria-label="Workspace mode">
+            <button
+              type="button"
+              className={profile.mode === 'inbox' ? 'active' : ''}
+              aria-pressed={profile.mode === 'inbox'}
+              onClick={() => switchMode('inbox')}
+            >
+              Inbox
+            </button>
+            <button
+              type="button"
+              className={profile.mode === 'tile' ? 'active' : ''}
+              aria-pressed={profile.mode === 'tile'}
+              onClick={() => switchMode('tile')}
+            >
+              Tile
+            </button>
+          </div>
+        )}
         <span className="spacer" />
+        {attention()}
+        {notifications()}
         <button
           type="button"
           onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
@@ -57,11 +127,27 @@ export default function AppShell({ children }: { children: ReactNode }) {
         </div>
       )}
 
-      <main className="content">{children}</main>
+      <main
+        className={
+          location.pathname === '/' ||
+          location.pathname === '/inbox' ||
+          location.pathname === '/tile'
+            ? 'content workspace-content'
+            : 'content'
+        }
+      >
+        {children}
+      </main>
 
       {mobile && (
         <nav className="mobile-nav">
           <Link to="/" className={location.pathname === '/' ? 'active' : ''}>
+            Workspace
+          </Link>
+          <Link
+            to="/sessions"
+            className={location.pathname.startsWith('/sessions') ? 'active' : ''}
+          >
             Sessions
           </Link>
           <Link to="/jobs" className={location.pathname.startsWith('/jobs') ? 'active' : ''}>

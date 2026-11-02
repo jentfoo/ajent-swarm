@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import SessionView from './SessionView'
 import { AuthProvider } from '../providers/auth'
 import { SwarmProvider } from '../providers/swarm'
+import { WorkspaceProvider } from '../providers/workspace'
 import { MockWebSocket } from '../test/mockWebSocket'
 
 // The backend round trip runs against fetch mocks shaped exactly like the Go
@@ -137,9 +138,11 @@ describe('SessionView', () => {
       <MemoryRouter initialEntries={[`/s/${VIEW}`]}>
         <AuthProvider>
           <SwarmProvider>
-            <Routes>
-              <Route path="/s/:sessionId" element={<SessionView />} />
-            </Routes>
+            <WorkspaceProvider>
+              <Routes>
+                <Route path="/s/:sessionId" element={<SessionView />} />
+              </Routes>
+            </WorkspaceProvider>
           </SwarmProvider>
         </AuthProvider>
       </MemoryRouter>,

@@ -49,8 +49,11 @@ type view struct {
 	seat       ctl.SeatState
 
 	interactions []ctl.InteractionPendingData // open dialogs, oldest first
+	dialogSeen   map[uint64]int64             // dialog id to when swarm first saw it open
 
-	lastTurnEnd int64 // unix milliseconds, 0 when no turn ended yet
+	lastTurnEnd int64  // unix milliseconds, 0 when no turn ended yet
+	lastStop    string // stop reason the last turn ended with
+	lastStopErr string // transport or context failure that ended it
 
 	entries    []entryRecord // committed entries in arrival order, oldest first
 	seen       map[string]struct{}
@@ -98,6 +101,10 @@ func buildView(snap ctl.State, branch []session.Entry, watermark uint64) *view {
 	v.interactions = slices.Clone(snap.Interactions)
 	if v.interactions == nil {
 		v.interactions = []ctl.InteractionPendingData{}
+	}
+	v.dialogSeen = make(map[uint64]int64, len(v.interactions))
+	for _, dlg := range v.interactions { // reattach: now is the best swarm knows
+		v.dialogSeen[dlg.ID] = time.Now().UnixMilli()
 	}
 
 	for _, e := range branch {
@@ -198,6 +205,11 @@ func (v *view) apply(ev ctl.Event) {
 		v.running = true
 
 	case ctl.EventTurnEnd:
+		var d ctl.TurnEndData
+		if err := ev.Decode(&d); err == nil {
+			v.lastStop = d.Stop
+			v.lastStopErr = d.Err
+		}
 		v.running = false
 		v.lastTurnEnd = time.Now().UnixMilli()
 
@@ -222,6 +234,7 @@ func (v *view) apply(ev ctl.Event) {
 		v.interactions = slices.DeleteFunc(v.interactions, func(p ctl.InteractionPendingData) bool {
 			return p.ID == d.ID
 		})
+		delete(v.dialogSeen, d.ID)
 
 	case ctl.EventSeatLost: // displaced without probing; the new holder is named
 		var d ctl.SeatLostData
@@ -265,6 +278,26 @@ func (v *view) pendingInteraction(d ctl.InteractionPendingData) {
 		}
 	}
 	v.interactions = append(v.interactions, d)
+	v.dialogSeen[d.ID] = time.Now().UnixMilli()
+}
+
+// oldestDialog names the longest-waiting open dialog and when swarm first saw
+// it, zero when nothing holds input.
+func (v *view) oldestDialog() (ctl.InteractionPendingData, int64) {
+	if len(v.interactions) == 0 {
+		return ctl.InteractionPendingData{}, 0
+	}
+	dlg := v.interactions[0] // kept oldest first
+	return dlg, v.dialogSeen[dlg.ID]
+}
+
+// activityPreview returns the top-ranked activity row's text for the digest.
+func (v *view) activityPreview() string {
+	rows := sortedActivity(v.activity)
+	if len(rows) == 0 {
+		return ""
+	}
+	return rows[0].Text
 }
 
 // snapshot rebuilds the state.get shape from what events have kept current.

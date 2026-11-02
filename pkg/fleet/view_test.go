@@ -173,6 +173,33 @@ func TestInteractionsLifecycle(t *testing.T) {
 
 	v.apply(seqEvent(ctl.EventInteractionSettled, 13, ctl.InteractionSettledData{ID: 7}))
 	assert.Empty(t, v.interactions)
+	assert.Empty(t, v.dialogSeen) // the seen ledger prunes with its dialog
+}
+
+func TestOldestDialogAndActivityPreview(t *testing.T) {
+	t.Parallel()
+
+	v := emptyView()
+	dlg, at := v.oldestDialog()
+	assert.Zero(t, dlg.ID)
+	assert.Zero(t, at)
+	assert.Empty(t, v.activityPreview())
+
+	v.apply(seqEvent(ctl.EventActivity, 11, ctl.ActivityRow{Key: "b", Text: "second", Rank: 2}))
+	v.apply(seqEvent(ctl.EventActivity, 12, ctl.ActivityRow{Key: "a", Text: "first", Rank: 1}))
+	assert.Equal(t, "first", v.activityPreview()) // rank orders the preview
+
+	v.apply(seqEvent(ctl.EventInteractionPending, 13,
+		ctl.InteractionPendingData{ID: 1, Kind: "confirm", Prompt: "first?"}))
+	v.apply(seqEvent(ctl.EventInteractionPending, 14,
+		ctl.InteractionPendingData{ID: 2, Kind: "confirm", Prompt: "second?"}))
+	dlg, at = v.oldestDialog()
+	assert.Equal(t, uint64(1), dlg.ID) // interactions stay oldest first
+	assert.Positive(t, at)
+
+	// an empty activity row removes its key, promoting the next rank
+	v.apply(seqEvent(ctl.EventActivity, 15, ctl.ActivityRow{Key: "a", Text: "", Rank: 1}))
+	assert.Equal(t, "second", v.activityPreview())
 }
 
 func TestResnapshotClearsDialogs(t *testing.T) {
@@ -215,6 +242,12 @@ func TestTurnLifecycleTracksRunningAndEnd(t *testing.T) {
 	v.apply(seqEvent(ctl.EventTurnEnd, 12, ctl.TurnEndData{Stop: "end_turn"}))
 	assert.False(t, v.running)
 	assert.Positive(t, v.lastTurnEnd)
+	assert.Equal(t, "end_turn", v.lastStop)
+	assert.Empty(t, v.lastStopErr)
+
+	v.apply(seqEvent(ctl.EventTurnEnd, 13, ctl.TurnEndData{Stop: "error", Err: "context full"}))
+	assert.Equal(t, "error", v.lastStop)
+	assert.Equal(t, "context full", v.lastStopErr)
 }
 
 func TestInitTailBoundsAndCursor(t *testing.T) {

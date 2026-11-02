@@ -516,13 +516,39 @@ func (m *Manager) Sessions() []Status {
 	return out
 }
 
+// MaxDigestText caps one digest reason or preview, mirroring the rewind
+// label cap: display text, never a data channel.
+const MaxDigestText = 160
+
+var digestFlatten = strings.NewReplacer("\r", " ", "\n", " ")
+
+// digestText flattens one display string to a single bounded line.
+func digestText(s string) string {
+	s = digestFlatten.Replace(s)
+	runes := []rune(s)
+	if len(runes) > MaxDigestText {
+		return string(runes[:MaxDigestText]) + "…"
+	}
+	return s
+}
+
 // Attention is one live session's row of the cheap inbox feed.
 type Attention struct {
 	SessionID        string `json:"sessionId"`
+	PID              int    `json:"pid,omitempty"`
 	OpenInteractions int    `json:"openInteractions"`
 	Running          bool   `json:"running"`
+	Spinning         bool   `json:"spinning,omitempty"`
 	Idle             bool   `json:"idle"`
 	LastTurnEnd      int64  `json:"lastTurnEnd,omitempty"` // unix milliseconds
+
+	// Digest facts behind the inbox rail's reasons and waits.
+	DialogID     uint64 `json:"dialogId,omitempty"`
+	DialogPrompt string `json:"dialogPrompt,omitempty"`
+	DialogAt     int64  `json:"dialogAt,omitempty"` // unix milliseconds
+	LastStop     string `json:"lastStop,omitempty"`
+	LastStopErr  string `json:"lastStopErr,omitempty"`
+	Activity     string `json:"activity,omitempty"`
 }
 
 // Attention summarizes every live session from its actor's reconciled view,
@@ -541,10 +567,18 @@ func (m *Manager) Attention() []Attention {
 		}
 		out = append(out, Attention{
 			SessionID:        st.SessionID,
+			PID:              st.PID,
 			OpenInteractions: st.OpenInteractions,
 			Running:          st.Running,
+			Spinning:         st.Spinning,
 			Idle:             st.Idle,
 			LastTurnEnd:      st.LastTurnEnd,
+			DialogID:         st.DialogID,
+			DialogPrompt:     st.DialogPrompt,
+			DialogAt:         st.DialogAt,
+			LastStop:         st.LastStop,
+			LastStopErr:      st.LastStopErr,
+			Activity:         st.Activity,
 		})
 	}
 	slices.SortFunc(out, func(a, b Attention) int { return strings.Compare(a.SessionID, b.SessionID) })

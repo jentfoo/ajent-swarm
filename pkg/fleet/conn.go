@@ -55,8 +55,18 @@ type Status struct {
 	SeatOurs         bool   `json:"seatOurs"`
 	Running          bool   `json:"running"`
 	Idle             bool   `json:"idle"`
+	Spinning         bool   `json:"spinning,omitempty"`
 	OpenInteractions int    `json:"openInteractions"`
 	LastTurnEnd      int64  `json:"lastTurnEnd,omitempty"` // unix milliseconds
+
+	// Attention digest facts: what holds input and how the last turn ended,
+	// one line each so the desktop inbox renders reasons without subscribing.
+	DialogID     uint64 `json:"dialogId,omitempty"`     // oldest open dialog
+	DialogPrompt string `json:"dialogPrompt,omitempty"` // its prompt, one line
+	DialogAt     int64  `json:"dialogAt,omitempty"`     // when swarm first saw it, unix ms
+	LastStop     string `json:"lastStop,omitempty"`     // stop reason of the last turn
+	LastStopErr  string `json:"lastStopErr,omitempty"`  // transport or context failure
+	Activity     string `json:"activity,omitempty"`     // top activity row, one line
 
 	// Spawn facts for children swarm launched: empty fields mean external or
 	// unknown. ExitCode appears once reaped, negative when a signal ended it;
@@ -579,8 +589,17 @@ func (a *sessionActor) refreshStatus() {
 		st.SeatOurs = a.view.seat.Yours
 		st.Running = a.view.running
 		st.Idle = a.view.idle
+		st.Spinning = a.view.spinning
 		st.OpenInteractions = len(a.view.interactions)
 		st.LastTurnEnd = a.view.lastTurnEnd
+		if dlg, at := a.view.oldestDialog(); dlg.ID != 0 {
+			st.DialogID = dlg.ID
+			st.DialogPrompt = digestText(dlg.Prompt)
+			st.DialogAt = at
+		}
+		st.LastStop = a.view.lastStop
+		st.LastStopErr = digestText(a.view.lastStopErr)
+		st.Activity = digestText(a.view.activityPreview())
 	}
 	if st.Name == "" {
 		st.Name = a.inst.SessionName

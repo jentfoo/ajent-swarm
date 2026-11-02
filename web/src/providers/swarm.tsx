@@ -1,22 +1,23 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 
 import { fleet } from '../api/endpoints'
 import type { AttentionRow, SessionStatus } from '../api/types'
 import { usePoll } from '../hooks/usePoll'
+import { SessionStore } from '../stream/sessionStore'
 import { SwarmStream } from '../stream/swarmStream'
 import type { SocketState } from '../stream/swarmStream'
-import { noopBridge } from './notifications'
-import type { NotificationBridge } from './notifications'
 
 export type Theme = 'dark' | 'light'
 export type Density = 'compact' | 'cozy'
 
 const pollSessionsMs = 4_000
 const pollAttentionMs = 5_000
+const pollAttentionHiddenMs = 30_000
 
 interface SwarmContextValue {
   stream: SwarmStream
+  store: SessionStore
   sessions: SessionStatus[]
   attention: AttentionRow[]
   connection: SocketState
@@ -46,19 +47,21 @@ function writeStored(key: string, value: string) {
   }
 }
 
-// SwarmProvider owns app-wide state: the one multiplexed stream connection,
-// the discovery and attention polls feeding badges and later the inbox, theme
-// and density persisted in localStorage, and the notification bridge stub.
+// SwarmProvider owns app-wide state: the one multiplexed stream connection
+// and the session state store, the discovery and attention polls feeding
+// badges and the inbox, and theme and density persisted in localStorage.
 export function SwarmProvider({ children }: { children: ReactNode }) {
   // One stream per provider; StrictMode's simulated remount only disconnects
   // it, and a fresh subscribe reconnects on demand.
   const [stream] = useState(() => new SwarmStream())
   useEffect(() => () => stream.disconnect(), [stream])
+  // The store owns every session's reconciled state and warm subscriptions.
+  const [store] = useState(() => new SessionStore(stream))
+  useEffect(() => () => store.dispose(), [store])
 
   const [sessions, setSessions] = useState<SessionStatus[]>([])
   const [attention, setAttention] = useState<AttentionRow[]>([])
   const [connection, setConnection] = useState<SocketState>('closed')
-  const bridgeRef = useRef<NotificationBridge>(noopBridge())
 
   useEffect(
     () => stream.onConnectionChange(() => setConnection(stream.connectionState())),
@@ -78,16 +81,16 @@ export function SwarmProvider({ children }: { children: ReactNode }) {
 
   const refreshAttention = useCallback(async () => {
     try {
-      const rows = await fleet.attention()
-      setAttention(rows)
-      bridgeRef.current.publish(rows)
+      setAttention(await fleet.attention())
     } catch {
       // Same as sessions: transient poll failure, retry on the next tick.
     }
   }, [])
 
   usePoll(() => void refreshSessions(), pollSessionsMs)
-  usePoll(() => void refreshAttention(), pollAttentionMs)
+  // The digest keeps a slow background cadence so hidden tabs still raise
+  // notifications; everything else stays visible-only.
+  usePoll(() => void refreshAttention(), pollAttentionMs, pollAttentionHiddenMs)
 
   const [theme, setThemeState] = useState<Theme>(() =>
     readStored('swarm.theme', ['dark', 'light'] as const, preferredTheme()),
@@ -108,6 +111,7 @@ export function SwarmProvider({ children }: { children: ReactNode }) {
   const value = useMemo<SwarmContextValue>(
     () => ({
       stream,
+      store,
       sessions,
       attention,
       connection,
@@ -116,7 +120,7 @@ export function SwarmProvider({ children }: { children: ReactNode }) {
       setTheme: (t) => setThemeState(t),
       setDensity: (d) => setDensityState(d),
     }),
-    [stream, sessions, attention, connection, theme, density],
+    [stream, store, sessions, attention, connection, theme, density],
   )
 
   return <SwarmContext.Provider value={value}>{children}</SwarmContext.Provider>

@@ -157,8 +157,8 @@ func TestRewindCandidateTreePlacement(t *testing.T) {
 	assert.Equal(t, 0, byID["u1"].Depth) // the trunk stays flat
 	assert.Equal(t, 1, byID["a2"].Depth) // every branch of a fork indents
 	assert.Equal(t, 1, byID["u3"].Depth)
-	assert.True(t, byID["a2"].Active)    // the live head's chain marks itself
-	assert.False(t, byID["u3"].Active)   // abandoned forks read as inactive
+	assert.True(t, byID["a2"].Active)  // the live head's chain marks itself
+	assert.False(t, byID["u3"].Active) // abandoned forks read as inactive
 	assert.Equal(t, "├── ", byID["a2"].Guide)
 }
 
@@ -179,7 +179,7 @@ func TestRewindCandidateText(t *testing.T) {
 			prompt(t, "u1", "", strings.Repeat("x", rewindTextMax+10)),
 		}, "")
 		require.Len(t, res.Candidates, 1)
-		assert.Equal(t, rewindTextMax, len([]rune(res.Candidates[0].Text)))
+		assert.Len(t, []rune(res.Candidates[0].Text), rewindTextMax)
 		assert.True(t, res.Candidates[0].Truncated)
 	})
 

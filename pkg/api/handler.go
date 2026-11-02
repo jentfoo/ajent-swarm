@@ -42,9 +42,9 @@ var apiMethods = map[string]string{
 	"/api/sessions/{id}/resolve":       http.MethodPost,
 	"/api/sessions/{id}/recall":        http.MethodPost,
 	"/api/sessions/{id}/candidates":    http.MethodGet,
-	"/api/sessions/{id}/snapshot":       http.MethodGet,
-	"/api/sessions/{id}/files":          http.MethodGet,
-	"/api/sessions/{id}/attachments":    http.MethodPost,
+	"/api/sessions/{id}/snapshot":      http.MethodGet,
+	"/api/sessions/{id}/files":         http.MethodGet,
+	"/api/sessions/{id}/attachments":   http.MethodPost,
 	"/api/attention":                   http.MethodGet,
 	"/api/models":                      http.MethodGet,
 	"/api/saved-sessions":              http.MethodGet,
@@ -53,6 +53,7 @@ var apiMethods = map[string]string{
 	"/api/jobs":          "GET, POST",
 	"/api/jobs/{id}":     "GET, PUT, DELETE",
 	"/api/jobs/{id}/run": http.MethodPost,
+	"/api/jobs/preview":  http.MethodPost,
 	"/api/runs":          http.MethodGet,
 
 	"/api/tokens":        "GET, POST",
@@ -123,6 +124,7 @@ func Handler(cfg Config) http.Handler {
 	apiMux.HandleFunc("PUT /api/jobs/{id}", srv.handleJobUpdate)
 	apiMux.HandleFunc("DELETE /api/jobs/{id}", srv.handleJobDelete)
 	apiMux.HandleFunc("POST /api/jobs/{id}/run", srv.handleJobFire)
+	apiMux.HandleFunc("POST /api/jobs/preview", srv.handleJobPreview)
 	apiMux.HandleFunc("GET /api/runs", srv.handleRuns)
 
 	apiMux.HandleFunc("GET /api/tokens", srv.handleTokenList)

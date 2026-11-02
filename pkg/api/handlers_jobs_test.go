@@ -484,3 +484,82 @@ func TestJobRouteRejectsWrongMethod(t *testing.T) {
 		http.MethodPatch, "/api/jobs/1", nil)
 	assert.Equal(t, http.StatusNotFound, code)
 }
+
+func TestJobPreviewEndpoint(t *testing.T) {
+	t.Parallel()
+	env, client := newSchedEnv(t)
+
+	t.Run("interval_slots_march", func(t *testing.T) {
+		before := time.Now().UTC()
+		code, got := callJSON[schedulePreview](t, client, env.server.URL,
+			http.MethodPost, "/api/jobs/preview", map[string]any{
+				"scheduleKind":    store.ScheduleInterval,
+				"intervalSeconds": 1800,
+			})
+		require.Equal(t, http.StatusOK, code)
+		require.Len(t, got.Times, 3) // the editor's default
+
+		for i, want := range []int64{1, 2, 3} {
+			slot := got.Times[i].UTC()
+			assert.WithinDuration(t,
+				before.Add(time.Duration(want)*30*time.Minute), slot, 5*time.Second)
+		}
+	})
+
+	t.Run("daily_resolves_in_zone", func(t *testing.T) {
+		code, got := callJSON[schedulePreview](t, client, env.server.URL,
+			http.MethodPost, "/api/jobs/preview", map[string]any{
+				"scheduleKind": store.ScheduleDaily,
+				"dailyTime":    "09:00",
+				"tz":           "UTC",
+			})
+		require.Equal(t, http.StatusOK, code)
+		require.Len(t, got.Times, 3)
+
+		for i, slot := range got.Times {
+			utc := slot.UTC()
+			assert.Equal(t, "09:00", utc.Format("15:04"), "slot %d", i)
+		}
+		require.Equal(t, 24*time.Hour, got.Times[1].Sub(got.Times[0]))
+	})
+
+	t.Run("count_is_clamped", func(t *testing.T) {
+		code, got := callJSON[schedulePreview](t, client, env.server.URL,
+			http.MethodPost, "/api/jobs/preview", map[string]any{
+				"scheduleKind":    store.ScheduleInterval,
+				"intervalSeconds": 60,
+				"count":           10_000,
+			})
+		require.Equal(t, http.StatusOK, code)
+		assert.Len(t, got.Times, maxPreviewSlots)
+	})
+
+	t.Run("invalid_schedule_is_400", func(t *testing.T) {
+		code, _ := callJSON[struct{}](t, client, env.server.URL,
+			http.MethodPost, "/api/jobs/preview", map[string]any{
+				"scheduleKind": store.ScheduleDaily,
+				"dailyTime":    "25:00",
+			})
+		assert.Equal(t, http.StatusBadRequest, code)
+	})
+
+	t.Run("workspace_check_rides_along", func(t *testing.T) {
+		code, ok := callJSON[schedulePreview](t, client, env.server.URL,
+			http.MethodPost, "/api/jobs/preview", map[string]any{
+				"scheduleKind":    store.ScheduleInterval,
+				"intervalSeconds": 60,
+				"workspace":       env.dir,
+			})
+		require.Equal(t, http.StatusOK, code)
+		assert.Empty(t, ok.WorkspaceError)
+
+		code, bad := callJSON[schedulePreview](t, client, env.server.URL,
+			http.MethodPost, "/api/jobs/preview", map[string]any{
+				"scheduleKind":    store.ScheduleInterval,
+				"intervalSeconds": 60,
+				"workspace":       "/nonexistent-swarm-test",
+			})
+		require.Equal(t, http.StatusOK, code)
+		assert.Contains(t, bad.WorkspaceError, "workspace")
+	})
+}

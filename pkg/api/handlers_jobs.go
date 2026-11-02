@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jentfoo/ajent-swarm/pkg/sched"
@@ -12,6 +13,56 @@ import (
 
 // maxRunLimit caps one history page.
 const maxRunLimit = 1000
+
+// Schedule preview bounds; the editor asks for three slots.
+const (
+	defaultPreviewSlots = 3
+	maxPreviewSlots     = 50
+)
+
+// previewRequest is the POST /api/jobs/preview body: one draft job's fields,
+// of which only the schedule (and an optional workspace check) matter, plus
+// how many slots to compute.
+type previewRequest struct {
+	store.Job
+	Count int `json:"count,omitempty"`
+}
+
+// schedulePreview answers a preview request: the next fires of the draft's
+// schedule and what its workspace path check made of the filesystem.
+type schedulePreview struct {
+	Times          []time.Time `json:"times"`
+	WorkspaceError string      `json:"workspaceError,omitempty"`
+}
+
+// handleJobPreview computes one draft schedule's next fires through the same
+// evaluation code the trigger loop advances jobs with, so clients never
+// duplicate scheduling semantics. Schedule problems answer 400; a workspace
+// check reports in the reply, since an editor fixes one field at a time.
+func (s *apiServer) handleJobPreview(w http.ResponseWriter, r *http.Request) {
+	var req previewRequest
+	if !readRequest(w, r, &req) {
+		return
+	}
+	count := max(min(req.Count, maxPreviewSlots), 0)
+	if count == 0 {
+		count = defaultPreviewSlots
+	}
+
+	reply := schedulePreview{Times: []time.Time{}}
+	if ws := strings.TrimSpace(req.Workspace); ws != "" {
+		if err := sched.CheckWorkspace(ws); err != nil {
+			reply.WorkspaceError = err.Error()
+		}
+	}
+	times, err := sched.PreviewTimes(req.Job, time.Now(), count)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	reply.Times = times
+	writeJSON(w, http.StatusOK, reply)
+}
 
 // jobRequest is the POST and PUT body for a job. Enabled rides separately so
 // an omitted field keeps its current value instead of silently disabling.

@@ -1,0 +1,159 @@
+import { useCallback, useMemo, useState } from 'react'
+import { ApiError } from '../api/client'
+import { jobsApi, runsApi } from '../api/endpoints'
+import type { Job, Run, RunStatus } from '../api/types'
+import { usePoll } from '../hooks/usePoll'
+import { JobTabs } from '../jobs/JobTabs'
+import { runStatusClass, formatDuration, formatTimestamp } from '../jobs/schedule'
+import { RunDetail } from '../jobs/RunDetail'
+
+const pollRunsMs = 10_000
+
+// RunHistory is the filterable table over /api/runs: by job through the
+// backend's ?job= parameter, by status client-side. Clicking a row explains
+// what happened without opening logs.
+export default function RunsHistory() {
+  const [jobs, setJobs] = useState<Job[]>([])
+  const [runs, setRuns] = useState<Run[] | null>(null)
+  const [error, setError] = useState('')
+  const [jobFilter, setJobFilter] = useState<number | ''>('')
+  const [statusFilter, setStatusFilter] = useState<'' | RunStatus>('')
+  const [selected, setSelected] = useState<Run | undefined>(undefined)
+
+  // The explicit job filter takes the value so a change reloads at once; the
+  // poll's initial tick covers the mount-time load and later cadence ticks
+  // read the latest filter through the callback ref.
+  const load = useCallback(
+    async (jobId: number | '' = jobFilter) => {
+      try {
+        const [rows, jobRows] = await Promise.all([
+          runsApi.list(jobId === '' ? undefined : jobId),
+          jobsApi.list(),
+        ])
+        setRuns(rows)
+        setJobs(jobRows)
+        setError('')
+      } catch (err) {
+        setError(err instanceof ApiError ? err.message : 'Loading run history failed.')
+      }
+    },
+    [jobFilter],
+  )
+
+  usePoll(() => void load(), pollRunsMs)
+
+  const jobName = useCallback(
+    (run: Run) => jobs.find((j) => j.id === run.jobId)?.name ?? '',
+    [jobs],
+  )
+
+  const visible = useMemo(
+    () => (runs ?? []).filter((r) => statusFilter === '' || r.status === statusFilter),
+    [runs, statusFilter],
+  )
+
+  return (
+    <div aria-label="Run history">
+      <JobTabs active="runs" />
+
+      <div className="session-header">
+        <h1 style={{ margin: 0, fontSize: 'inherit' }}>Run history</h1>
+        <span className="spacer" style={{ flex: 1 }} />
+        <label className="runs-filter">
+          Job{' '}
+          <select
+            value={jobFilter}
+            onChange={(ev) => {
+              const v = ev.target.value === '' ? ('' as const) : Number(ev.target.value)
+              setJobFilter(v)
+              void load(v)
+            }}
+          >
+            <option value="">All jobs</option>
+            {jobs.map((j) => (
+              <option key={j.id} value={j.id}>
+                {j.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="runs-filter">
+          Status{' '}
+          <select
+            value={statusFilter}
+            onChange={(ev) => setStatusFilter(ev.target.value as '' | RunStatus)}
+          >
+            <option value="">All</option>
+            {runStatuses.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      {error !== '' && (
+        <p className="error-text" role="alert">
+          {error}
+        </p>
+      )}
+
+      {runs !== null && runs.length === 0 ? (
+        <p className="muted">No runs yet. Fire a job or wait for its schedule.</p>
+      ) : visible.length === 0 && runs !== null && runs.length > 0 ? (
+        <p className="muted">No runs match these filters.</p>
+      ) : (
+        runs !== null &&
+        visible.length > 0 && (
+          <table className="runs-table">
+            <thead>
+              <tr>
+                <th>Started</th>
+                <th>Job</th>
+                <th>Status</th>
+                <th>Duration</th>
+                <th>Prompt</th>
+                <th aria-label="Details" />
+              </tr>
+            </thead>
+            <tbody>
+              {visible.map((r) => (
+                <tr
+                  key={r.id}
+                  onClick={() => setSelected(r)}
+                  className="run-row"
+                  data-testid={`run-${r.id}`}
+                >
+                  <td>{formatTimestamp(r.startedAt)}</td>
+                  <td>{jobName(r) || '—'}</td>
+                  <td>
+                    <span className={runStatusClass(r.status)}>{r.status}</span>
+                    {r.error && <div className="muted small-note run-error-excerpt">{r.error}</div>}
+                  </td>
+                  <td>{formatDuration(r.startedAt, r.finishedAt)}</td>
+                  <td className="run-prompt-cell">{(r.prompt ?? '').slice(0, 80) || '—'}</td>
+                  <td>
+                    <button
+                      type="button"
+                      onClick={(ev) => {
+                        ev.stopPropagation()
+                        setSelected(r)
+                      }}
+                    >
+                      Details
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )
+      )}
+
+      {selected && <RunDetail run={selected} onClose={() => setSelected(undefined)} />}
+    </div>
+  )
+}
+
+const runStatuses: RunStatus[] = ['running', 'awaiting_input', 'ok', 'failed', 'timeout', 'skipped']

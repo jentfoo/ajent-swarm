@@ -65,10 +65,13 @@ type ChildFrame struct {
 }
 
 // ErrorFrame reports a refused stream verb; the connection stays open.
+// SessionID names the session the refusal applies to, empty for frame-level
+// problems (bad JSON, unknown verbs) that name no session.
 type ErrorFrame struct {
-	Type    string `json:"type"`
-	Code    string `json:"code"`
-	Message string `json:"message,omitempty"`
+	Type      string `json:"type"`
+	SessionID string `json:"sessionId,omitempty"`
+	Code      string `json:"code"`
+	Message   string `json:"message,omitempty"`
 }
 
 // HeartbeatFrame is the periodic liveness signal every open stream receives.

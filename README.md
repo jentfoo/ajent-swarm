@@ -7,22 +7,23 @@ Central controller for managing multiple [ajent](https://github.com/jentfoo/ajen
 
 ## Status
 
-Phases 02 through 06 are implemented: flags, SQLite state store, unix-user
-auth with bcrypt passwords, the HTTP server shell serving an embedded
-placeholder UI, daemon modes, plus the fleet: a registry watch spawning one
-actor per live ajent instance, seat ownership, watermark reconciliation, and a
-multiplexed `/api/stream` WebSocket that fans reconciled state out to any
-number of viewers. Swarm can launch `ajent --serve` children (new, resumed,
-continued, or create-or-resume by name), track them to exit with captured
-logs, stop them through `/exit` with signal fallback, re-adopt them across
-restarts, and list saved sessions with offline transcript browsing; the full
-command API proxies submit, interrupt, mode changes, rewind, dialogs and
+Phases 02 through 07 are implemented: flags, SQLite state store, unix-user
+auth with bcrypt passwords, daemon modes, and the fleet (a registry watch
+spawning one actor per live ajent instance, seat ownership, watermark
+reconciliation, and a multiplexed `/api/stream` WebSocket that fans reconciled
+state out to any number of viewers). Swarm can launch `ajent --serve` children
+(new, resumed, continued, or create-or-resume by name), track them to exit with
+captured logs, stop them through `/exit` with signal fallback, re-adopt them
+across restarts, and list saved sessions with offline transcript browsing; the
+full command API proxies submit, interrupt, mode changes, rewind, dialogs and
 recalls onto live sessions. A persistent scheduler defines jobs (one-shot,
 interval or daily in any IANA zone) that launch headless runs on schedule with
 optional shell prefixes and prompts, watch them settle through the control
 socket, park at permission barriers as `awaiting_input`, and record full run
-history under bounded retention. The real frontend arrives in later phases
-(see `docs/phases/`).
+history under bounded retention. The React frontend ships auth screens, the
+desktop and mobile shells, a sessions home, and the stateful core (a shared
+stream client with per-session reference counting plus a fixture-tested
+EventApplier) that later UI phases build on.
 
 ## Requirements
 
@@ -60,9 +61,26 @@ down when the service exits.
 ## Development
 
 ```sh
-make test                 # fast unit tests
+make test                 # fast Go unit tests
+make test-web             # frontend unit tests (vitest, hermetic)
+make web-check            # lint + typecheck + test + build the frontend
+make dist                 # build web/ into pkg/web/dist for go:embed
 make test-all             # with -race and coverage
 make test-integration     # env-guarded: builds the binary, exercises daemon mode
 make test-integration-fleet # env-guarded: builds ajent, exercises the launch path
 make lint                 # gofmt + golangci-lint + go vet
 ```
+
+### Frontend
+
+The UI lives in `web/` (Vite, React, TypeScript). Build output is committed
+to `pkg/web/dist` and embedded through `go:embed`, so a plain `make build`
+serves the last generated bundle; run `make dist` after changing anything
+under `web/`. Frontend work needs pnpm (`PNPM=... make dist` overrides).
+
+```sh
+cd web
+pnpm install
+pnpm dev    # vite dev server on :5173, proxying /api (and the stream) at 127.0.0.1:8282
+```
+

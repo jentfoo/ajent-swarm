@@ -372,7 +372,9 @@ func (a *sessionActor) handle(m actorMsg) {
 		if a.hub.has(msg.sub.id) {
 			msg.sub.publishFrame(a.buildInit())
 		} else {
-			msg.sub.publishFrame(mustJSON(ErrorFrame{Type: FrameError, Code: "not_subscribed"}))
+			msg.sub.publishFrame(mustJSON(ErrorFrame{
+				Type: FrameError, SessionID: msg.sub.sessionID, Code: "not_subscribed",
+			}))
 		}
 	case msgTakeControl:
 		a.handleTakeControl(msg)

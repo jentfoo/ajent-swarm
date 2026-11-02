@@ -241,6 +241,62 @@ func TestStreamHeartbeatFlows(t *testing.T) {
 	assert.Equal(t, "heartbeat", f.Type)
 }
 
+func TestStreamMultiViewerIsolation(t *testing.T) {
+	server, client, home := newFleetAPI(t)
+
+	f := fleettest.New(t, home, fleettest.Options{SessionID: "01MULTIVIEW000000"})
+	first := entryOf("01MVENTRYA0000000", "")
+	f.SetSnapshot(ctl.State{
+		Session: ctl.Session{ID: f.SessionID()},
+		Model:   ctl.ModelState{Key: "p/m"},
+	})
+	f.WriteTranscript(t, first)
+	f.WriteRegistry(t, os.Getpid(), time.Now())
+	waitOnline(t, client, server.URL, f.SessionID())
+
+	cookie := authCookie(t, client, server.URL)
+	header := http.Header{"Cookie": []string{cookie}}
+	ws1, _, err := dialStream(t, server.URL, header)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ws1.Close() })
+	ws2, _, err := dialStream(t, server.URL, header)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ws2.Close() })
+
+	sendFrame(t, ws1, fleet.ClientFrame{Type: "subscribe", SessionID: f.SessionID()})
+	sendFrame(t, ws2, fleet.ClientFrame{Type: "subscribe", SessionID: f.SessionID()})
+	for _, ws := range []*websocket.Conn{ws1, ws2} {
+		var init fleet.InitFrame
+		require.NoError(t, json.Unmarshal(readWSRaw(t, ws), &init))
+		assert.Equal(t, f.SessionID(), init.SessionID)
+	}
+
+	// One viewer leaves; the other keeps streaming.
+	sendFrame(t, ws1, fleet.ClientFrame{Type: "unsubscribe", SessionID: f.SessionID()})
+	f.Broadcast(ctl.EventIdle, ctl.IdleData{Idle: true})
+	ev := expectWSFrame(t, ws2, "event")
+	assert.Equal(t, ctl.EventIdle, ev.Event.Name)
+
+	// Refused subscribes name their session, so per-session viewers can route
+	// the failure instead of guessing. A racing event may still be queued in
+	// front, so drain until the error frame arrives.
+	sendFrame(t, ws1, fleet.ClientFrame{Type: "subscribe", SessionID: "01NOBODY00000000"})
+	var refused fleet.ErrorFrame
+	for range 50 {
+		var env struct {
+			Type string `json:"type"`
+			fleet.ErrorFrame
+		}
+		require.NoError(t, json.Unmarshal(readWSRaw(t, ws1), &env))
+		if env.Type == "error" {
+			refused = env.ErrorFrame
+			break
+		}
+	}
+	assert.Equal(t, "unknown_session", refused.Code)
+	assert.Equal(t, "01NOBODY00000000", refused.SessionID)
+}
+
 func TestSessionEndpointsOverFleet(t *testing.T) {
 	server, client, home := newFleetAPI(t)
 

@@ -1,0 +1,234 @@
+// Wire shapes the swarm REST surface serves, mirroring ajent's pkg/ctl
+// structs and the fleet listing rows field for field.
+
+export interface SessionInfo {
+  id: string
+  name?: string
+}
+
+export interface Caps {
+  reasoning: boolean
+  images: boolean
+  parallelToolCalls: boolean
+}
+
+export interface ModelState {
+  key: string
+  short: string
+  window: number
+  caps: Caps
+}
+
+export interface ToolState {
+  name: string
+  source: string
+  enabled: boolean
+  readOnly: boolean
+}
+
+export interface UsageData {
+  input: number
+  output: number
+  cacheRead: number
+  cacheWrite: number
+  reasoning: number
+}
+
+export interface UsageState {
+  turns: number
+  total: UsageData
+  child: UsageData
+  byModel?: Record<string, UsageData>
+  estimatedTurns: number
+}
+
+export interface ContextData {
+  used: number
+  window: number
+  reserve: number
+  compact: number
+  estimated: boolean
+}
+
+export interface QueueRow {
+  id: string
+  text: string // empty for secret rows; the id always travels
+}
+
+export interface ActivityRow {
+  key: string
+  text: string
+  rank: number
+}
+
+export interface Segment {
+  key: string
+  text: string
+  short?: string
+  order: number
+}
+
+export interface SeatState {
+  held: boolean
+  holder?: string
+  yours: boolean
+}
+
+export interface InteractionPending {
+  id: number
+  kind: string // display hint only; answer shapes come from the flags
+  prompt: string
+  subject?: string
+  options?: string[]
+  multi?: boolean
+  text?: boolean
+  secret?: boolean
+  chat?: boolean
+}
+
+// CtlState is one state.get snapshot, the same shape a stream init carries.
+export interface CtlState {
+  session: SessionInfo
+  workspace: string
+  cwd: string
+  head: string
+  model: ModelState
+  permission: string // mode name, '' when no gate exists
+  tools?: ToolState[]
+  usage: UsageState
+  context: ContextData
+  running: boolean
+  idle: boolean
+  spinning: boolean
+  queued: number
+  queuedRows?: QueueRow[]
+  activity?: ActivityRow[]
+  status?: { segments?: Segment[] }
+  seat: SeatState
+  interactions?: InteractionPending[]
+}
+
+// Entry is one transcript line. Data stays opaque here; renderers decode the
+// per-type payloads they know and ignore the rest.
+export interface Entry {
+  id: string
+  parentId?: string
+  type: string
+  ts: number // unix milliseconds
+  data?: unknown
+}
+
+// --- stream frames, mirroring pkg/fleet/wire.go ---
+
+export interface InitFrame {
+  type: 'init'
+  sessionId: string
+  state: CtlState
+  entries: Entry[]
+  cursor?: string // id of the oldest entry included, empty when history starts there
+}
+
+export interface WireEvent {
+  event: string
+  seq: number
+  data?: unknown
+}
+
+export interface EventFrame {
+  type: 'event'
+  sessionId: string
+  event: WireEvent
+}
+
+// Child states ride child frames and the listing: lifecycle facts only swarm
+// knows, never announced by ajent itself.
+export const ChildState = {
+  Online: 'online',
+  Reconnecting: 'reconnecting',
+  Exited: 'exited',
+  Gone: 'gone',
+} as const
+
+export interface ChildFrame {
+  type: 'child'
+  sessionId: string
+  state: (typeof ChildState)[keyof typeof ChildState]
+  detail?: string
+}
+
+export interface ErrorFrame {
+  type: 'error'
+  sessionId?: string // absent for frame-level refusals that name no session
+  code: string
+  message?: string
+}
+
+export interface HeartbeatFrame {
+  type: 'heartbeat'
+}
+
+export type ServerFrame = InitFrame | EventFrame | ChildFrame | ErrorFrame | HeartbeatFrame
+
+// --- REST payload shapes ---
+
+// SessionStatus is one row of GET /api/sessions.
+export interface SessionStatus {
+  sessionId: string
+  name?: string
+  workspace?: string
+  model?: string
+  pid?: number
+  state: (typeof ChildState)[keyof typeof ChildState]
+  detail?: string
+  seatHeld: boolean
+  seatHolder?: string
+  seatOurs: boolean
+  running: boolean
+  idle: boolean
+  openInteractions: number
+  lastTurnEnd?: number // unix milliseconds
+  spawnedBy: 'swarm' | 'external'
+  argv?: string
+  logPath?: string
+  exitCode?: number | null
+  logTail?: string
+}
+
+// AttentionRow is one live session's row of GET /api/attention.
+export interface AttentionRow {
+  sessionId: string
+  openInteractions: number
+  running: boolean
+  idle: boolean
+  lastTurnEnd?: number // unix milliseconds
+}
+
+// EntriesPage is one page of committed history plus the cursor to continue.
+export interface EntriesPage {
+  entries: Entry[]
+  cursor?: string
+}
+
+// MeReply is GET /api/me for an authenticated principal.
+export interface MeReply {
+  username: string
+  via: string
+}
+
+export type LaunchMode = 'new' | 'resume' | 'continue' | 'session'
+
+export interface LaunchRequest {
+  workspace: string
+  mode?: LaunchMode
+  target?: string
+  model?: string
+  permission?: string
+  commandPrefix?: string
+}
+
+export interface LaunchResult {
+  sessionId: string
+  pid: number
+  workspace: string
+  logPath: string
+}

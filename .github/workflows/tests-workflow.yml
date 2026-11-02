@@ -53,3 +53,27 @@ jobs:
       - name: Run unit tests
         run: make test
 
+  web:
+    name: Verify Frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version-file: web/.node-version
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Lint, typecheck and test
+        run: |
+          make web-check
+          # Fail if the committed embed is stale against web/ sources
+          git diff --exit-code pkg/web/dist
+

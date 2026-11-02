@@ -1,0 +1,4 @@
+# esbuild ships a postinstall that pnpm blocks by default; only this one is
+# needed, so the allowlist stays pinned to it.
+allowBuilds:
+  esbuild: true

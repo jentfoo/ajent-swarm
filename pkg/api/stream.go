@@ -109,7 +109,7 @@ func (sc *streamConn) readPump() {
 
 		var f fleet.ClientFrame
 		if err := json.Unmarshal(raw, &f); err != nil {
-			sc.pushError("bad_request", "frame is not valid JSON")
+			sc.pushError("bad_request", "frame is not valid JSON", "")
 			continue
 		}
 		switch f.Type {
@@ -120,7 +120,7 @@ func (sc *streamConn) readPump() {
 		case fleet.FrameSync:
 			sc.sync(&f)
 		default:
-			sc.pushError("bad_request", "unknown frame type "+f.Type)
+			sc.pushError("bad_request", "unknown frame type "+f.Type, f.SessionID)
 		}
 	}
 }
@@ -129,7 +129,7 @@ func (sc *streamConn) readPump() {
 // subscribe re-syncs instead of stacking a second seat on the same pane.
 func (sc *streamConn) subscribe(f *fleet.ClientFrame) {
 	if f.SessionID == "" {
-		sc.pushError("bad_request", "subscribe needs a sessionId")
+		sc.pushError("bad_request", "subscribe needs a sessionId", "")
 		return
 	}
 	sc.mu.Lock()
@@ -146,7 +146,7 @@ func (sc *streamConn) subscribe(f *fleet.ClientFrame) {
 		if !errors.Is(err, fleet.ErrUnknownSession) {
 			code = "subscribe_failed"
 		}
-		sc.pushError(code, "")
+		sc.pushError(code, "", f.SessionID)
 		return
 	}
 	sc.subs[f.SessionID] = sub
@@ -155,7 +155,7 @@ func (sc *streamConn) subscribe(f *fleet.ClientFrame) {
 
 func (sc *streamConn) unsubscribe(sessionID string) {
 	if sessionID == "" {
-		sc.pushError("bad_request", "unsubscribe needs a sessionId")
+		sc.pushError("bad_request", "unsubscribe needs a sessionId", "")
 		return
 	}
 	sc.mu.Lock()
@@ -168,22 +168,25 @@ func (sc *streamConn) unsubscribe(sessionID string) {
 // sync re-pushes one subscription's init so a client can rebuild in place.
 func (sc *streamConn) sync(f *fleet.ClientFrame) {
 	if f.SessionID == "" {
-		sc.pushError("bad_request", "sync needs a sessionId")
+		sc.pushError("bad_request", "sync needs a sessionId", "")
 		return
 	}
 	sc.mu.Lock()
 	sub := sc.subs[f.SessionID]
 	sc.mu.Unlock()
 	if sub == nil {
-		sc.pushError("not_subscribed", "")
+		sc.pushError("not_subscribed", "", f.SessionID)
 		return
 	}
 	sc.srv.fleet.Resync(sub)
 }
 
-// pushError queues one error frame; the connection stays open.
-func (sc *streamConn) pushError(code, message string) {
-	frame, _ := json.Marshal(fleet.ErrorFrame{Type: fleet.FrameError, Code: code, Message: message})
+// pushError queues one error frame; the connection stays open. SessionID may
+// be empty for frame-level refusals that name no session.
+func (sc *streamConn) pushError(code, message, sessionID string) {
+	frame, _ := json.Marshal(fleet.ErrorFrame{
+		Type: fleet.FrameError, SessionID: sessionID, Code: code, Message: message,
+	})
 	sc.deliver(frame)
 }
 

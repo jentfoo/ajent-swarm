@@ -2,6 +2,9 @@ export GO111MODULE = on
 
 LDFLAGS := -ldflags "-s -w"
 
+# Package manager for the frontend in web/ (see docs/phases/07-frontend-scaffold.md)
+PNPM ?= pnpm
+
 ifneq ($(shell command -v bash),)
 test test-all: SHELL := bash
 test test-all: .SHELLFLAGS := -o pipefail -c
@@ -9,7 +12,7 @@ test test-all: .SHELLFLAGS := -o pipefail -c
 _FILTER := | { grep -v "no test files" || true; }; exit $${PIPESTATUS[0]}
 endif
 
-.PHONY: build clean test test-all test-integration test-cover bench fmt-changed lint
+.PHONY: build clean dist test test-all test-web web-check test-integration test-cover bench fmt-changed lint
 
 build:
 	@mkdir -p bin
@@ -20,8 +23,23 @@ PLATFORMS := linux-amd64 linux-arm64 darwin-amd64 darwin-arm64
 clean:
 	rm -rf bin/
 
+# builds the frontend into pkg/web/dist, where go:embed picks it up; run this
+# after changing anything under web/ before make build
+dist:
+	cd web && $(PNPM) install --frozen-lockfile && $(PNPM) build
+
 test:
 	go test -short ./... $(_FILTER)
+
+# unit tests for the web app, hermetic: no service or ajent binary needed
+test-web:
+	cd web && $(PNPM) install --frozen-lockfile && $(PNPM) test
+
+# everything the frontend needs checked in one pass: build (which typechecks),
+# then unit tests, lint and format; CI runs this too
+web-check:
+	$(MAKE) dist
+	cd web && $(PNPM) test && $(PNPM) lint && $(PNPM) format:check
 
 test-all:
 	go test -race -cover ./... $(_FILTER)

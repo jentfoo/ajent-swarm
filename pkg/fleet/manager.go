@@ -43,6 +43,17 @@ type Options struct {
 
 	// Discover reads the live registry; client.DiscoverLive when unset.
 	Discover func() ([]ctl.Instance, error)
+
+	// Child launching: AjentBin and ChildrenDir must both be set for Launch
+	// to work. ChildStore persistence enables orphan re-adoption across
+	// restarts; KillOnExit opts into terminating running children at Stop.
+	AjentBin    string
+	ChildrenDir string
+	ChildStore  ChildStore
+	KillOnExit  bool
+	LaunchWait  time.Duration // spawn-to-socket deadline
+	ExitGrace   time.Duration // /exit settles before SIGTERM
+	TermGrace   time.Duration // SIGTERM before SIGKILL
 }
 
 // Manager tracks every live ajent instance and owns its actors' lifecycles.
@@ -51,19 +62,31 @@ type Manager struct {
 	pollInterval    time.Duration
 	dialBackoffBase time.Duration
 	dialBackoffMax  time.Duration
-	owned           func(ctl.Instance) bool
+	optsOwned       func(ctl.Instance) bool
 	discover        func() ([]ctl.Instance, error)
+
+	bin         string
+	childrenDir string
+	childStore  ChildStore
+	killOnExit  bool
+	launchWait  time.Duration
+	exitGrace   time.Duration
+	termGrace   time.Duration
 
 	ctx      context.Context
 	cancel   context.CancelFunc
+	storeCtx context.Context // never canceled: child bookkeeping outlives every caller
 	wg       sync.WaitGroup
 	stopOnce sync.Once
 
-	mu        sync.Mutex
-	actors    map[actorKey]*sessionActor
-	subs      map[int64]*subscription
-	bySession map[string]map[int64]*subscription
-	nextSubID int64 // manager-owned subscription identity
+	mu             sync.Mutex
+	actors         map[actorKey]*sessionActor
+	subs           map[int64]*subscription
+	bySession      map[string]map[int64]*subscription
+	nextSubID      int64 // manager-owned subscription identity
+	nudge          chan struct{}
+	children       map[int]*childProc // by pid, running and exited
+	childBySession map[string]int
 }
 
 // New builds a manager; Start begins the registry watch.
@@ -76,13 +99,23 @@ func New(opts Options) *Manager {
 		pollInterval:    cmpOr(opts.PollInterval, pollEvery),
 		dialBackoffBase: cmpOr(opts.BackoffBase, dialBackoffBase),
 		dialBackoffMax:  cmpOr(opts.BackoffMax, dialBackoffMax),
-		owned:           opts.Owned,
+		optsOwned:       opts.Owned,
+		bin:             opts.AjentBin,
+		childrenDir:     opts.ChildrenDir,
+		childStore:      opts.ChildStore,
+		killOnExit:      opts.KillOnExit,
+		launchWait:      cmpOr(opts.LaunchWait, launchWaitDefault),
+		exitGrace:       cmpOr(opts.ExitGrace, exitGraceDefault),
+		termGrace:       cmpOr(opts.TermGrace, termGraceDefault),
 		actors:          make(map[actorKey]*sessionActor),
 		subs:            make(map[int64]*subscription),
 		bySession:       make(map[string]map[int64]*subscription),
+		nudge:           make(chan struct{}, 1),
+		children:        make(map[int]*childProc),
+		childBySession:  make(map[string]int),
 	}
-	if m.owned == nil {
-		m.owned = func(ctl.Instance) bool { return false } // phase 04 registers children
+	if m.optsOwned == nil {
+		m.optsOwned = func(ctl.Instance) bool { return false }
 	}
 	if m.discover == nil {
 		m.discover = client.DiscoverLive
@@ -97,9 +130,23 @@ func cmpOr(v, fallback time.Duration) time.Duration {
 	return fallback
 }
 
+// ownedInstance reports whether swarm spawned the instance's process,
+// directly or via re-adoption, so the seat policy can force-claim it.
+func (m *Manager) ownedInstance(inst ctl.Instance) bool {
+	if m.optsOwned(inst) {
+		return true
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cp, ok := m.children[inst.PID]
+	return ok && cp.rec.ExitedAt.IsZero()
+}
+
 // Start begins watching the registry until Stop.
 func (m *Manager) Start(ctx context.Context) {
 	m.ctx, m.cancel = context.WithCancel(ctx)
+	m.storeCtx = context.WithoutCancel(ctx)
+	m.adopt(ctx)
 	m.wg.Add(1)
 	go func() {
 		defer m.wg.Done()
@@ -107,7 +154,8 @@ func (m *Manager) Start(ctx context.Context) {
 	}()
 }
 
-// Stop shuts every actor down and releases its subscribers.
+// Stop shuts every actor down and releases its subscribers. Children
+// outlive it unless the operator asked for them to be taken down too.
 func (m *Manager) Stop() {
 	m.stopOnce.Do(func() {
 		if m.cancel != nil {
@@ -124,6 +172,10 @@ func (m *Manager) Stop() {
 		for _, sub := range subs {
 			sub.close()
 		}
+
+		if m.killOnExit {
+			m.killChildren()
+		}
 	})
 }
 
@@ -136,7 +188,9 @@ func (m *Manager) watch(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-time.After(interval):
+		case <-m.nudge: // a fresh child wants attaching without the wait
 		}
+		m.reconcileAdopted()
 		if err := m.diff(); err != nil { //nolint:contextcheck // actors bind their context at spawn; requests cross the mailbox, not call chains
 			m.log.Warn("discovery failed", "err", err)
 			interval = min(interval*2, pollErrorMax)
@@ -422,18 +476,75 @@ func (m *Manager) route(sessionID string) *sessionActor {
 	return m.actorForLocked(sessionID)
 }
 
-// Sessions lists every tracked instance's reconciled state, sorted by id.
+// Sessions lists one row per known session, sorted by id: live actors carry
+// their reconciled state, children add spawn facts, and children no longer
+// tracked stand alone as exited or waiting rows.
 func (m *Manager) Sessions() []Status {
 	m.mu.Lock()
 	actors := bulk.MapValuesSlice(m.actors)
+	byPID := make(map[int]ChildRecord, len(m.children))
+	for _, cp := range m.children {
+		byPID[cp.rec.PID] = cp.rec
+	}
 	m.mu.Unlock()
 
-	out := make([]Status, 0, len(actors))
+	bySession := make(map[string]*Status, len(actors)+len(byPID))
 	for _, a := range actors {
-		out = append(out, *a.status.Load())
+		st := *a.status.Load()
+		st.SpawnedBy = SpawnedByExternal
+		if rec, ok := byPID[st.PID]; ok {
+			decorateChild(&st, rec)
+		}
+		bySession[st.SessionID] = &st
+	}
+	for _, rec := range byPID {
+		if rec.SessionID == "" {
+			continue // never served: the launch error told its story
+		}
+		if st, ok := bySession[rec.SessionID]; ok {
+			decorateChild(st, rec)
+			continue
+		}
+		st := childStatus(rec)
+		bySession[rec.SessionID] = &st
+	}
+	out := make([]Status, 0, len(bySession))
+	for _, st := range bySession {
+		out = append(out, *st)
 	}
 	slices.SortFunc(out, func(a, b Status) int { return strings.Compare(a.SessionID, b.SessionID) })
 	return out
+}
+
+// decorateChild folds a child record's spawn facts into a listing row.
+func decorateChild(st *Status, rec ChildRecord) {
+	st.SpawnedBy = SpawnedBySwarm
+	st.Argv = rec.Argv
+	st.LogPath = rec.LogPath
+	st.ExitCode = rec.ExitCode
+	st.LogTail = rec.LogTail
+}
+
+// childStatus renders a child no actor tracks: reaped ones keep their exit
+// facts, running ones wait for a control socket to serve.
+func childStatus(rec ChildRecord) Status {
+	st := Status{
+		SessionID: rec.SessionID,
+		Workspace: rec.Workspace,
+		PID:       rec.PID,
+		State:     ChildReconnecting,
+		Detail:    "waiting for its control socket",
+		SpawnedBy: SpawnedBySwarm,
+		Argv:      rec.Argv,
+		LogPath:   rec.LogPath,
+		ExitCode:  rec.ExitCode,
+		LogTail:   rec.LogTail,
+	}
+	if !rec.ExitedAt.IsZero() {
+		st.State = ChildExited
+		st.Detail = rec.ExitNote
+	}
+	return st
 }
 
 // Subscription is the caller's handle on one stream registration.

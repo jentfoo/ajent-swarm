@@ -20,17 +20,11 @@ func (s *apiServer) handleSessionList(w http.ResponseWriter, r *http.Request) {
 // handleSessionEntries pages through one session's committed entries with the
 // full payload every time: base64 image bodies load lazily here.
 func (s *apiServer) handleSessionEntries(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	limit := defaultPageLimit
-	if raw := r.URL.Query().Get("limit"); raw != "" {
-		parsed, err := strconv.Atoi(raw)
-		if err != nil || parsed < 1 {
-			writeError(w, http.StatusBadRequest, "invalid_request", "limit must be a positive integer")
-			return
-		}
-		limit = parsed
+	limit, ok := parseLimit(w, r)
+	if !ok {
+		return
 	}
-	entries, cursor, err := s.fleet.Entries(r.Context(), id, r.URL.Query().Get("before"), limit)
+	entries, cursor, err := s.fleet.Entries(r.Context(), r.PathValue("id"), r.URL.Query().Get("before"), limit)
 	switch {
 	case errors.Is(err, fleet.ErrUnknownSession):
 		writeError(w, http.StatusNotFound, "session_not_found", "")
@@ -45,6 +39,21 @@ func (s *apiServer) handleSessionEntries(w http.ResponseWriter, r *http.Request)
 type entriesPage struct {
 	Entries []ctl.Entry `json:"entries"`
 	Cursor  string      `json:"cursor,omitempty"`
+}
+
+// parseLimit reads the ?limit paging parameter, answering a 400 and false
+// when it is not a positive integer.
+func parseLimit(w http.ResponseWriter, r *http.Request) (int, bool) {
+	raw := r.URL.Query().Get("limit")
+	if raw == "" {
+		return defaultPageLimit, true
+	}
+	parsed, err := strconv.Atoi(raw)
+	if err != nil || parsed < 1 {
+		writeError(w, http.StatusBadRequest, "invalid_request", "limit must be a positive integer")
+		return 0, false
+	}
+	return parsed, true
 }
 
 // handleTakeControl issues one force claim for the session's control seat,

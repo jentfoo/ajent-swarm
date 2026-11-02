@@ -30,6 +30,7 @@ type cliFlags struct {
 	logPath              string // --log: log file path override
 	ajentBin             string // --ajent-bin: ajent binary path override
 	allowRemoteBootstrap bool   // --allow-remote-bootstrap: non-loopback may set the first password
+	killChildren         bool   // --kill-children-on-shutdown: take spawned children down at exit
 
 	passwordGiven bool // --password appeared, so an empty value is a usage error
 }
@@ -53,6 +54,8 @@ func parseFlags(argv []string) (cliFlags, error) {
 		"path to the ajent binary (default resolved from PATH)")
 	fs.BoolVar(&f.allowRemoteBootstrap, "allow-remote-bootstrap", false,
 		"let a non-loopback peer set the first password")
+	fs.BoolVar(&f.killChildren, "kill-children-on-shutdown", false,
+		"terminate sessions swarm spawned when the service exits (default: they outlive it)")
 
 	if err := fs.Parse(argv); err != nil {
 		return f, err

@@ -31,6 +31,13 @@ test-all:
 test-integration:
 	AJENT_SWARM_INTEGRATION=1 go test -count=1 -run 'TestDaemonLifecycle' ./pkg/app
 
+# builds ajent and exercises the phase 04 launch path against it; guarded so
+# unit runs stay hermetic (see docs/phases/04-launch-resume.md)
+test-integration-fleet:
+	@mkdir -p bin
+	cd ../ajent && go build -o "$(CURDIR)/bin/test-ajent" .
+	AJENT_SWARM_TEST_AJENT="$(CURDIR)/bin/test-ajent" go test -count=1 -run 'TestFleetLaunchIntegration' ./pkg/fleet
+
 test-cover:
 	go test -race -coverprofile=test.out ./... && go tool cover --html=test.out
 

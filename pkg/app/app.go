@@ -16,6 +16,7 @@ type Options struct {
 	LogPath              string // log file path override
 	AjentBin             string // ajent binary override
 	AllowRemoteBootstrap bool   // non-loopback peers may set the first password
+	KillChildren         bool   // terminate spawned children when the service exits
 }
 
 // Run starts the service and returns the process exit code. With Daemon set it

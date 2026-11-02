@@ -57,6 +57,15 @@ type Status struct {
 	Idle             bool   `json:"idle"`
 	OpenInteractions int    `json:"openInteractions"`
 	LastTurnEnd      int64  `json:"lastTurnEnd,omitempty"` // unix milliseconds
+
+	// Spawn facts for children swarm launched: empty fields mean external or
+	// unknown. ExitCode appears once reaped, negative when a signal ended it;
+	// LogTail carries ajent's own failure hints for a reopen affordance.
+	SpawnedBy string `json:"spawnedBy"`
+	Argv      string `json:"argv,omitempty"`
+	LogPath   string `json:"logPath,omitempty"`
+	ExitCode  *int   `json:"exitCode,omitempty"`
+	LogTail   string `json:"logTail,omitempty"`
 }
 
 // actorMsg is one mailbox message; the actor goroutine owns everything else.
@@ -74,6 +83,8 @@ type msgDetach struct{ sub *subscription }
 type msgSync struct{ sub *subscription }
 
 type msgTakeControl struct{ reply chan error }
+
+type msgStop struct{ reply chan error }
 
 type msgEntries struct {
 	before string
@@ -170,14 +181,29 @@ func (a *sessionActor) run() {
 	}
 }
 
-// connectAttempt dials the followed instance and prepares it: seat policy,
-// backfill, fresh view. It reports whether to keep running.
+// connectAttempt dials and prepares the followed instance, retrying under
+// bounded backoff until a connection is live or the actor stops. True means
+// a prepared connection is in place and the serve loop may run.
 func (a *sessionActor) connectAttempt() bool {
+	for {
+		if a.tryConnect() {
+			return true
+		}
+		if a.ctx.Err() != nil || !a.waitBackoff() {
+			return false
+		}
+	}
+}
+
+// tryConnect makes one dial-and-prepare pass, reporting success. A failure
+// lands in the degraded listing state with its detail.
+func (a *sessionActor) tryConnect() bool {
 	target := a.inst
 	if a.gen > 0 { // past the first attempt, follow discovery's rule
 		inst, ok := a.follow()
 		if !ok {
-			return a.degradeWait("waiting for the session to come back")
+			a.publishChild(ChildReconnecting, "waiting for the session to come back")
+			return false
 		}
 		target = inst
 	}
@@ -190,7 +216,8 @@ func (a *sessionActor) connectAttempt() bool {
 		} else {
 			a.log.Debug("dial failed", "err", detail)
 		}
-		return a.degradeWait(detail)
+		a.publishChild(ChildReconnecting, detail)
+		return false
 	}
 
 	a.inst = target
@@ -207,7 +234,8 @@ func (a *sessionActor) connectAttempt() bool {
 
 	if err := a.prepare(conn, hello); err != nil {
 		conn.Close()
-		return a.degradeWait(err.Error())
+		a.publishChild(ChildReconnecting, err.Error())
+		return false
 	}
 	a.backoff = a.mgr.dialBackoffBase
 	return true
@@ -231,7 +259,7 @@ func (a *sessionActor) follow() (ctl.Instance, bool) {
 // prepare claims the seat per policy and seeds the view from backfill.
 func (a *sessionActor) prepare(conn *client.Conn, hello ctl.Hello) error {
 	a.inst.PID = hello.PID
-	if a.mgr.owned(a.inst) { // spawned by swarm: force-claim as holder swarm
+	if a.mgr.ownedInstance(a.inst) { // spawned by swarm: force-claim as holder swarm
 		cctx, cancel := context.WithTimeout(a.ctx, client.CallWait)
 		defer cancel()
 		if _, err := conn.ClaimSeat(cctx, holderName, true); err != nil {
@@ -249,7 +277,7 @@ func (a *sessionActor) prepare(conn *client.Conn, hello ctl.Hello) error {
 	}
 
 	a.view = buildView(snap, branch, watermark)
-	if a.mgr.owned(a.inst) {
+	if a.mgr.ownedInstance(a.inst) {
 		a.view.seat = ctl.SeatState{Held: true, Holder: holderName, Yours: true}
 	}
 	return nil
@@ -337,6 +365,8 @@ func (a *sessionActor) handle(m actorMsg) {
 		}
 	case msgTakeControl:
 		a.handleTakeControl(msg)
+	case msgStop:
+		a.handleStop(msg)
 	case msgEntries:
 		page := entriesPage{entries: []ctl.Entry{}}
 		if a.view != nil {
@@ -426,6 +456,29 @@ func (a *sessionActor) handleTakeControl(msg msgTakeControl) {
 	msg.reply <- nil
 }
 
+// handleStop ends the session through its own front door: claim the seat
+// only when swarm does not hold it, then submit /exit. A held seat surfaces
+// as seat-held rather than displacing its holder.
+func (a *sessionActor) handleStop(msg msgStop) {
+	if a.conn == nil || a.view == nil {
+		msg.reply <- errors.New("session is not connected")
+		return
+	}
+	if !a.view.seat.Yours {
+		cctx, cancel := context.WithTimeout(a.ctx, client.CallWait)
+		defer cancel()
+		if _, err := a.conn.ClaimSeat(cctx, holderName, false); err != nil {
+			msg.reply <- err // seat-held names its holder
+			return
+		}
+		a.view.seat = ctl.SeatState{Held: true, Holder: holderName, Yours: true}
+		a.refreshStatus()
+	}
+	cctx, cancel := context.WithTimeout(a.ctx, client.CallWait)
+	defer cancel()
+	msg.reply <- a.conn.Submit(cctx, ctl.SubmitParams{Line: stopLine})
+}
+
 // exit marks the clean end of a session run.
 func (a *sessionActor) exit(reason string) {
 	if a.state == ChildExited {
@@ -453,13 +506,6 @@ func (a *sessionActor) publishChild(state, detail string) {
 		Type: FrameChild, SessionID: a.key.sessionID, State: state, Detail: detail,
 	})
 	a.refreshStatus()
-}
-
-// degradeWait reports the degraded state and waits out the bounded backoff,
-// draining the mailbox so subscribers come and go even while reconnecting.
-func (a *sessionActor) degradeWait(detail string) bool {
-	a.publishChild(ChildReconnecting, detail)
-	return a.waitBackoff()
 }
 
 // waitBackoff sleeps one backoff step; false means stop.
@@ -520,38 +566,47 @@ func (a *sessionActor) stop() {
 	a.cancel() // context.CancelFunc is idempotent
 }
 
+// mailboxCall sends one request to the actor and awaits its reply, bounded
+// by ctx. build constructs the message around a fresh reply channel.
+func mailboxCall[T any](ctx context.Context, a *sessionActor, build func(chan T) actorMsg) (T, error) {
+	reply := make(chan T, 1)
+	select {
+	case a.mailbox <- build(reply):
+	case <-ctx.Done():
+		var zero T
+		return zero, ctx.Err()
+	case <-a.done:
+		var zero T
+		return zero, errors.New("session is shutting down")
+	}
+	select {
+	case v := <-reply:
+		return v, nil
+	case <-ctx.Done():
+		var zero T
+		return zero, ctx.Err()
+	}
+}
+
 // takeControl routes one force-claim request through the mailbox.
 func (a *sessionActor) takeControl(ctx context.Context) error {
-	reply := make(chan error, 1)
-	select {
-	case a.mailbox <- msgTakeControl{reply: reply}:
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-a.done:
-		return errors.New("session is shutting down")
-	}
-	select {
-	case err := <-reply:
-		return err
-	case <-ctx.Done():
-		return ctx.Err()
-	}
+	err, _ := mailboxCall(ctx, a, func(reply chan error) actorMsg { return msgTakeControl{reply: reply} })
+	return err
+}
+
+// stopExit routes one stop request through the mailbox.
+func (a *sessionActor) stopExit(ctx context.Context) error {
+	err, _ := mailboxCall(ctx, a, func(reply chan error) actorMsg { return msgStop{reply: reply} })
+	return err
 }
 
 // entries routes one paging request through the mailbox.
 func (a *sessionActor) entries(ctx context.Context, before string, limit int) ([]ctl.Entry, string) {
-	msg := msgEntries{before: before, limit: limit, reply: make(chan entriesPage, 1)}
-	select {
-	case a.mailbox <- msg:
-	case <-ctx.Done():
-		return nil, ""
-	case <-a.done:
+	page, err := mailboxCall(ctx, a, func(reply chan entriesPage) actorMsg {
+		return msgEntries{before: before, limit: limit, reply: reply}
+	})
+	if err != nil {
 		return nil, ""
 	}
-	select {
-	case page := <-msg.reply:
-		return page.entries, page.cursor
-	case <-ctx.Done():
-		return nil, ""
-	}
+	return page.entries, page.cursor
 }

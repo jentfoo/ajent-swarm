@@ -29,10 +29,13 @@ var apiMethods = map[string]string{
 	pathMe:             http.MethodGet,
 	auth.BootstrapPath: http.MethodPost,
 
-	"/api/stream":                     http.MethodGet,
-	"/api/sessions":                   http.MethodGet,
-	"/api/sessions/{id}/entries":      http.MethodGet,
-	"/api/sessions/{id}/take-control": http.MethodPost,
+	"/api/stream":                      http.MethodGet,
+	"/api/sessions":                    "GET, POST",
+	"/api/sessions/{id}/entries":       http.MethodGet,
+	"/api/sessions/{id}/stop":          http.MethodPost,
+	"/api/sessions/{id}/take-control":  http.MethodPost,
+	"/api/saved-sessions":              http.MethodGet,
+	"/api/saved-sessions/{id}/entries": http.MethodGet,
 
 	"/api/tokens":        "GET, POST",
 	"/api/tokens/{name}": http.MethodDelete,
@@ -67,8 +70,12 @@ func Handler(cfg Config) http.Handler {
 
 	apiMux.HandleFunc("GET /api/stream", srv.handleStream)
 	apiMux.HandleFunc("GET /api/sessions", srv.handleSessionList)
+	apiMux.HandleFunc("POST /api/sessions", srv.handleLaunch)
 	apiMux.HandleFunc("GET /api/sessions/{id}/entries", srv.handleSessionEntries)
+	apiMux.HandleFunc("POST /api/sessions/{id}/stop", srv.handleStop)
 	apiMux.HandleFunc("POST /api/sessions/{id}/take-control", srv.handleTakeControl)
+	apiMux.HandleFunc("GET /api/saved-sessions", srv.handleSavedSessions)
+	apiMux.HandleFunc("GET /api/saved-sessions/{id}/entries", srv.handleSavedEntries)
 
 	apiMux.HandleFunc("GET /api/tokens", srv.handleTokenList)
 	apiMux.HandleFunc("POST /api/tokens", srv.handleTokenCreate)

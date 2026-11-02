@@ -42,5 +42,6 @@ func run(argv []string, stdout, stderr io.Writer) int {
 		LogPath:              f.logPath,
 		AjentBin:             f.ajentBin,
 		AllowRemoteBootstrap: f.allowRemoteBootstrap,
+		KillChildren:         f.killChildren,
 	}, argv, stdout, stderr)
 }

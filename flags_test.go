@@ -48,6 +48,11 @@ func TestParseFlags(t *testing.T) {
 			argv: []string{"--allow-remote-bootstrap"},
 			want: cliFlags{port: defaultPort, host: "127.0.0.1", allowRemoteBootstrap: true},
 		},
+		{
+			name: "kill children on shutdown",
+			argv: []string{"--kill-children-on-shutdown"},
+			want: cliFlags{port: defaultPort, host: "127.0.0.1", killChildren: true},
+		},
 	}
 
 	for _, tt := range tests {

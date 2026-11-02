@@ -23,9 +23,10 @@ import (
 )
 
 const (
-	swarmDirName = "swarm"     // default state dir beside ajent's own data
-	logFileName  = "swarm.log" // daemon log inside the state dir
-	pidFileName  = "swarm.pid" // pid file inside the state dir
+	swarmDirName    = "swarm"     // default state dir beside ajent's own data
+	logFileName     = "swarm.log" // daemon log inside the state dir
+	pidFileName     = "swarm.pid" // pid file inside the state dir
+	childrenDirName = "children"  // child logs inside the state dir
 )
 
 // serve resolves paths, locks the instance and runs until SIGINT or SIGTERM.
@@ -97,7 +98,13 @@ func serve(opts Options, stderr io.Writer) int {
 	}
 	log.Info("ajent binary ready", "path", bin, "version", version)
 
-	fleetMgr := fleet.New(fleet.Options{Log: log})
+	fleetMgr := fleet.New(fleet.Options{
+		Log:         log,
+		AjentBin:    bin,
+		ChildrenDir: filepath.Join(dir, childrenDirName),
+		ChildStore:  childStore{st: st},
+		KillOnExit:  opts.KillChildren,
+	})
 	fleetMgr.Start(ctx)
 	defer fleetMgr.Stop()
 

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -10,17 +11,36 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/jentfoo/ajent-swarm/pkg/auth"
+	"github.com/jentfoo/ajent-swarm/pkg/fleet"
 	"github.com/jentfoo/ajent-swarm/pkg/store"
+	"github.com/jentfoo/ajent/pkg/ctl"
 )
 
 // testLogger silences request logs during handler-level tests.
 func testLogger() *slog.Logger {
 	return slog.New(slog.DiscardHandler)
+}
+
+// newTestFleet runs a fast manager over an empty registry, so handlers see a
+// live but sessionless fleet without touching AJENT_HOME.
+func newTestFleet(t *testing.T) *fleet.Manager {
+	t.Helper()
+	mgr := fleet.New(fleet.Options{
+		Log:          testLogger(),
+		PollInterval: 10 * time.Millisecond,
+		BackoffBase:  5 * time.Millisecond,
+		BackoffMax:   50 * time.Millisecond,
+		Discover:     func() ([]ctl.Instance, error) { return nil, nil },
+	})
+	mgr.Start(context.Background())
+	t.Cleanup(mgr.Stop)
+	return mgr
 }
 
 // newTestService builds an auth service over a throwaway store, seeded and
@@ -48,7 +68,7 @@ func newTestAPI(t *testing.T) (*httptest.Server, *http.Client) {
 	svc, err := auth.NewService(st, auth.WithBcryptCost(bcrypt.MinCost))
 	require.NoError(t, err)
 	require.NoError(t, svc.EnsureUser(t.Context(), "jent"))
-	server := httptest.NewServer(Handler(Config{Auth: svc, Log: testLogger()}))
+	server := httptest.NewServer(Handler(Config{Auth: svc, Fleet: newTestFleet(t), Log: testLogger()}))
 	t.Cleanup(server.Close)
 
 	jar, err := cookiejar.New(nil)

@@ -3,10 +3,14 @@
 package api
 
 import (
+	"bufio"
+	"errors"
 	"log/slog"
+	"net"
 	"net/http"
 
 	"github.com/jentfoo/ajent-swarm/pkg/auth"
+	"github.com/jentfoo/ajent-swarm/pkg/fleet"
 	"github.com/jentfoo/ajent-swarm/pkg/web"
 )
 
@@ -25,6 +29,11 @@ var apiMethods = map[string]string{
 	pathMe:             http.MethodGet,
 	auth.BootstrapPath: http.MethodPost,
 
+	"/api/stream":                     http.MethodGet,
+	"/api/sessions":                   http.MethodGet,
+	"/api/sessions/{id}/entries":      http.MethodGet,
+	"/api/sessions/{id}/take-control": http.MethodPost,
+
 	"/api/tokens":        "GET, POST",
 	"/api/tokens/{name}": http.MethodDelete,
 }
@@ -32,13 +41,15 @@ var apiMethods = map[string]string{
 // Config wires the API handler to its collaborators; all fields are required.
 type Config struct {
 	Auth                 *auth.Service
-	AllowRemoteBootstrap bool // --allow-remote-bootstrap: non-loopback may set the first password
+	Fleet                *fleet.Manager // session listing, streams and commands
+	AllowRemoteBootstrap bool           // --allow-remote-bootstrap: non-loopback may set the first password
 	Log                  *slog.Logger
 }
 
 // apiServer carries the collaborators every handler needs.
 type apiServer struct {
 	auth                 *auth.Service
+	fleet                *fleet.Manager
 	allowRemoteBootstrap bool
 }
 
@@ -46,13 +57,18 @@ type apiServer struct {
 // around an API subtree gated by auth, plus the SPA at root. Static assets
 // stay reachable so the login page can render in every bootstrap state.
 func Handler(cfg Config) http.Handler {
-	srv := &apiServer{auth: cfg.Auth, allowRemoteBootstrap: cfg.AllowRemoteBootstrap}
+	srv := &apiServer{auth: cfg.Auth, fleet: cfg.Fleet, allowRemoteBootstrap: cfg.AllowRemoteBootstrap}
 
 	apiMux := http.NewServeMux()
 	apiMux.HandleFunc("POST "+pathLogin, srv.handleLogin)
 	apiMux.HandleFunc("POST /api/auth/logout", srv.handleLogout)
 	apiMux.HandleFunc("GET "+pathMe, srv.handleMe)
 	apiMux.HandleFunc("POST "+auth.BootstrapPath, srv.handleBootstrap)
+
+	apiMux.HandleFunc("GET /api/stream", srv.handleStream)
+	apiMux.HandleFunc("GET /api/sessions", srv.handleSessionList)
+	apiMux.HandleFunc("GET /api/sessions/{id}/entries", srv.handleSessionEntries)
+	apiMux.HandleFunc("POST /api/sessions/{id}/take-control", srv.handleTakeControl)
 
 	apiMux.HandleFunc("GET /api/tokens", srv.handleTokenList)
 	apiMux.HandleFunc("POST /api/tokens", srv.handleTokenCreate)
@@ -128,6 +144,17 @@ type responseWriter struct {
 	http.ResponseWriter
 	wrote  bool
 	status int
+}
+
+// Hijack passes through so a WebSocket upgrade inside a wrapped handler can
+// take over the connection.
+func (w *responseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	h, ok := w.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, errors.New("response writer does not support hijacking")
+	}
+	w.wrote = true
+	return h.Hijack()
 }
 
 func (w *responseWriter) WriteHeader(status int) {

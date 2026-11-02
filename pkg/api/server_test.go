@@ -18,7 +18,7 @@ func TestServeShutsDownCleanly(t *testing.T) {
 	ln, err := lc.Listen(context.Background(), "tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 
-	srv := NewServer(Handler(Config{Auth: svc, Log: testLogger()}))
+	srv := NewServer(Handler(Config{Auth: svc, Fleet: newTestFleet(t), Log: testLogger()}))
 	ctx, cancel := context.WithCancel(context.Background())
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- Serve(ctx, srv, ln, testLogger()) }()

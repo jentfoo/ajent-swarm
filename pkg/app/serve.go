@@ -18,6 +18,7 @@ import (
 
 	"github.com/jentfoo/ajent-swarm/pkg/api"
 	"github.com/jentfoo/ajent-swarm/pkg/auth"
+	"github.com/jentfoo/ajent-swarm/pkg/fleet"
 	"github.com/jentfoo/ajent-swarm/pkg/store"
 )
 
@@ -96,8 +97,13 @@ func serve(opts Options, stderr io.Writer) int {
 	}
 	log.Info("ajent binary ready", "path", bin, "version", version)
 
+	fleetMgr := fleet.New(fleet.Options{Log: log})
+	fleetMgr.Start(ctx)
+	defer fleetMgr.Stop()
+
 	handler := api.Handler(api.Config{
 		Auth:                 svc,
+		Fleet:                fleetMgr,
 		AllowRemoteBootstrap: opts.AllowRemoteBootstrap,
 		Log:                  log,
 	})

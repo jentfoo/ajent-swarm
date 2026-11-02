@@ -188,7 +188,7 @@ func TestRouteBehaviors(t *testing.T) {
 func TestBootstrapLoopbackOnly(t *testing.T) {
 	t.Parallel()
 
-	handler := Handler(Config{Auth: newTestService(t), Log: testLogger()})
+	handler := Handler(Config{Auth: newTestService(t), Fleet: newTestFleet(t), Log: testLogger()})
 
 	t.Run("remote peer refused", func(t *testing.T) {
 		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/auth/bootstrap", strings.NewReader(`{"password":"x"}`))

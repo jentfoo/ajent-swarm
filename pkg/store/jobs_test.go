@@ -37,24 +37,29 @@ func TestJobRoundtrip(t *testing.T) {
 
 	next := time.Unix(5000, 0)
 	id, err := st.CreateJob(ctx, Job{
-		Name:           "nightly",
-		Workspace:      "/repo",
-		CommandPrefix:  "timeout 300",
-		Prompt:         "sweep the logs",
-		SpawnMode:      "session",
-		SessionTarget:  "nightly",
-		Model:          "p/m",
-		Permission:     "allow-all",
-		Enabled:        true,
-		ScheduleKind:   ScheduleDaily,
-		DailyTime:      "09:00",
-		TZ:             "America/New_York",
-		NextRunAt:      &next,
-		OnMissed:       MissFireLate,
-		Overlap:        OverlapSkipIfRunning,
-		TimeoutMinutes: 45,
-		KeepAlive:      true,
-		CreatedAt:      time.Unix(1000, 0),
+		Name:                "nightly",
+		Workspace:           "/repo",
+		CommandPrefix:       "timeout 300",
+		Prompt:              "sweep the logs",
+		SpawnMode:           "session",
+		SessionTarget:       "nightly",
+		Model:               "p/m",
+		Permission:          "allow-all",
+		Enabled:             true,
+		ScheduleKind:        ScheduleDaily,
+		DailyTime:           "09:00",
+		TZ:                  "America/New_York",
+		Weekdays:            "mon,fri",
+		NextRunAt:           &next,
+		OnMissed:            MissFireLate,
+		Overlap:             OverlapSkipIfRunning,
+		TimeoutMinutes:      45,
+		KeepAlive:           true,
+		RunWhenIdle:         true,
+		IdleMaxDelaySeconds: 3600,
+		TriggerCommand:      "git pull --ff-only",
+		TriggerOn:           TriggerOnError,
+		CreatedAt:           time.Unix(1000, 0),
 	})
 	require.NoError(t, err)
 	assert.Positive(t, id)
@@ -73,12 +78,17 @@ func TestJobRoundtrip(t *testing.T) {
 	assert.Equal(t, ScheduleDaily, got.ScheduleKind)
 	assert.Equal(t, "09:00", got.DailyTime)
 	assert.Equal(t, "America/New_York", got.TZ)
+	assert.Equal(t, "mon,fri", got.Weekdays)
 	require.NotNil(t, got.NextRunAt)
 	assert.Equal(t, next, *got.NextRunAt)
 	assert.Equal(t, MissFireLate, got.OnMissed)
 	assert.Equal(t, OverlapSkipIfRunning, got.Overlap)
 	assert.Equal(t, 45, got.TimeoutMinutes)
 	assert.True(t, got.KeepAlive)
+	assert.True(t, got.RunWhenIdle)
+	assert.Equal(t, 3600, got.IdleMaxDelaySeconds)
+	assert.Equal(t, "git pull --ff-only", got.TriggerCommand)
+	assert.Equal(t, TriggerOnError, got.TriggerOn)
 	assert.Equal(t, time.Unix(1000, 0), got.CreatedAt)
 
 	got.Prompt = "updated"

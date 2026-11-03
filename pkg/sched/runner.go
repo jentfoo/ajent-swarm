@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os/exec"
 	"slices"
 	"strings"
 	"time"
@@ -23,30 +24,52 @@ const (
 	submitEvery    = 500 * time.Millisecond
 	resubscribeGap = 250 * time.Millisecond
 	maxRunError    = 8 << 10 // launch failures carry log tails; keep rows bounded
+
+	triggerCommandTimeout = 5 * time.Minute // a hung gate cannot wedge the loop
+	triggerOutputMax      = 4 << 10         // gate output prepended to the prompt
 )
 
+// idleWindow is how long the fleet must have seen no agent activity before a
+// run-when-idle job may fire.
+const idleWindow = 10 * time.Minute
+
 // Runner is the fleet surface every run goes through: spawn (or resume) a
-// serve session, drive it over the control socket and watch its stream.
+// serve session, drive it over the control socket and watch its stream. A
+// zero LastBusyAt reports a fleet with no known agent activity.
 type Runner interface {
 	Launch(ctx context.Context, req fleet.LaunchRequest) (fleet.LaunchResult, error)
 	Submit(ctx context.Context, sessionID string, params ctl.SubmitParams) error
 	StopSession(ctx context.Context, sessionID string) error
 	Subscribe(sessionID string, deliver func([]byte), onDrop func()) (*fleet.Subscription, error)
 	Unsubscribe(sub *fleet.Subscription)
+	LastBusyAt() time.Time
 }
 
 // ensure the manager keeps satisfying the runner surface.
 var _ Runner = (*fleet.Manager)(nil)
 
-// execute drives one claimed run to a terminal row: launch, submit the
-// prompt with its synthetic pendingId, watch the stream until the prompt
-// settles or the timeout lands, then record the outcome and tear the session
-// down unless keep_alive says otherwise. Runs detached from callers so a slow
-// launch never blocks the trigger loop.
+// execute drives one claimed run to a terminal row: evaluate the trigger
+// command gate, launch, submit the prompt with its synthetic pendingId, watch
+// the stream until the prompt settles or the timeout lands, then record the
+// outcome and tear the session down unless keep_alive says otherwise. Runs
+// detached from callers so a slow launch never blocks the trigger loop.
 func (s *Scheduler) execute(run store.Run, j store.Job) {
 	defer s.wg.Done()
 
 	ctx := s.baseCtx
+
+	prompt := j.Prompt
+	if gate := strings.TrimSpace(j.TriggerCommand); gate != "" {
+		out, code, err := runTriggerCommand(ctx, gate)
+		passed, why := gatePassed(j.TriggerOn, code, err)
+		if !passed { // the schedule already advanced; history records the veto
+			s.finish(run, j, store.RunSkipped, why)
+			return
+		}
+		if prompt != "" {
+			prompt = prependGateOutput(gate, code, out, prompt)
+		}
+	}
 
 	res, err := s.runner.Launch(ctx, fleet.LaunchRequest{
 		Workspace:     j.Workspace,
@@ -61,11 +84,12 @@ func (s *Scheduler) execute(run store.Run, j store.Job) {
 		return
 	}
 	run.SessionID = res.SessionID
+	run.Prompt = prompt // the gate's output rides the stored row too
 	if err := s.store.UpdateRun(s.ctx, run); err != nil {
 		s.log.Warn("run session not persisted", "run", run.ID, "err", err)
 	}
 
-	if j.Prompt == "" { // a launcher job: serving is the whole deliverable
+	if prompt == "" { // a launcher job: serving is the whole deliverable
 		s.finish(run, j, store.RunOK, "")
 		return
 	}
@@ -408,6 +432,83 @@ func (s *Scheduler) stopAfter(run store.Run) bool {
 		return true // a deleted job's session is nobody's to keep alive
 	}
 	return !j.KeepAlive
+}
+
+// runTriggerCommand executes one gate under sh -c with a bounded wait,
+// returning its combined output and exit code; an interrupted context or a
+// timeout reports the Go error instead.
+func runTriggerCommand(ctx context.Context, command string) (string, int, error) {
+	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), triggerCommandTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(rctx, "sh", "-c", command)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		code := -1
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
+			code = ee.ExitCode()
+		}
+		return string(out), code, err
+	}
+	return string(out), 0, nil
+}
+
+// gatePassed compares one gate outcome with the job's chosen policy. A veto
+// carries the reason history records.
+func gatePassed(policy string, code int, err error) (bool, string) {
+	if err != nil && code < 0 { // never exited: cancelled or timed out
+		return false, fmt.Sprintf("skipped: trigger command did not finish (%v)", err)
+	}
+	succeeded := err == nil && code == 0
+	switch policy {
+	case store.TriggerOnError:
+		if succeeded {
+			return false, "skipped: trigger command exited 0, the job runs on failure only"
+		}
+		return true, ""
+	default: // success, including stored rows from before the field existed
+		if !succeeded {
+			detail := orNone(strings.TrimSpace(clipRunes(errText(err), maxGateNote)))
+			return false, fmt.Sprintf("skipped: trigger command exited %d (%s)", code, detail)
+		}
+		return true, ""
+	}
+}
+
+// prependGateOutput folds the gate's output ahead of the prompt, so the
+// session sees what its pre-run command printed before it starts.
+func prependGateOutput(command string, code int, out, prompt string) string {
+	outcome := "succeeded"
+	if code != 0 {
+		outcome = fmt.Sprintf("failed with exit %d", code)
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "Pre-run command `%s` %s; its output:\n\n", command, outcome)
+	b.WriteString(clipRunes(strings.TrimRight(out, "\n"), triggerOutputMax))
+	b.WriteString("\n\n---\n\n")
+	b.WriteString(prompt)
+	return b.String()
+}
+
+// maxGateNote bounds the exit detail inside a skip reason.
+const maxGateNote = 200
+
+// errText renders an error's message, empty when there is none.
+func errText(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
+}
+
+// clipRunes bounds s to at most n runes.
+func clipRunes(s string, n int) string {
+	runes := []rune(s)
+	if len(runes) <= n {
+		return s
+	}
+	return string(runes[:n])
 }
 
 // pendingID is the synthetic correlation every fire derives from its run id,

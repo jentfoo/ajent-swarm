@@ -16,6 +16,7 @@ import (
 	"github.com/jentfoo/ajent-swarm/pkg/fleet"
 	fleettest "github.com/jentfoo/ajent-swarm/pkg/fleet/fleettest"
 	"github.com/jentfoo/ajent-swarm/pkg/store"
+	"github.com/jentfoo/ajent-swarm/pkg/testutil"
 	"github.com/jentfoo/ajent/pkg/ctl"
 )
 
@@ -297,10 +298,7 @@ func e2ePID(t *testing.T) int {
 // manager; Launch stays faked since no process spawns.
 func newE2ESched(t *testing.T, mutate func(*Options)) (*e2eEnv, string) {
 	t.Helper()
-	home, err := os.MkdirTemp("", "schedfleet")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = os.RemoveAll(home) })
-	t.Setenv("AJENT_HOME", home)
+	home := testutil.IsolateHome(t)
 
 	pid := e2ePID(t)
 	stub := fleettest.New(t, home, fleettest.Options{SessionID: "01RUNE2ESession00", PID: pid})

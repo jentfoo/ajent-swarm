@@ -1,17 +1,14 @@
-import { useState } from 'react'
 import type { ReactElement } from 'react'
 
 import { useSwarm } from '../providers/swarm'
-import { SettingsMenu } from '../session/SettingsMenu'
+import { TitleModelSelect } from '../shell/TitleModelSelect'
 
-// MobileSettings is the full-screen settings entry point: theme and density
-// toggles live inside it rather than in mobile chrome, above the shared
-// settings.get/settings.set menu for one of the live sessions.
+// MobileSettings is the full-screen global settings entry point: theme lives
+// inside it rather than in mobile chrome, beside swarm's own settings. The
+// per-session agent settings live on each session screen, so there is no
+// session picker here.
 export default function MobileSettings(): ReactElement {
-  const { sessions, theme, setTheme, density, setDensity } = useSwarm()
-  const [sessionId, setSessionId] = useState('')
-
-  const chosen = sessionId !== '' ? sessionId : (sessions[0]?.sessionId ?? '')
+  const { theme, setTheme } = useSwarm()
 
   return (
     <div className="mobile-settings">
@@ -27,35 +24,15 @@ export default function MobileSettings(): ReactElement {
             labels={{ dark: 'Dark', light: 'Light' }}
           />
         </div>
-        <div className="setting-row">
-          <span className="setting-label">Density</span>
-          <SegmentedToggle
-            options={['cozy', 'compact'] as const}
-            value={density}
-            onChange={(v) => setDensity(v)}
-            labels={{ cozy: 'Cozy', compact: 'Compact' }}
-          />
-        </div>
       </section>
 
-      <h3>Agent settings</h3>
-      {sessions.length === 0 ? (
-        <p className="muted">No live sessions. Agent settings ride a session's control socket.</p>
-      ) : (
-        <>
-          <label className="session-picker">
-            Session
-            <select value={chosen} onChange={(ev) => setSessionId(ev.target.value)}>
-              {sessions.map((s) => (
-                <option key={s.sessionId} value={s.sessionId}>
-                  {s.title || s.name || s.workspace || s.sessionId}
-                </option>
-              ))}
-            </select>
-          </label>
-          {chosen && <SettingsMenu sessionId={chosen} />}
-        </>
-      )}
+      <h3>Global</h3>
+      <section aria-label="Global settings" className="card">
+        <TitleModelSelect />
+        <p className="muted" style={{ margin: 0, fontSize: 'var(--fs-small)' }}>
+          Per-session agent settings live in each session's ☰ header.
+        </p>
+      </section>
     </div>
   )
 }

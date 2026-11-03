@@ -13,15 +13,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/jentfoo/ajent-swarm/pkg/testutil"
 	"github.com/jentfoo/ajent/pkg/ctl"
-	"github.com/jentfoo/ajent/pkg/paths"
 )
 
 func TestAdoptMarksDeadAndReadoptsLive(t *testing.T) {
-	home, err := os.MkdirTemp("", "adopt")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = os.RemoveAll(home) })
-	t.Setenv(paths.EnvHome, home)
+	home := testutil.IsolateHome(t)
 
 	ws := launchWorkspace(t, home)
 	cs := newFakeChildStore()
@@ -29,7 +26,7 @@ func TestAdoptMarksDeadAndReadoptsLive(t *testing.T) {
 
 	// a child that died while the previous service was down
 	deadPID := deadPID(t)
-	_, err = cs.CreateChild(ctx, ChildRecord{
+	_, err := cs.CreateChild(ctx, ChildRecord{
 		PID: deadPID, SessionID: "01ADOPTDEAD0000001", Workspace: ws,
 		Argv: "--serve", LogPath: filepath.Join(home, "children", "dead.log"),
 		StartedAt: time.Now().Add(-time.Hour),

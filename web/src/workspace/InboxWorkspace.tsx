@@ -5,7 +5,8 @@ import { useSwarm } from '../providers/swarm'
 import { useAuth } from '../providers/auth'
 import { useWorkspace } from '../providers/workspace'
 import SessionView from '../screens/SessionView'
-import { displayName } from '../session/names'
+import { RenameControl } from '../session/RenameControl'
+import { displayName, tildePath } from '../session/names'
 import { useWorkspaceKeys } from './keys'
 import { ShortcutOverlay } from './ShortcutOverlay'
 import type { AttentionItem } from './attention'
@@ -88,6 +89,9 @@ export default function InboxWorkspace() {
   const renderRow = (item: AttentionItem, section: 'needs' | 'below') => {
     const isCursor = item.sessionId === cursor
     const isSelected = item.sessionId === selected
+    // the stored swarm title leads, its workspace path sits below in small
+    // muted text so long titles keep the whole line
+    const row = sessions.find((s) => s.sessionId === item.sessionId)
     return (
       <div
         key={item.sessionId}
@@ -100,6 +104,7 @@ export default function InboxWorkspace() {
       >
         <span className="rail-top">
           <span className="rail-name">{nameFor(item.sessionId)}</span>
+          <RenameControl sessionId={item.sessionId} label={nameFor(item.sessionId)} />
           <span className="rail-meta">
             {item.kind === 'needs-input' && <span className="badge danger">input</span>}
             {item.kind === 'needs-review' && <span className="badge warn">review</span>}
@@ -115,21 +120,13 @@ export default function InboxWorkspace() {
             {section === 'needs' && item.since > 0 && (
               <span className="muted rail-wait">{waited(item.since, now)}</span>
             )}
-            {item.kind !== 'awaiting' && (
-              <button
-                type="button"
-                className="rail-check"
-                aria-label={`Mark ${nameFor(item.sessionId)} reviewed`}
-                onClick={(ev) => {
-                  ev.stopPropagation()
-                  acknowledgeItem(item)
-                }}
-              >
-                ✓
-              </button>
-            )}
           </span>
         </span>
+        {row?.workspace && (
+          <span className="rail-path muted" title={row.workspace}>
+            {tildePath(row.workspace, auth.home)}
+          </span>
+        )}
         <span className="rail-reason">
           {item.reason || (section === 'below' ? 'working…' : '')}
         </span>

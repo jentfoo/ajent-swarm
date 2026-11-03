@@ -5,6 +5,7 @@
 package fleet
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"log/slog"
@@ -25,6 +26,10 @@ const (
 	pollErrorMax  = 30 * time.Second
 	stopActorWait = 5 * time.Second
 )
+
+// maxExitedPinned caps how many exited swarm children stay listed, so a day
+// of launching never buries the grid in dead rows. The most recent ones win.
+const maxExitedPinned = 4
 
 // ErrUnknownSession reports a subscribe or command naming no tracked instance.
 var ErrUnknownSession = errors.New("unknown session")
@@ -55,13 +60,17 @@ type Options struct {
 	ExitGrace   time.Duration // /exit settles before SIGTERM
 	TermGrace   time.Duration // SIGTERM before SIGKILL
 
-	// NoNaming turns off auto-naming: unnamed sessions never get the one-shot
-	// labeler run over their first prompt.
+	// NoNaming turns off auto-titling: unnamed sessions never get the one-shot
+	// labeler run over their first prompt, and no display title is stored.
 	NoNaming bool
 
-	// TitleStore persists swarm-side display titles; nil disables renames and
-	// every listing falls back to agent names, paths and short ids.
+	// TitleStore persists swarm-side display titles; nil disables storing them
+	// and every listing falls back to agent names, paths and short ids.
 	TitleStore TitleStore
+
+	// SettingStore persists swarm-level settings (the titling model today);
+	// nil keeps every setting at its default and refuses writes.
+	SettingStore SettingsStore
 }
 
 // Manager tracks every live ajent instance and owns its actors' lifecycles.
@@ -73,15 +82,16 @@ type Manager struct {
 	optsOwned       func(ctl.Instance) bool
 	discover        func() ([]ctl.Instance, error)
 
-	bin         string
-	childrenDir string
-	childStore  ChildStore
-	killOnExit  bool
-	launchWait  time.Duration
-	exitGrace   time.Duration
-	termGrace   time.Duration
-	noNaming    bool
-	titleStore  TitleStore
+	bin          string
+	childrenDir  string
+	childStore   ChildStore
+	killOnExit   bool
+	launchWait   time.Duration
+	exitGrace    time.Duration
+	termGrace    time.Duration
+	noNaming     bool
+	titleStore   TitleStore
+	settingStore SettingsStore
 
 	ctx      context.Context
 	cancel   context.CancelFunc
@@ -99,6 +109,7 @@ type Manager struct {
 	childBySession map[string]int
 	named          map[string]struct{} // sessions whose auto-name already ran
 	titles         map[string]string   // cached display titles, mirrored from TitleStore
+	titleModel     string              // cached titling model, mirrored from SettingStore
 }
 
 // New builds a manager; Start begins the registry watch.
@@ -112,6 +123,7 @@ func New(opts Options) *Manager {
 		dialBackoffBase: cmpOr(opts.BackoffBase, dialBackoffBase),
 		dialBackoffMax:  cmpOr(opts.BackoffMax, dialBackoffMax),
 		optsOwned:       opts.Owned,
+		discover:        opts.Discover,
 		bin:             opts.AjentBin,
 		childrenDir:     opts.ChildrenDir,
 		childStore:      opts.ChildStore,
@@ -121,6 +133,7 @@ func New(opts Options) *Manager {
 		termGrace:       cmpOr(opts.TermGrace, termGraceDefault),
 		noNaming:        opts.NoNaming,
 		titleStore:      opts.TitleStore,
+		settingStore:    opts.SettingStore,
 		actors:          make(map[actorKey]*sessionActor),
 		subs:            make(map[int64]*subscription),
 		bySession:       make(map[string]map[int64]*subscription),
@@ -163,6 +176,9 @@ func (m *Manager) Start(ctx context.Context) {
 	m.storeCtx = context.WithoutCancel(ctx)
 	if m.titleStore != nil {
 		m.loadTitles(ctx, m.titleStore)
+	}
+	if m.settingStore != nil {
+		m.loadSettings(ctx, m.settingStore)
 	}
 	m.adopt(ctx)
 	m.wg.Add(1)
@@ -494,9 +510,11 @@ func (m *Manager) route(sessionID string) *sessionActor {
 	return m.actorForLocked(sessionID)
 }
 
-// Sessions lists one row per known session, sorted by id: live actors carry
-// their reconciled state, children add spawn facts, and children no longer
-// tracked stand alone as exited or waiting rows.
+// Sessions lists one row per known session: live actors carry their
+// reconciled state, children add spawn facts, and children no longer tracked
+// stand alone as exited or waiting rows. Alive sessions sort by id first;
+// ended ones follow most-recent-first, capped so a day of exits never buries
+// the grid while a just-exited session stays reachable for resume.
 func (m *Manager) Sessions() []Status {
 	m.mu.Lock()
 	actors := bulk.MapValuesSlice(m.actors)
@@ -526,15 +544,35 @@ func (m *Manager) Sessions() []Status {
 		st := childStatus(rec)
 		bySession[rec.SessionID] = &st
 	}
-	out := make([]Status, 0, len(bySession))
+
+	alive := make([]Status, 0, len(bySession))
+	ended := make([]Status, 0, len(bySession))
 	for _, st := range bySession {
 		// titles fold here: refreshStatus already runs under the manager lock,
 		// so the cached titles cannot be read there without deadlocking
 		st.Title = m.titleFor(st.SessionID)
-		out = append(out, *st)
+		if sessionEnded(st.State) {
+			ended = append(ended, *st)
+		} else {
+			alive = append(alive, *st)
+		}
 	}
-	slices.SortFunc(out, func(a, b Status) int { return strings.Compare(a.SessionID, b.SessionID) })
-	return out
+	slices.SortFunc(alive, func(a, b Status) int { return strings.Compare(a.SessionID, b.SessionID) })
+	slices.SortFunc(ended, func(a, b Status) int {
+		if a.ExitedAt != b.ExitedAt { // most recent first
+			return cmp.Compare(b.ExitedAt, a.ExitedAt)
+		}
+		return strings.Compare(a.SessionID, b.SessionID)
+	})
+	if len(ended) > maxExitedPinned {
+		ended = ended[:maxExitedPinned]
+	}
+	return append(alive, ended...)
+}
+
+// sessionEnded reports whether a listing state means the run is over.
+func sessionEnded(state string) bool {
+	return state == ChildExited || state == ChildGone
 }
 
 // MaxDigestText caps one digest reason or preview, mirroring the rewind
@@ -604,6 +642,33 @@ func (m *Manager) Attention() []Attention {
 	}
 	slices.SortFunc(out, func(a, b Attention) int { return strings.Compare(a.SessionID, b.SessionID) })
 	return out
+}
+
+// LastBusyAt reports the newest agent activity across tracked sessions: now
+// for one still working, otherwise its most recent turn end. The zero time
+// means nothing is known to have worked, so run-when-idle jobs may fire.
+func (m *Manager) LastBusyAt() time.Time {
+	m.mu.Lock()
+	actors := bulk.MapValuesSlice(m.actors)
+	m.mu.Unlock()
+
+	var last time.Time
+	now := time.Now()
+	for _, a := range actors {
+		st := a.status.Load()
+		if st.State == ChildExited || !st.served {
+			continue // ended sessions are not working on anything anymore
+		}
+		if st.Running || st.Spinning || st.OpenInteractions > 0 {
+			return now // a turn is live or parked at a dialog right now
+		}
+		if st.LastTurnEnd > 0 {
+			if e := time.UnixMilli(st.LastTurnEnd); e.After(last) {
+				last = e
+			}
+		}
+	}
+	return last
 }
 
 // decorateChild folds a child record's spawn facts into a listing row.

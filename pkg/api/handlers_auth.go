@@ -2,13 +2,18 @@ package api
 
 import (
 	"errors"
+	"math"
+	"net"
 	"net/http"
 	"os"
+	"strconv"
+	"time"
 
 	"github.com/jentfoo/ajent-swarm/pkg/auth"
 )
 
-// handleLogin verifies credentials and issues the session cookie.
+// handleLogin verifies credentials and issues the session cookie. Failed
+// attempts spend a per-source budget so password guessing stays slow.
 func (s *apiServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Username string `json:"username"`
@@ -21,6 +26,11 @@ func (s *apiServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_request", "username and password are required")
 		return
 	}
+	key := remoteKey(r)
+	if !s.loginLimiter.Allow(key) {
+		writeRetryAfter(w, s.loginLimiter.RetryAfter(key))
+		return
+	}
 
 	token, err := s.auth.Login(r.Context(), req.Username, req.Password)
 	if errors.Is(err, auth.ErrInvalidCredentials) {
@@ -30,6 +40,7 @@ func (s *apiServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal_error", "login failed")
 		return
 	}
+	s.loginLimiter.Reset(key)
 	http.SetCookie(w, secureCookie(r, s.auth.SessionCookie(token)))
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -66,8 +77,10 @@ func (s *apiServer) handleMe(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleBootstrap sets the first password. Loopback peers only unless
-// --allow-remote-bootstrap says otherwise.
+// --allow-remote-bootstrap says otherwise. Guessing shares the login budget:
+// a failed bootstrap is a failed credential attempt.
 func (s *apiServer) handleBootstrap(w http.ResponseWriter, r *http.Request) {
+	key := remoteKey(r)
 	if !s.allowRemoteBootstrap && !isLoopback(r) {
 		writeError(w, http.StatusForbidden, "remote_bootstrap_forbidden",
 			"the first password can be set from loopback only; pass --allow-remote-bootstrap for remote setups")
@@ -83,14 +96,43 @@ func (s *apiServer) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_request", "a password is required")
 		return
 	}
+	if !s.loginLimiter.Allow(key) {
+		writeRetryAfter(w, s.loginLimiter.RetryAfter(key))
+		return
+	}
 
 	err := s.auth.Bootstrap(r.Context(), req.Password)
 	switch {
 	case errors.Is(err, auth.ErrAlreadyBootstrapped):
 		writeError(w, http.StatusConflict, "already_bootstrapped", "")
+		return
 	case err != nil:
 		writeError(w, http.StatusInternalServerError, "internal_error", "bootstrap failed")
-	default:
-		w.WriteHeader(http.StatusNoContent)
+		return
 	}
+	s.loginLimiter.Reset(key)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// remoteKey names the request's source address for rate limiting. An
+// unparseable RemoteAddr falls back to the raw value, so every request still
+// lands in some budget.
+func remoteKey(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
+
+// writeRetryAfter answers 429 with the standard envelope and a header naming
+// when the budget reopens.
+func writeRetryAfter(w http.ResponseWriter, wait time.Duration) {
+	secs := int(math.Ceil(wait.Seconds()))
+	if secs < 1 {
+		secs = 1
+	}
+	w.Header().Set("Retry-After", strconv.Itoa(secs))
+	writeError(w, http.StatusTooManyRequests, "rate_limited",
+		"too many failed attempts; retry later")
 }

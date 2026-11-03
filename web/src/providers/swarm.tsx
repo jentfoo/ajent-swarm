@@ -9,10 +9,12 @@ import { SwarmStream } from '../stream/swarmStream'
 import type { SocketState } from '../stream/swarmStream'
 
 export type Theme = 'dark' | 'light'
-export type Density = 'compact' | 'cozy'
 
-const pollSessionsMs = 4_000
-const pollAttentionMs = 5_000
+// Discovery and digest cadences: fast enough that launches, exits and inbox
+// rows read live, slow enough to stay invisible on the wire. The digest keeps
+// a slower background cadence for hidden tabs.
+const pollSessionsMs = 2_000
+const pollAttentionMs = 2_500
 const pollAttentionHiddenMs = 30_000
 
 interface SwarmContextValue {
@@ -22,9 +24,7 @@ interface SwarmContextValue {
   attention: AttentionRow[]
   connection: SocketState
   theme: Theme
-  density: Density
   setTheme: (theme: Theme) => void
-  setDensity: (density: Density) => void
   // refreshSessions forces the discovery poll; label edits use it so rows
   // re-render without waiting out the cadence.
   refreshSessions: () => Promise<void>
@@ -52,7 +52,7 @@ function writeStored(key: string, value: string) {
 
 // SwarmProvider owns app-wide state: the one multiplexed stream connection
 // and the session state store, the discovery and attention polls feeding
-// badges and the inbox, and theme and density persisted in localStorage.
+// badges and the inbox, and the theme persisted in localStorage.
 export function SwarmProvider({ children }: { children: ReactNode }) {
   // One stream per provider; StrictMode's simulated remount only disconnects
   // it, and a fresh subscribe reconnects on demand.
@@ -98,9 +98,6 @@ export function SwarmProvider({ children }: { children: ReactNode }) {
   const [theme, setThemeState] = useState<Theme>(() =>
     readStored('swarm.theme', ['dark', 'light'] as const, preferredTheme()),
   )
-  const [density, setDensityState] = useState<Density>(() =>
-    readStored('swarm.density', ['compact', 'cozy'] as const, 'cozy'),
-  )
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
@@ -110,10 +107,6 @@ export function SwarmProvider({ children }: { children: ReactNode }) {
     const meta = document.querySelector('meta[data-theme-color]')
     meta?.setAttribute('content', theme === 'dark' ? '#101216' : '#f6f7f9')
   }, [theme])
-  useEffect(() => {
-    document.documentElement.dataset.density = density
-    writeStored('swarm.density', density)
-  }, [density])
 
   const value = useMemo<SwarmContextValue>(
     () => ({
@@ -123,12 +116,10 @@ export function SwarmProvider({ children }: { children: ReactNode }) {
       attention,
       connection,
       theme,
-      density,
       setTheme: (t) => setThemeState(t),
-      setDensity: (d) => setDensityState(d),
       refreshSessions: refreshSessions,
     }),
-    [stream, store, sessions, attention, connection, theme, density, refreshSessions],
+    [stream, store, sessions, attention, connection, theme, refreshSessions],
   )
 
   return <SwarmContext.Provider value={value}>{children}</SwarmContext.Provider>

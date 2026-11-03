@@ -38,7 +38,7 @@ function EntryBlockImpl({ block }: { block: DerivedBlock }) {
             <details className="thinking">
               <summary>thinking…</summary>
               {block.thinking.map((text, i) => (
-                <div key={i} className="muted">
+                <div key={i} className="muted thinking-text">
                   {text}
                 </div>
               ))}

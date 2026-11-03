@@ -157,3 +157,40 @@ describe('draftFromJob', () => {
     expect(parsed?.getTime()).toBe(new Date(stored.nextRunAt!).getTime())
   })
 })
+
+describe('trigger fields', () => {
+  it('round-trips weekdays through the payload in canonical order', () => {
+    const draft = { ...defaultDraft(), weekdays: ['fri', 'mon'] as const }
+    const payload = toPayload(draft as never)
+    expect(payload.weekdays).toBe('mon,fri')
+    // once jobs never carry a weekday restriction
+    const once = toPayload({ ...draft, scheduleKind: 'once' } as never)
+    expect(once.weekdays).toBeUndefined()
+  })
+
+  it('parses stored weekdays and ignores unknown tokens', () => {
+    const job = { ...stored, weekdays: 'wed,sat,bogus' }
+    const draft = draftFromJob(job)
+    expect(draft.weekdays).toEqual(['wed', 'sat'])
+  })
+
+  it('carries the trigger command fields into the payload', () => {
+    const draft = {
+      ...defaultDraft(),
+      triggerCommand: ' git pull ',
+      triggerOn: 'error' as const,
+      runWhenIdle: true,
+      idleMaxDelaySeconds: -5,
+    }
+    const payload = toPayload(draft)
+    expect(payload.triggerCommand).toBe(' git pull ') // trimmed server-side
+    expect(payload.triggerOn).toBe('error')
+    expect(payload.runWhenIdle).toBe(true)
+    expect(payload.idleMaxDelaySeconds).toBe(0) // negative clamps to wait forever
+  })
+
+  it('flags an oversized trigger command', () => {
+    const draft = { ...defaultDraft(), triggerCommand: 'x'.repeat(2001) }
+    expect(validateDraft(draft)).toHaveProperty('triggerCommand')
+  })
+})

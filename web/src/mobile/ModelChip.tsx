@@ -3,6 +3,7 @@ import { useCallback, useState } from 'react'
 import { ApiError } from '../api/client'
 import { sessions as sessionAPI } from '../api/endpoints'
 import type { CtlState } from '../api/types'
+import { Spinner } from '../session/Spinner'
 
 // ModelChip is the compact header model control: the short label plus a
 // spinner while working. The menu lists models.get's registry directly and
@@ -63,11 +64,7 @@ export function ModelChip({
         onClick={() => void openMenu()}
       >
         {snap.model.short || snap.model.key || 'model'}
-        {working && (
-          <span className="spinner" role="img" aria-label="running">
-            ◌
-          </span>
-        )}
+        {working && <Spinner state={working ? 'wait' : 'idle'} />}
       </button>
       {open && (
         <div className="menu card model-menu-list" role="menu">

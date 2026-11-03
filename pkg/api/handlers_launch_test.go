@@ -17,8 +17,8 @@ import (
 	"github.com/jentfoo/ajent-swarm/pkg/auth"
 	"github.com/jentfoo/ajent-swarm/pkg/fleet"
 	"github.com/jentfoo/ajent-swarm/pkg/store"
+	"github.com/jentfoo/ajent-swarm/pkg/testutil"
 	"github.com/jentfoo/ajent/pkg/ctl"
-	"github.com/jentfoo/ajent/pkg/paths"
 	"github.com/jentfoo/ajent/pkg/session"
 )
 
@@ -26,10 +26,7 @@ import (
 // returning the server, an authenticated client and the home for fixtures.
 func newLaunchAPI(t *testing.T) (*httptest.Server, *http.Client, string) {
 	t.Helper()
-	home, err := os.MkdirTemp("", "savedapi")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = os.RemoveAll(home) })
-	t.Setenv(paths.EnvHome, home)
+	home := testutil.IsolateHome(t)
 
 	st, err := store.Open(filepath.Join(t.TempDir(), store.FileName))
 	require.NoError(t, err)

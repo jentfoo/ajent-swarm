@@ -5,6 +5,7 @@ import type {
   CtlState,
   EntriesPage,
   FilesReply,
+  GlobalSettings,
   Job,
   LaunchRequest,
   LaunchResult,
@@ -12,6 +13,7 @@ import type {
   ModelListing,
   ModelRow,
   ModeReply,
+  ModelState,
   RecallRow,
   ResolveAnswer,
   ResolveReply,
@@ -53,12 +55,18 @@ export const fleet = {
   },
 }
 
-// Model listing; ?session= opens ajent's own picker for that session,
-// answered later through resolve. Bare returns one row per live session.
+// Model listing for the launch panel: one row per live session, its current
+// model from that session's snapshot. Options unions every live registry for
+// swarm-level pickers.
 export const models = {
   list: () => get<ModelRow[]>('/api/models'),
-  discover: (sessionId: string) =>
-    get<ModelRow[]>(`/api/models?session=${encodeURIComponent(sessionId)}`),
+  options: (signal?: AbortSignal) => get<ModelState[]>('/api/models/options', { signal }),
+}
+
+// Swarm-level settings, persisted in swarm's database across restarts.
+export const settings = {
+  get: (signal?: AbortSignal) => get<GlobalSettings>('/api/settings', { signal }),
+  set: (next: GlobalSettings) => put<GlobalSettings>('/api/settings', next),
 }
 
 // Session reads and commands against one live instance.
@@ -78,7 +86,8 @@ export const sessions = {
   submit: (id: string, line: string, pendingId?: string) =>
     post<SubmitReply>(withID(id, '/submit'), { line, pendingId }),
   interrupt: (id: string) => post<{ stopped?: string }>(withID(id, '/interrupt')),
-  modeCycle: (id: string, back = false) => post<ModeReply>(withID(id, '/mode'), { back }),
+  // mode jumps straight to a named level; upstream's cycle stays server-side
+  setMode: (id: string, mode: string) => post<ModeReply>(withID(id, '/mode'), { mode }),
   rewind: (id: string, head: string) => post<RewindReply>(withID(id, '/rewind'), { head }),
   resolve: (id: string, answer: ResolveAnswer) =>
     post<ResolveReply>(withID(id, '/resolve'), answer),

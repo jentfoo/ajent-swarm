@@ -2,7 +2,9 @@ package fleet
 
 import (
 	"context"
+	"maps"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -10,10 +12,14 @@ import (
 	"github.com/stretchr/testify/require"
 
 	fleettest "github.com/jentfoo/ajent-swarm/pkg/fleet/fleettest"
+	"github.com/jentfoo/ajent-swarm/pkg/testutil"
 )
 
-// titleMemStore is an in-memory TitleStore for manager-level tests.
+// titleMemStore is an in-memory TitleStore for manager-level tests. The
+// manager touches it from handler goroutines and the async namer, so every
+// access locks.
 type titleMemStore struct {
+	mu     sync.Mutex
 	titles map[string]string
 }
 
@@ -22,6 +28,8 @@ func newTitleMemStore() *titleMemStore {
 }
 
 func (s *titleMemStore) SetSessionTitle(_ context.Context, sessionID, title string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if title == "" {
 		delete(s.titles, sessionID)
 		return nil
@@ -31,11 +39,20 @@ func (s *titleMemStore) SetSessionTitle(_ context.Context, sessionID, title stri
 }
 
 func (s *titleMemStore) SessionTitles(context.Context) (map[string]string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	out := make(map[string]string, len(s.titles))
 	for id, t := range s.titles {
 		out[id] = t
 	}
 	return out, nil
+}
+
+// snapshot copies the store for direct assertions in tests.
+func (s *titleMemStore) snapshot() map[string]string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return maps.Clone(s.titles)
 }
 
 func TestManagerTitles(t *testing.T) {
@@ -94,16 +111,13 @@ func TestManagerSetTitleValidation(t *testing.T) {
 
 	// oversized titles clip instead of poisoning rows
 	require.NoError(t, m.SetTitle(ctx, "01A", string(make([]rune, maxTitleRunes+10))))
-	assert.Len(t, store.titles["01A"], maxTitleRunes)
+	assert.Len(t, store.snapshot()["01A"], maxTitleRunes)
 }
 
 // newTestFleetWithTitles starts a fast manager whose titles persist to store.
 func newTestFleetWithTitles(t *testing.T, store TitleStore) (*Manager, string) {
 	t.Helper()
-	home, err := os.MkdirTemp("", "fleet")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = os.RemoveAll(home) })
-	t.Setenv("AJENT_HOME", home)
+	home := testutil.IsolateHome(t)
 	m := New(Options{
 		Log:          testLogger(),
 		PollInterval: testPoll,

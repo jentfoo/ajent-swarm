@@ -8,26 +8,51 @@ import type { LaunchRequest, SavedSession, SessionStatus } from '../api/types'
 import { ChildState } from '../api/types'
 import { useSwarm } from '../providers/swarm'
 import { useAuth } from '../providers/auth'
+import { AgentSettingsMenu } from '../session/AgentSettingsMenu'
+import { RenameControl } from '../session/RenameControl'
 import { displayName, tildePath } from '../session/names'
 
-// SessionsHome is the live instance grid: model, workspace and seat badges
-// beside quick actions per session, with a compact launch panel. Open walks
-// into the inbox workspace with the session selected; /s/:id stays the
-// standalone deep link.
+// SessionsHome is the live instance grid: state, workspace and seat badges
+// beside quick actions per session, with a compact launch panel. Checkboxes
+// multi-select sessions for tiling; an exited card stays listed with one-click
+// resume and every live card keeps its explicit stop.
 export default function SessionsHome() {
   const { sessions } = useSwarm()
   const auth = useAuth()
   const home = auth.home
   const [launching, setLaunching] = useState(false)
+  // selection is by session id; Open workspace tiles them directly
+  const [selected, setSelected] = useState<string[]>([])
+  const navigate = useNavigate()
+
+  const toggleSelected = useCallback((id: string) => {
+    setSelected((sel) => (sel.includes(id) ? sel.filter((s) => s !== id) : [...sel, id]))
+  }, [])
+
+  // With a selection the workspace opens tile mode seeded with exactly those
+  // sessions; without one it lands in the inbox as usual.
+  const openWorkspace = () => {
+    if (selected.length > 0) {
+      navigate(`/tile?open=${selected.map(encodeURIComponent).join(',')}`)
+      setSelected([])
+      return
+    }
+    navigate('/inbox')
+  }
 
   return (
     <>
       <div className="session-header">
         <h1 style={{ margin: 0, fontSize: 'inherit' }}>Sessions</h1>
         <span className="spacer" style={{ flex: 1 }} />
-        <Link to="/inbox">
-          <button type="button">Open workspace</button>
-        </Link>
+        {selected.length > 0 && (
+          <button type="button" className="accent" onClick={() => setSelected([])}>
+            Clear selection
+          </button>
+        )}
+        <button type="button" onClick={openWorkspace}>
+          Open workspace
+        </button>
         <button type="button" onClick={() => setLaunching((v) => !v)}>
           {launching ? 'Close' : 'Launch session'}
         </button>
@@ -40,7 +65,13 @@ export default function SessionsHome() {
       ) : (
         <div className="grid">
           {sessions.map((s) => (
-            <SessionCard key={s.sessionId} status={s} home={home} />
+            <SessionCard
+              key={s.sessionId}
+              status={s}
+              home={home}
+              selected={selected.includes(s.sessionId)}
+              onSelect={() => toggleSelected(s.sessionId)}
+            />
           ))}
         </div>
       )}
@@ -48,7 +79,19 @@ export default function SessionsHome() {
   )
 }
 
-function SessionCard({ status: s, home }: { status: SessionStatus; home?: string }) {
+// SessionCard is one grid tile: label with a rename control, badges and the
+// quick actions. Renaming writes swarm's stored display title only.
+function SessionCard({
+  status: s,
+  home,
+  selected,
+  onSelect,
+}: {
+  status: SessionStatus
+  home?: string
+  selected: boolean
+  onSelect: () => void
+}) {
   const stateClass =
     s.state === ChildState.Online
       ? 'ok'
@@ -56,10 +99,17 @@ function SessionCard({ status: s, home }: { status: SessionStatus; home?: string
         ? 'danger'
         : 'warn'
   const label = displayName(s, home)
+  const ended = s.state === ChildState.Exited || s.state === ChildState.Gone
 
   return (
-    <div className="card">
-      <div>
+    <div className={`card session-card ${ended ? 'ended' : ''}`}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4em' }}>
+        <input
+          type="checkbox"
+          aria-label={`Select ${label} for tiling`}
+          checked={selected}
+          onChange={onSelect}
+        />
         {s.name ? (
           <>
             <Link to={`/s/${encodeURIComponent(s.sessionId)}`}>{label}</Link>{' '}
@@ -70,7 +120,8 @@ function SessionCard({ status: s, home }: { status: SessionStatus; home?: string
             {label}
           </Link>
         )}
-      </div>
+        <RenameControl sessionId={s.sessionId} label={label} />
+      </div>{' '}
       <div className="chips">
         <span className={`badge ${stateClass}`}>{s.state}</span>
         {s.spawnedBy === 'swarm' && <span className="badge accent">swarm</span>}
@@ -94,30 +145,47 @@ function SessionCard({ status: s, home }: { status: SessionStatus; home?: string
         {s.model || 'model unknown'}
         {s.workspace ? ` · ${shortPath(s.workspace)}` : ''}
       </p>
-      <ActionsBar sessionId={s.sessionId} spawnedBy={s.spawnedBy} state={s.state} />
+      {/* exits are never mysterious: the detail line and last-stop reason sit here */}
+      {(s.detail || s.lastStopErr || s.lastStop) && (
+        <p className="muted card-detail" style={{ margin: '0.2em 0' }}>
+          {ended && s.detail ? `${s.detail}` : ''}
+          {!ended && s.lastStopErr
+            ? `last turn failed: ${s.lastStopErr}`
+            : !ended && s.lastStop
+              ? `last stop: ${s.lastStop}`
+              : ''}
+        </p>
+      )}
+      <ActionsBar status={s} />
     </div>
   )
 }
 
-function ActionsBar({
-  sessionId,
-  spawnedBy,
-  state,
-}: {
-  sessionId: string
-  spawnedBy: 'swarm' | 'external'
-  state: string
-}) {
+// ActionsBar holds the quick actions: open, agent settings and stop for live
+// cards, resume for ended ones. The settings ☰ edits this card's session, so
+// no separate picker is needed anywhere. The stop endpoint escalates on its
+// own: /exit first, then SIGTERM and SIGKILL for swarm children; external
+// sessions end through /exit alone.
+function ActionsBar({ status: s }: { status: SessionStatus }) {
+  const ended = s.state === ChildState.Exited || s.state === ChildState.Gone
   return (
-    <div style={{ display: 'flex', gap: '0.5em', marginTop: '0.4em' }}>
-      <Link to={`/inbox?session=${encodeURIComponent(sessionId)}`}>
+    <div style={{ display: 'flex', gap: '0.5em', marginTop: '0.4em', flexWrap: 'wrap' }}>
+      <Link to={`/inbox?session=${encodeURIComponent(s.sessionId)}`}>
         <button type="button">Open</button>
       </Link>
-      {spawnedBy === 'swarm' && state !== ChildState.Exited && <StopButton sessionId={sessionId} />}
+      {ended ? (
+        <ResumeButton status={s} />
+      ) : (
+        <>
+          <StopButton sessionId={s.sessionId} />
+          <AgentSettingsMenu sessionId={s.sessionId} />
+        </>
+      )}
     </div>
   )
 }
 
+// StopButton is the explicit exit control on every live card.
 function StopButton({ sessionId }: { sessionId: string }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -138,6 +206,38 @@ function StopButton({ sessionId }: { sessionId: string }) {
     <>
       <button type="button" onClick={() => void stop()} disabled={busy}>
         Stop
+      </button>
+      {error && <span className="error-text">{error}</span>}
+    </>
+  )
+}
+
+// ResumeButton relaunches an exited swarm child by its session id, the same
+// headless `--resume id` path launch uses.
+function ResumeButton({ status: s }: { status: SessionStatus }) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const navigate = useNavigate()
+
+  if (!s.workspace) return null // resume needs the working directory back
+
+  const resume = async () => {
+    setBusy(true)
+    setError('')
+    try {
+      const req: LaunchRequest = { workspace: s.workspace!, mode: 'resume', target: s.sessionId }
+      const res = await fleet.launch(req)
+      navigate(`/s/${encodeURIComponent(res.sessionId)}`)
+    } catch (err) {
+      setBusy(false)
+      setError(err instanceof ApiError ? err.message : 'Resume failed.')
+    }
+  }
+
+  return (
+    <>
+      <button type="button" className="primary" onClick={() => void resume()} disabled={busy}>
+        Resume
       </button>
       {error && <span className="error-text">{error}</span>}
     </>

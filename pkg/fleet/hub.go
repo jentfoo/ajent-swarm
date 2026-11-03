@@ -17,7 +17,7 @@ const (
 
 	// coalesceWindow batches ephemeral stream deltas server-side. Committed
 	// events always flush what is staged and pass through verbatim.
-	coalesceWindow = 75 * time.Millisecond
+	coalesceWindow = 30 * time.Millisecond
 )
 
 // subscription is one viewer's seat on one session: a bounded queue drained by

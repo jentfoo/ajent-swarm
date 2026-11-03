@@ -5,12 +5,24 @@ import { useSwarm } from '../providers/swarm'
 import { useWorkspace } from '../providers/workspace'
 import { useAuth } from '../providers/auth'
 import { useMediaQuery } from '../hooks/useMediaQuery'
+import { ChildState } from '../api/types'
+import type { SessionStatus } from '../api/types'
+import { GlobalSettingsMenu } from './GlobalSettingsMenu'
+
+// reachableSession reports whether a pane can stream the session right now:
+// connected (online) or active (reconnecting, e.g. just launched, or running).
+// Shared with tile seeding so the Tile button tiles exactly what is live.
+export function reachableSession(s: SessionStatus): boolean {
+  return s.state === ChildState.Online || s.state === ChildState.Reconnecting || s.running
+}
 
 // AppShell is the one chrome with two variants: the desktop pane-capable bar
 // and a bottom navigation under the mobile breakpoint. The workspace mode
-// switch and the attention badge live here on desktop.
+// switch and the attention badge live here on desktop, the theme toggle sits
+// beside them, and the hamburger opens swarm's global settings; per-session
+// agent settings ride each session's own chrome.
 export default function AppShell({ children }: { children: ReactNode }) {
-  const { connection, theme, density, setTheme, setDensity } = useSwarm()
+  const { sessions, connection, theme, setTheme } = useSwarm()
   const { needsInputCount, profile, setMode, notificationPermission, requestNotifications } =
     useWorkspace()
   const auth = useAuth()
@@ -20,7 +32,13 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
   const switchMode = (mode: 'inbox' | 'tile') => {
     setMode(mode)
-    navigate(mode === 'tile' ? '/tile' : '/inbox')
+    if (mode === 'tile') {
+      // tiling is a verb: every reachable session lands in its own pane
+      const live = sessions.filter(reachableSession).map((s) => encodeURIComponent(s.sessionId))
+      navigate(live.length > 0 ? `/tile?open=${live.join(',')}` : '/tile')
+      return
+    }
+    navigate('/inbox')
   }
 
   const attention = () => {
@@ -59,9 +77,6 @@ export default function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="app-shell">
       <header className="topbar">
-        <Link to="/" className="brand">
-          ajent-swarm
-        </Link>
         <nav>
           <Link to="/" className={location.pathname === '/' ? 'active' : ''}>
             Workspace
@@ -106,13 +121,8 @@ export default function AppShell({ children }: { children: ReactNode }) {
         >
           {theme === 'dark' ? '☾' : '☀'}
         </button>
-        <button
-          type="button"
-          onClick={() => setDensity(density === 'cozy' ? 'compact' : 'cozy')}
-          aria-label="Toggle density"
-        >
-          {density === 'cozy' ? '≡' : '☰'}
-        </button>
+        {/* swarm-level settings live here; per-session ones ride each chat */}
+        <GlobalSettingsMenu />
         <span className="account-name muted">{auth.username}</span>
         <button type="button" onClick={() => void auth.logout()}>
           Sign out

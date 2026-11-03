@@ -39,17 +39,50 @@ export function formatEvery(seconds?: number): string {
   return `every ${value} ${unit}`
 }
 
+// weekdayTokens are the stored day codes in canonical sun..sat order, shared
+// by the editor's picker and the summary renderer.
+export const weekdayTokens = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const
+export type WeekdayToken = (typeof weekdayTokens)[number]
+
+// weekdayLabels name one day each; indexed by JS Date.getDay() (sunday first).
+// weekdayLabels name one day each, indexed by token position (sunday first).
+export const weekdayShort = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+// parseWeekdays reads a stored comma list onto tokens, unknown entries drop.
+export function parseWeekdays(raw: string | undefined): WeekdayToken[] {
+  if (!raw) return []
+  const set = new Set(
+    raw
+      .split(',')
+      .map((t) => t.trim().toLowerCase())
+      .filter((t) => (weekdayTokens as readonly string[]).includes(t)),
+  )
+  return weekdayTokens.filter((t) => set.has(t))
+}
+
+// formatWeekdays renders chosen days in canonical order, e.g. Mon, Wed, Fri.
+export function formatWeekdays(raw: string | undefined): string {
+  const tokens = parseWeekdays(raw)
+  if (tokens.length === 0 || tokens.length === 7) return ''
+  return tokens.map((t) => weekdayShort[weekdayTokens.indexOf(t)]).join(', ')
+}
+
 // scheduleSummary renders one job's cadence in plain language: every
 // 30 minutes, daily at 09:00 (Europe/Berlin), once at Fri, Nov 7, 14:00.
 export function scheduleSummary(
-  job: Pick<Job, 'scheduleKind' | 'intervalSeconds' | 'dailyTime' | 'tz' | 'nextRunAt'>,
+  job: Pick<
+    Job,
+    'scheduleKind' | 'intervalSeconds' | 'dailyTime' | 'tz' | 'weekdays' | 'nextRunAt'
+  >,
 ): string {
+  const on = formatWeekdays(job.weekdays)
+  const days = on !== '' ? ` on ${on}` : ''
   switch (job.scheduleKind) {
     case 'interval':
-      return formatEvery(job.intervalSeconds)
+      return formatEvery(job.intervalSeconds) + days
     case 'daily': {
       const zone = job.tz ? ` (${job.tz})` : ''
-      return `daily at ${job.dailyTime || '--:--'}${zone}`
+      return `daily at ${job.dailyTime || '--:--'}${zone}${days}`
     }
     case 'once':
       return `once at ${formatSlot(job.nextRunAt)}`

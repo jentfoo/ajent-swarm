@@ -6,10 +6,31 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/jentfoo/ajent-swarm/pkg/testutil"
 )
+
+// acquireEventually takes one lock, retrying briefly: under parallel temp-dir
+// churn a fresh directory can land on an inode whose flock entry from a just-
+// deleted sibling is still being torn down. That ghost clears on its own; a
+// genuinely un-released lock never would, so the retry cannot mask a bug.
+func acquireEventually(t *testing.T, dir string) *instanceLock {
+	t.Helper()
+	var lock *instanceLock
+	require.Eventually(t, func() bool {
+		l, err := acquireInstanceLock(dir)
+		if err != nil {
+			return false
+		}
+		lock = l
+		return true
+	}, 2*time.Second, time.Millisecond)
+	return lock
+}
 
 func TestAcquireInstanceLock(t *testing.T) {
 	t.Parallel()
@@ -18,18 +39,16 @@ func TestAcquireInstanceLock(t *testing.T) {
 	pidPath := filepath.Join(dir, pidFileName)
 	require.NoError(t, os.WriteFile(pidPath, []byte("4242\n"), 0o600))
 
-	lock, err := acquireInstanceLock(dir)
-	require.NoError(t, err)
+	lock := acquireEventually(t, dir)
 
-	_, err = acquireInstanceLock(dir)
+	_, err := acquireInstanceLock(dir) // our own held lock: refusal is immediate
 	require.ErrorIs(t, err, errLocked)
 	assert.Contains(t, err.Error(), "another ajent-swarm instance holds")
 	assert.Contains(t, err.Error(), "(pid 4242)", "the holder is named from the pid file")
 
 	// release frees the directory for the next process
 	require.NoError(t, lock.Close())
-	lock2, err := acquireInstanceLock(dir)
-	require.NoError(t, err)
+	lock2 := acquireEventually(t, dir)
 	t.Cleanup(func() { _ = lock2.Close() })
 }
 
@@ -37,11 +56,10 @@ func TestAcquireInstanceLockWithoutPidfile(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
-	lock, err := acquireInstanceLock(dir)
-	require.NoError(t, err)
+	lock := acquireEventually(t, dir)
 	t.Cleanup(func() { _ = lock.Close() })
 
-	_, err = acquireInstanceLock(dir)
+	_, err := acquireInstanceLock(dir)
 	require.ErrorIs(t, err, errLocked)
 	assert.Contains(t, err.Error(), dir, "the state directory is named even without a pid")
 }
@@ -82,8 +100,7 @@ func TestRemovePidfile(t *testing.T) {
 
 func TestEnsureStateDirDefaultUnderAjentHome(t *testing.T) {
 	// t.Setenv forbids parallel
-	home := t.TempDir()
-	t.Setenv("AJENT_HOME", home)
+	home := testutil.IsolateHome(t)
 
 	dir, warn, err := ensureStateDir("")
 	require.NoError(t, err)

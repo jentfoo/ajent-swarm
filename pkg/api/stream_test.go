@@ -18,9 +18,9 @@ import (
 	"github.com/jentfoo/ajent-swarm/pkg/auth"
 	"github.com/jentfoo/ajent-swarm/pkg/fleet"
 	fleettest "github.com/jentfoo/ajent-swarm/pkg/fleet/fleettest"
+	"github.com/jentfoo/ajent-swarm/pkg/testutil"
 	"github.com/jentfoo/ajent/pkg/ctl"
 	"github.com/jentfoo/ajent/pkg/llm"
-	"github.com/jentfoo/ajent/pkg/paths"
 	"github.com/jentfoo/ajent/pkg/session"
 )
 
@@ -28,10 +28,7 @@ import (
 // temp AJENT_HOME, behind httptest with a cookie-jarred client.
 func newFleetAPI(t *testing.T) (*httptest.Server, *http.Client, string) {
 	t.Helper()
-	home, err := os.MkdirTemp("", "fleet")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = os.RemoveAll(home) })
-	t.Setenv(paths.EnvHome, home)
+	home := testutil.IsolateHome(t)
 
 	svc := newTestService(t)
 	fleetMgr := fleet.New(fleet.Options{

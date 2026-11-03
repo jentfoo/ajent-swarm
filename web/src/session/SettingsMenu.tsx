@@ -3,7 +3,16 @@ import type { ReactElement } from 'react'
 
 import { ApiError } from '../api/client'
 import { sessions as sessionAPI } from '../api/endpoints'
-import type { SettingRow } from '../api/types'
+import type { ModelState, SettingRow } from '../api/types'
+
+// hiddenSettingKeys are rows other chat chrome owns: tools live behind the
+// /tools buttons and mode lives in the header dropdown, so neither repeats as
+// a settings row on desktop or mobile.
+const hiddenSettingKeys = new Set(['tools.enabled', 'permissions.mode'])
+
+export function visibleSettingRows(rows: SettingRow[]): SettingRow[] {
+  return rows.filter((row) => !hiddenSettingKeys.has(row.key ?? ''))
+}
 
 // SettingsMenu is the shared settings.get/settings.set menu: rows grouped in
 // ajent's /settings order, one call per change with persist left off so edits
@@ -50,12 +59,13 @@ export function SettingsMenu({ sessionId }: { sessionId: string }): ReactElement
       {loading && <p className="muted">Reading settings…</p>}
       {error && <p className="error-text">{error}</p>}
       {!loading &&
-        rows.map((row) => (
+        visibleSettingRows(rows).map((row) => (
           <SettingEditor
             // the value rides the key so an applied change remounts the editor
             // with a fresh draft instead of syncing state in an effect
             key={`${row.key ?? row.label}:${stringify(row.value)}`}
             row={row}
+            sessionId={sessionId}
             onApply={apply}
           />
         ))}
@@ -64,13 +74,16 @@ export function SettingsMenu({ sessionId }: { sessionId: string }): ReactElement
 }
 
 // SettingEditor renders one row by its value's shape: booleans toggle in
-// place, everything else edits as text with an Apply button. Uneditable rows
-// render their reason instead of a control.
+// place, the model picks from the session's own registry, everything else
+// edits as text with an Apply button. Uneditable rows render their reason
+// instead of a control.
 function SettingEditor({
   row,
+  sessionId,
   onApply,
 }: {
   row: SettingRow
+  sessionId: string
   onApply: (row: SettingRow, value: unknown) => Promise<void>
 }): ReactElement {
   const [draft, setDraft] = useState(() => stringify(row.value))
@@ -102,6 +115,10 @@ function SettingEditor({
     )
   }
 
+  if (row.key === modelSettingKey) {
+    return <ModelSettingRow row={row} sessionId={sessionId} draft={draft} onApply={onApply} />
+  }
+
   return (
     <form
       className="setting-row text"
@@ -115,6 +132,57 @@ function SettingEditor({
       <input value={draft} onChange={(ev) => setDraft(ev.target.value)} />
       {draft !== stringify(row.value) && <button type="submit">Apply</button>}
     </form>
+  )
+}
+
+// modelSettingKey is upstream's model row; its value must name a registry
+// entry, so it edits as a selection instead of free text.
+const modelSettingKey = 'model'
+
+// ModelSettingRow lists models.get's registry for this session and applies
+// the chosen key through the same settings.set path as every other row.
+function ModelSettingRow({
+  row,
+  sessionId,
+  draft,
+  onApply,
+}: {
+  row: SettingRow
+  sessionId: string
+  draft: string
+  onApply: (row: SettingRow, value: unknown) => Promise<void>
+}): ReactElement {
+  const [registry, setRegistry] = useState<ModelState[]>([])
+
+  useEffect(() => {
+    let alive = true
+    sessionAPI
+      .models(sessionId)
+      .then((res) => alive && setRegistry(res.models ?? []))
+      .catch(() => {}) // a failed listing leaves the current value selected
+    return () => {
+      alive = false
+    }
+  }, [sessionId])
+
+  return (
+    <div className="setting-row text" data-setting-key={row.key}>
+      <span className="setting-label">{row.label}</span>
+      <select
+        value={draft}
+        aria-label={row.label}
+        onChange={(ev) => void onApply(row, ev.target.value)}
+      >
+        {!registry.some((m) => m.key === draft) && draft !== '' && (
+          <option value={draft}>{draft}</option>
+        )}
+        {registry.map((m) => (
+          <option key={m.key} value={m.key}>
+            {m.short || m.key}
+          </option>
+        ))}
+      </select>
+    </div>
   )
 }
 

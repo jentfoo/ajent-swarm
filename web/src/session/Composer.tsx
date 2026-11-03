@@ -230,29 +230,30 @@ export function Composer({
           onKeyDown={onKeyDown}
           onSelect={(ev) => setCaret(ev.currentTarget.selectionStart ?? 0)}
         />
-      </div>
-      <div className="composer-actions">
-        <input
-          ref={fileRef}
-          type="file"
-          accept={textAccept}
-          multiple
-          hidden
-          data-testid="attach-input"
-          onChange={(ev) => void attach(ev.target.files)}
-        />
-        <button
-          type="button"
-          disabled={disabled || uploading}
-          onClick={() => fileRef.current?.click()}
-          aria-label="Attach files"
-          title="Attach images or text files"
-        >
-          {uploading ? 'Attaching…' : '📎'}
-        </button>
-        <button className="primary" type="submit" disabled={disabled || value.trim() === ''}>
-          Send
-        </button>
+        {/* attach and send ride beside the prompt, not under it */}
+        <div className="composer-actions">
+          <input
+            ref={fileRef}
+            type="file"
+            accept={textAccept}
+            multiple
+            hidden
+            data-testid="attach-input"
+            onChange={(ev) => void attach(ev.target.files)}
+          />
+          <button
+            type="button"
+            disabled={disabled || uploading}
+            onClick={() => fileRef.current?.click()}
+            aria-label="Attach files"
+            title="Attach images or text files"
+          >
+            {uploading ? '…' : '📎'}
+          </button>
+          <button className="primary" type="submit" disabled={disabled || value.trim() === ''}>
+            Send
+          </button>
+        </div>
       </div>
     </form>
   )

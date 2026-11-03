@@ -8,10 +8,13 @@ import { AuthProvider } from '../providers/auth'
 import { SwarmProvider } from '../providers/swarm'
 import { WorkspaceProvider } from '../providers/workspace'
 
-// The full-screen settings entry point: theme and density live here rather
-// than in mobile chrome, above the shared menu for one chosen live session.
+// The full-screen global settings entry point: theme and swarm's own settings
+// live here; per-session agent settings ride each session screen instead.
 
-const LIVE = '01LIVESETTINGS00000'
+const REGISTRY = [
+  { key: 'anthropic/claude-sonnet', short: 'sonnet', window: 200000, caps: {} },
+  { key: 'anthropic/claude-haiku', short: 'haiku', window: 100000, caps: {} },
+]
 
 function renderSettings() {
   return render(
@@ -35,14 +38,9 @@ describe('MobileSettings', () => {
       vi.fn(async (url: string | URL) => {
         const path = String(url).split('?')[0]
         if (path === '/api/me') return Response.json({ username: 'you', via: 'cookie' })
-        if (path === '/api/sessions') {
-          return Response.json([{ sessionId: LIVE, state: 'online', spawnedBy: 'swarm' }])
-        }
-        if (path === '/api/attention') return Response.json([])
-        if (path === `/api/sessions/${LIVE}/settings`) {
-          return Response.json({ rows: [] })
-        }
-        throw new Error(`unexpected fetch ${String(url)}`)
+        if (path === '/api/settings') return Response.json({ titleModel: '' })
+        if (path === '/api/models/options') return Response.json(REGISTRY)
+        return Response.json([])
       }),
     )
   })
@@ -51,39 +49,58 @@ describe('MobileSettings', () => {
     vi.unstubAllGlobals()
   })
 
-  it('toggles theme and density from inside settings', async () => {
+  it('toggles theme from inside settings', async () => {
     renderSettings()
     await screen.findByRole('heading', { name: 'Settings' })
 
     const user = userEvent.setup()
     await user.click(screen.getByRole('button', { name: 'Light' }))
     expect(document.documentElement.dataset.theme).toBe('light')
-    await user.click(screen.getByRole('button', { name: 'Compact' }))
-    expect(document.documentElement.dataset.density).toBe('compact')
   })
 
-  it('serves the shared menu for the first live session', async () => {
+  it('offers the titling model picker with the registry union', async () => {
     renderSettings()
 
-    // the picker falls back to the only live session without a manual choice
-    expect(await screen.findByLabelText('Session')).toHaveValue(LIVE)
-    expect(screen.getByLabelText('Agent settings')).toBeInTheDocument()
+    const select = await screen.findByLabelText('Session titling model')
+    expect(select).toHaveValue('') // unset reads as the default
+    const options = select.querySelectorAll('option')
+    expect(options[0]?.textContent).toBe('Session model (default)')
+    expect([...options].map((o) => o.textContent)).toEqual([
+      'Session model (default)',
+      'sonnet',
+      'haiku',
+    ])
   })
 
-  it('explains the missing sessions case', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (url: string | URL) => {
-        const path = String(url).split('?')[0]
-        if (path === '/api/me') return Response.json({ username: 'you', via: 'cookie' })
-        if (path === '/api/sessions' || path === '/api/attention') return Response.json([])
-        throw new Error(`unexpected fetch ${String(url)}`)
-      }),
-    )
+  it('saves a titling model through the settings endpoint', async () => {
+    const fetchSpy = vi.fn(async (url: string | URL, init?: RequestInit) => {
+      const path = String(url).split('?')[0]
+      if (path === '/api/me') return Response.json({ username: 'you', via: 'cookie' })
+      if (path === '/api/settings') {
+        if (init?.method === 'PUT') {
+          const body = JSON.parse(String(init.body)) as { titleModel: string }
+          return Response.json({ titleModel: body.titleModel })
+        }
+        return Response.json({ titleModel: '' })
+      }
+      if (path === '/api/models/options') return Response.json(REGISTRY)
+      return Response.json([])
+    })
+    vi.stubGlobal('fetch', fetchSpy)
 
     renderSettings()
-    expect(
-      await screen.findByText("No live sessions. Agent settings ride a session's control socket."),
-    ).toBeInTheDocument()
+    const user = userEvent.setup()
+    await user.selectOptions(await screen.findByLabelText('Session titling model'), 'haiku')
+
+    await vi.waitFor(() => {
+      const calls = fetchSpy.mock.calls.filter(
+        ([u, init]) => String(u) === '/api/settings' && init?.method === 'PUT',
+      )
+      expect(calls).toHaveLength(1)
+      expect(JSON.parse(String(calls[0]![1]?.body))).toEqual({
+        titleModel: 'anthropic/claude-haiku',
+      })
+    })
+    expect(screen.getByLabelText('Session titling model')).toHaveValue('anthropic/claude-haiku')
   })
 })

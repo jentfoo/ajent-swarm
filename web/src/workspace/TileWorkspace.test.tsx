@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor, within } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -92,9 +92,9 @@ describe('TileWorkspace', () => {
     vi.unstubAllGlobals()
   })
 
-  function renderTile() {
+  function renderTile(initial = '/tile') {
     return render(
-      <MemoryRouter initialEntries={['/tile']}>
+      <MemoryRouter initialEntries={[initial]}>
         <AuthProvider>
           <SwarmProvider>
             <WorkspaceProvider>
@@ -146,23 +146,111 @@ describe('TileWorkspace', () => {
     expect(stored.tile.tree.kind).toBe('pane') // the split rebalanced away
   })
 
-  it('offers the session picker when no panes are open', async () => {
+  it('auto-tiles reachable sessions when no panes are open', async () => {
     localStorage.setItem(
       'swarm.workspace.v1',
       JSON.stringify({ mode: 'tile', inbox: {}, tile: { tree: null } }),
     )
     renderTile()
 
-    const picker = await screen.findByText('No panes open.')
-    expect(picker).toBeInTheDocument()
-    const chips = within(document.querySelector('.tile-empty') as HTMLElement).getAllByRole(
-      'button',
-    )
-    expect(chips.map((c) => c.textContent)).toEqual(['left', 'right'])
-
-    await userEvent.setup().click(chips[0])
-    await waitFor(() => expect(document.querySelectorAll('[data-pane-id]')).toHaveLength(1))
+    // both live sessions split into their own panes without any clicks
+    await waitFor(() => expect(document.querySelectorAll('[data-pane-id]')).toHaveLength(2))
     const stored = JSON.parse(localStorage.getItem('swarm.workspace.v1') ?? '{}')
-    expect(stored.tile.tree.tabs).toEqual([LEFT])
+    expect(stored.tile.tree.kind).toBe('split')
+  })
+
+  it('retiles exactly the requested open list over a persisted tree', async () => {
+    // a stale single-pane arrangement must not swallow the explicit request
+    localStorage.setItem(
+      'swarm.workspace.v1',
+      JSON.stringify({
+        mode: 'tile',
+        inbox: {},
+        tile: { tree: { kind: 'pane', id: 'p1', tabs: [LEFT], active: LEFT } },
+      }),
+    )
+    renderTile('/tile?open=' + LEFT + ',' + RIGHT)
+
+    await waitFor(() => expect(document.querySelectorAll('[data-pane-id]')).toHaveLength(2))
+    const stored = JSON.parse(localStorage.getItem('swarm.workspace.v1') ?? '{}')
+    expect(stored.tile.tree.kind).toBe('split')
+  })
+
+  it('tiles three requested sessions into three panes', async () => {
+    const THIRD = '01THIRDSESSION000001'
+    localStorage.setItem(
+      'swarm.workspace.v1',
+      JSON.stringify({ mode: 'tile', inbox: {}, tile: { tree: null } }),
+    )
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string | URL | Request) => {
+        const path = String(url)
+          .replace(/^https?:\/\/[^/]+/, '')
+          .split('?')[0]
+        if (path === '/api/me') {
+          return Promise.resolve(Response.json({ username: 'you', via: 'cookie' }))
+        }
+        if (path === '/api/sessions') {
+          return Promise.resolve(
+            Response.json([
+              { sessionId: LEFT, name: 'left', state: 'online', spawnedBy: 'external' },
+              { sessionId: RIGHT, name: 'right', state: 'online', spawnedBy: 'external' },
+              { sessionId: THIRD, name: 'third', state: 'online', spawnedBy: 'external' },
+            ]),
+          )
+        }
+        if (path === '/api/attention') return Promise.resolve(Response.json([]))
+        const snap = /\/api\/sessions\/([^/]+)\/snapshot/.exec(path)
+        if (snap) return Promise.resolve(Response.json({ session: { id: snap[1] } }))
+        return Promise.resolve(Response.json({}))
+      }),
+    )
+    renderTile('/tile?open=' + [LEFT, RIGHT, THIRD].join(','))
+
+    await waitFor(() => expect(document.querySelectorAll('[data-pane-id]')).toHaveLength(3))
+  })
+
+  it('keeps an intentionally emptied workspace empty', async () => {
+    localStorage.setItem(
+      'swarm.workspace.v1',
+      JSON.stringify({ mode: 'tile', inbox: {}, tile: { tree }, focusedPaneId: 'p1' }),
+    )
+    renderTile()
+    await screen.findAllByText('right')
+
+    // closing the last tab empties the tree; auto-tiling must not re-seed it
+    const user = userEvent.setup()
+    await user.click(screen.getByLabelText('Close right'))
+    await waitFor(() => expect(document.querySelectorAll('[data-pane-id]')).toHaveLength(1))
+    await user.click(screen.getByLabelText('Close left'))
+    await screen.findByText('No panes open.')
+    await expect(screen.findByText('No panes open.')).resolves.toBeInTheDocument()
+  })
+
+  it('shows the empty state when no sessions are live', async () => {
+    localStorage.setItem(
+      'swarm.workspace.v1',
+      JSON.stringify({ mode: 'tile', inbox: {}, tile: { tree: null } }),
+    )
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string | URL | Request) => {
+        const path = String(url)
+          .replace(/^https?:\/\/[^/]+/, '')
+          .split('?')[0]
+        if (path === '/api/me') {
+          return Promise.resolve(Response.json({ username: 'you', via: 'cookie' }))
+        }
+        if (path === '/api/sessions' || path === '/api/attention') {
+          return Promise.resolve(Response.json([]))
+        }
+        return Promise.resolve(Response.json({}))
+      }),
+    )
+    renderTile()
+
+    expect(await screen.findByText('No panes open.')).toBeInTheDocument()
+    expect(screen.getByText('No live sessions to open.')).toBeInTheDocument()
   })
 })

@@ -2,13 +2,30 @@
 // obvious mistakes surface before a save round trip; the server re-checks
 // everything on save and its errors stay authoritative.
 
-import type { Job, LaunchMode, MissPolicy, OverlapPolicy, ScheduleKind } from '../api/types'
-import { intervalToSeconds, splitInterval } from './schedule'
-import type { IntervalUnit } from './schedule'
+import type {
+  Job,
+  LaunchMode,
+  MissPolicy,
+  OverlapPolicy,
+  ScheduleKind,
+  TriggerOn,
+} from '../api/types'
+import { intervalToSeconds, splitInterval, weekdayTokens } from './schedule'
+import type { IntervalUnit, WeekdayToken } from './schedule'
 
 export const maxNameLen = 200 // mirrors sched's bound
-export const maxPrefixLen = 2000 // mirrors sched's bound
+export const maxTriggerLen = 2000 // mirrors sched's bound
 const maxIntervalSeconds = 366 * 24 * 3600 // one leap year of seconds
+
+// Run-when-idle delay options: how long a held fire may wait before it skips.
+// Zero means never skipped. The labels double as the dropdown's entries.
+export const idleDelayOptions = [
+  { value: 0, label: 'Never skipped' },
+  { value: 600, label: '10 minutes' },
+  { value: 1800, label: '30 minutes' },
+  { value: 3600, label: '1 hour' },
+  { value: 7200, label: '2 hours' },
+] as const
 
 // JobDraft is the form-shaped job: every field editable as its natural input
 // type, with the interval split into value and unit for the picker.
@@ -21,16 +38,21 @@ export interface JobDraft {
   intervalUnit: IntervalUnit
   dailyTime: string // HH:MM wall clock in tz
   tz: string // IANA name; empty means server local
+  weekdays: WeekdayToken[] // chosen days; recurring jobs only, empty means every day
   spawnMode: LaunchMode
   sessionTarget: string
   model: string
   permission: string
-  commandPrefix: string
+  commandPrefix: string // legacy stored rows round-trip untouched; no editor owns it
   prompt: string
   onMissed: MissPolicy
   overlap: OverlapPolicy
   timeoutMinutes: number
   keepAlive: boolean
+  runWhenIdle: boolean
+  idleMaxDelaySeconds: number // zero waits forever
+  triggerCommand: string
+  triggerOn: TriggerOn
   enabled: boolean
 }
 
@@ -47,6 +69,7 @@ export function defaultDraft(): JobDraft {
     intervalUnit: 'minutes',
     dailyTime: '09:00',
     tz: '',
+    weekdays: [],
     spawnMode: 'new',
     sessionTarget: '',
     model: '',
@@ -57,6 +80,10 @@ export function defaultDraft(): JobDraft {
     overlap: 'run',
     timeoutMinutes: 0,
     keepAlive: false,
+    runWhenIdle: false,
+    idleMaxDelaySeconds: 3600,
+    triggerCommand: '',
+    triggerOn: 'success',
     enabled: true,
   }
 }
@@ -74,6 +101,7 @@ export function draftFromJob(job: Job): JobDraft {
     intervalUnit: interval.unit,
     dailyTime: job.dailyTime ?? '',
     tz: job.tz ?? '',
+    weekdays: parseWeekdays(job.weekdays),
     spawnMode: job.spawnMode,
     sessionTarget: job.sessionTarget ?? '',
     model: job.model ?? '',
@@ -84,8 +112,25 @@ export function draftFromJob(job: Job): JobDraft {
     overlap: job.overlap,
     timeoutMinutes: job.timeoutMinutes ?? 0,
     keepAlive: job.keepAlive,
+    runWhenIdle: job.runWhenIdle ?? false,
+    idleMaxDelaySeconds: job.idleMaxDelaySeconds ?? 3600,
+    triggerCommand: job.triggerCommand ?? '',
+    triggerOn: job.triggerOn ?? 'success',
     enabled: job.enabled,
   }
+}
+
+// parseWeekdays reads the stored comma list onto tokens, ignoring anything
+// unknown so a hand-edited row still opens.
+function parseWeekdays(raw: string | undefined): WeekdayToken[] {
+  if (!raw) return []
+  const set = new Set(
+    raw
+      .split(',')
+      .map((t) => t.trim().toLowerCase())
+      .filter((t) => (weekdayTokens as readonly string[]).includes(t)),
+  )
+  return weekdayTokens.filter((t) => set.has(t))
 }
 
 // toPayload builds the request body a save or preview sends. Recurring jobs
@@ -108,6 +153,10 @@ export function toPayload(draft: JobDraft, id?: number): Partial<Job> {
     overlap: draft.overlap,
     timeoutMinutes: Math.round(draft.timeoutMinutes) || 0,
     keepAlive: draft.keepAlive,
+    runWhenIdle: draft.runWhenIdle,
+    idleMaxDelaySeconds: Math.max(0, Math.round(draft.idleMaxDelaySeconds)),
+    triggerCommand: draft.triggerCommand,
+    triggerOn: draft.triggerOn,
   }
   switch (draft.scheduleKind) {
     case 'once': {
@@ -118,13 +167,25 @@ export function toPayload(draft: JobDraft, id?: number): Partial<Job> {
     case 'interval':
       payload.intervalSeconds = intervalToSeconds(draft.intervalValue, draft.intervalUnit)
       break
-    case 'daily':
+    case 'daily': {
       payload.dailyTime = draft.dailyTime.trim()
       payload.tz = draft.tz.trim()
       break
+    }
+  }
+  // weekday restrictions apply to every recurring cadence: daily slots skip
+  // unchosen days and an interval runs only on them, till canceled
+  if (draft.scheduleKind !== 'once') {
+    payload.weekdays = weekdayList(draft.weekdays)
   }
   if (id !== undefined) payload.id = id
   return payload
+}
+
+// weekdayList renders the chosen tokens in canonical sun..sat order.
+function weekdayList(chosen: WeekdayToken[]): string {
+  const set = new Set(chosen)
+  return weekdayTokens.filter((t) => set.has(t)).join(',')
 }
 
 // validateDraft returns one message per offending field, mirroring the
@@ -165,8 +226,9 @@ export function validateDraft(draft: JobDraft): DraftErrors {
   }
 
   if (draft.timeoutMinutes < 0) errors.timeoutMinutes = 'Timeout cannot be negative.'
-  if (draft.commandPrefix.length > maxPrefixLen)
-    errors.commandPrefix = `Command prefix must be at most ${maxPrefixLen} characters.`
+  if (draft.idleMaxDelaySeconds < 0) errors.idle = 'Idle delay cannot be negative.'
+  if (draft.triggerCommand.length > maxTriggerLen)
+    errors.triggerCommand = `Trigger command must be at most ${maxTriggerLen} characters.`
   return errors
 }
 

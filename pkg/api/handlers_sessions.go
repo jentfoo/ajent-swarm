@@ -32,9 +32,11 @@ type interruptReply struct {
 	Stopped string `json:"stopped,omitempty"`
 }
 
-// modeRequest steps backwards when Back; the whole body is optional.
+// modeRequest steps the permission mode: Back cycles backwards, a non-empty
+// Mode jumps straight to that name and wins over Back. The body is optional.
 type modeRequest struct {
-	Back bool `json:"back,omitempty"`
+	Back bool   `json:"back,omitempty"`
+	Mode string `json:"mode,omitempty"`
 }
 
 type rewindRequest struct {
@@ -117,14 +119,22 @@ func (s *apiServer) handleSessionInterrupt(w http.ResponseWriter, r *http.Reques
 	}
 }
 
-// handleSessionMode steps the permission mode like Shift+Tab and answers with
-// the mode now in effect.
+// handleSessionMode steps or sets the permission mode and answers with the
+// mode now in effect. A non-empty body mode jumps straight there, matching the
+// dropdown; an empty body cycles like Shift+Tab.
 func (s *apiServer) handleSessionMode(w http.ResponseWriter, r *http.Request) {
 	var req modeRequest
 	if !readOptionalRequest(w, r, &req) {
 		return
 	}
-	mode, err := s.fleet.ModeCycle(r.Context(), r.PathValue("id"), req.Back)
+	id := r.PathValue("id")
+	var mode string
+	var err error
+	if req.Mode != "" {
+		mode, err = s.fleet.ModeSet(r.Context(), id, req.Mode)
+	} else {
+		mode, err = s.fleet.ModeCycle(r.Context(), id, req.Back)
+	}
 	switch {
 	case err == nil:
 		writeJSON(w, http.StatusOK, ctl.ModeResult{Mode: mode})
@@ -277,20 +287,8 @@ func (s *apiServer) handleAttention(w http.ResponseWriter, _ *http.Request) {
 }
 
 // handleModels serves the models listing: one row per live session whose
-// current model comes from its snapshot. ?session=<id> instead discovers that
-// session's registry by opening ajent's own /model picker, answered later via
-// /resolve; no swarm-side config exists to fall back on.
+// current model comes from its snapshot. Switching goes through POST /model
+// against the same registry models.get lists.
 func (s *apiServer) handleModels(w http.ResponseWriter, r *http.Request) {
-	if id := r.URL.Query().Get("session"); id != "" {
-		row, err := s.fleet.DiscoverModels(r.Context(), id)
-		switch {
-		case err == nil:
-			writeJSON(w, http.StatusOK, []fleet.ModelRow{row})
-		case writeCommandFailure(w, err):
-		default:
-			writeError(w, http.StatusInternalServerError, "internal_error", "")
-		}
-		return
-	}
 	writeJSON(w, http.StatusOK, s.fleet.ModelRows(r.Context()))
 }

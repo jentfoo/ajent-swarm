@@ -30,8 +30,8 @@ export default function RunsHistory() {
           runsApi.list(jobId === '' ? undefined : jobId),
           jobsApi.list(),
         ])
-        setRuns(rows)
-        setJobs(jobRows)
+        setRuns(rows ?? []) // a null body reads as an empty history
+        setJobs(jobRows ?? [])
         setError('')
       } catch (err) {
         setError(err instanceof ApiError ? err.message : 'Loading run history failed.')
@@ -70,7 +70,7 @@ export default function RunsHistory() {
             }}
           >
             <option value="">All jobs</option>
-            {jobs.map((j) => (
+            {(jobs ?? []).map((j) => (
               <option key={j.id} value={j.id}>
                 {j.name}
               </option>

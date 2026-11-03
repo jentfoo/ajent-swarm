@@ -41,7 +41,8 @@ export interface ToolCallView {
   input?: unknown
   progress?: ToolProgressView
   outputs: string[] // streamed deltas painted so far; result.output adds nothing when set
-  result?: { output: string; error: boolean }
+  result?: { output: string; error: boolean; fault?: string }
+  closed?: boolean // turn ended before a result arrived; never shows "running"
 }
 
 // LiveTurn buffers one in-flight turn's stream. Tolerant ordering holds:
@@ -60,6 +61,7 @@ export interface NoticeView {
   key: string // '' for unkeyed notices, which stack instead of replacing
   text: string
   level: 'info' | 'warn' | 'error'
+  at: number // wall clock of arrival; rendering expires stale lines
 }
 
 export interface PrintCard {
@@ -134,6 +136,7 @@ export type ApplierAction =
   | { type: 'pendingSubmitted'; pendingId: string; text: string }
   | { type: 'pendingFailed'; pendingId: string }
   | { type: 'dialogAnswered'; dialogId: number }
+  | { type: 'outcomeDismissed'; dialogId: number }
 
 // Bounds keeping the ephemeral surfaces finite across long sessions.
 const maxNotices = 50
@@ -222,7 +225,7 @@ export function applierReducer(
     case 'backfill': {
       const next = cloneShallow(state)
       for (const entry of action.entries) {
-        insertEntry(next, entry)
+        if (insertEntry(next, entry)) drainLiveCoveredBy(next, entry)
       }
       recomputeChain(next)
       return next
@@ -251,6 +254,13 @@ export function applierReducer(
       const own = new Set(state.ownDialogs)
       own.add(action.dialogId)
       next.ownDialogs = own
+      return next
+    }
+    case 'outcomeDismissed': {
+      // Resolved chips leave on click as well as on their timer.
+      if (!state.resolvedElsewhere.some((o) => o.id === action.dialogId)) return state
+      const next = cloneShallow(state)
+      next.resolvedElsewhere = state.resolvedElsewhere.filter((o) => o.id !== action.dialogId)
       return next
     }
   }
@@ -451,10 +461,14 @@ function applyEvent(state: AppliedSessionState, ev: WireEvent): AppliedSessionSt
         // Keyed notices replace in place instead of stacking.
         next.notices = [
           ...next.notices.filter((n) => n.key !== d.key),
-          { key: d.key, text: d.text, level },
+          { key: d.key, text: d.text, level, at: Date.now() },
         ].slice(-maxNotices)
       } else {
-        next.notices = boundedAppend(next.notices, { key: '', text: d.text, level }, maxNotices)
+        next.notices = boundedAppend(
+          next.notices,
+          { key: '', text: d.text, level, at: Date.now() },
+          maxNotices,
+        )
       }
       return next
     }
@@ -469,7 +483,7 @@ function applyEvent(state: AppliedSessionState, ev: WireEvent): AppliedSessionSt
     case 'turn.end': {
       // Running derives from turn.start/turn.end; the spinner reconciles from
       // snapshots only. Poll-only totals refresh by resnapshotting after this.
-      next.live = null
+      next.live = closeLiveTurn(next.live)
       next.snapshot = { ...next.snapshot, running: false }
       next.lastTurnEndAt = Date.now()
       return next
@@ -637,12 +651,24 @@ function applyToolEvent(next: AppliedSessionState, ev: WireEvent): AppliedSessio
       const d = decode<{ id?: string; name?: string; output?: string; error?: boolean }>(ev.data)
       if (!isValidId(d?.id)) return keepSeq(next, ev.seq)
       // Result without a start still renders the header.
+      const result: NonNullable<ToolCallView['result']> = {
+        output: d.output ?? '',
+        error: d.error ?? false,
+      }
+      if (result.error && result.output !== '') {
+        // Upstream's recover path emits its fault-location notice immediately
+        // before this result; surface it on the failed card.
+        const fault = [...next.notices]
+          .reverse()
+          .find((n) => n.level === 'error' && n.text.startsWith(result.output))
+        if (fault !== undefined) result.fault = fault.text
+      }
       return withLive(
         next,
         upsertTool(live.tools, d.id!, (t) => ({
           ...t,
           name: t.name || d.name || '',
-          result: { output: d.output ?? '', error: d.error ?? false },
+          result,
         })),
       )
     }
@@ -671,7 +697,36 @@ function applyResnapshot(state: AppliedSessionState, snap: CtlState): AppliedSes
   const rows = snap.queuedRows ?? []
   next.snapshot = { ...next.snapshot, queuedRows: rows, queued: rows.length }
   next.pendings = reconcilePendings(next.pendings, rows, new Set())
+
+  // Lost-carrier reconciliation: when the snapshot reports no turn in flight,
+  // any card still running missed its close (a dropped result, a carrier
+  // entry lost to decode failure, a missed turn.end). Force-close them here
+  // so no card can sit at "running" forever.
+  if (!snap.running && next.live !== null) {
+    next.live = closeLiveTurn(next.live)
+  }
   return next
+}
+
+// closeLiveTurn retires one finished turn's buffer the way ajent's own
+// reference client does: painted content stays, streams seal and any call
+// without a result closes instead of discarding the whole card. Returns null
+// when nothing remains worth painting.
+function closeLiveTurn(live: LiveTurn | null): LiveTurn | null {
+  if (live === null) return null
+  const tools = live.tools.map((t) => (t.result || t.closed ? t : { ...t, closed: true }))
+  const empty =
+    live.text === '' &&
+    live.thinking === '' &&
+    tools.every((t) => t.outputs.length === 0 && !t.result)
+  return empty
+    ? null
+    : {
+        ...live,
+        thinkingOpen: false,
+        textOpen: false,
+        tools,
+      }
 }
 
 // --- entry bookkeeping ---
@@ -788,7 +843,12 @@ function drainLiveCoveredBy(state: AppliedSessionState, entry: Entry): void {
       live = { ...live, tools }
     }
   }
-  if (changed) state.live = live
+  if (!changed) return
+  state.live = live
+  // a fully drained buffer stops painting the pinned row at all
+  if (live.text === '' && live.thinking === '' && live.tools.length === 0) {
+    state.live = null
+  }
 }
 
 // stripSuffix removes one occurrence of covered from the end of painted,

@@ -1,9 +1,13 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 
 import { ApiError, post } from '../api/client'
 import type { InteractionPending } from '../api/types'
 import type { DialogOutcome } from '../state/eventApplier'
+
+// Resolved chips linger briefly so an answer is visible, then leave on their
+// own: dialogs settled elsewhere never park under the dock until the cap.
+const outcomeTtlMs = 4_000
 
 // DialogDock sits above the composer and lists open dialogs oldest first.
 // Card variants key on the shape flags, never on kind: a button list for
@@ -15,11 +19,13 @@ export function DialogDock({
   dialogs,
   outcomes,
   onAnsweredLocally,
+  onOutcomeDismissed,
 }: {
   sessionId: string
   dialogs: InteractionPending[]
   outcomes: DialogOutcome[]
   onAnsweredLocally: (dialogId: number) => void
+  onOutcomeDismissed: (dialogId: number) => void
 }) {
   if (dialogs.length === 0 && outcomes.length === 0) return null
 
@@ -34,13 +40,32 @@ export function DialogDock({
         />
       ))}
       {outcomes.map((o) => (
-        <ResolvedChip key={`outcome-${o.id}`} outcome={o} />
+        <ResolvedChip key={`outcome-${o.id}`} outcome={o} onDismiss={onOutcomeDismissed} />
       ))}
     </section>
   )
 }
 
-function ResolvedChip({ outcome }: { outcome: DialogOutcome }) {
+// ResolvedChip self-dismisses after a few seconds and leaves on click, so an
+// answer decided elsewhere never becomes residue. The timer runs once per id:
+// the callback rides a ref, so parent re-renders from streaming or polling
+// never reset the clock.
+function ResolvedChip({
+  outcome,
+  onDismiss,
+}: {
+  outcome: DialogOutcome
+  onDismiss: (dialogId: number) => void
+}) {
+  const dismissRef = useRef(onDismiss)
+  useEffect(() => {
+    dismissRef.current = onDismiss
+  }, [onDismiss])
+  useEffect(() => {
+    const timer = setTimeout(() => dismissRef.current(outcome.id), outcomeTtlMs)
+    return () => clearTimeout(timer)
+  }, [outcome.id])
+
   const what = outcome.cancelled
     ? 'cancelled'
     : outcome.indexes !== undefined && outcome.indexes.length > 0
@@ -51,9 +76,15 @@ function ResolvedChip({ outcome }: { outcome: DialogOutcome }) {
           ? 'answered'
           : 'closed'
   return (
-    <div className="card resolved-dialog" role="status">
+    <button
+      type="button"
+      className="card resolved-dialog"
+      role="status"
+      title="Dismiss"
+      onClick={() => onDismiss(outcome.id)}
+    >
       Dialog {outcome.id} answered elsewhere — {what}
-    </div>
+    </button>
   )
 }
 
@@ -71,6 +102,9 @@ function DialogCard({
 }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [picked, setPicked] = useState<number[]>([])
+  const togglePicked = (i: number) =>
+    setPicked((p) => (p.includes(i) ? p.filter((x) => x !== i) : [...p, i]))
 
   // Settled is benign: the first answer won, wherever it came from. Both a
   // settled:true reply and a settled wire code resolve quietly.
@@ -97,24 +131,6 @@ function DialogCard({
     <div className="card dialog-card" data-dialog-id={dialog.id}>
       {dialog.subject && <p className="muted mono">{dialog.subject}</p>}
       <p className="dialog-prompt">{dialog.prompt || `[${dialog.kind}]`}</p>
-      {multi ? (
-        <MultiPick
-          options={dialog.options!}
-          busy={busy}
-          onConfirm={(indexes) => void resolve({ dialogId: dialog.id, indexes })}
-        />
-      ) : dialog.options !== undefined ? (
-        dialog.options.map((opt: string, i: number) => (
-          <button
-            key={i}
-            type="button"
-            disabled={busy}
-            onClick={() => void resolve({ dialogId: dialog.id, index: i })}
-          >
-            {opt}
-          </button>
-        ))
-      ) : null}
       {dialog.text === true && !dialog.secret && (
         <TextAnswer
           busy={busy}
@@ -125,51 +141,68 @@ function DialogCard({
       {dialog.text === true && dialog.secret && (
         <SecretAnswer busy={busy} onSend={(text) => void resolve({ dialogId: dialog.id, text })} />
       )}
-      <div className="dialog-cancel">
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => void resolve({ dialogId: dialog.id, cancel: true })}
-        >
-          Cancel
-        </button>
-        {error && <span className="error-text"> {error}</span>}
+      {multi && (
+        <MultiChecklist options={dialog.options!} picked={picked} onToggle={togglePicked} />
+      )}
+      {/* one compact row for the whole barrier: answers plus cancel together */}
+      <div className="dialog-actions">
+        {multi ? (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void resolve({ dialogId: dialog.id, indexes: picked })}
+          >
+            Confirm
+          </button>
+        ) : dialog.options !== undefined ? (
+          dialog.options.map((opt: string, i: number) => (
+            <button
+              key={i}
+              type="button"
+              disabled={busy}
+              onClick={() => void resolve({ dialogId: dialog.id, index: i })}
+            >
+              {opt}
+            </button>
+          ))
+        ) : null}
+        <div className="dialog-cancel">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void resolve({ dialogId: dialog.id, cancel: true })}
+          >
+            Cancel
+          </button>
+          {error && <span className="error-text"> {error}</span>}
+        </div>
       </div>
     </div>
   )
 }
 
-function MultiPick({
+// MultiChecklist is the checkbox list of a multi dialog; its Confirm lives in
+// the action row beside Cancel, so every answer stays one compact line.
+function MultiChecklist({
   options,
-  busy,
-  onConfirm,
+  picked,
+  onToggle,
 }: {
   options: string[]
-  busy: boolean
-  onConfirm: (indexes: number[]) => void
+  picked: number[]
+  onToggle: (index: number) => void
 }) {
-  const [picked, setPicked] = useState<number[]>([])
   return (
     <div className="multipick">
       {options.map((opt, i) => (
         <label key={i} className="multipick-row">
-          <input
-            type="checkbox"
-            checked={picked.includes(i)}
-            onChange={() =>
-              setPicked((p) => (p.includes(i) ? p.filter((x) => x !== i) : [...p, i]))
-            }
-          />
+          <input type="checkbox" checked={picked.includes(i)} onChange={() => onToggle(i)} />
           {opt}
         </label>
       ))}
-      <button className="primary" type="button" disabled={busy} onClick={() => onConfirm(picked)}>
-        Confirm
-      </button>
     </div>
   )
 }
-
 function TextAnswer({
   busy,
   chat,

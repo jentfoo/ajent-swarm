@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router'
 
 import { ApiError } from '../api/client'
@@ -9,6 +9,7 @@ import { useWorkspace } from '../providers/workspace'
 import { Composer } from '../session/Composer'
 import { DialogDock } from '../session/DialogDock'
 import { QueuedPrompts } from '../session/QueuedPrompts'
+import { StatusBar } from '../session/StatusBar'
 import { StatusHeader } from '../session/StatusHeader'
 import { TranscriptView } from '../session/TranscriptView'
 import { RewindDialog } from '../session/RewindDialog'
@@ -20,9 +21,10 @@ interface Toast {
   level: 'info' | 'error'
 }
 
-// SessionView is the single-session experience: status header with controls,
-// virtualized transcript over reconciled state, dialog dock above a
-// queue-aware composer. The workspace modes host it by sessionId; the
+// SessionView is the single-session experience: slim status header with
+// controls, virtualized transcript over reconciled state, dialog dock above a
+// queue-aware composer, and a bottom status bar answering "what is the agent
+// doing" at a glance. The workspace modes host it by sessionId; the
 // /s/:sessionId route keeps a standalone focused view for deep links.
 export default function SessionView({ sessionId: hostedId }: { sessionId?: string }) {
   const params = useParams()
@@ -82,7 +84,7 @@ export default function SessionView({ sessionId: hostedId }: { sessionId?: strin
         </div>
       )}
 
-      <TranscriptView state={state} loadOlder={loadOlder} />
+      <TranscriptView sessionId={sessionId} state={state} loadOlder={loadOlder} />
 
       {state.notices.length > 0 && <Notices notices={state.notices} />}
       <DialogDock
@@ -93,6 +95,7 @@ export default function SessionView({ sessionId: hostedId }: { sessionId?: strin
           dispatch({ type: 'dialogAnswered', dialogId })
           acknowledgeDialog(sessionId, dialogId) // acting clears the inbox row
         }}
+        onOutcomeDismissed={(dialogId) => dispatch({ type: 'outcomeDismissed', dialogId })}
       />
       <QueuedPrompts
         queuedRows={snap.queuedRows ?? []}
@@ -123,6 +126,8 @@ export default function SessionView({ sessionId: hostedId }: { sessionId?: strin
         onSubmitFailed={(pendingId) => dispatch({ type: 'pendingFailed', pendingId })}
       />
 
+      <StatusBar snap={snap} live={state.live} />
+
       <div className="toasts" aria-live="polite">
         {toasts.map((t) => (
           <div key={t.id} className={`toast ${t.level}`}>
@@ -134,10 +139,14 @@ export default function SessionView({ sessionId: hostedId }: { sessionId?: strin
   )
 }
 
-// SeatBadge keeps the seat facts visible with a one-click takeover.
+// SeatBadge is the takeover affordance for a seat another controller holds.
+// A free seat needs no claim (writes take it lazily) and one we hold needs no
+// badge, so both stay hidden and control only ever shows as contested.
 function SeatBadge({ sessionId, state }: { sessionId: string; state: AppliedSessionState }) {
   const [busy, setBusy] = useState(false)
   const seat = state.snapshot.seat
+
+  if (!seat.held || seat.yours) return null
 
   const takeControl = async () => {
     setBusy(true)
@@ -150,22 +159,38 @@ function SeatBadge({ sessionId, state }: { sessionId: string; state: AppliedSess
     }
   }
 
-  if (!seat.held) return <span className="badge">seat free</span>
-  if (seat.yours) return null // swarm holds it for every viewer here
   return (
-    <>
-      <span className="badge warn">seat: {seat.holder || 'another controller'}</span>
-      <button type="button" onClick={() => void takeControl()} disabled={busy}>
-        Take control
-      </button>
-    </>
+    <button
+      type="button"
+      className="badge warn seat-badge"
+      disabled={busy}
+      title={`Take control from ${seat.holder || 'another controller'}`}
+      onClick={() => void takeControl()}
+    >
+      {`take control: ${seat.holder || 'held'}`}
+    </button>
   )
 }
 
+// noticeTtlMs bounds how long a streamed notice stays visible: upstream's
+// keyed lines replace each other but nothing ever clears them, so without an
+// expiry "Sub-agent sub-6 completed" parks under the composer forever.
+const noticeTtlMs = 8_000
+
 function Notices({ notices }: { notices: NoticeView[] }) {
+  const [now, setNow] = useState(() => Date.now())
+  // a slow tick re-renders so expired lines leave without a new event arriving;
+  // the interval only runs while fresh lines exist
+  useEffect(() => {
+    if (notices.length === 0) return
+    const timer = setInterval(() => setNow(Date.now()), 1_000)
+    return () => clearInterval(timer)
+  }, [notices.length])
+  const fresh = notices.filter((n) => now - n.at < noticeTtlMs)
+  if (fresh.length === 0) return null
   return (
     <div aria-label="Notices">
-      {notices.slice(-3).map((n, i) => (
+      {fresh.slice(-3).map((n, i) => (
         <div key={`${i}-${n.key}`} className={`block-notice ${n.level}`}>
           {n.text}
         </div>

@@ -5,9 +5,13 @@
 
 Central controller for managing multiple [ajent](https://github.com/jentfoo/ajent) sessions. Provides a web-ui for monitoring and interacting with ajent sessions running on the local system.
 
+| Desktop tiling | Mobile |
+|---|---|
+| ![Desktop tiling](docs/img/desktop-tiling.png) | ![Mobile session](docs/img/mobile-session.png) |
+
 ## Status
 
-Phases 02 through 11 are implemented: flags, SQLite state store, unix-user
+Phases 02 through 12 are implemented: flags, SQLite state store, unix-user
 auth with bcrypt passwords, daemon modes, and the fleet (a registry watch
 spawning one actor per live ajent instance, seat ownership, watermark
 reconciliation, and a multiplexed `/api/stream` WebSocket that fans reconciled
@@ -24,7 +28,11 @@ history under bounded retention. The React frontend ships auth screens, a
 desktop shell with the attention inbox and tile workspaces, the scheduler UI,
 and a phone-first mobile experience (phase 11): launcher and switcher over one
 bottom sheet, touch-sized dialogs, a keyboard-aware composer, swarm-stored
-session titles, and remote access behind TLS or a reverse proxy.
+session titles, and remote access behind TLS or a reverse proxy. Phase 12
+added the release pass: `stop`/`status` subcommands, log rotation, login rate
+limiting, load-test verifications, release packaging, and the docs under
+`docs/` (architecture, operations, security checklist, performance notes,
+upstream candidates).
 
 ## Requirements
 
@@ -33,23 +41,41 @@ session titles, and remote access behind TLS or a reverse proxy.
 - An `ajent` binary on `PATH` (or passed via `--ajent-bin`); it is probed with
   `--version` at startup so a missing binary fails loudly
 
+## Install
+
+Build once and copy the static binary somewhere on `PATH`; there are no runtime
+dependencies beyond the ajent binary:
+
+```sh
+make release             # dist/ajent-swarm-<os>-<arch>, statically linked
+sudo cp dist/ajent-swarm-$(uname -s | tr A-Z a-z)-$(uname -m | sed s/x86_64/amd64/) \
+  /usr/local/bin/ajent-swarm
+```
+
+Upgrades are the same steps with the service stopped (`ajent-swarm stop`);
+state under `<ajent home>/swarm/` carries over untouched.
+
 ## Running
 
 ```sh
 make build
 ./bin/ajent-swarm                 # foreground, logs to stderr, binds 127.0.0.1:8282
 ./bin/ajent-swarm --daemon        # background, logs to <ajent home>/swarm/swarm.log
+./bin/ajent-swarm status          # running or stopped (exit code is the answer)
+./bin/ajent-swarm stop            # SIGTERM, escalating to SIGKILL after 10s
 ```
 
 On first use the browser page offers a bootstrap form (loopback only) to set the
 login password for your unix username; `--password` sets it up front instead.
 State lives under `<ajent home>/swarm/` (honoring `AJENT_HOME`), overridable via
-`--state`.
+`--state`. Service and child logs rotate under `--log-max-mb`/`--log-backups`;
+run history prunes by `--run-retention-days` and `--run-retention-max`.
 
 Useful flags: `--host`, `--port`, `--pidfile`, `--log`,
 `--allow-remote-bootstrap`, `--kill-children-on-shutdown`. Run
 `./bin/ajent-swarm --help` for the full list.
 Only one instance may run per state directory; a second exits naming the holder.
+Operations handbook: `docs/operations.md`.
 
 Launched children join their own process group and outlive the service by
 default: a restart of the web service never destroys a running agent run, and
@@ -120,11 +146,22 @@ make test                 # fast Go unit tests
 make test-web             # frontend unit tests (vitest, hermetic)
 make web-check            # lint + typecheck + test + build the frontend
 make dist                 # build web/ into pkg/web/dist for go:embed
-make test-all             # with -race and coverage
+make test-all             # with -race and coverage, plus load checks
 make test-integration     # env-guarded: builds the binary, exercises daemon mode
 make test-integration-fleet # env-guarded: builds ajent, exercises the launch path
+make test-e2e             # full smoke: builds ajent + swarm, one turn via Playwright
+make bench                # Go benchmarks (hub fanout, ...)
+make audit                # govulncheck + pnpm audit for both trees
+make release              # static binaries for all platforms into dist/
 make lint                 # gofmt + golangci-lint + go vet
 ```
+
+The e2e smoke needs an ajent checkout beside this repo (the module replace
+points there) and Playwright browsers once: `cd web && pnpm exec playwright
+install chromium`. Running it with `SWARM_SHOTS=docs/img make test-e2e` also
+refreshes the README screenshots. Further reading: `docs/architecture.md`,
+`docs/operations.md`, `docs/security-checklist.md`,
+`docs/performance-notes.md`, `docs/upstream-candidates.md`.
 
 ### Frontend
 

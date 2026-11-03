@@ -15,7 +15,7 @@ import type { SwarmStream } from './swarmStream'
 // Warm budget: how many unreferenced sessions keep their subscriptions.
 const maxWarm = 4
 const resnapshotMs = 20_000
-const resnapshotAfterTurnMs = 250
+const resnapshotAfterTurnMs = 100
 const pageLimit = 200
 const maxHealPages = 5
 

@@ -100,14 +100,15 @@ func scheduleChanged(a, b store.Job) bool {
 	}
 }
 
-// handleJobList serves every stored job.
+// handleJobList serves every stored job. An empty list encodes [] not null,
+// so list-shaped clients never trip on a missing array.
 func (s *apiServer) handleJobList(w http.ResponseWriter, r *http.Request) {
 	jobs, err := s.sched.Jobs(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "")
 		return
 	}
-	writeJSON(w, http.StatusOK, jobs)
+	writeJSON(w, http.StatusOK, orEmptySlice(jobs))
 }
 
 // handleJobCreate validates and stores one new job.
@@ -273,7 +274,16 @@ func (s *apiServer) handleRuns(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal_error", "")
 		return
 	}
-	writeJSON(w, http.StatusOK, runs)
+	writeJSON(w, http.StatusOK, orEmptySlice(runs))
+}
+
+// orEmptySlice replaces a typed nil slice with an empty one so list replies
+// encode as [] rather than null.
+func orEmptySlice[T any](rows []T) []T {
+	if rows == nil {
+		return []T{}
+	}
+	return rows
 }
 
 // pathID reads the {id} path value as a job id.

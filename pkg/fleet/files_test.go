@@ -3,7 +3,6 @@ package fleet
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -135,24 +134,4 @@ func TestManagerFiles(t *testing.T) {
 		require.NoError(t, err)
 		assert.Empty(t, items)
 	})
-}
-
-func TestSanitizeSessionName(t *testing.T) {
-	t.Parallel()
-
-	cases := []struct{ in, want string }{
-		{"Fix the login flow", "fix-the-login-flow"},
-		{"Answer with, commas!", "answer-with-commas"},
-		{"first line only\nsecond line dropped", "first-line-only"},
-		{"---already-dashed---", "already-dashed"},
-		{"kebab-case-input", "kebab-case-input"},
-	}
-	for _, tc := range cases {
-		assert.Equal(t, tc.want, sanitizeSessionName(tc.in))
-	}
-
-	long := sanitizeSessionName(strings.Repeat("word ", 60))
-	assert.NotEmpty(t, long)
-	assert.LessOrEqual(t, len(long), maxNameRunes)
-	assert.Empty(t, sanitizeSessionName("!!! ..."))
 }

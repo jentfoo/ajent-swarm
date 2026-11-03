@@ -2,6 +2,7 @@ package sched
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"sync"
 	"time"
@@ -168,11 +169,23 @@ func (s *Scheduler) loop() {
 	}
 }
 
-// fireDue claims one due slot: missed jobs follow their on_missed policy and
-// the schedule always advances before any launch. A claimed run then executes
-// asynchronously; a skipped or refused slot only records its row.
+// fireDue claims one due slot: run-when-idle jobs wait for a quiet fleet
+// (skipping once their delay cap passes), missed jobs follow their on_missed
+// policy, and the schedule always advances before any launch. A claimed run
+// then executes asynchronously; a skipped or refused slot only records its row.
 func (s *Scheduler) fireDue(j store.Job, now time.Time) {
 	slot := *j.NextRunAt
+
+	if j.RunWhenIdle && s.fleetBusy(now) {
+		maxDelay := time.Duration(j.IdleMaxDelaySeconds) * time.Second
+		waited := now.Sub(slot)
+		if maxDelay <= 0 || waited < maxDelay {
+			return // stay due: a later tick fires it once the fleet quiets down
+		}
+		s.skipDue(j, slot, "skipped: still busy after waiting "+
+			formatDelay(waited)+" for an idle fleet")
+		return
+	}
 
 	// decide what happens to this slot before claiming it: the claim itself
 	// advances next_run_at optimistically, so restarts never double-fire
@@ -187,7 +200,8 @@ func (s *Scheduler) fireDue(j store.Job, now time.Time) {
 	}
 
 	run := s.baseRun(j, store.TriggerSchedule, now)
-	late := now.Sub(slot) > s.opts.MissedGrace
+	late := !j.RunWhenIdle && // an idle wait delays by design, never late
+		now.Sub(slot) > s.opts.MissedGrace
 	if late && (j.ScheduleKind == store.ScheduleOnce || j.OnMissed == store.MissSkip) {
 		run.Status = store.RunSkipped // the slot is beyond its grace window
 		if j.ScheduleKind == store.ScheduleOnce {
@@ -218,6 +232,52 @@ func (s *Scheduler) fireDue(j store.Job, now time.Time) {
 			"late", late && j.OnMissed == store.MissFireLate)
 		s.wg.Add(1) // claimed before the goroutine starts, so Stop never races it
 		go s.execute(run, j)
+	}
+}
+
+// skipDue claims one due slot only to record a skipped run with the reason,
+// advancing the schedule like any other claim so restarts never re-decide it.
+func (s *Scheduler) skipDue(j store.Job, slot time.Time, reason string) {
+	var newNext *time.Time
+	if j.ScheduleKind != store.ScheduleOnce {
+		next, err := InitialNext(j, time.Now())
+		if err != nil {
+			s.log.Error("job schedule is broken", "job", j.Name, "err", err)
+			return
+		}
+		newNext = next
+	}
+	run := s.baseRun(j, store.TriggerSchedule, time.Now())
+	run.Status = store.RunSkipped
+	run.Error = reason
+	id, final, claimed, err := s.store.StartScheduledFire(s.ctx, j.ID, slot, newNext,
+		j.Overlap == store.OverlapSkipIfRunning, s.opts.MaxConcurrent, run)
+	if err != nil {
+		s.log.Warn("claiming a skip failed", "job", j.Name, "err", err)
+		return
+	}
+	if claimed && final == store.RunSkipped {
+		s.log.Info("run skipped", "job", j.Name, "reason", reason,
+			"run", id)
+	}
+}
+
+// fleetBusy reports whether any tracked session showed agent activity inside
+// the run-when-idle window.
+func (s *Scheduler) fleetBusy(now time.Time) bool {
+	last := s.runner.LastBusyAt()
+	return !last.IsZero() && now.Sub(last) < idleWindow
+}
+
+// formatDelay renders a wait for skip reasons: 90s, 45m, 2h.
+func formatDelay(d time.Duration) string {
+	switch {
+	case d < time.Minute:
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	case d < time.Hour:
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	default:
+		return fmt.Sprintf("%dh", int(d.Hours()+0.5))
 	}
 }
 

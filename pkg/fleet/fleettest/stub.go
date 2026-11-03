@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -63,11 +62,9 @@ type Stub struct {
 	conns    map[*stubConn]struct{}
 	dials    int // served hellos, so tests count dials
 
-	refuseScript  map[string]*ctl.Error // scripted per-method refusals
-	resultScript  map[string]any        // scripted success payloads
-	pickerOptions []string              // set: bare /model opens this picker
-	dialogSeq     uint64                // broker-assigned dialog ids
-	requests      []RecordedRequest
+	refuseScript map[string]*ctl.Error // scripted per-method refusals
+	resultScript map[string]any        // scripted success payloads
+	requests     []RecordedRequest
 }
 
 // New binds a stub's socket under home and starts accepting. Callers still
@@ -257,14 +254,6 @@ func (f *Stub) Result(method string, result any) {
 	f.resultScript[method] = result
 }
 
-// OpenPickerOnSubmit scripts bare /model submits to open a pick dialog with
-// these option labels, like ajent's own model picker. Nil disables.
-func (f *Stub) OpenPickerOnSubmit(options []string) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.pickerOptions = options
-}
-
 // Received returns every request the stub has served, oldest first.
 func (f *Stub) Received() []RecordedRequest {
 	f.mu.Lock()
@@ -375,11 +364,7 @@ func (c *stubConn) handle(req ctl.Request) bool {
 		var p ctl.SubmitParams
 		_ = json.Unmarshal(req.Params, &p)
 		c.s.mu.Lock()
-		pick := c.s.pickerOptions != nil && strings.TrimSpace(p.Line) == modelLine
 		seq := c.s.seq
-		if pick {
-			c.s.openPickerLocked()
-		}
 		c.s.mu.Unlock()
 		return c.reply(ctl.Reply{ID: req.ID, Seq: seq})
 
@@ -426,25 +411,6 @@ func (f *Stub) scripted(req ctl.Request) (ctl.Reply, bool) {
 		return ctl.Reply{ID: req.ID, Seq: f.seq, Result: ctl.EncodeData(res)}, true
 	}
 	return ctl.Reply{}, false
-}
-
-// modelLine is the submit that opens ajent's own model picker.
-const modelLine = "/model"
-
-// openPickerLocked broadcasts one pending pick dialog with fresh options.
-// mu must be held.
-func (f *Stub) openPickerLocked() {
-	f.dialogSeq++
-	f.seq++
-	ev := ctl.NewEvent(ctl.EventInteractionPending, f.seq, ctl.InteractionPendingData{
-		ID:      f.dialogSeq,
-		Kind:    "pick",
-		Prompt:  "Select model",
-		Options: f.pickerOptions,
-	})
-	for c := range f.conns {
-		_ = c.enc.Encode(ev)
-	}
 }
 
 // attach applies the seat rules; false refuses with seat-held.

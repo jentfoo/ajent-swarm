@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
@@ -30,7 +31,9 @@ type scriptRunner struct {
 	session   string
 	pendingID string // the last submitted prompt, replayed on subscribe
 	stopped   []string
-	deliver   func([]byte) // the watcher's frame sink once subscribed
+	deliver   func([]byte)  // the watcher's frame sink once subscribed
+	watchOnce sync.Once     // guards watched
+	watched   chan struct{} // closed when the run's watcher subscribes
 
 	block chan struct{}
 }
@@ -48,6 +51,9 @@ func (r *scriptRunner) Launch(_ context.Context, _ fleet.LaunchRequest) (fleet.L
 	return fleet.LaunchResult{SessionID: r.session}, nil
 }
 
+// LastBusyAt reports a quiet fleet; no job in these tests waits for idle.
+func (r *scriptRunner) LastBusyAt() time.Time { return time.Time{} }
+
 func (r *scriptRunner) Submit(_ context.Context, _ string, params ctl.SubmitParams) error {
 	r.mu.Lock()
 	r.pendingID = params.PendingID // remembered for a later subscription's replay
@@ -58,9 +64,14 @@ func (r *scriptRunner) Submit(_ context.Context, _ string, params ctl.SubmitPara
 }
 
 // playLanding emits the committed-entry-then-idle sequence a real ajent
-// produces once it accepts a prompt.
+// produces once it accepts a prompt. It waits for the watcher to attach, so
+// the landing is never dropped by an ordering race.
 func (r *scriptRunner) playLanding(pid string) {
-	time.Sleep(10 * time.Millisecond) // let the watcher attach first
+	select { // a run that never subscribed has no landing to deliver
+	case <-r.watched:
+	case <-time.After(5 * time.Second):
+		return
+	}
 
 	r.mu.Lock()
 	deliver := r.deliver
@@ -101,6 +112,7 @@ func (r *scriptRunner) Subscribe(_ string, deliver func([]byte), _ func()) (*fle
 	r.mu.Lock()
 	r.deliver = deliver
 	submitted := r.pendingID != ""
+	r.watchOnce.Do(func() { close(r.watched) })
 	r.mu.Unlock()
 
 	// mirror fleet's greeting: a fresh subscription reconciles through an
@@ -134,7 +146,7 @@ func newSchedEnv(t *testing.T) (*schedEnv, *http.Client) {
 	require.NoError(t, svc.EnsureUser(t.Context(), "jent"))
 
 	mgr := newTestFleet(t)
-	runner := &scriptRunner{session: "01APIFAKESESSION0"}
+	runner := &scriptRunner{session: "01APIFAKESESSION0", watched: make(chan struct{})}
 	env := &schedEnv{
 		sched:  sched.New(sched.Options{Store: st, Runner: runner, Tick: 20 * time.Millisecond}),
 		runner: runner,
@@ -562,4 +574,19 @@ func TestJobPreviewEndpoint(t *testing.T) {
 		require.Equal(t, http.StatusOK, code)
 		assert.Contains(t, bad.WorkspaceError, "workspace")
 	})
+}
+
+func TestEmptyListEndpointsEncodeArrays(t *testing.T) {
+	// run history with nothing recorded must answer [] not null: the UI's
+	// filter selects and table renders read plain arrays off these endpoints
+	t.Parallel()
+	env, client := newSchedEnv(t)
+
+	for _, path := range []string{"/api/runs", "/api/jobs"} {
+		resp := call(t, client, env.server.URL, http.MethodGet, path, nil)
+		body, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, resp.StatusCode, path)
+		assert.JSONEq(t, "[]", string(body), path+" must encode an empty array")
+	}
 }

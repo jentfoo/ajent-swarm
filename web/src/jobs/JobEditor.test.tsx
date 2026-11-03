@@ -148,13 +148,10 @@ describe('JobEditor', () => {
     expect(savedRoutes[0]).toMatchObject({ path: '/api/jobs' })
   })
 
-  it('warns about command prefix injection only when set', async () => {
-    const user = userEvent.setup()
-    renderEditor()
+  it('offers no command prefix field; legacy values ride along untouched', () => {
+    renderEditor({ job: { ...storedJob, commandPrefix: 'timeout 300' } })
 
-    expect(screen.queryByText(/Injection risk/)).not.toBeInTheDocument()
-    await user.type(screen.getByLabelText(/Command prefix/), 'docker run -i img')
-    expect(screen.getByText(/Injection risk/)).toBeInTheDocument()
+    expect(screen.queryByLabelText(/Command prefix/)).not.toBeInTheDocument()
   })
 
   it('edits an existing job and anchors previews at its stored creation', async () => {
@@ -177,5 +174,59 @@ describe('JobEditor', () => {
     await waitFor(() =>
       expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ id: 3, name: 'renamed' })),
     )
+  })
+
+  it('sends weekday selections and run-when-idle options', async () => {
+    const user = userEvent.setup()
+    renderEditor()
+
+    await user.type(screen.getByRole('textbox', { name: /^Name/ }), 'weekly')
+    await user.type(screen.getByLabelText(/Workspace directory/), '/repo')
+    // mondays and fridays only; the picker rides every recurring kind,
+    // interval included, for an always-on job that rests on weekends
+    await user.click(screen.getByRole('checkbox', { name: /Mon/ }))
+    await user.click(screen.getByRole('checkbox', { name: /Fri/ }))
+    // run when idle with a one-hour cap
+    await user.click(
+      screen.getByRole('checkbox', { name: /Only start when no session has worked/ }),
+    )
+    await user.selectOptions(screen.getByLabelText(/If still busy, skip after waiting/), '3600')
+
+    await user.click(screen.getByRole('button', { name: 'Create job' }))
+    await waitFor(() => expect(savedRoutes).toHaveLength(1))
+    expect(savedRoutes[0].body).toMatchObject({
+      scheduleKind: 'interval',
+      weekdays: 'mon,fri',
+      runWhenIdle: true,
+    })
+  })
+
+  it('reveals the trigger command gate and its outcome picker together', async () => {
+    const user = userEvent.setup()
+    renderEditor()
+
+    expect(screen.queryByLabelText(/Run the job when the command/)).not.toBeInTheDocument()
+    await user.type(screen.getByLabelText(/Pre-run command/), 'git pull --ff-only')
+    const picker = screen.getByLabelText(/Run the job when the command/)
+    expect(picker).toBeInTheDocument()
+    await user.selectOptions(picker, 'error')
+
+    await user.type(screen.getByRole('textbox', { name: /^Name/ }), 'gated')
+    await user.type(screen.getByLabelText(/Workspace directory/), '/repo')
+    await user.click(screen.getByRole('button', { name: 'Create job' }))
+    await waitFor(() => expect(savedRoutes).toHaveLength(1))
+    expect(savedRoutes[0].body).toMatchObject({
+      triggerCommand: 'git pull --ff-only',
+      triggerOn: 'error',
+    })
+  })
+
+  it('keeps a stored weekday set checked when editing', async () => {
+    renderEditor({ job: { ...storedJob, weekdays: 'tue,thu' } })
+    await settlePreview()
+
+    expect(screen.getByRole('checkbox', { name: /Tue/ })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: /Thu/ })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: /Mon/ })).not.toBeChecked()
   })
 })

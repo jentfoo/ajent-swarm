@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"time"
 
 	"github.com/jentfoo/ajent-swarm/pkg/auth"
 	"github.com/jentfoo/ajent-swarm/pkg/fleet"
@@ -53,6 +54,8 @@ var apiMethods = map[string]string{
 	"/api/sessions/{id}/title":         http.MethodPost,
 	"/api/attention":                   http.MethodGet,
 	"/api/models":                      http.MethodGet,
+	"/api/models/options":              http.MethodGet,
+	"/api/settings":                    "GET, PUT",
 	"/api/saved-sessions":              http.MethodGet,
 	"/api/saved-sessions/{id}/entries": http.MethodGet,
 
@@ -83,18 +86,25 @@ type apiServer struct {
 	sched                *sched.Scheduler
 	attachmentsDir       string
 	allowRemoteBootstrap bool
+	loginLimiter         *auth.FailLimiter // failed-login budget per source address
 }
+
+// limiterDefaults bound failed credential attempts per source address.
+const (
+	loginFailuresAllowed = 10
+	loginWindow          = 5 * time.Minute
+)
 
 // Handler builds the full HTTP handler: request logging and panic recovery
 // around an API subtree gated by auth, plus the SPA at root. Static assets
 // stay reachable so the login page can render in every bootstrap state.
 func Handler(cfg Config) http.Handler {
 	srv := &apiServer{
-		auth:                 cfg.Auth,
-		fleet:                cfg.Fleet,
-		sched:                cfg.Sched,
-		attachmentsDir:       cfg.AttachmentsDir,
-		allowRemoteBootstrap: cfg.AllowRemoteBootstrap,
+		auth:           cfg.Auth,
+		fleet:          cfg.Fleet,
+		sched:          cfg.Sched,
+		attachmentsDir: cfg.AttachmentsDir,
+		loginLimiter:   auth.NewFailLimiter(loginFailuresAllowed, loginWindow),
 	}
 
 	apiMux := http.NewServeMux()
@@ -127,6 +137,9 @@ func Handler(cfg Config) http.Handler {
 	apiMux.HandleFunc("POST /api/sessions/{id}/title", srv.handleSessionTitle)
 	apiMux.HandleFunc("GET /api/attention", srv.handleAttention)
 	apiMux.HandleFunc("GET /api/models", srv.handleModels)
+	apiMux.HandleFunc("GET /api/models/options", srv.handleModelOptions)
+	apiMux.HandleFunc("GET /api/settings", srv.handleSettingsGet)
+	apiMux.HandleFunc("PUT /api/settings", srv.handleSettingsSet)
 	apiMux.HandleFunc("GET /api/saved-sessions", srv.handleSavedSessions)
 	apiMux.HandleFunc("GET /api/saved-sessions/{id}/entries", srv.handleSavedEntries)
 

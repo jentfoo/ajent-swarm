@@ -14,9 +14,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/jentfoo/ajent-swarm/pkg/testutil"
 	"github.com/jentfoo/ajent/pkg/client"
 	"github.com/jentfoo/ajent/pkg/ctl"
-	"github.com/jentfoo/ajent/pkg/paths"
 )
 
 // integrationBin names the env var holding a built ajent binary for the
@@ -47,10 +47,7 @@ func TestFleetLaunchIntegration(t *testing.T) {
 		t.Fatalf("ajent binary %s: %v", bin, err)
 	}
 
-	home, err := os.MkdirTemp("", "fleetint")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = os.RemoveAll(home) })
-	t.Setenv(paths.EnvHome, home)
+	home := testutil.IsolateHome(t)
 	require.NoError(t, os.WriteFile(filepath.Join(home, "models.json"), []byte(integrationModels), 0o600))
 
 	ws := filepath.Join(home, "workspace")

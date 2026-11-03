@@ -3,10 +3,16 @@ import type { FormEvent } from 'react'
 
 import { ApiError } from '../api/client'
 import { jobsApi } from '../api/endpoints'
-import type { Job } from '../api/types'
-import { defaultDraft, draftFromJob, toPayload, validateDraft } from './jobDraft'
+import type { Job, TriggerOn } from '../api/types'
+import { defaultDraft, draftFromJob, idleDelayOptions, toPayload, validateDraft } from './jobDraft'
 import type { DraftErrors, JobDraft } from './jobDraft'
-import { formatSlot, intervalUnits, scheduleKindLabels } from './schedule'
+import {
+  formatSlot,
+  intervalUnits,
+  scheduleKindLabels,
+  weekdayTokens,
+  weekdayShort,
+} from './schedule'
 
 // Permission startup flags, matching phase 04's launcher.
 const permissionOptions = [
@@ -28,10 +34,11 @@ function timezoneCandidates(): string[] {
   return []
 }
 
-// JobEditor is the one form for creating and editing jobs: mode chooser,
-// launch facts matching phase 04's launcher, prompt, missed-run policy,
-// timeout and keep-alive. The next three fire times preview live through
-// POST /api/jobs/preview, which also checks the workspace path.
+// JobEditor is the one form for creating and editing jobs: launch facts matching
+// phase 04's launcher, then trigger — schedule plus its optional pre-run
+// command — prompt, missed-run policy, timeout and keep-alive. The next three
+// fire times preview live through POST /api/jobs/preview, which also checks the
+// workspace path.
 export function JobEditor({
   job,
   workspaces,
@@ -216,7 +223,7 @@ export function JobEditor({
           or allow-all.
         </p>
 
-        <h3>Schedule</h3>
+        <h3>Trigger</h3>
         <div className="form-grid">
           <label>
             Mode
@@ -311,6 +318,28 @@ export function JobEditor({
           )}
 
           {draft.scheduleKind !== 'once' && (
+            <div className="weekday-picker" role="group" aria-label="Days of the week">
+              <span className="muted">On days</span>
+              {weekdayTokens.map((token) => (
+                <label key={token} className="weekday-chip">
+                  <input
+                    type="checkbox"
+                    checked={draft.weekdays.includes(token)}
+                    onChange={(ev) =>
+                      patch({
+                        weekdays: ev.target.checked
+                          ? [...draft.weekdays, token]
+                          : draft.weekdays.filter((d) => d !== token),
+                      })
+                    }
+                  />
+                  {weekdayShort[weekdayTokens.indexOf(token)]}
+                </label>
+              ))}
+            </div>
+          )}
+
+          {draft.scheduleKind !== 'once' && (
             <label>
               Missed run
               <select
@@ -324,7 +353,41 @@ export function JobEditor({
           )}
         </div>
 
-        {previewError !== '' ? (
+        {/* the pre-run command is part of the firing decision, so it sits inside
+            the trigger block ahead of the preview and idle policy */}
+        <div className="form-grid">
+          <label>
+            Pre-run command (optional)
+            <input
+              placeholder="e.g. git pull --ff-only"
+              value={draft.triggerCommand}
+              onChange={(ev) => patch({ triggerCommand: ev.target.value })}
+              aria-invalid={errors.triggerCommand !== undefined}
+            />
+            {errors.triggerCommand && <FieldError text={errors.triggerCommand} />}
+          </label>
+
+          {draft.triggerCommand.trim() !== '' && (
+            <label>
+              Run the job when the command
+              <select
+                value={draft.triggerOn}
+                onChange={(ev) => patch({ triggerOn: ev.target.value as TriggerOn })}
+              >
+                <option value="success">Succeeds (exit zero)</option>
+                <option value="error">Errors (non-zero exit)</option>
+              </select>
+            </label>
+          )}
+        </div>
+        {draft.triggerCommand.trim() !== '' && (
+          <p className="muted small-note">
+            The command runs via sh -c before each fire; a non-matching outcome records the fire as
+            skipped. When the job runs, its output is placed ahead of the prompt.
+          </p>
+        )}
+
+        {(previewError ?? '') !== '' ? (
           <p className="error-text">{previewError}</p>
         ) : (
           previewTimes.length > 0 && (
@@ -341,12 +404,43 @@ export function JobEditor({
           )
         )}
 
+        <h3>Run when idle</h3>
+        <div className="form-grid">
+          <span className="check-row">
+            <input
+              type="checkbox"
+              id="job-run-when-idle"
+              checked={draft.runWhenIdle}
+              onChange={(ev) => patch({ runWhenIdle: ev.target.checked })}
+            />
+            <label htmlFor="job-run-when-idle">
+              Only start when no session has worked in the last 10 minutes
+            </label>
+          </span>
+
+          {draft.runWhenIdle && (
+            <label>
+              If still busy, skip after waiting
+              <select
+                value={draft.idleMaxDelaySeconds}
+                onChange={(ev) => patch({ idleMaxDelaySeconds: Number(ev.target.value) })}
+              >
+                {idleDelayOptions.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+        </div>
+
         <h3>Prompt</h3>
-        <label>
-          Prompt (empty jobs just launch the session)
+        <label className="prompt-field">
+          Prompt
           <textarea
-            rows={4}
-            placeholder="What should ajent do on each run?"
+            rows={8}
+            placeholder="What should ajent do on each run? Empty jobs just launch the session."
             value={draft.prompt}
             onChange={(ev) => patch({ prompt: ev.target.value })}
           />
@@ -354,26 +448,6 @@ export function JobEditor({
 
         <h3>Advanced</h3>
         <div className="form-grid">
-          <label>
-            Command prefix (optional)
-            <input
-              placeholder="e.g. docker run -i myimage"
-              value={draft.commandPrefix}
-              onChange={(ev) => patch({ commandPrefix: ev.target.value })}
-              aria-invalid={errors.commandPrefix !== undefined}
-            />
-            {errors.commandPrefix ? (
-              <FieldError text={errors.commandPrefix} />
-            ) : (
-              draft.commandPrefix !== '' && (
-                <span className="warn-text small-note">
-                  Injection risk: this runs via sh -c with the ajent command appended and quoted,
-                  but everything else is yours to quote.
-                </span>
-              )
-            )}
-          </label>
-
           <label>
             Timeout (minutes, 0 = service default)
             <input

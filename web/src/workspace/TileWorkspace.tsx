@@ -1,17 +1,27 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { DragEvent, PointerEvent as ReactPointerEvent } from 'react'
+import { useSearchParams } from 'react-router'
 
 import { useSwarm } from '../providers/swarm'
 import { useAuth } from '../providers/auth'
 import { useWorkspace } from '../providers/workspace'
+import { reachableSession } from '../shell/AppShell'
 import SessionView from '../screens/SessionView'
 import { displayName } from '../session/names'
 import { useWorkspaceKeys } from './keys'
 import type { Direction } from './keys'
 import { ShortcutOverlay } from './ShortcutOverlay'
 import type { AttentionItem } from './attention'
-import { ChildState } from '../api/types'
-import { closeTab, findPane, moveTab, openTab, paneIds, setRatio, splitPane } from './tileTree'
+import {
+  closeTab,
+  findPane,
+  moveTab,
+  openTab,
+  paneIds,
+  setRatio,
+  splitPane,
+  tileFor,
+} from './tileTree'
 import type { TileNode, TilePane, SplitDirection } from './tileTree'
 
 const resizeStep = 0.05
@@ -20,11 +30,15 @@ const resizeStep = 0.05
 // tree with per-pane tab strips, drag-to-split and drag-to-reorder, full
 // keyboard management. The tree persists in the layout profile, so reloads
 // and mode switches never disturb the arrangement; ended sessions stay as
-// tabs with their final state until closed.
+// tabs with their final state until closed. An explicit ?open= list — the
+// Tile button's live set or a sessions-grid selection — retiles from scratch,
+// while a plain visit restores whatever was arranged before.
+
 export default function TileWorkspace() {
   const { sessions } = useSwarm()
   const auth = useAuth()
   const { profile, setTileLayout, itemFor } = useWorkspace()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { tree, focusedPaneId } = profile.tile
 
   const [showShortcuts, setShowShortcuts] = useState(false)
@@ -34,6 +48,13 @@ export default function TileWorkspace() {
   // between the pointer and the hosted views.
   const [dragging, setDragging] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
+  // Auto-tiling seeds once per mount: an empty layout tiles every reachable
+  // session, while later closes keep their emptiness instead of re-seeding.
+  const seededRef = useRef(false)
+  // a mount that started with panes never auto-tiles after they all close
+  const seenTreeRef = useRef(profile.tile.tree !== null)
+  // the last explicit ?open= list applied, so one request tiles exactly once
+  const openedRef = useRef<string | null>(null)
 
   const focused = useMemo(() => {
     const ids = paneIds(tree)
@@ -47,6 +68,42 @@ export default function TileWorkspace() {
     },
     [setTileLayout],
   )
+
+  // Tiling from a request: an explicit ?open= list replaces the whole tree so
+  // the Tile button and sessions-grid selections tile exactly what was asked,
+  // even over a persisted arrangement. Without one, an empty layout seeds
+  // every reachable session once per mount, and a mount that had panes never
+  // re-seeds once they close, so emptying the workspace stays possible.
+  useEffect(() => {
+    const open = searchParams.get('open')
+    if (open !== null) {
+      if (openedRef.current === open) return // this exact request already tiled
+      const ids = open
+        .split(',')
+        .map((id) => decodeURIComponent(id.trim()))
+        .filter((id) => sessions.some((s) => s.sessionId === id))
+      if (ids.length === 0) return // wait for the sessions list to catch up
+      openedRef.current = open
+      setSearchParams({}, { replace: true }) // deep links clean up after tiling
+      const next = tileFor(ids)
+      setTileLayout({ tree: next, focusedPaneId: paneIds(next)[0] })
+      return
+    }
+    if (tree !== null) {
+      seenTreeRef.current = true
+      return
+    }
+    if (seenTreeRef.current || seededRef.current) return
+    const ids = sessions.filter(reachableSession).map((s) => s.sessionId)
+    if (ids.length === 0) return
+    seededRef.current = true
+    const next = tileFor(ids)
+    // focus lands on the first pane: focusedPaneId is a pane id in the
+    // persisted layout profile, not a session id
+    setTileLayout({ tree: next, focusedPaneId: paneIds(next)[0] })
+    // seeding runs once; tree and params are read at that moment only
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally excludes tree/setTileLayout/searchParams
+  }, [tree, sessions, setTileLayout, searchParams])
 
   const focusPane = useCallback((paneId: string) => commit(tree, paneId), [commit, tree])
 
@@ -247,22 +304,7 @@ export default function TileWorkspace() {
       {tree === null ? (
         <div className="tile-empty">
           <p className="muted">No panes open.</p>
-          <div className="chips">
-            {sessions
-              .filter((s) => s.state === ChildState.Online)
-              .map((s) => (
-                <button
-                  key={s.sessionId}
-                  type="button"
-                  onClick={() => commit(openTab(null, s.sessionId))}
-                >
-                  {nameFor(s.sessionId)}
-                </button>
-              ))}
-            {sessions.filter((s) => s.state === ChildState.Online).length === 0 && (
-              <span>No live sessions to open.</span>
-            )}
-          </div>
+          {sessions.filter(reachableSession).length === 0 && <span>No live sessions to open.</span>}
         </div>
       ) : (
         <NodeView
@@ -478,10 +520,10 @@ function SessionPicker({
 }) {
   const { sessions } = useSwarm()
   const ref = useRef<HTMLDetailsElement>(null)
-  // Live sessions first, then the rest; each keeps its listing order.
+  // Connected or active first, then the rest; each keeps its listing order.
   const ordered = useMemo(() => {
-    const live = sessions.filter((s) => s.state === ChildState.Online)
-    const rest = sessions.filter((s) => s.state !== ChildState.Online)
+    const live = sessions.filter(reachableSession)
+    const rest = sessions.filter((s) => !reachableSession(s))
     return [...live, ...rest]
   }, [sessions])
 

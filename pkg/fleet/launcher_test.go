@@ -19,8 +19,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	fleettest "github.com/jentfoo/ajent-swarm/pkg/fleet/fleettest"
+	"github.com/jentfoo/ajent-swarm/pkg/testutil"
 	"github.com/jentfoo/ajent/pkg/ctl"
-	"github.com/jentfoo/ajent/pkg/paths"
 )
 
 // fakeChildStore keeps child rows in memory, mirroring the SQLite store's
@@ -120,10 +120,7 @@ func writeStubBin(t *testing.T, home string) string {
 // killOnExit mirrors the shutdown flag: true makes Stop take children down.
 func newLaunchEnv(t *testing.T, killOnExit bool) *launchEnv {
 	t.Helper()
-	home, err := os.MkdirTemp("", "launch")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = os.RemoveAll(home) })
-	t.Setenv(paths.EnvHome, home)
+	home := testutil.IsolateHome(t)
 
 	env := &launchEnv{bin: writeStubBin(t, home), home: home, cs: newFakeChildStore()}
 	env.m = New(Options{
@@ -331,7 +328,7 @@ func TestStopUnknownSession(t *testing.T) {
 }
 
 func TestLaunchNotConfigured(t *testing.T) {
-	t.Setenv(paths.EnvHome, t.TempDir())
+	testutil.IsolateHome(t)
 	m := New(Options{Log: testLogger(), Discover: func() ([]ctl.Instance, error) { return nil, nil }})
 	m.Start(context.Background())
 	t.Cleanup(m.Stop)

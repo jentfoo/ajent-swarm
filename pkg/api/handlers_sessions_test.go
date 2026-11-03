@@ -21,6 +21,7 @@ import (
 	"github.com/jentfoo/ajent-swarm/pkg/fleet"
 	fleettest "github.com/jentfoo/ajent-swarm/pkg/fleet/fleettest"
 	"github.com/jentfoo/ajent-swarm/pkg/store"
+	"github.com/jentfoo/ajent-swarm/pkg/testutil"
 	"github.com/jentfoo/ajent/pkg/ctl"
 	"github.com/jentfoo/ajent/pkg/llm"
 	"github.com/jentfoo/ajent/pkg/paths"
@@ -41,10 +42,7 @@ type sessionHarness struct {
 // home stays short, since unix socket paths cap at ~108 bytes.
 func newSessionAPI(t *testing.T) *sessionHarness {
 	t.Helper()
-	home, err := os.MkdirTemp("", "sessapi")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = os.RemoveAll(home) })
-	t.Setenv(paths.EnvHome, home)
+	testutil.IsolateHome(t)
 
 	st, err := store.Open(filepath.Join(t.TempDir(), store.FileName))
 	require.NoError(t, err)
@@ -60,6 +58,7 @@ func newSessionAPI(t *testing.T) *sessionHarness {
 		BackoffBase:  5 * time.Millisecond,
 		BackoffMax:   50 * time.Millisecond,
 		TitleStore:   titleStore{st: st},
+		SettingStore: settingsStore{st: st},
 	})
 	mgr.Start(t.Context())
 	t.Cleanup(mgr.Stop)
@@ -119,6 +118,12 @@ func get[T any](h *sessionHarness, path string) (int, T) {
 func post[T any](h *sessionHarness, path string, body any) (int, T) {
 	h.t.Helper()
 	return callJSON[T](h.t, h.client, h.server.URL, http.MethodPost, path, body)
+}
+
+// put issues one authenticated PUT with a JSON body and decodes into T.
+func put[T any](h *sessionHarness, path string, body any) (int, T) {
+	h.t.Helper()
+	return callJSON[T](h.t, h.client, h.server.URL, http.MethodPut, path, body)
 }
 
 // requireCoded asserts one refusal reached the browser with its code intact.
@@ -256,6 +261,20 @@ func TestModeHandler(t *testing.T) {
 		require.Len(t, sent, 2)
 		assert.False(t, sent[0].Back)
 		assert.True(t, sent[1].Back)
+	})
+
+	t.Run("named mode jumps through upstream mode.set", func(t *testing.T) {
+		before := len(f.Received())
+		f.Result(ctl.MethodModeSet, ctl.ModeResult{Mode: "allow-all"})
+		code, res := post[ctl.ModeResult](h, path, map[string]string{"mode": "allow-all"})
+		require.Equal(t, http.StatusOK, code)
+		assert.Equal(t, "allow-all", res.Mode)
+
+		// the jump rides mode.set alone; nothing else fired for this request
+		recent := f.Received()[before:]
+		require.Len(t, recent, 1)
+		sent := receivedParams[ctl.ModeSetParams](h, f, ctl.MethodModeSet)[0]
+		assert.Equal(t, "allow-all", sent.Mode)
 	})
 }
 
@@ -593,49 +612,11 @@ func TestModelsHandler(t *testing.T) {
 		require.Len(t, rows, 1)
 		assert.Equal(t, f.SessionID(), rows[0].SessionID)
 		assert.Equal(t, "z/small", rows[0].Current.Key)
-		assert.Empty(t, rows[0].Options) // no discovery without a session query
-	})
-
-	t.Run("discovery opens and keeps the picker open", func(t *testing.T) {
-		f.OpenPickerOnSubmit([]string{"Zed Small", "Zed Big"})
-		code, rows := get[[]fleet.ModelRow](h, "/api/models?session="+f.SessionID())
-		require.Equal(t, http.StatusOK, code)
-		require.Len(t, rows, 1)
-		row := rows[0]
-		assert.Equal(t, "z/small", row.Current.Key)
-		assert.Equal(t, []string{"Zed Small", "Zed Big"}, row.Options)
-		require.NotZero(t, row.DialogID)
-
-		// the dialog stays open on purpose: answering it is /resolve's job
-		code, res := post[resolveReply](h,
-			"/api/sessions/"+f.SessionID()+"/resolve",
-			resolveRequest{DialogID: row.DialogID, Cancel: true})
-		require.Equal(t, http.StatusOK, code)
-		assert.False(t, res.Settled)
-
-		var cancelled bool
-		for _, p := range receivedParams[ctl.ResolveParams](h, f, ctl.MethodResolve) {
-			cancelled = cancelled || (p.ID == row.DialogID && p.Cancel)
-		}
-		assert.True(t, cancelled, "the picker dialog was not cancelled upstream")
-	})
-
-	t.Run("no picker is a refusal, leaving nothing behind", func(t *testing.T) {
-		f.OpenPickerOnSubmit(nil) // /model answers but never opens a dialog
-		code, body := get[errorBody](h, "/api/models?session="+f.SessionID())
-		requireCoded(h, http.StatusConflict, ctl.CodeUnavailable, code, body)
-	})
-
-	t.Run("running turn refuses discovery", func(t *testing.T) {
-		f.Broadcast(ctl.EventTurnStart, ctl.TurnStartData{Model: "z/small"})
-		code, body := get[errorBody](h, "/api/models?session="+f.SessionID())
-		requireCoded(h, http.StatusConflict, ctl.CodeUnavailable, code, body)
 	})
 
 	t.Run("unknown session is not found", func(t *testing.T) {
-		// the refusal envelope is an object, so decode nothing
 		resp := call(h.t, h.client, h.server.URL, http.MethodGet,
-			"/api/models?session=01NOBODY00000000", nil)
+			"/api/sessions/01NOBODY00000000/models", nil)
 		assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 	})
 }

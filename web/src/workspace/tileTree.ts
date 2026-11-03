@@ -175,7 +175,8 @@ export function setRatio(tree: TileNode, splitId: string, ratio: number): TileNo
 
 // --- internal helpers ---
 
-function firstPane(tree: TileNode): TilePane | null {
+// firstPane returns the leftmost pane of the tree, null when empty.
+export function firstPane(tree: TileNode): TilePane | null {
   let out: TilePane | null = null
   const walk = (node: TileNode): void => {
     if (out || node.kind === 'pane') {
@@ -189,7 +190,21 @@ function firstPane(tree: TileNode): TilePane | null {
   return out
 }
 
-function findSessionPane(tree: TileNode | null, sessionId: string): TilePane | null {
+// tileFor lays one pane per session id out in a flat row split, the shape
+// tiling requests (an explicit ?open= list or an empty workspace's auto-seed)
+// start from. ids must be non-empty.
+export function tileFor(ids: string[]): TileNode {
+  let next = openTab(null, ids[0]!)
+  for (const id of ids.slice(1)) {
+    const anchor = firstPane(next)
+    if (anchor === null) break // unreachable: every branch keeps a leftmost pane
+    next = splitPane(next, anchor.id, 'row', id, 'after').tree
+  }
+  return next
+}
+
+// findSessionPane locates the pane tabbing a session, null when nowhere open.
+export function findSessionPane(tree: TileNode | null, sessionId: string): TilePane | null {
   if (!tree) return null
   if (tree.kind === 'pane') return tree.tabs.includes(sessionId) ? tree : null
   return findSessionPane(tree.a, sessionId) ?? findSessionPane(tree.b, sessionId)

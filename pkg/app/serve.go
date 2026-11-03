@@ -19,6 +19,7 @@ import (
 	"github.com/jentfoo/ajent-swarm/pkg/api"
 	"github.com/jentfoo/ajent-swarm/pkg/auth"
 	"github.com/jentfoo/ajent-swarm/pkg/fleet"
+	"github.com/jentfoo/ajent-swarm/pkg/logrotate"
 	"github.com/jentfoo/ajent-swarm/pkg/sched"
 	"github.com/jentfoo/ajent-swarm/pkg/store"
 )
@@ -31,6 +32,10 @@ const (
 	attachDirName   = "attachments" // composer uploads referenced by @path
 )
 
+// rotateEvery is the cadence for copytruncate logs this process does not own;
+// a var so tests can shorten it.
+var rotateEvery = time.Hour
+
 // serve resolves paths, locks the instance and runs until SIGINT or SIGTERM.
 func serve(opts Options, stderr io.Writer) int {
 	dir, warn, err := ensureStateDir(opts.StateDir)
@@ -41,6 +46,8 @@ func serve(opts Options, stderr io.Writer) int {
 
 	log, closeLog := openLogger(opts, stderr)
 	defer closeLog()
+	closeRotate := startLogRotation(dir, opts, log)
+	defer closeRotate()
 	if warn != "" {
 		log.Warn("state directory permissions adjusted", "detail", warn)
 	}
@@ -102,13 +109,14 @@ func serve(opts Options, stderr io.Writer) int {
 
 	childrenDir := filepath.Join(dir, childrenDirName)
 	fleetMgr := fleet.New(fleet.Options{
-		Log:         log,
-		AjentBin:    bin,
-		ChildrenDir: childrenDir,
-		ChildStore:  childStore{st: st},
-		TitleStore:  titleStore{st: st},
-		KillOnExit:  opts.KillChildren,
-		NoNaming:    opts.NoSessionNaming,
+		Log:          log,
+		AjentBin:     bin,
+		ChildrenDir:  childrenDir,
+		ChildStore:   childStore{st: st},
+		TitleStore:   titleStore{st: st},
+		SettingStore: settingsStore{st: st},
+		KillOnExit:   opts.KillChildren,
+		NoNaming:     opts.NoSessionNaming,
 	})
 	fleetMgr.Start(ctx)
 	defer fleetMgr.Stop()
@@ -177,17 +185,18 @@ func runUntilSignal(srv *http.Server, ln net.Listener, log *slog.Logger) int {
 	}
 }
 
-// openLogger builds the process logger: an explicit log path in the
+// openLogger builds the process logger: an explicitly rotated log path in the
 // foreground, otherwise stderr. A daemon child always writes stderr because
-// its parent already redirected it into the log file.
+// its parent already redirected it into the log file, where copytruncate
+// rotation keeps the size bounded.
 func openLogger(opts Options, stderr io.Writer) (*slog.Logger, func()) {
 	sink := stderr
-	var file *os.File
+	var closer func()
 	if !isDaemonChild() && opts.LogPath != "" {
-		of, err := os.OpenFile(opts.LogPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+		w, err := logrotate.NewWriter(opts.LogPath, opts.LogMaxBytes, opts.LogBackups)
 		if err == nil {
-			sink = of
-			file = of
+			sink = w
+			closer = func() { _ = w.Close() }
 		} else {
 			_, _ = fmt.Fprintf(stderr, "ajent-swarm: open --log %s: %v (falling back to stderr)\n",
 				opts.LogPath, err)
@@ -195,9 +204,51 @@ func openLogger(opts Options, stderr io.Writer) (*slog.Logger, func()) {
 	}
 	log := slog.New(slog.NewTextHandler(sink, nil))
 	return log, func() {
-		if file != nil {
-			_ = file.Close()
+		if closer != nil {
+			closer()
 		}
+	}
+}
+
+// startLogRotation copytruncates logs this process does not own on a cadence:
+// captured child logs always, plus the inherited daemon log for a daemon
+// child. A foreground service rotates its own --log through logrotate.Writer,
+// so only foreign files need the ticker here. Returns a stop function.
+func startLogRotation(dir string, opts Options, log *slog.Logger) func() {
+	if opts.LogMaxBytes <= 0 {
+		return func() {}
+	}
+	selfLog := ""
+	if isDaemonChild() {
+		selfLog = opts.LogPath
+		if selfLog == "" {
+			selfLog = filepath.Join(dir, logFileName)
+		}
+	}
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		t := time.NewTicker(rotateEvery)
+		defer t.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-t.C:
+			}
+			if selfLog != "" {
+				if err := logrotate.TruncateRotate(selfLog, opts.LogMaxBytes, opts.LogBackups); err != nil {
+					log.Warn("daemon log not rotated", "err", err)
+				}
+			}
+			sched.RotateChildLogs(filepath.Join(dir, childrenDirName),
+				opts.LogMaxBytes, opts.LogBackups, log)
+		}
+	}()
+	return func() {
+		close(stop)
+		<-done
 	}
 }
 

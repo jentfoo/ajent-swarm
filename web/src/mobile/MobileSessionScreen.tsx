@@ -3,7 +3,9 @@ import type { ReactElement } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 
 import { sessions as sessionAPI } from '../api/endpoints'
+import { ApiError } from '../api/client'
 import { Composer } from '../session/Composer'
+import { ModeMenu } from '../session/StatusHeader'
 import { TranscriptView } from '../session/TranscriptView'
 import { useKeyboardInset } from '../hooks/useKeyboardInset'
 import { useSessionChannel } from '../hooks/useSessionChannel'
@@ -11,6 +13,7 @@ import { useWorkspace } from '../providers/workspace'
 import { BottomSheet } from './BottomSheet'
 import { ModelChip } from './ModelChip'
 import { RewindSheet } from './RewindSheet'
+import { SettingsSheet } from './SettingsSheet'
 import { StatusStrip } from './StatusStrip'
 import { SwitcherRows } from './SwitcherRows'
 import { ToolsSheet } from './ToolsSheet'
@@ -41,7 +44,9 @@ export default function MobileSessionScreen(): ReactElement {
   const [draft, setDraft] = useState('')
   const [showTools, setShowTools] = useState(false)
   const [showRewind, setShowRewind] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
   const [sheetOpen, setSheetOpen] = useState(false)
+  const [stopBusy, setStopBusy] = useState(false)
   const keyboardInset = useKeyboardInset()
 
   // Edge-swipe from the left reopens the switcher over any session view; the
@@ -56,8 +61,20 @@ export default function MobileSessionScreen(): ReactElement {
     setTimeout(() => setToasts((ts) => ts.filter((t) => t.id !== id)), 6_000)
   }, [])
 
+  const interrupt = useCallback(async () => {
+    setStopBusy(true)
+    try {
+      await sessionAPI.interrupt(sessionId)
+    } catch (err) {
+      pushToast(err instanceof ApiError ? err.message : 'Interrupt failed.', 'error')
+    } finally {
+      setStopBusy(false)
+    }
+  }, [sessionId, pushToast])
+
   const dialogs = snap.interactions ?? []
   const composerDisabled = phase !== 'live' || dialogs.length > 0
+  const working = snap.running || snap.spinning
   const disabledReason =
     dialogs.length > 0
       ? 'A dialog needs an answer before prompts can send.'
@@ -73,7 +90,7 @@ export default function MobileSessionScreen(): ReactElement {
       onTouchEnd={(ev) => {
         const start = edgeStartX.current
         edgeStartX.current = null
-        if (start === null || start > 24 || showRewind || showTools) return
+        if (start === null || start > 24 || showRewind || showTools || showSettings) return
         const dx = (ev.changedTouches[0]?.clientX ?? 0) - start
         if (dx >= edgeSwipePx) setSheetOpen(true)
       }}
@@ -83,16 +100,34 @@ export default function MobileSessionScreen(): ReactElement {
           ←
         </Link>
         <ModelChip sessionId={sessionId} snap={snap} onToast={pushToast} />
+        <ModeMenu sessionId={sessionId} mode={snap.permission} onToast={pushToast} />
         {phase !== 'live' && phase !== 'ended' && (
           <span className={`badge ${phase === 'resyncing' ? 'warn' : ''}`}>{phase}</span>
         )}
+        {working && (
+          <button type="button" onClick={() => void interrupt()} disabled={stopBusy}>
+            {stopBusy ? 'Stopping…' : 'Interrupt'}
+          </button>
+        )}
         <span className="spacer" />
-        <SeatClaim sessionId={sessionId} held={!snap.seat.yours} holder={snap.seat.holder} />
+        <SeatClaim
+          sessionId={sessionId}
+          held={snap.seat.held && !snap.seat.yours}
+          holder={snap.seat.holder}
+        />
         <button type="button" onClick={() => setShowRewind(true)}>
           Rewind
         </button>
         <button type="button" onClick={() => setShowTools(true)} aria-label="Open tools panel">
           Tools
+        </button>
+        <button
+          type="button"
+          onClick={() => setShowSettings(true)}
+          aria-label="Agent settings"
+          aria-expanded={showSettings}
+        >
+          ☰
         </button>
       </header>
 
@@ -109,9 +144,9 @@ export default function MobileSessionScreen(): ReactElement {
         </div>
       )}
 
-      <TranscriptView state={state} loadOlder={loadOlder} pullDownToLatest />
+      <TranscriptView sessionId={sessionId} state={state} loadOlder={loadOlder} pullDownToLatest />
 
-      <StatusStrip snap={snap} />
+      <StatusStrip snap={snap} live={state.live} />
       <TouchDialogDock
         sessionId={sessionId}
         dialogs={dialogs}
@@ -140,6 +175,11 @@ export default function MobileSessionScreen(): ReactElement {
         open={showTools}
         onClose={() => setShowTools(false)}
         onToast={pushToast}
+      />
+      <SettingsSheet
+        sessionId={sessionId}
+        open={showSettings}
+        onClose={() => setShowSettings(false)}
       />
       <RewindSheet
         sessionId={sessionId}
@@ -190,9 +230,9 @@ function SwitcherOverlay({
   )
 }
 
-// SeatClaim is the compact seat affordance: hidden while this connection
-// already holds or shares the write seat, a takeover button when someone else
-// owns it.
+// SeatClaim is the compact takeover affordance: shown only while someone
+// else holds the write seat, since a free seat costs nothing to use and one
+// this connection holds is not contested.
 function SeatClaim({
   sessionId,
   held,

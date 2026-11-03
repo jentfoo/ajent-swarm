@@ -27,6 +27,7 @@ type cmdStopped struct {
 
 type msgModeCycle struct {
 	back  bool
+	mode  string // non-empty sets by name instead of stepping
 	reply chan cmdString
 }
 
@@ -163,7 +164,8 @@ func (a *sessionActor) handleInterrupt(msg msgInterrupt) {
 	msg.reply <- cmdStopped{stopped: stopped, err: err}
 }
 
-// handleModeCycle steps the permission mode like Shift+Tab.
+// handleModeCycle steps the permission mode like Shift+Tab, or jumps straight
+// to a named mode when one rides along.
 func (a *sessionActor) handleModeCycle(msg msgModeCycle) {
 	if !a.ready() {
 		msg.reply <- cmdString{err: notReady()}
@@ -175,7 +177,13 @@ func (a *sessionActor) handleModeCycle(msg msgModeCycle) {
 	}
 	cctx, cancel := a.callWait()
 	defer cancel()
-	mode, err := a.conn.ModeCycle(cctx, msg.back)
+	var mode string
+	var err error
+	if msg.mode != "" { // the dropdown's direct set; cycling stays for chips
+		mode, err = a.conn.ModeSet(cctx, msg.mode)
+	} else {
+		mode, err = a.conn.ModeCycle(cctx, msg.back)
+	}
 	msg.reply <- cmdString{value: mode, err: err}
 }
 
@@ -355,12 +363,24 @@ func (m *Manager) Interrupt(ctx context.Context, sessionID string) (string, erro
 // ModeCycle steps the permission mode, backwards when back. The returned name
 // is the mode now in effect, empty when no gate exists.
 func (m *Manager) ModeCycle(ctx context.Context, sessionID string, back bool) (string, error) {
+	return m.modeChange(ctx, sessionID, msgModeCycle{back: back})
+}
+
+// ModeSet jumps the permission mode straight to a named level. The returned
+// name is the mode now in effect; refusals carry upstream's message.
+func (m *Manager) ModeSet(ctx context.Context, sessionID string, mode string) (string, error) {
+	return m.modeChange(ctx, sessionID, msgModeCycle{mode: mode})
+}
+
+// modeChange routes one mode mutation onto the session actor.
+func (m *Manager) modeChange(ctx context.Context, sessionID string, msg msgModeCycle) (string, error) {
 	a := m.route(sessionID)
 	if a == nil {
 		return "", ErrUnknownSession
 	}
 	res, err := mailboxCommand(ctx, a, func(reply chan cmdString) actorMsg {
-		return msgModeCycle{back: back, reply: reply}
+		msg.reply = reply
+		return msg
 	})
 	if err != nil {
 		return "", err

@@ -188,6 +188,8 @@ export interface SessionStatus {
   idle: boolean
   openInteractions: number
   lastTurnEnd?: number // unix milliseconds
+  lastStop?: string // stop reason of the last finished turn
+  lastStopErr?: string // transport or context failure that ended it
   exitedAt?: number // unix milliseconds, exited swarm children only
   spawnedBy: 'swarm' | 'external'
   argv?: string
@@ -261,14 +263,11 @@ export interface RecallRow {
   text?: string
 }
 
-// ModelRow is one session's model facts from GET /api/models. Options and
-// DialogID appear only when discovery opened ajent's own picker; answer it
-// through resolve or cancel it, never leave it stranded.
+// ModelRow is one session's model facts from GET /api/models; switching goes
+// through POST /model against the same registry models.get lists.
 export interface ModelRow {
   sessionId: string
   current: ModelState
-  options?: string[]
-  dialogId?: number
 }
 
 export type RewindKind = 'user' | 'assistant' | 'compaction'
@@ -335,6 +334,7 @@ export type LaunchMode = 'new' | 'resume' | 'continue' | 'session'
 export type ScheduleKind = 'once' | 'interval' | 'daily'
 export type MissPolicy = 'skip' | 'fire_late'
 export type OverlapPolicy = 'run' | 'skip_if_running'
+export type TriggerOn = 'success' | 'error'
 export type RunStatus = 'running' | 'awaiting_input' | 'ok' | 'failed' | 'timeout' | 'skipped'
 
 // Job is one scheduled job row from /api/jobs. nextRunAt stays null while the
@@ -354,11 +354,16 @@ export interface Job {
   intervalSeconds?: number
   dailyTime?: string // HH:MM wall clock in tz
   tz?: string // IANA name; absent means server local
+  weekdays?: string // comma list of sun..sat; absent means every day
   nextRunAt?: string | null
   onMissed: MissPolicy
   overlap: OverlapPolicy
   timeoutMinutes?: number // zero means the service default applies
   keepAlive: boolean
+  runWhenIdle?: boolean // hold fires until the fleet has been quiet
+  idleMaxDelaySeconds?: number // past this wait a held fire skips; zero waits forever
+  triggerCommand?: string // shell gate evaluated before each launch
+  triggerOn?: TriggerOn // which exit outcome lets the job run
   createdAt: string
 }
 
@@ -407,6 +412,12 @@ export interface LaunchRequest {
 export interface ModelListing {
   active: string
   models: ModelState[]
+}
+
+// GlobalSettings is GET /api/settings, swarm's own persisted settings: the
+// model the one-shot session titler runs with, empty for the default.
+export interface GlobalSettings {
+  titleModel: string
 }
 
 export interface ToolSetReply {

@@ -158,8 +158,8 @@ describe('InboxWorkspace', () => {
     return screen.getByLabelText('Inbox queue')
   }
 
-  // Rows are role=button divs; the check-off inside each is a real button, so
-  // queries go through the data attribute to stay ordered and unambiguous.
+  // Rows are role=button divs, not native buttons, so queries go through the
+  // data attribute to stay ordered and unambiguous.
   function railRows(): HTMLElement[] {
     return [...rail().querySelectorAll<HTMLElement>('[data-session-id]')]
   }
@@ -222,12 +222,14 @@ describe('InboxWorkspace', () => {
     expect(sockets[0].sent.some((raw) => JSON.parse(raw).type === 'unsubscribe')).toBe(false)
   })
 
-  it('clears a needs-input row by acting through the check-off', async () => {
+  it('clears a needs-input row from the keyboard', async () => {
     renderInbox()
     await openSocket()
 
+    // no inline check-off renders; acknowledgment happens via the 'r' shortcut
+    expect(screen.queryByLabelText(/Mark .* reviewed/)).not.toBeInTheDocument()
     const user = userEvent.setup()
-    await user.click(screen.getByLabelText('Mark dialog session reviewed'))
+    await user.keyboard('r')
 
     // the acked dialog leaves the queue; the review row tops it now and the
     // settled session drops to Working with no reason line

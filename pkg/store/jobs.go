@@ -24,6 +24,11 @@ const (
 	TriggerSchedule = "schedule"
 	TriggerManual   = "manual"
 
+	// TriggerOnSuccess lets a gated job run when its trigger command exits zero.
+	TriggerOnSuccess = "success"
+	// TriggerOnError lets a gated job run when its trigger command exits non-zero.
+	TriggerOnError = "error"
+
 	RunRunning       = "running"
 	RunAwaitingInput = "awaiting_input" // parked at an open dialog
 	RunOK            = "ok"
@@ -45,26 +50,31 @@ var ErrCapacity = errors.New("global run limit reached")
 // is nil while the job is disabled or has nothing left to fire; TimeoutMinutes
 // zero means the service default applies.
 type Job struct {
-	ID              int64      `json:"id"`
-	Name            string     `json:"name"`
-	Workspace       string     `json:"workspace"`
-	CommandPrefix   string     `json:"commandPrefix,omitempty"`
-	Prompt          string     `json:"prompt,omitempty"`
-	SpawnMode       string     `json:"spawnMode"` // fleet launch mode: new, resume, continue, session
-	SessionTarget   string     `json:"sessionTarget,omitempty"`
-	Model           string     `json:"model,omitempty"`
-	Permission      string     `json:"permission,omitempty"`
-	Enabled         bool       `json:"enabled"`
-	ScheduleKind    string     `json:"scheduleKind"` // once, interval or daily
-	IntervalSeconds int        `json:"intervalSeconds,omitempty"`
-	DailyTime       string     `json:"dailyTime,omitempty"` // HH:MM wall clock in TZ
-	TZ              string     `json:"tz,omitempty"`        // IANA name; empty means server local
-	NextRunAt       *time.Time `json:"nextRunAt"`
-	OnMissed        string     `json:"onMissed"`
-	Overlap         string     `json:"overlap"`
-	TimeoutMinutes  int        `json:"timeoutMinutes,omitempty"`
-	KeepAlive       bool       `json:"keepAlive"`
-	CreatedAt       time.Time  `json:"createdAt"`
+	ID                  int64      `json:"id"`
+	Name                string     `json:"name"`
+	Workspace           string     `json:"workspace"`
+	CommandPrefix       string     `json:"commandPrefix,omitempty"`
+	Prompt              string     `json:"prompt,omitempty"`
+	SpawnMode           string     `json:"spawnMode"` // fleet launch mode: new, resume, continue, session
+	SessionTarget       string     `json:"sessionTarget,omitempty"`
+	Model               string     `json:"model,omitempty"`
+	Permission          string     `json:"permission,omitempty"`
+	Enabled             bool       `json:"enabled"`
+	ScheduleKind        string     `json:"scheduleKind"` // once, interval or daily
+	IntervalSeconds     int        `json:"intervalSeconds,omitempty"`
+	DailyTime           string     `json:"dailyTime,omitempty"` // HH:MM wall clock in TZ
+	TZ                  string     `json:"tz,omitempty"`        // IANA name; empty means server local
+	Weekdays            string     `json:"weekdays,omitempty"`  // comma list of sun..sat; empty = every day
+	NextRunAt           *time.Time `json:"nextRunAt"`
+	OnMissed            string     `json:"onMissed"`
+	Overlap             string     `json:"overlap"`
+	TimeoutMinutes      int        `json:"timeoutMinutes,omitempty"`
+	KeepAlive           bool       `json:"keepAlive"`
+	RunWhenIdle         bool       `json:"runWhenIdle"`                   // hold fires until the fleet is quiet
+	IdleMaxDelaySeconds int        `json:"idleMaxDelaySeconds,omitempty"` // past this wait the fire skips; 0 waits forever
+	TriggerCommand      string     `json:"triggerCommand,omitempty"`      // shell gate run before each launch
+	TriggerOn           string     `json:"triggerOn,omitempty"`           // success (exit zero) or error (non-zero)
+	CreatedAt           time.Time  `json:"createdAt"`
 }
 
 // Run is one row of the runs table: a single fire of a job, manual or
@@ -88,14 +98,16 @@ func (s *Store) CreateJob(ctx context.Context, j Job) (int64, error) {
 	const q = `INSERT INTO jobs
         (name, workspace, command_prefix, prompt, spawn_mode, session_target,
          model, permission, enabled, schedule_kind, interval_seconds,
-         daily_time, tz, next_run_at, on_missed, overlap, timeout_minutes,
-         keep_alive, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         daily_time, tz, weekdays, next_run_at, on_missed, overlap,
+         timeout_minutes, keep_alive, run_when_idle, idle_max_delay_seconds,
+         trigger_command, trigger_on, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	res, err := s.db.ExecContext(ctx, q,
 		j.Name, j.Workspace, j.CommandPrefix, j.Prompt, j.SpawnMode, j.SessionTarget,
 		j.Model, j.Permission, boolInt(j.Enabled), j.ScheduleKind, j.IntervalSeconds,
-		j.DailyTime, j.TZ, unixSecPtr(j.NextRunAt), j.OnMissed, j.Overlap,
-		j.TimeoutMinutes, boolInt(j.KeepAlive), unixSec(j.CreatedAt))
+		j.DailyTime, j.TZ, j.Weekdays, unixSecPtr(j.NextRunAt), j.OnMissed, j.Overlap,
+		j.TimeoutMinutes, boolInt(j.KeepAlive), boolInt(j.RunWhenIdle),
+		j.IdleMaxDelaySeconds, j.TriggerCommand, j.TriggerOn, unixSec(j.CreatedAt))
 	if isUniqueViolation(err) {
 		return 0, fmt.Errorf("%w: job %q", ErrConflict, j.Name)
 	} else if err != nil {
@@ -115,15 +127,17 @@ func (s *Store) UpdateJob(ctx context.Context, j Job) error {
         name = ?, workspace = ?, command_prefix = ?, prompt = ?, spawn_mode = ?,
         session_target = ?, model = ?, permission = ?, enabled = ?,
         schedule_kind = ?, interval_seconds = ?, daily_time = ?, tz = ?,
-        next_run_at = ?, on_missed = ?, overlap = ?, timeout_minutes = ?,
-        keep_alive = ?
+        weekdays = ?, next_run_at = ?, on_missed = ?, overlap = ?,
+        timeout_minutes = ?, keep_alive = ?, run_when_idle = ?,
+        idle_max_delay_seconds = ?, trigger_command = ?, trigger_on = ?
         WHERE id = ?`
 	res, err := s.db.ExecContext(ctx, q,
 		j.Name, j.Workspace, j.CommandPrefix, j.Prompt, j.SpawnMode,
 		j.SessionTarget, j.Model, j.Permission, boolInt(j.Enabled),
-		j.ScheduleKind, j.IntervalSeconds, j.DailyTime, j.TZ,
+		j.ScheduleKind, j.IntervalSeconds, j.DailyTime, j.TZ, j.Weekdays,
 		unixSecPtr(j.NextRunAt), j.OnMissed, j.Overlap, j.TimeoutMinutes,
-		boolInt(j.KeepAlive), j.ID)
+		boolInt(j.KeepAlive), boolInt(j.RunWhenIdle), j.IdleMaxDelaySeconds,
+		j.TriggerCommand, j.TriggerOn, j.ID)
 	if isUniqueViolation(err) {
 		return fmt.Errorf("%w: job %q", ErrConflict, j.Name)
 	} else if err != nil {
@@ -202,8 +216,9 @@ func (s *Store) EarliestNextRun(ctx context.Context) (*time.Time, error) {
 // jobColumns is the projection every jobs query reads.
 const jobColumns = `id, name, workspace, command_prefix, prompt, spawn_mode,
     session_target, model, permission, enabled, schedule_kind,
-    interval_seconds, daily_time, tz, next_run_at, on_missed, overlap,
-    timeout_minutes, keep_alive, created_at`
+    interval_seconds, daily_time, tz, weekdays, next_run_at, on_missed,
+    overlap, timeout_minutes, keep_alive, run_when_idle,
+    idle_max_delay_seconds, trigger_command, trigger_on, created_at`
 
 // queryJobs runs one jobs query with its arguments.
 func (s *Store) queryJobs(ctx context.Context, q string, args ...any) ([]Job, error) {
@@ -230,20 +245,27 @@ func (s *Store) queryJobs(ctx context.Context, q string, args ...any) ([]Job, er
 // scanJob decodes one jobs row.
 func scanJob(row interface{ Scan(...any) error }) (Job, error) {
 	var (
-		j         Job
-		nextRun   sql.NullInt64
-		enabled   int64
-		keepAlive int64
-		createdAt int64
+		j              Job
+		nextRun        sql.NullInt64
+		enabled        int64
+		keepAlive      int64
+		runWhenIdle    int64
+		idleMaxDelay   int64
+		triggerCommand string
+		createdAt      int64
 	)
 	if err := row.Scan(&j.ID, &j.Name, &j.Workspace, &j.CommandPrefix, &j.Prompt,
 		&j.SpawnMode, &j.SessionTarget, &j.Model, &j.Permission, &enabled,
-		&j.ScheduleKind, &j.IntervalSeconds, &j.DailyTime, &j.TZ, &nextRun,
-		&j.OnMissed, &j.Overlap, &j.TimeoutMinutes, &keepAlive, &createdAt); err != nil {
+		&j.ScheduleKind, &j.IntervalSeconds, &j.DailyTime, &j.TZ, &j.Weekdays,
+		&nextRun, &j.OnMissed, &j.Overlap, &j.TimeoutMinutes, &keepAlive,
+		&runWhenIdle, &idleMaxDelay, &triggerCommand, &j.TriggerOn, &createdAt); err != nil {
 		return Job{}, fmt.Errorf("scan job: %w", err)
 	}
 	j.Enabled = enabled != 0
 	j.KeepAlive = keepAlive != 0
+	j.RunWhenIdle = runWhenIdle != 0
+	j.IdleMaxDelaySeconds = int(idleMaxDelay)
+	j.TriggerCommand = triggerCommand
 	j.CreatedAt = fromUnixSec(createdAt)
 	if nextRun.Valid && nextRun.Int64 != 0 {
 		t := fromUnixSec(nextRun.Int64)

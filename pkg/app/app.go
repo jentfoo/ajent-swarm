@@ -20,6 +20,8 @@ type Options struct {
 	NoSessionNaming      bool   // skip auto-naming sessions from their first prompt
 	RunRetentionDays     int    // prune run history older than this many days, 0 keeps forever
 	RunRetentionMax      int    // cap on stored run rows, 0 keeps unlimited
+	LogMaxBytes          int64  // rotate service and child logs past this size, 0 keeps unbounded
+	LogBackups           int    // rotated archives kept per log
 }
 
 // Run starts the service and returns the process exit code. With Daemon set it

@@ -25,6 +25,7 @@ export interface ToolResultView {
   text: string // display text when set, else the joined content bodies
   images: ImageView[]
   isError: boolean
+  fault?: string // upstream error notice carrying the panic's fault location
 }
 
 export interface ToolCallInfo {
@@ -197,7 +198,8 @@ function foldResults(
   const orphan: ToolResultView[] = []
   for (const block of blocks) {
     if (block.type !== 'tool_result') continue
-    const callId = str(block.data?.callId)
+    // Both spellings exist on the wire; the live path folds by either already.
+    const callId = str(block.data?.callId) || str(block.data?.id)
     const view: ToolResultView = {
       callId,
       toolName: optStr((block as { data?: { toolName?: string } }).data?.toolName),

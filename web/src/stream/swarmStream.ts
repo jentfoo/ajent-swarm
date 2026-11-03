@@ -41,6 +41,13 @@ type FrameListener = (frame: ServerFrame) => void
 
 const defaultStaleAfterMs = 75_000 // heartbeats ride every 20s; allow two misses
 
+// A subscribe refused with unknown_session (a session the fleet does not track
+// yet, e.g. one still attaching after a resume) retries on this backoff while
+// any view still holds it, then gives up as lost.
+export const resubscribeBaseMs = 500
+export const resubscribeMaxMs = 5_000
+const resubscribeMaxAttempts = 12 // about a minute of trying before 'lost'
+
 export class SwarmStream {
   private readonly url: string
   private readonly makeSocket: (url: string) => SocketLike
@@ -63,6 +70,9 @@ export class SwarmStream {
   private watchdog: ReturnType<typeof setInterval> | null = null
   private lastFrameAt = 0
   private destroyed = false
+  // per-session resubscribe backoff after a refused subscribe
+  private resubTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  private resubAttempts = new Map<string, number>()
 
   constructor(opts: SwarmStreamOptions = {}) {
     this.url = opts.url ?? defaultStreamURL()
@@ -109,6 +119,7 @@ export class SwarmStream {
       this.listeners.delete(sessionId)
       this.phases.delete(sessionId)
       this.phaseListeners.delete(sessionId)
+      this.cancelResubscribe(sessionId)
       if (this.isOpen()) this.sendFrame({ type: 'unsubscribe', sessionId })
     }
   }
@@ -161,6 +172,9 @@ export class SwarmStream {
       clearTimeout(this.retryTimer)
       this.retryTimer = null
     }
+    for (const timer of this.resubTimers.values()) clearTimeout(timer)
+    this.resubTimers.clear()
+    this.resubAttempts.clear()
     if (this.watchdog !== null) {
       clearInterval(this.watchdog)
       this.watchdog = null
@@ -302,11 +316,18 @@ export class SwarmStream {
       case 'heartbeat':
         return
       case 'init': {
+        this.resubAttempts.delete(frame.sessionId)
+        this.cancelResubscribe(frame.sessionId) // a live init means we got in
         this.setPhase(frame.sessionId, 'live')
         this.dispatch(frame.sessionId, frame)
         return
       }
       case 'child': {
+        if (frame.state === 'exited' || frame.state === 'gone') {
+          // ended for good: no point re-asking for a dead session's stream
+          this.resubAttempts.delete(frame.sessionId)
+          this.cancelResubscribe(frame.sessionId)
+        }
         if (frame.state === 'exited') this.setPhase(frame.sessionId, 'ended')
         else if (frame.state === 'gone') this.setPhase(frame.sessionId, 'lost')
         else if (frame.state === 'reconnecting') this.setPhase(frame.sessionId, 'resyncing')
@@ -314,10 +335,11 @@ export class SwarmStream {
         return
       }
       case 'error': {
-        // A refused subscribe names the session gone for viewers' purposes.
-        // Frame-level refusals (bad JSON, unknown verbs) carry no sessionId.
+        // A refused subscribe names the session gone for viewers' purposes —
+        // unless the fleet may simply not track it yet (a just-resumed child),
+        // so unknown sessions retry their subscribe on a backoff first.
         if ('sessionId' in frame && typeof frame.sessionId === 'string') {
-          if (frame.code === 'unknown_session') this.setPhase(frame.sessionId, 'lost')
+          if (frame.code === 'unknown_session') this.scheduleResubscribe(frame.sessionId)
           this.dispatch(frame.sessionId, frame)
         }
         return
@@ -331,6 +353,34 @@ export class SwarmStream {
     const set = this.listeners.get(sessionId)
     if (!set) return
     for (const listener of set) listener(frame)
+  }
+
+  // scheduleResubscribe re-sends one session's subscribe after a backoff, so a
+  // session the fleet does not track yet joins as soon as its actor appears.
+  // A run of exhausted attempts marks the phase lost for good.
+  private scheduleResubscribe(sessionId: string): void {
+    if (this.destroyed || !this.refs.has(sessionId)) return
+    const attempt = this.resubAttempts.get(sessionId) ?? 0
+    if (attempt >= resubscribeMaxAttempts) {
+      this.setPhase(sessionId, 'lost')
+      return
+    }
+    this.resubAttempts.set(sessionId, attempt + 1)
+    this.cancelResubscribe(sessionId)
+    const wait = Math.min(resubscribeBaseMs * 2 ** attempt, resubscribeMaxMs)
+    const timer = setTimeout(() => {
+      this.resubTimers.delete(sessionId)
+      if (this.destroyed || !this.refs.has(sessionId)) return
+      this.setPhase(sessionId, 'connecting')
+      this.sendFrame({ type: 'subscribe', sessionId })
+    }, wait)
+    this.resubTimers.set(sessionId, timer)
+  }
+
+  private cancelResubscribe(sessionId: string): void {
+    const timer = this.resubTimers.get(sessionId)
+    if (timer !== undefined) clearTimeout(timer)
+    this.resubTimers.delete(sessionId)
   }
 
   private setPhase(sessionId: string, phase: SessionPhase) {

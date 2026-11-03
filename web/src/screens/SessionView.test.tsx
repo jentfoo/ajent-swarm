@@ -176,7 +176,8 @@ describe('SessionView', () => {
     // markdown renders through the shared pipeline, not a plain pre
     expect(screen.getByText('my').closest('strong')).not.toBeNull()
     expect(screen.getAllByText('sonnet').length).toBeGreaterThan(0)
-    expect(screen.getByText(/seat: swarm/)).toBeInTheDocument()
+    // one clickable affordance covers both idle seat states
+    expect(screen.getByRole('button', { name: /take control: swarm/ })).toBeInTheDocument()
   })
 
   it('streams live turns into one pinned row with tool cards', async () => {
@@ -245,13 +246,27 @@ describe('SessionView', () => {
       type: 'message',
       ts: 6,
       data: JSON.parse(
-        '{"message":{"role":"user","content":[{"type":"tool_result","data":{"callId":"c1","content":[]}}]}}',
+        JSON.stringify({
+          message: {
+            role: 'user',
+            content: [
+              {
+                type: 'tool_result',
+                data: {
+                  callId: 'c1',
+                  content: [{ type: 'text', data: { text: 'patched cleanly' } }],
+                },
+              },
+            ],
+          },
+        }),
       ),
     }
     frame(ws, wireEvent('entry.append', 7, { entry: carrier }))
-    // the committed card takes over with the same body, exactly once
+    // the committed card takes over with its own body, exactly once
     await waitFor(async () => {
-      const cards = await screen.findAllByText(/patching/)
+      expect(screen.queryByLabelText('Live stream')).not.toBeInTheDocument()
+      const cards = await screen.findAllByText(/patched cleanly/)
       return expect(cards).toHaveLength(1)
     })
   })
@@ -459,11 +474,39 @@ describe('SessionView', () => {
     const ws = await openSocket()
 
     frame(ws, { type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
-    expect(await screen.findByText(/seat: swarm/)).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: /take control: swarm/ })).toBeInTheDocument()
 
     // A clean end announces itself with the backend's child fact.
     frame(ws, { type: 'child', sessionId: VIEW, state: 'exited' })
     expect(await screen.findByText('Session ended.')).toBeInTheDocument()
+  })
+
+  it('hides the seat takeover when the seat is free or already ours', async () => {
+    renderView()
+    const ws = await openSocket()
+
+    // a free seat costs nothing to use, so there is nothing to claim
+    frame(ws, {
+      type: 'init',
+      sessionId: VIEW,
+      state: snapshotFor(VIEW, { seat: { held: false, yours: false } }),
+      entries: [],
+    })
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: /claim control/ })).not.toBeInTheDocument(),
+    )
+    expect(screen.queryByRole('button', { name: /take control/ })).not.toBeInTheDocument()
+
+    // a seat this viewer already holds is equally uncontested
+    frame(ws, {
+      type: 'init',
+      sessionId: VIEW,
+      state: snapshotFor(VIEW, { seat: { held: true, holder: 'swarm', yours: true } }),
+      entries: [],
+    })
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: /take control/ })).not.toBeInTheDocument(),
+    )
   })
 
   it('shows the connecting banner while no init has arrived', async () => {

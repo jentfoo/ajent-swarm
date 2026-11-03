@@ -26,17 +26,20 @@ export function SwitcherRows({
   }
   return (
     <div className="switcher-rows" role="list">
-      {rows.map((row) =>
-        renamingId === row.sessionId ? (
-          <RenameEditor key={row.sessionId} row={row} onDone={() => setRenamingId(null)} />
-        ) : (
-          <SwitchRow
-            key={row.sessionId}
-            row={row}
-            onOpen={onOpen}
-            onRename={() => setRenamingId(row.sessionId)}
-          />
-        ),
+      {rows.map((row) => (
+        <SwitchRow
+          key={row.sessionId}
+          row={row}
+          onOpen={onOpen}
+          onRename={() => setRenamingId(row.sessionId)}
+        />
+      ))}
+      {/* the editor rides above the rows as a modal, like every other surface */}
+      {renamingId !== null && (
+        <RenameEditor
+          row={rows.find((r) => r.sessionId === renamingId)!}
+          onDone={() => setRenamingId(null)}
+        />
       )}
     </div>
   )
@@ -111,8 +114,9 @@ function StatusBadge({ status }: { status: SwitcherRow['status'] }): ReactElemen
   }
 }
 
-// RenameEditor edits the swarm-side display title inline. Submitting empty
-// clears the stored title, falling labels back to names and paths.
+// RenameEditor edits the swarm-side display title in a centered modal.
+// Submitting empty clears the stored title, falling labels back to names and
+// paths.
 function RenameEditor({ row, onDone }: { row: SwitcherRow; onDone: () => void }) {
   const { refreshSessions } = useSwarm()
   const [title, setTitle] = useState(row.label)
@@ -134,24 +138,27 @@ function RenameEditor({ row, onDone }: { row: SwitcherRow; onDone: () => void })
   }
 
   return (
-    <form
-      className="card rename-editor"
-      onSubmit={(ev) => void submit(ev)}
-      data-testid={`rename-${row.sessionId}`}
-    >
-      <label>
-        Display title
-        <input value={title} onChange={(ev) => setTitle(ev.target.value)} autoFocus />
-      </label>
-      {error && <p className="error-text">{error}</p>}
-      <div style={{ display: 'flex', gap: '0.5em' }}>
-        <button type="submit" disabled={busy}>
-          Save
-        </button>
-        <button type="button" onClick={onDone} disabled={busy}>
-          Cancel
-        </button>
-      </div>
-    </form>
+    <div className="modal-backdrop" onClick={onDone} role="presentation">
+      <form
+        className="card modal rename-modal"
+        onSubmit={(ev) => void submit(ev)}
+        data-testid={`rename-${row.sessionId}`}
+        onClick={(ev) => ev.stopPropagation()}
+      >
+        <label>
+          Display title
+          <input value={title} onChange={(ev) => setTitle(ev.target.value)} autoFocus />
+        </label>
+        {error && <p className="error-text">{error}</p>}
+        <div className="rename-actions">
+          <button type="submit" className="primary" disabled={busy}>
+            Save
+          </button>
+          <button type="button" onClick={onDone} disabled={busy}>
+            Cancel
+          </button>
+        </div>
+      </form>
+    </div>
   )
 }

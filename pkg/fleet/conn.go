@@ -412,8 +412,6 @@ func (a *sessionActor) handle(m actorMsg) {
 		a.handleRecall(msg)
 	case msgSnapshot:
 		a.handleSnapshot(msg)
-	case msgModelDiscover:
-		a.handleModelDiscover(msg)
 	case msgSnapshotModels:
 		a.handleModels(msg)
 	case msgSnapshotModelSet:
@@ -424,8 +422,6 @@ func (a *sessionActor) handle(m actorMsg) {
 		a.handleSettings(msg)
 	case msgSnapshotSettingSet:
 		a.handleSettingSet(msg)
-	case msgRename:
-		a.handleRename(msg)
 	case msgRewindSource:
 		src := rewindSource{path: a.transcript, ok: a.view != nil}
 		if a.view != nil {

@@ -360,3 +360,142 @@ func TestCheckWorkspace(t *testing.T) {
 		require.Error(t, CheckWorkspace("/nonexistent-swarm-check"))
 	})
 }
+
+func TestParseWeekdays(t *testing.T) {
+	t.Parallel()
+
+	t.Run("empty_means_every_day", func(t *testing.T) {
+		days, err := ParseWeekdays("")
+		require.NoError(t, err)
+		assert.Empty(t, days)
+		days, err = ParseWeekdays("  ")
+		require.NoError(t, err)
+		assert.Empty(t, days)
+	})
+
+	t.Run("tokens_case_insensitive", func(t *testing.T) {
+		days, err := ParseWeekdays("Mon, WED , fri")
+		require.NoError(t, err)
+		assert.Equal(t, []time.Weekday{time.Monday, time.Wednesday, time.Friday}, days)
+	})
+
+	t.Run("unknown_token_errors", func(t *testing.T) {
+		_, err := ParseWeekdays("mon,funday")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "funday")
+	})
+
+	t.Run("duplicate_errors", func(t *testing.T) {
+		_, err := ParseWeekdays("mon,mon")
+		require.Error(t, err)
+	})
+}
+
+func TestNextAfterDailyWithWeekdays(t *testing.T) {
+	t.Parallel()
+	// 2025-05-01 is a Thursday; the restriction keeps mondays only
+	s := Schedule{Kind: store.ScheduleDaily, DailyTime: "09:00",
+		Loc: mustLoc(t, "UTC"), Weekdays: []time.Weekday{time.Monday}}
+
+	next, err := s.NextAfter(atZone(t, "UTC", "2025-05-01 08:00:00"),
+		atZone(t, "UTC", "2025-05-01 08:00:00"))
+	require.NoError(t, err)
+	assert.Equal(t, "2025-05-05 09:00", next.Format("2006-01-02 15:04")) // next monday
+
+	// a slot already on a chosen day stays put
+	next, err = s.NextAfter(atZone(t, "UTC", "2025-05-05 08:00:00"),
+		atZone(t, "UTC", "2025-05-05 08:00:00"))
+	require.NoError(t, err)
+	assert.Equal(t, "2025-05-05 09:00", next.Format("2006-01-02 15:04"))
+
+	// past the chosen day's slot, the following week answers
+	next, err = s.NextAfter(atZone(t, "UTC", "2025-05-05 08:00:00"),
+		atZone(t, "UTC", "2025-05-05 09:30:00"))
+	require.NoError(t, err)
+	assert.Equal(t, "2025-05-12 09:00", next.Format("2006-01-02 15:04"))
+}
+
+func TestNextAfterIntervalWithWeekdays(t *testing.T) {
+	t.Parallel()
+	// slots anchored hourly from thursday noon; only fridays may fire
+	created := atZone(t, "UTC", "2025-05-01 12:00:00")
+	s := Schedule{Kind: store.ScheduleInterval, Interval: time.Hour,
+		Loc: mustLoc(t, "UTC"), Weekdays: []time.Weekday{time.Friday}}
+
+	next, err := s.NextAfter(created, atZone(t, "UTC", "2025-05-01 12:30:00"))
+	require.NoError(t, err)
+	assert.Equal(t, "2025-05-02 00:00", next.Format("2006-01-02 15:04")) // first friday slot
+
+	next, err = s.NextAfter(created, atZone(t, "UTC", "2025-05-02 06:00:00"))
+	require.NoError(t, err)
+	assert.Equal(t, "2025-05-02 07:00", next.Format("2006-01-02 15:04")) // still friday
+
+	// saturday slots skip to the next friday
+	next, err = s.NextAfter(created, atZone(t, "UTC", "2025-05-03 06:00:00"))
+	require.NoError(t, err)
+	assert.Equal(t, "2025-05-09 00:00", next.Format("2006-01-02 15:04"))
+}
+
+func TestValidateJobTriggerFields(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		mutate  func(j *store.Job)
+		wantErr string
+	}{
+		{"trigger_defaults_to_success", func(j *store.Job) {}, ""},
+		{"trigger_error_ok", func(j *store.Job) { j.TriggerOn = store.TriggerOnError }, ""},
+		{"trigger_on_unknown", func(j *store.Job) { j.TriggerOn = "maybe" }, "trigger_on"},
+		{"negative_idle_delay", func(j *store.Job) { j.IdleMaxDelaySeconds = -1 },
+			"idle_max_delay_seconds"},
+		{"idle_delay_over_cap", func(j *store.Job) { j.IdleMaxDelaySeconds = maxIdleDelaySec + 1 },
+			"idle_max_delay_seconds"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			j := sampleJob(store.ScheduleInterval)
+			j.Workspace = t.TempDir()
+			if tt.mutate != nil {
+				tt.mutate(&j)
+			}
+			err := ValidateJob(&j)
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
+
+	t.Run("weekdays_normalize", func(t *testing.T) {
+		j := sampleJob(store.ScheduleInterval)
+		j.Workspace = t.TempDir()
+		j.Weekdays = "FRI, mon"
+		require.NoError(t, ValidateJob(&j))
+		assert.Equal(t, "mon,fri", j.Weekdays)
+	})
+
+	t.Run("weekdays_unknown_rejected", func(t *testing.T) {
+		j := sampleJob(store.ScheduleInterval)
+		j.Workspace = t.TempDir()
+		j.Weekdays = "monday"
+		err := ValidateJob(&j)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "monday")
+	})
+}
+
+func TestNextAfterIntervalWeekdaysDefaultZone(t *testing.T) {
+	t.Parallel()
+	// interval schedules carry no Loc of their own; the weekday check must not
+	// panic on a nil location and answers in server-local time instead
+	created := time.Date(2025, 5, 1, 12, 0, 0, 0, time.Local) // a thursday
+	s := Schedule{Kind: store.ScheduleInterval, Interval: time.Hour,
+		Weekdays: []time.Weekday{time.Friday}}
+
+	next, err := s.NextAfter(created, created.Add(30*time.Minute))
+	require.NoError(t, err)
+	assert.Equal(t, time.Friday, next.In(time.Local).Weekday())
+}

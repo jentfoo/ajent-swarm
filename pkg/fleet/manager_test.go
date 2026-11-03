@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	fleettest "github.com/jentfoo/ajent-swarm/pkg/fleet/fleettest"
+	"github.com/jentfoo/ajent-swarm/pkg/testutil"
 	"github.com/jentfoo/ajent/pkg/ctl"
 	"github.com/jentfoo/ajent/pkg/llm"
 	"github.com/jentfoo/ajent/pkg/paths"
@@ -40,15 +41,12 @@ const (
 	testBackoffHi = 50 * time.Millisecond
 )
 
-// newTestFleet points AJENT_HOME at a temp dir and starts a fast manager.
+// newTestFleet pins AJENT_HOME to a temp dir and starts a fast manager.
 // The home stays short: unix socket paths cap at ~108 bytes, and t.TempDir
 // names grow with the test name.
 func newTestFleet(t *testing.T, owned func(inst ctl.Instance) bool) (*Manager, string) {
 	t.Helper()
-	home, err := os.MkdirTemp("", "fleet")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = os.RemoveAll(home) })
-	t.Setenv(paths.EnvHome, home)
+	home := testutil.IsolateHome(t)
 	m := New(Options{
 		Log:          testLogger(),
 		PollInterval: testPoll,

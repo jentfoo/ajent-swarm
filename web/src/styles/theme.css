@@ -1,26 +1,20 @@
-/* Theme tokens as CSS custom properties. Two independent axes:
-   dark/light via [data-theme], compact/cozy via [data-density]. */
+/* Theme tokens as CSS custom properties; dark/light via [data-theme]. */
 
 :root {
   --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, Ubuntu, Cantarell, sans-serif;
   --font-mono: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   --radius: 8px;
 
-  /* density scale; compact and cozy override below */
-  --unit: 5px;
-  --fs-body: 14.5px;
-  --fs-small: 12.5px;
-}
-
-[data-density='compact'] {
+  /* one compact density scale; no cozy variant anymore */
   --unit: 3px;
   --fs-body: 13px;
   --fs-small: 11.5px;
-}
-[data-density='cozy'] {
-  --unit: 5px;
-  --fs-body: 14.5px;
-  --fs-small: 12.5px;
+
+  /* spinner states mirror ajent's TUI glyph colors */
+  --spin-idle: var(--muted);
+  --spin-wait: var(--text);
+  --spin-stream: var(--accent);
+  --spin-tool: var(--warn);
 }
 
 /* dark is the default; SwarmProvider applies the stored choice post-load */
@@ -99,10 +93,6 @@ pre {
   padding: calc(var(--unit) * 2) calc(var(--unit) * 4);
   background: var(--surface);
   border-bottom: 1px solid var(--border);
-}
-.topbar .brand {
-  font-weight: 650;
-  color: var(--text);
 }
 .topbar nav {
   display: flex;
@@ -347,6 +337,11 @@ label {
   color: var(--muted);
   font-style: italic;
 }
+/* the agent's own line breaks are content here, so pre-wrap them like the TUI */
+.thinking-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .entry-image {
   max-width: 20rem;
   max-height: 12rem;
@@ -510,24 +505,27 @@ label {
   font-size: var(--fs-small);
 }
 .resolved-dialog {
+  width: 100%;
+  text-align: left;
   color: var(--muted);
   padding: calc(var(--unit) * 2);
 }
 
-/* composer */
+/* composer: prompt line with the attach and send buttons beside it */
 .composer {
   border-top: 1px solid var(--border);
   padding-top: calc(var(--unit) * 3);
 }
 .composer textarea {
-  width: 100%;
+  flex: 1;
   resize: none;
   display: block;
+  min-width: 0;
 }
 .composer-actions {
   display: flex;
   gap: calc(var(--unit) * 2);
-  margin-top: calc(var(--unit) * 2);
+  flex-shrink: 0;
 }
 .queue-chip.failed .badge.danger {
   margin-left: calc(var(--unit) * 1);
@@ -809,6 +807,7 @@ label {
   display: flex;
   align-items: center;
   gap: calc(var(--unit) * 2);
+  position: relative;
 }
 .rail-name {
   font-weight: 550;
@@ -870,6 +869,8 @@ label {
 .composer-box {
   position: relative;
   display: flex;
+  align-items: flex-end;
+  gap: calc(var(--unit) * 2);
 }
 .at-menu {
   position: absolute;
@@ -1249,6 +1250,42 @@ label {
   margin-top: calc(var(--unit) * 4);
 }
 
+/* weekday picker: one row of day chips inside the job editor's schedule grid */
+.weekday-picker {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: calc(var(--unit) * 2);
+  color: var(--muted);
+  font-size: var(--fs-small);
+}
+.weekday-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--unit) * 1);
+  margin: 0;
+  padding: calc(var(--unit) * 0.5) calc(var(--unit) * 1.5);
+  background: var(--surface-2);
+  border-radius: var(--radius);
+  color: inherit;
+}
+.weekday-chip input {
+  margin: 0;
+}
+
+/* rename control: a quiet pencil beside session labels everywhere */
+.rename-control {
+  padding: 0 calc(var(--unit) * 1);
+  font-size: var(--fs-small);
+  color: var(--muted);
+  background: none;
+  border: none;
+}
+.rename-control:hover {
+  color: var(--text);
+}
+
 /* schedule preview beside the editor's mode chooser */
 .schedule-preview {
   margin-top: calc(var(--unit) * 3);
@@ -1476,6 +1513,7 @@ label {
   z-index: 5;
   display: flex;
   align-items: center;
+  flex-wrap: wrap; /* interrupt plus settings squeeze in on narrow phones */
   gap: calc(var(--unit) * 2);
   padding: calc(var(--unit) * 2) calc(var(--unit) * 3);
   background: var(--surface);
@@ -1511,11 +1549,6 @@ label {
 }
 .model-menu-list button {
   text-align: left;
-}
-
-.spinner {
-  margin-left: calc(var(--unit) * 1.5);
-  display: inline-block;
 }
 
 /* status strip: side rails collapsed into one slim line */
@@ -1568,7 +1601,7 @@ label {
   flex: 1;
 }
 
-/* pushed full-screen panels (tools, rewind) */
+/* pushed full-screen panels (tools, settings, rewind) */
 .pushed-screen {
   position: fixed;
   inset: 0;
@@ -1598,6 +1631,9 @@ label {
 .rewind-list {
   padding-left: calc(var(--unit) * 3);
   padding-right: calc(var(--unit) * 3);
+}
+.settings-sheet-body {
+  padding: 0 calc(var(--unit) * 3) calc(var(--unit) * 4);
 }
 .tool-rows {
   display: flex;
@@ -1687,4 +1723,175 @@ label {
     flex: 1;
     min-height: 0;
   }
+}
+
+/* --- phase 14: status bar, tools panel, settings hamburger, barrier rows --- */
+
+/* bottom status bar under the composer: agent state at a glance */
+.status-bar {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--unit) * 3);
+  border-top: 1px solid var(--border);
+  padding: calc(var(--unit) * 1.5) 0;
+  font-size: var(--fs-small);
+  min-height: 2em;
+}
+.bar-activity {
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 40%;
+}
+.strip-segment.muted,
+.status-bar .muted {
+  flex-shrink: 0;
+}
+
+/* sub-agent jobs */
+.subagent-chips,
+.subagent-state {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--unit) * 1);
+  margin: calc(var(--unit) * 1) 0;
+}
+.sub-agent-chip {
+  font-size: var(--fs-small);
+}
+
+/* tools panel and settings menu popovers share the dropdown shape */
+.tools-menu,
+.hamburger-menu {
+  position: relative;
+}
+.menu .menu-empty {
+  display: block;
+  padding: calc(var(--unit) * 1) 0;
+}
+.tool-row {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--unit) * 2);
+  color: var(--text);
+  font-size: var(--fs-small);
+  white-space: nowrap;
+}
+.tool-row.disabled {
+  opacity: 0.5;
+}
+.tool-row .tool-source {
+  margin-left: auto;
+}
+
+/* rename rides a centered modal at every breakpoint, so cramped cards and
+   rails never bury the editor */
+.rename-modal {
+  width: min(26rem, 92vw);
+}
+.rename-modal label {
+  margin-top: 0;
+}
+.rename-modal input {
+  width: 100%;
+  margin-top: calc(var(--unit) * 1);
+}
+.rename-modal .rename-actions {
+  display: flex;
+  gap: calc(var(--unit) * 2);
+  margin-top: calc(var(--unit) * 3);
+}
+
+/* spinner: the working glyph, first element of the status line, colored by
+   what the turn is waiting on and static dim at rest */
+.spinner {
+  display: inline-block;
+  min-width: 1.2em;
+  text-align: center;
+  font-family: var(--font-mono);
+}
+.spinner.idle {
+  color: var(--spin-idle);
+}
+.spinner.wait {
+  color: var(--spin-wait);
+}
+.spinner.stream {
+  color: var(--spin-stream);
+}
+.spinner.tool {
+  color: var(--spin-tool);
+}
+
+/* barrier buttons and cancel share one compact row */
+.dialog-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: calc(var(--unit) * 2);
+  margin-top: calc(var(--unit) * 2);
+}
+.dialog-actions button {
+  margin: 0;
+}
+
+.hamburger-pop {
+  position: absolute;
+  right: 0;
+  top: calc(100% + var(--unit) * 2);
+  width: min(24rem, 90vw);
+  max-height: 70vh;
+  overflow: auto;
+  z-index: 30;
+  padding: calc(var(--unit) * 3);
+}
+.hamburger-pop h3 {
+  margin-bottom: calc(var(--unit) * 2);
+}
+
+/* seat badge and stop affordance */
+.seat-badge {
+  cursor: pointer;
+}
+.stop-session {
+  color: var(--danger);
+}
+
+/* exited session cards keep their facts readable */
+.session-card .card-detail {
+  overflow-wrap: anywhere;
+}
+.exited-transcript {
+  margin-top: calc(var(--unit) * 2);
+  max-height: 60vh;
+  overflow: auto;
+}
+
+/* inbox rail: stored title leading line one, its workspace path a smaller
+   sub-line below so long titles keep the whole row width */
+.rail-path {
+  display: block;
+  font-size: var(--fs-small);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+/* job editor prompt takes the whole card width under its heading */
+.prompt-field,
+.prompt-field textarea {
+  display: block;
+  width: 100%;
+}
+.prompt-field textarea {
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+/* chat header identity: stored title leading, short session id trailing */
+.header-session-id {
+  margin-left: calc(var(--unit) * 2);
+  font-size: var(--fs-small);
 }

@@ -337,10 +337,12 @@ describe('applierReducer keyed families', () => {
       ev('notice', 2, { text: 'still staged', level: 'info', key: 'staged' }),
       ev('notice', 3, { text: 'unrelated', level: 'warn' }),
     )
-    expect(s.notices).toEqual([
+    // arrival stamps ride every row so rendering can expire stale lines
+    expect(s.notices).toMatchObject([
       { key: 'staged', text: 'still staged', level: 'info' },
       { key: '', text: 'unrelated', level: 'warn' },
     ])
+    for (const n of s.notices) expect(n.at).toBeGreaterThan(0)
   })
 })
 
@@ -383,7 +385,9 @@ describe('applierReducer live turn buffers', () => {
     expect(s.live?.text).toBe('Hello')
     const before = Date.now()
     s = apply(s, ev('turn.end', 3, { stop: 'end_turn', steps: 1 }))
-    expect(s.live).toBeNull()
+    // painted content stays instead of being discarded with the buffer
+    expect(s.live?.text).toBe('Hello')
+    expect(s.live?.textOpen).toBe(false)
     expect(s.snapshot.running).toBe(false)
     expect(s.lastTurnEndAt).toBeGreaterThanOrEqual(before - 1000)
   })
@@ -450,6 +454,144 @@ describe('applierReducer lifecycle', () => {
   })
 })
 
+describe('applierReducer tool card state', () => {
+  it('force-closes running cards at turn.end instead of discarding them', () => {
+    let s = apply(
+      initialSessionState(),
+      ev('turn.start', 1, { model: 'm' }),
+      ev('tool.start', 2, { id: 'c1', name: 'bash', input: '{}' }),
+      ev('tool.output', 3, { id: 'c1', delta: 'partial out' }),
+    )
+    expect(s.live?.tools).toHaveLength(1)
+
+    s = apply(s, ev('turn.end', 4, { stop: 'aborted', steps: 1 }))
+    // the card keeps its painted output and never shows running again
+    const [card] = s.live?.tools ?? []
+    expect(card.closed).toBe(true)
+    expect(card.result).toBeUndefined()
+    expect(s.snapshot.running).toBe(false)
+  })
+
+  it('failed results surface the fault-location notice text', () => {
+    const faultNotice = 'tool panicked: boom (pkg/tools/run.go:42)'
+    let s = apply(
+      initialSessionState(),
+      ev('turn.start', 1, { model: 'm' }),
+      ev('tool.start', 2, { id: 'c1', name: 'bash', input: '{}' }),
+      // upstream emits the recover notice immediately before the result
+      ev('notice', 3, { text: faultNotice, level: 'error' }),
+      ev('tool.result', 4, { id: 'c1', output: 'tool panicked: boom', error: true }),
+    )
+    expect(s.live?.tools[0]?.result?.fault).toBe(faultNotice)
+
+    // an unrelated error notice never attaches
+    s = apply(
+      initialSessionState(),
+      ev('notice', 1, { text: 'disk nearly full', level: 'error' }),
+      ev('tool.start', 2, { id: 'c1', name: 'bash', input: '{}' }),
+      ev('tool.result', 3, { id: 'c1', output: 'tool panicked: boom', error: true }),
+    )
+    expect(s.live?.tools[0]?.result?.fault).toBeUndefined()
+  })
+
+  it('resnapshot closes cards stranded by a lost carrier', () => {
+    let s = apply(
+      initialSessionState(),
+      ev('turn.start', 1, { model: 'm' }),
+      ev('tool.start', 2, { id: 'c1', name: 'bash', input: '{}' }),
+      ev('tool.output', 3, { id: 'c1', delta: 'partial out' }),
+    )
+
+    // the carrier entry and turn.end never arrived; the snapshot says idle
+    s = apply(s, { type: 'snapshot', state: snap({ running: false }) })
+    expect(s.live?.tools[0]?.closed).toBe(true)
+  })
+
+  it('resnapshot drops a stranded card with nothing painted', () => {
+    let s = apply(
+      initialSessionState(),
+      ev('turn.start', 1, { model: 'm' }),
+      ev('tool.start', 2, { id: 'c1', name: 'bash', input: '{}' }),
+    )
+    s = apply(s, { type: 'snapshot', state: snap({ running: false }) })
+    expect(s.live).toBeNull() // nothing painted: the committed history will tell it
+  })
+
+  it('resnapshot leaves a live turn alone while one is running', () => {
+    let s = apply(
+      initialSessionState(),
+      ev('turn.start', 1, { model: 'm' }),
+      ev('tool.start', 2, { id: 'c1', name: 'bash', input: '{}' }),
+    )
+    s = apply(s, { type: 'snapshot', state: snap({ running: true }) })
+    expect(s.live?.tools[0]?.closed).toBeUndefined()
+  })
+
+  it('folds committed results keyed by either spelling', () => {
+    let s = apply(
+      initialSessionState(),
+      ev('turn.start', 1, { model: 'm' }),
+      ev('tool.start', 2, { id: 'c1', name: 'bash', input: '{}' }),
+    )
+    const assistant = entry(
+      '01ASSIST0000000000',
+      undefined,
+      'message',
+      JSON.parse(
+        JSON.stringify({
+          message: {
+            role: 'assistant',
+            content: [{ type: 'tool_call', data: { id: 'c1', name: 'bash' } }],
+          },
+        }),
+      ),
+    )
+    // the carrier names the call with `id`, not `callId`
+    const carrier = entry(
+      '01CARRIER000000000',
+      undefined,
+      'message',
+      JSON.parse(
+        JSON.stringify({
+          message: {
+            role: 'user',
+            content: [{ type: 'tool_result', data: { id: 'c1', content: [] } }],
+          },
+        }),
+      ),
+    )
+    s = apply(s, ev('entry.append', 3, { entry: assistant }))
+    expect(s.live?.tools).toHaveLength(1) // header alone still paints live
+    s = apply(s, ev('entry.append', 4, { entry: carrier }))
+    expect(s.live).toBeNull() // the id-keyed result folds and retires the card
+  })
+
+  it('backfilled carriers reconcile stranded cards too', () => {
+    let s = apply(
+      initialSessionState(),
+      ev('turn.start', 1, { model: 'm' }),
+      ev('tool.start', 2, { id: 'c1', name: 'bash', input: '{}' }),
+      ev('tool.output', 3, { id: 'c1', delta: 'partial out' }),
+    )
+    const carrier = entry(
+      '01CARRIER000000000',
+      undefined,
+      'message',
+      JSON.parse(
+        JSON.stringify({
+          message: {
+            role: 'user',
+            content: [{ type: 'tool_result', data: { callId: 'c1', content: [] } }],
+          },
+        }),
+      ),
+    )
+    // the carrier arrives through a heal-by-paging backfill, not live
+    s = apply(s, { type: 'backfill', entries: [carrier] })
+    expect(s.live).toBeNull()
+  })
+})
+
 describe('applierReducer echo fidelity', () => {
   it('drains streamed text and thinking when the entry commits', () => {
     let s = apply(
@@ -467,9 +609,7 @@ describe('applierReducer echo fidelity', () => {
     ])
     s = apply(s, ev('entry.append', 5, { entry: committed }))
     // the buffer empties instead of double-rendering at turn end
-    expect(s.live?.text).toBe('')
-    expect(s.live?.thinking).toBe('')
-    expect(s.live).not.toBeNull()
+    expect(s.live).toBeNull()
   })
 
   it('retires a live tool card when its carrier commits', () => {
@@ -491,7 +631,8 @@ describe('applierReducer echo fidelity', () => {
       'user',
     )
     s = apply(s, ev('entry.append', 5, { entry: carrier }))
-    expect(s.live?.tools).toHaveLength(0)
+    // the drained buffer retires entirely once nothing is left to paint
+    expect(s.live).toBeNull()
   })
 
   it('drains every same-family block when several commit together', () => {
@@ -507,7 +648,7 @@ describe('applierReducer echo fidelity', () => {
     ])
     s = apply(s, ev('entry.append', 3, { entry: committed }))
     // both painted copies drain, not just the one ending the buffer
-    expect(s.live?.text).toBe('')
+    expect(s.live).toBeNull()
   })
 
   it('keeps streamed text when the committed entry carries something new', () => {

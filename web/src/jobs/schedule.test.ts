@@ -69,6 +69,16 @@ describe('scheduleSummary', () => {
     expect(summary).toMatch(/^once at /)
   })
 
+  it('appends chosen weekdays to recurring summaries', () => {
+    const days = { ...base, weekdays: 'mon,wed,fri' }
+    expect(scheduleSummary(days)).toBe('every 30 minutes on Mon, Wed, Fri')
+    expect(scheduleSummary({ ...days, scheduleKind: 'daily', dailyTime: '09:00', tz: '' })).toBe(
+      'daily at 09:00 on Mon, Wed, Fri',
+    )
+    // no restriction reads exactly as before
+    expect(scheduleSummary(base)).toBe('every 30 minutes')
+  })
+
   it('renders unknown kinds verbatim', () => {
     expect(scheduleSummary({ ...base, scheduleKind: 'weekly' as never })).toBe('weekly')
   })

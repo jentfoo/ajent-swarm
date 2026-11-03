@@ -1,16 +1,22 @@
 import type { CtlState, Segment } from '../api/types'
+import { Spinner, spinnerState } from '../session/Spinner'
+import { visibleSegments } from '../session/StatusBar'
+import type { LiveTurn } from '../state/eventApplier'
 
 // StatusStrip is the slim strip above the composer: one data source with the
-// desktop status bar. It renders the streamed status segments plus queue count,
-// activity dots and usage totals — everything side rails used to show. Token
-// totals count request-and-response terms only; cache reads never cost.
-export function StatusStrip({ snap }: { snap: CtlState }) {
-  const segments = snap.status?.segments ?? []
+// desktop status bar. It renders the working glyph, streamed status segments
+// plus queue count, activity dots and usage totals — everything side rails
+// used to show. Model and permission mode live in the header; the permissions
+// segment never renders here, so no "auto+w" shadows the mode dropdown.
+export function StatusStrip({ snap, live }: { snap: CtlState; live?: LiveTurn | null }) {
+  const segments = visibleSegments(snap.status?.segments)
   const activities = snap.activity ?? []
-  if (segments.length === 0 && activities.length === 0 && snap.queued === 0) return null
+  if (segments.length === 0 && activities.length === 0 && snap.queued === 0 && !snap.running)
+    return null
 
   return (
     <div className="status-strip" role="status" aria-label="Session status">
+      <Spinner state={spinnerState(snap, live)} />
       {snap.queued > 0 && <span className="badge">{snap.queued} queued</span>}
       {segments.map((seg) => (
         <SegmentChip key={seg.key} seg={seg} />

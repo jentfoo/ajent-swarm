@@ -42,7 +42,7 @@ export default function MobileHome() {
         </Link>
         <Link to="/m/settings" data-testid="link-settings">
           Settings
-          <span className="muted">theme, density, agent settings</span>
+          <span className="muted">theme and global settings</span>
         </Link>
       </nav>
     </div>

@@ -13,6 +13,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # the module replace points at ../ajent, so the sibling must exist
+      - uses: actions/checkout@v7
+        with:
+          repository: jentfoo/ajent
+          path: ../ajent
+
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
@@ -45,6 +51,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # the module replace points at ../ajent, so the sibling must exist
+      - uses: actions/checkout@v7
+        with:
+          repository: jentfoo/ajent
+          path: ../ajent
+
       - name: Set up Go ${{ matrix.go }}
         uses: actions/setup-go@v7
         with:
@@ -52,6 +64,26 @@ jobs:
 
       - name: Run unit tests
         run: make test
+
+  load:
+    name: Verify Load Checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/checkout@v7
+        with:
+          repository: jentfoo/ajent
+          path: ../ajent
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      # fanout and SQLite-under-scheduler-load verifications (phase 12)
+      - name: Run load checks
+        run: go test -count=1 -run 'TestFanout|TestSQLiteStaysHealthy' ./pkg/api ./pkg/sched
 
   web:
     name: Verify Frontend
@@ -73,4 +105,71 @@ jobs:
 
       - name: Lint, typecheck and test
         run: make web-check
+
+  e2e:
+    name: Verify E2E Smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # the smoke run builds ajent itself, so the sibling checkout is the
+      # source of truth for both the module replace and the binary
+      - uses: actions/checkout@v7
+        with:
+          repository: jentfoo/ajent
+          path: ../ajent
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version-file: web/.node-version
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Install playwright browsers
+        run: cd web && pnpm install --frozen-lockfile && pnpm exec playwright install chromium
+
+      - name: Run the smoke suite
+        run: make test-e2e
+
+  audit:
+    name: Verify Dependency Audits
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/checkout@v7
+        with:
+          repository: jentfoo/ajent
+          path: ../ajent
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version-file: web/.node-version
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Audit both trees
+        run: make audit
 

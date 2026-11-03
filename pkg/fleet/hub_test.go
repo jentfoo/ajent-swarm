@@ -2,6 +2,7 @@ package fleet
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -26,6 +27,39 @@ func newTestSub(t *testing.T, sessionID string) (*subscription, <-chan []byte, *
 	}
 	go sub.forward()
 	return sub, out, dropped
+}
+
+// BenchmarkHubFanout measures one delta burst fanned out to many viewers:
+// the coalescing cost per subscriber is what a streaming turn spends.
+func BenchmarkHubFanout(b *testing.B) {
+	for _, viewers := range []int{1, 16, 64} {
+		b.Run(fmt.Sprintf("viewers-%d", viewers), func(b *testing.B) {
+			h := newHub()
+			for i := range viewers {
+				sub := &subscription{
+					id:        int64(i + 1),
+					sessionID: "s1",
+					q:         make(chan []byte, subQueue),
+					closed:    make(chan struct{}),
+					deliver:   func([]byte) {},
+				}
+				h.attach(sub)
+				go sub.forward()
+			}
+
+			evs := make([]ctl.Event, 200)
+			for i := range evs {
+				evs[i] = ctl.NewEvent(ctl.EventTextDelta, uint64(i+1), ctl.TextData{Delta: "x"})
+			}
+
+			b.ResetTimer()
+			for range b.N {
+				for _, ev := range evs {
+					h.publishEvent("s1", ev)
+				}
+			}
+		})
+	}
 }
 
 func TestCoalesceDeltaBursts(t *testing.T) {

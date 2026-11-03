@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"net/url"
 	"sync"
@@ -25,6 +26,11 @@ const (
 
 // hbPingEvery is a var so tests can shorten the liveness cadence.
 var hbPingEvery = defaultPingEvery
+
+// wsConnSetup, when set, tunes each upgraded stream socket before first
+// write; tests pin small buffers on chosen connections so backpressure shows
+// up deterministically.
+var wsConnSetup func(r *http.Request, c net.Conn)
 
 // upgrader admits same-origin handshakes only. Auth ran in the middleware,
 // and session cookies are SameSite=Lax, so a cross-origin browser page can
@@ -58,13 +64,16 @@ type streamConn struct {
 
 // handleStream upgrades and serves /api/stream until either side drops.
 func (s *apiServer) handleStream(w http.ResponseWriter, r *http.Request) {
-	ws, err := upgrader.Upgrade(w, r, nil)
+	wsc, err := upgrader.Upgrade(w, r, nil)
 	if err != nil { // the upgrade already answered
 		return
 	}
+	if wsConnSetup != nil {
+		wsConnSetup(r, wsc.NetConn())
+	}
 	sc := &streamConn{
 		srv:  s,
-		ws:   ws,
+		ws:   wsc,
 		send: make(chan []byte, sendQueueSize),
 		done: make(chan struct{}),
 		subs: make(map[string]*fleet.Subscription),

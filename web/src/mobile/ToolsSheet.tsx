@@ -8,6 +8,8 @@ import type { CtlState, ToolState } from '../api/types'
 // sources, toggled through tools.set. Each toggle submits the complete desired
 // set — a free replacement before the run's first prompt, enable-only after,
 // where upstream keeps names left out unchanged and refusals surface as toasts.
+// The readOnly flag is permission metadata, never a toggle lock; rows an
+// already-dispatched run cannot release render disabled like on desktop.
 export function ToolsSheet({
   sessionId,
   snap,
@@ -24,6 +26,9 @@ export function ToolsSheet({
   if (!open) return null
 
   const rows = snap.tools ?? []
+  // Widening only once the run dispatched a prompt; the desktop panel derives
+  // this identically so both surfaces agree at every breakpoint.
+  const widenOnly = snap.usage.turns > 0 || snap.running
   const apply = async (desired: ToolState[]) => {
     try {
       await sessionAPI.setTools(
@@ -50,25 +55,25 @@ export function ToolsSheet({
       </p>
       <div className="tool-rows">
         {rows.length === 0 && <p className="muted">No toggleable tools.</p>}
-        {rows.map((row) => (
-          <label key={row.name} className={`tool-row ${row.readOnly ? 'disabled' : ''}`}>
-            <input
-              type="checkbox"
-              checked={row.enabled}
-              disabled={row.readOnly}
-              onChange={() =>
-                void apply(
-                  rows.map((r) => (r.name === row.name ? { ...r, enabled: !r.enabled } : r)),
-                )
-              }
-            />
-            <span className="switch-name">{row.name}</span>
-            <span className="muted tool-source">
-              {row.source}
-              {row.readOnly ? ' · locked' : ''}
-            </span>
-          </label>
-        ))}
+        {rows.map((row) => {
+          const locked = widenOnly && row.enabled
+          return (
+            <label key={row.name} className={`tool-row ${locked ? 'disabled' : ''}`}>
+              <input
+                type="checkbox"
+                checked={row.enabled}
+                disabled={locked}
+                onChange={() =>
+                  void apply(
+                    rows.map((r) => (r.name === row.name ? { ...r, enabled: !r.enabled } : r)),
+                  )
+                }
+              />
+              <span className="switch-name">{row.name}</span>
+              <span className="muted tool-source">{row.source}</span>
+            </label>
+          )
+        })}
       </div>
     </div>
   )

@@ -279,6 +279,11 @@ func (m *Manager) publishChildEvent(sessionID string, frame ChildFrame) {
 // sessions end through /exit alone: swarm never signals a process it did not
 // spawn. The escalation always runs to completion; ctx bounds only the
 // control calls. Stopping an already-exited session succeeds quietly.
+//
+// Nothing tears UI-launched children down implicitly: no registry-watch,
+// reconnect or shutdown path stops them (KillOnExit is a documented operator
+// choice), and the scheduler's stopAfter applies only to sessions its own run
+// launched, unless the job sets KeepAlive. A session ends when someone asks.
 func (m *Manager) StopSession(ctx context.Context, sessionID string) error {
 	a := m.route(sessionID)
 	var cp *childProc

@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react'
+import { act, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -19,15 +19,17 @@ const base = (overrides: Partial<InteractionPending>): InteractionPending => ({
 
 function dock(dialogs: InteractionPending[], outcomes: DialogOutcome[] = []) {
   const onAnsweredLocally = vi.fn()
+  const onOutcomeDismissed = vi.fn()
   render(
     <DialogDock
       sessionId="01S"
       dialogs={dialogs}
       outcomes={outcomes}
       onAnsweredLocally={onAnsweredLocally}
+      onOutcomeDismissed={onOutcomeDismissed}
     />,
   )
-  return { onAnsweredLocally }
+  return { onAnsweredLocally, onOutcomeDismissed }
 }
 
 function stubFetch(reply: Record<string, unknown>) {
@@ -82,6 +84,7 @@ describe('DialogDock shape mapping', () => {
         dialogs={[base({ id: 43, options: ['a', 'b'], multi: true })]}
         outcomes={[]}
         onAnsweredLocally={() => {}}
+        onOutcomeDismissed={() => {}}
       />,
     )
     const cards = screen.getAllByText('Proceed?')
@@ -145,10 +148,27 @@ describe('DialogDock shape mapping', () => {
         dialogs={[]}
         outcomes={[{ id: 10, answered: false, cancelled: true }]}
         onAnsweredLocally={() => {}}
+        onOutcomeDismissed={() => {}}
       />,
     )
     expect(screen.getByText(/Dialog 10 answered elsewhere — cancelled/)).toBeInTheDocument()
     unmount()
+  })
+
+  it('dismisses an outcome on click and never re-renders it', async () => {
+    const user = userEvent.setup()
+    const { onOutcomeDismissed } = dock([], [{ id: 9, answered: true, cancelled: false, index: 1 }])
+    await user.click(screen.getByText(/Dialog 9 answered elsewhere/))
+    expect(onOutcomeDismissed).toHaveBeenCalledWith(9)
+  })
+
+  it('auto-dismisses an outcome after a few seconds', async () => {
+    vi.useFakeTimers()
+    const { onOutcomeDismissed } = dock([], [{ id: 11, cancelled: true, answered: false }])
+    expect(screen.getByText(/Dialog 11 answered elsewhere/)).toBeInTheDocument()
+
+    await act(() => vi.advanceTimersByTimeAsync(4_000))
+    expect(onOutcomeDismissed).toHaveBeenCalledWith(11)
   })
 
   it('lists several open dialogs oldest first', () => {

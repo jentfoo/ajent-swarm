@@ -67,3 +67,14 @@ func (a titleStore) SetSessionTitle(ctx context.Context, sessionID, title string
 func (a titleStore) SessionTitles(ctx context.Context) (map[string]string, error) {
 	return a.st.SessionTitles(ctx)
 }
+
+// settingsStore adapts the SQLite store to fleet's SettingsStore interface.
+type settingsStore struct{ st *store.Store }
+
+func (a settingsStore) Setting(ctx context.Context, key string) (string, error) {
+	return a.st.Setting(ctx, key)
+}
+
+func (a settingsStore) SetSetting(ctx context.Context, key, value string) error {
+	return a.st.SetSetting(ctx, key, value)
+}

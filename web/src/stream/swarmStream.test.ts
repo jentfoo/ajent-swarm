@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { SwarmStream } from './swarmStream'
+import { resubscribeMaxMs } from './swarmStream'
 import type { ServerFrame } from '../api/types'
 import { MockWebSocket } from '../test/mockWebSocket'
 
@@ -103,13 +104,36 @@ describe('SwarmStream subscriptions', () => {
     expect(stream.sessionPhase('s1')).toBe('ended')
   })
 
-  it('marks an unknown session lost through the error frame', async () => {
-    stream.subscribe('nope', () => {})
+  it('retries an unknown session before marking it lost', async () => {
+    const unsub = stream.subscribe('nope', () => {})
     await vi.advanceTimersByTimeAsync(0)
     lastSocket().open()
 
+    // the fleet does not track this session yet: subscribe refusals retry on a
+    // backoff while any view holds it, staying in connecting (not lost)
     lastSocket().message({ type: 'error', code: 'unknown_session', sessionId: 'nope' })
-    expect(stream.sessionPhase('nope')).toBe('lost')
+    expect(stream.sessionPhase('nope')).toBe('connecting')
+    await vi.advanceTimersByTimeAsync(500)
+    const sent = lastSocket()
+      .sent.map((raw) => JSON.parse(raw as string))
+      .filter((f: { type: string }) => f.type === 'subscribe')
+    expect(sent).toHaveLength(2) // the original plus one retry
+
+    // once the fleet starts tracking it, an init lands and phases go live
+    lastSocket().message(initFrameFor('nope'))
+    expect(stream.sessionPhase('nope')).toBe('live')
+
+    // exhausted attempts give up as lost for truly absent sessions
+    unsub()
+    const dead = stream.subscribe('gone', () => {})
+    await vi.advanceTimersByTimeAsync(0)
+    lastSocket().open()
+    for (let i = 0; i < 13; i++) {
+      lastSocket().message({ type: 'error', code: 'unknown_session', sessionId: 'gone' })
+      await vi.advanceTimersByTimeAsync(resubscribeMaxMs)
+    }
+    expect(stream.sessionPhase('gone')).toBe('lost')
+    dead()
   })
 
   it('resync sends a sync frame only for subscribed sessions', async () => {

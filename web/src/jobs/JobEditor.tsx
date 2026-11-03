@@ -3,49 +3,60 @@ import type { FormEvent } from 'react'
 
 import { ApiError } from '../api/client'
 import { jobsApi } from '../api/endpoints'
-import type { Job } from '../api/types'
-import { defaultDraft, draftFromJob, toPayload, validateDraft } from './jobDraft'
+import type { Job, ToolState } from '../api/types'
+import { defaultDraft, draftFromJob, idleDelayOptions, toPayload, validateDraft } from './jobDraft'
 import type { DraftErrors, JobDraft } from './jobDraft'
-import { formatSlot, intervalUnits, scheduleKindLabels } from './schedule'
+import { TriggerCommandFields } from './TriggerCommandFields'
+import { FieldError, JobFactsFields } from './JobFactsFields'
+import {
+  formatSlot,
+  intervalUnits,
+  scheduleKindLabels,
+  weekdayTokens,
+  weekdayShort,
+} from './schedule'
+import { ModalShell } from '../ui/ModalShell'
 
-// Permission startup flags, matching phase 04's launcher.
-const permissionOptions = [
-  { value: '', label: 'ajent default (asks)' },
-  { value: 'read-only', label: 'read-only' },
-  { value: 'allow-auto', label: 'allow-auto' },
-  { value: 'allow-autowrite', label: 'allow-autowrite' },
-  { value: 'allow-all', label: 'allow-all' },
-]
-
-// Timezone candidates for the daily picker; free text always works.
+// Timezone candidates for the daily picker; free text always works. The IANA
+// list never changes within a page load, so it memoizes at module scope rather
+// than rebuilding per keystroke in the editor.
+let timezoneMemo: string[] | undefined
 function timezoneCandidates(): string[] {
+  if (timezoneMemo !== undefined) return timezoneMemo
   try {
     const zones = Intl.supportedValuesOf?.('timeZone')
-    if (zones && zones.length > 0) return [...zones]
+    if (zones && zones.length > 0) return (timezoneMemo = [...zones])
   } catch {
     // Engines without the API answer nothing; typing a zone still works.
   }
-  return []
+  return (timezoneMemo = [])
 }
 
-// JobEditor is the one form for creating and editing jobs: mode chooser,
-// launch facts matching phase 04's launcher, prompt, missed-run policy,
-// timeout and keep-alive. The next three fire times preview live through
-// POST /api/jobs/preview, which also checks the workspace path.
+// JobEditor is the one form for creating and editing jobs: launch facts
+// mirroring the launcher, then trigger — schedule plus its optional pre-run
+// command — prompt, missed-run policy, timeout and keep-alive. The next three
+// fire times preview live through POST /api/jobs/preview, which also checks the
+// workspace path.
 export function JobEditor({
   job,
+  seed,
   workspaces,
   models,
+  toolOptions,
   onSaved,
   onCancel,
 }: {
   job?: Job // editing an existing row; absent creates one
+  seed?: JobDraft // pre-filled create, e.g. a duplicate of a stored row
   workspaces: string[]
   models: string[]
+  toolOptions: ToolState[] // live union; may be empty when nothing serves
   onSaved: (job: Job | undefined) => void // undefined after a delete
   onCancel: () => void
 }) {
-  const [draft, setDraft] = useState<JobDraft>(() => (job ? draftFromJob(job) : defaultDraft()))
+  const [draft, setDraft] = useState<JobDraft>(
+    () => seed ?? (job ? draftFromJob(job) : defaultDraft()),
+  )
   const errors: DraftErrors = useMemo(() => validateDraft(draft), [draft])
   const [previewTimes, setPreviewTimes] = useState<string[]>([])
   const [workspaceError, setWorkspaceError] = useState('')
@@ -111,47 +122,27 @@ export function JobEditor({
   }
 
   return (
-    <div className="modal-backdrop" onClick={onCancel}>
-      <form
-        className="card modal job-editor"
-        role="dialog"
-        aria-label={job !== undefined ? `Edit job ${draft.name}` : 'New job'}
-        onClick={(ev) => ev.stopPropagation()}
-        onSubmit={save}
-      >
+    <ModalShell
+      label={job !== undefined ? `Edit job ${draft.name}` : 'New job'}
+      className="job-editor"
+      showClose
+      onClose={onCancel}
+    >
+      <form onSubmit={save}>
         <h2 style={{ marginTop: 0, fontSize: 'inherit' }}>
           {job !== undefined ? `Edit “${draft.name || 'job'}”` : 'New job'}
         </h2>
 
         <div className="form-grid">
-          <label>
-            Name
-            <input
-              value={draft.name}
-              onChange={(ev) => patch({ name: ev.target.value })}
-              aria-invalid={errors.name !== undefined}
-            />
-            {errors.name && <FieldError text={errors.name} />}
-          </label>
-
-          <label>
-            Workspace directory
-            <input
-              list="job-workspaces"
-              placeholder="/home/you/project"
-              value={draft.workspace}
-              onChange={(ev) => patch({ workspace: ev.target.value })}
-              aria-invalid={errors.workspace !== undefined || workspaceError !== ''}
-            />
-            <datalist id="job-workspaces">
-              {workspaces.map((w) => (
-                <option key={w} value={w} />
-              ))}
-            </datalist>
-            {(errors.workspace ?? workspaceError) && (
-              <FieldError text={(errors.workspace ?? workspaceError)!} />
-            )}
-          </label>
+          <JobFactsFields
+            draft={draft}
+            patch={patch}
+            errors={errors}
+            workspaces={workspaces}
+            models={models}
+            toolOptions={toolOptions}
+            workspaceError={workspaceError}
+          />
 
           <label>
             Session start
@@ -180,35 +171,6 @@ export function JobEditor({
               {errors.sessionTarget && <FieldError text={errors.sessionTarget} />}
             </label>
           )}
-
-          <label>
-            Model
-            <input
-              list="job-models"
-              placeholder="ajent default"
-              value={draft.model}
-              onChange={(ev) => patch({ model: ev.target.value })}
-            />
-            <datalist id="job-models">
-              {models.map((m) => (
-                <option key={m} value={m} />
-              ))}
-            </datalist>
-          </label>
-
-          <label>
-            Permission
-            <select
-              value={draft.permission}
-              onChange={(ev) => patch({ permission: ev.target.value })}
-            >
-              {permissionOptions.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-          </label>
         </div>
 
         <p className="muted small-note">
@@ -216,7 +178,7 @@ export function JobEditor({
           or allow-all.
         </p>
 
-        <h3>Schedule</h3>
+        <h3>Trigger</h3>
         <div className="form-grid">
           <label>
             Mode
@@ -253,9 +215,10 @@ export function JobEditor({
             <>
               <label>
                 Every
+                {/* no native min: any positive interval is valid, so the
+                    draft's own validation owns the server's bounds */}
                 <input
                   type="number"
-                  min={1}
                   step="any"
                   value={draft.intervalValue}
                   onChange={(ev) => patch({ intervalValue: Number(ev.target.value) })}
@@ -311,18 +274,55 @@ export function JobEditor({
           )}
 
           {draft.scheduleKind !== 'once' && (
-            <label>
-              Missed run
-              <select
-                value={draft.onMissed}
-                onChange={(ev) => patch({ onMissed: ev.target.value as JobDraft['onMissed'] })}
-              >
-                <option value="skip">Skip and continue</option>
-                <option value="fire_late">Fire once late</option>
-              </select>
-            </label>
+            <>
+              <div className="weekday-picker" role="group" aria-label="Days of the week">
+                <span className="muted">On days</span>
+                {weekdayTokens.map((token, i) => (
+                  <label key={token} className="weekday-chip">
+                    <input
+                      type="checkbox"
+                      checked={draft.weekdays.includes(token)}
+                      onChange={(ev) =>
+                        patch({
+                          weekdays: ev.target.checked
+                            ? [...draft.weekdays, token]
+                            : draft.weekdays.filter((d) => d !== token),
+                        })
+                      }
+                    />
+                    {weekdayShort[i]}
+                  </label>
+                ))}
+              </div>
+
+              <label>
+                Missed run
+                <select
+                  value={draft.onMissed}
+                  onChange={(ev) => patch({ onMissed: ev.target.value as JobDraft['onMissed'] })}
+                >
+                  <option value="skip">Skip and continue</option>
+                  <option value="fire_late">Fire once late</option>
+                </select>
+              </label>
+            </>
           )}
         </div>
+
+        {/* the pre-run command is part of the firing decision, so it sits inside
+            the trigger block ahead of the preview and idle policy */}
+        <TriggerCommandFields
+          draft={draft}
+          patch={patch}
+          errors={errors}
+          label="Pre-run command (optional)"
+        />
+        {draft.triggerCommand.trim() !== '' && (
+          <p className="muted small-note">
+            The command runs via sh -c before each fire; a non-matching outcome records the fire as
+            skipped. When the job runs, its output is placed ahead of the prompt.
+          </p>
+        )}
 
         {previewError !== '' ? (
           <p className="error-text">{previewError}</p>
@@ -341,12 +341,39 @@ export function JobEditor({
           )
         )}
 
+        <h3 style={{ display: 'flex', alignItems: 'center', gap: 'calc(var(--unit) * 2)' }}>
+          <label htmlFor="job-run-when-idle">Run when idle</label>
+          <input
+            type="checkbox"
+            id="job-run-when-idle"
+            checked={draft.runWhenIdle}
+            onChange={(ev) => patch({ runWhenIdle: ev.target.checked })}
+          />
+        </h3>
+        <div className="form-grid">
+          {draft.runWhenIdle && (
+            <label>
+              If still busy, skip after waiting
+              <select
+                value={draft.idleMaxDelaySeconds}
+                onChange={(ev) => patch({ idleMaxDelaySeconds: Number(ev.target.value) })}
+              >
+                {idleDelayOptions.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+        </div>
+
         <h3>Prompt</h3>
-        <label>
-          Prompt (empty jobs just launch the session)
+        <label className="prompt-field">
+          Prompt
           <textarea
-            rows={4}
-            placeholder="What should ajent do on each run?"
+            rows={8}
+            placeholder="What should ajent do on each run? Empty jobs just launch the session."
             value={draft.prompt}
             onChange={(ev) => patch({ prompt: ev.target.value })}
           />
@@ -354,26 +381,6 @@ export function JobEditor({
 
         <h3>Advanced</h3>
         <div className="form-grid">
-          <label>
-            Command prefix (optional)
-            <input
-              placeholder="e.g. docker run -i myimage"
-              value={draft.commandPrefix}
-              onChange={(ev) => patch({ commandPrefix: ev.target.value })}
-              aria-invalid={errors.commandPrefix !== undefined}
-            />
-            {errors.commandPrefix ? (
-              <FieldError text={errors.commandPrefix} />
-            ) : (
-              draft.commandPrefix !== '' && (
-                <span className="warn-text small-note">
-                  Injection risk: this runs via sh -c with the ajent command appended and quoted,
-                  but everything else is yours to quote.
-                </span>
-              )
-            )}
-          </label>
-
           <label>
             Timeout (minutes, 0 = service default)
             <input
@@ -444,14 +451,6 @@ export function JobEditor({
           </button>
         </div>
       </form>
-    </div>
-  )
-}
-
-function FieldError({ text }: { text: string }) {
-  return (
-    <span className="error-text field-error" role="alert">
-      {text}
-    </span>
+    </ModalShell>
   )
 }

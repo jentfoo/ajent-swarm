@@ -1,15 +1,32 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import type * as React from 'react'
 
 import { ApiError } from '../api/client'
-import { models as modelsAPI, sessions as sessionAPI } from '../api/endpoints'
-import type { CtlState, ModelRow } from '../api/types'
+import { sessions as sessionAPI } from '../api/endpoints'
+import type { CtlState } from '../api/types'
+import { sessionBusy } from '../state/eventApplier'
+import { headerBadgeOf } from '../workspace/attention'
+import { useWorkspace } from '../providers/workspace'
+import { MenuPopover } from '../ui/MenuPopover'
+import { ModelMenuItems } from '../ui/ModelMenuItems'
+import { useModelMenu } from '../ui/useModelMenu'
+import { shortID } from './names'
+import { useSessionLabel } from './useSessionLabel'
+import { AgentSettingsMenu } from './AgentSettingsMenu'
+import { StatusBadge } from './StatusBadge'
+import { ToolsPanel } from './ToolsPanel'
 
-// StatusHeader is the chrome above the transcript: model menu, permission
-// mode chip with click cycling (shift-click walks back, mirroring Shift+Tab),
-// context meter with compact-threshold coloring, turns and queue counts,
-// running or idle state, interrupt while working. The spinner reconciles from
-// snapshots only and never paints live.
+// The permission gate's fixed upstream vocabulary; mode.set refuses anything
+// else. Order matches ajent's own cycle so the menu reads as a progression.
+const permissionModes = ['allow-read', 'auto', 'auto+write', 'allow-all', 'block-all']
+
+// StatusHeader is the slim chrome above the transcript: identity (the shared
+// listing label beside the short session id), the shared status badge and
+// action buttons. Everything that reads at a glance (segments, context,
+// queue, activity) lives in the status bar under the transcript. A running
+// turn stops from the composer's Stop button; sessions exit from the
+// sessions tab, so this header never tears one down. The ☰ here carries this
+// session's agent settings.
 export function StatusHeader({
   sessionId,
   snap,
@@ -21,55 +38,34 @@ export function StatusHeader({
   onToast: (text: string, level?: 'info' | 'error') => void
   children?: React.ReactNode
 }) {
-  const [busy, setBusy] = useState(false)
-  const working = snap.running || snap.spinning
-
-  const interrupt = async () => {
-    setBusy(true)
-    try {
-      await sessionAPI.interrupt(sessionId)
-    } catch (err) {
-      onToast(err instanceof ApiError ? err.message : 'Interrupt failed.', 'error')
-    } finally {
-      setBusy(false)
-    }
-  }
+  const working = sessionBusy(snap)
+  // the badge reads the same derivation as the mobile header and the
+  // switcher rows: needs-input outranks a turn still running behind it
+  const { itemFor } = useWorkspace()
+  // identity reads the swarm listing like the rail does, so a rename lands
+  // with its refresh, and the short id rides beside any real label
+  const label = useSessionLabel(sessionId)
+  const short = shortID(sessionId)
 
   return (
     <div className="session-header">
-      <h1 style={{ margin: 0, fontSize: 'inherit' }}>{snap.session.name || snap.session.id}</h1>
-      {working ? (
-        <span className="badge accent" aria-label="running">
-          running
-        </span>
-      ) : (
-        snap.idle && <span className="badge">idle</span>
-      )}
-      {busy && <span className="badge warn">stopping…</span>}
-      <ModeChip sessionId={sessionId} mode={snap.permission} onToast={onToast} />
-      <ModelMenu
-        sessionId={sessionId}
-        current={snap.model.key}
-        label={snap.model.short}
-        onToast={onToast}
-      />
-      <ContextMeter snap={snap} />
-      {snap.usage.turns > 0 && <UsageChip snap={snap} />}
-      {snap.queued > 0 && <span className="badge">{snap.queued} queued</span>}
-      {working && (
-        <button type="button" onClick={() => void interrupt()} disabled={busy}>
-          Interrupt
-        </button>
-      )}
+      <h1 style={{ margin: 0, fontSize: 'inherit' }}>
+        {label}
+        {label !== short && <span className="muted mono header-session-id">{short}</span>}
+      </h1>
+      <StatusBadge status={headerBadgeOf(working, itemFor(sessionId))} />
+      <ModeMenu sessionId={sessionId} mode={snap.permission} onToast={onToast} />
+      <ToolsPanel sessionId={sessionId} snap={snap} onToast={onToast} />
+      <ModelMenu sessionId={sessionId} snap={snap} onToast={onToast} />
       {children}
+      <AgentSettingsMenu sessionId={sessionId} />
     </div>
   )
 }
 
-// ModeChip steps the permission mode through its cycle. There is no direct
-// set method upstream: each step re-evaluates open approval dialogs, so the
-// UI never walks multiple steps on one click.
-function ModeChip({
+// ModeMenu picks the permission level straight from the fixed upstream
+// vocabulary through mode.set. A session without a gate hides the menu.
+export function ModeMenu({
   sessionId,
   mode,
   onToast,
@@ -78,201 +74,103 @@ function ModeChip({
   mode: string
   onToast: (text: string, level?: 'info' | 'error') => void
 }) {
-  if (mode === '') return null // no gate exists on this session
-  const cycle = async (back: boolean) => {
-    try {
-      await sessionAPI.modeCycle(sessionId, back)
-    } catch (err) {
-      onToast(err instanceof ApiError ? err.message : 'Mode change refused.', 'error')
-    }
-  }
-  return (
-    <button
-      type="button"
-      className="badge mode-chip"
-      title="Click to cycle forward, Shift+click backward"
-      onClick={(ev) => void cycle(ev.shiftKey)}
-    >
-      mode: {mode}
-    </button>
-  )
-}
-
-// ContextMeter colors at the compact threshold: normal below it, warn as the
-// window closes in on compaction and danger once the run crosses the line.
-export function contextLevel(used: number, windowSize: number, compact: number): string {
-  if (windowSize <= 0 || used <= 0) return ''
-  if (compact > 0 && used >= compact * 0.9) return 'danger'
-  if (compact > 0 && used >= compact * 0.7) return 'warn'
-  const pct = (used / windowSize) * 100
-  if (pct >= 90) return 'warn'
-  return ''
-}
-
-function ContextMeter({ snap }: { snap: CtlState }) {
-  const { used, window: win, compact } = snap.context
-  if (win <= 0) return null
-  const pct = Math.min(100, (used / win) * 100)
-  const level = contextLevel(used, win, compact)
-  return (
-    <span
-      className={`meter ${level}`}
-      role="img"
-      aria-label={`Context ${Math.round(pct)}% full`}
-      title={`context ${used}/${win} tokens${compact > 0 ? `, compacts at ${compact}` : ''}`}
-    >
-      <div style={{ width: `${pct}%` }} />
-    </span>
-  )
-}
-
-// UsageChip expands into the poll-only totals, including the per-model
-// breakdown; a resnapshot after each turn end and on the slow timer refreshes it.
-function UsageChip({ snap }: { snap: CtlState }) {
   const [open, setOpen] = useState(false)
-  const byModel = Object.entries(snap.usage.byModel ?? {})
+  const [busy, setBusy] = useState(false)
+  const chipRef = useRef<HTMLButtonElement>(null)
+
+  const pick = useCallback(
+    async (next: string) => {
+      if (busy || next === mode) {
+        setOpen(false)
+        return
+      }
+      setBusy(true)
+      try {
+        await sessionAPI.setMode(sessionId, next)
+        setOpen(false)
+        // the permission event re-renders the chip from the stream
+      } catch (err) {
+        onToast(err instanceof ApiError ? err.message : 'Mode change refused.', 'error')
+      } finally {
+        setBusy(false)
+      }
+    },
+    [busy, mode, sessionId, onToast],
+  )
+
+  if (mode === '') return null // no gate exists on this session
   return (
-    <>
-      <button type="button" className="badge usage-chip" onClick={() => setOpen((v) => !v)}>
-        {snap.usage.turns} turns
+    <div className="model-menu">
+      <button
+        ref={chipRef}
+        type="button"
+        className="badge mode-chip"
+        disabled={busy}
+        title="Permission mode"
+        onClick={() => setOpen((v) => !v)}
+      >
+        mode: {mode}
       </button>
       {open && (
-        <div className="card usage-card" role="dialog" aria-label="Usage summary">
-          <UsageTable label="total" u={snap.usage.total} />
-          <UsageTable label="child" u={snap.usage.child} />
-          {byModel.map(([key, u]) => (
-            <UsageTable key={key} label={key} u={u} />
+        <MenuPopover
+          anchorRef={chipRef}
+          role="menu"
+          className="menu card"
+          onClose={() => setOpen(false)}
+        >
+          {permissionModes.map((m) => (
+            <button key={m} type="button" role="menuitem" onClick={() => void pick(m)}>
+              {m}
+              {m === mode && <span className="badge ok">current</span>}
+            </button>
           ))}
-        </div>
+        </MenuPopover>
       )}
-    </>
+    </div>
   )
 }
 
-function UsageTable({ label, u }: { label: string; u: CtlState['usage']['total'] }) {
-  return (
-    <table className="mono usage-table">
-      <tbody>
-        <tr>
-          <th colSpan={2}>{label}</th>
-        </tr>
-        <tr>
-          <td>input</td>
-          <td>{u.input.toLocaleString()}</td>
-        </tr>
-        <tr>
-          <td>output</td>
-          <td>{u.output.toLocaleString()}</td>
-        </tr>
-        <tr>
-          <td>cache read</td>
-          <td>{u.cacheRead.toLocaleString()}</td>
-        </tr>
-        <tr>
-          <td>reasoning</td>
-          <td>{u.reasoning.toLocaleString()}</td>
-        </tr>
-      </tbody>
-    </table>
-  )
-}
-
-// ModelMenu rides ajent's own /model picker: discovery opens the dialog and
-// returns its option keys, choosing one resolves it by index. Dismissing the
-// menu cancels the picker so a given-up browse never strands the session.
+// ModelMenu lists models.get's registry exactly as the running process
+// resolved it and switches through model.set — no picker dialog to ride or
+// cancel, and no user-config persist side effect. Fetch, pick and busy state
+// live in the shared useModelMenu controller; items render through the
+// shared grouped ModelMenuItems, the same body the mobile chip uses.
+// Refusals for unknown or ambiguous names surface as toasts with upstream's
+// message.
 function ModelMenu({
   sessionId,
-  current,
-  label,
+  snap,
   onToast,
 }: {
   sessionId: string
-  current: string // canonical key, what options compare against
-  label: string // short display name for the closed chip
+  snap: CtlState
   onToast: (text: string, level?: 'info' | 'error') => void
 }) {
-  const [open, setOpen] = useState(false)
-  const [row, setRow] = useState<ModelRow | null>(null)
-  const [busy, setBusy] = useState(false)
-  const menuRef = useRef<HTMLDivElement>(null)
+  const menu = useModelMenu(sessionId, snap.model.key, onToast)
+  const chipRef = useRef<HTMLButtonElement>(null)
 
-  const closeWithCleanup = useCallback(async () => {
-    setOpen(false)
-    const pickerId = row?.dialogId
-    setRow(null)
-    if (pickerId !== undefined && pickerId > 0) {
-      try {
-        await sessionAPI.resolve(sessionId, { dialogId: pickerId, cancel: true })
-      } catch {
-        // Already settled elsewhere is fine; nothing to report.
-      }
-    }
-  }, [row?.dialogId, sessionId])
-
-  useEffect(() => {
-    if (!open) return
-    const onDocClick = (ev: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(ev.target as Node)) void closeWithCleanup()
-    }
-    document.addEventListener('mousedown', onDocClick)
-    return () => document.removeEventListener('mousedown', onDocClick)
-  }, [open, closeWithCleanup])
-
-  const openMenu = async () => {
-    if (open) {
-      await closeWithCleanup()
-      return
-    }
-    setBusy(true)
-    try {
-      const rows = await modelsAPI.discover(sessionId)
-      const found = rows[0] ?? null
-      setRow(found)
-      if (found === null) onToast('No model picker appeared.', 'error')
-      else setOpen(true)
-    } catch (err) {
-      onToast(err instanceof ApiError ? err.message : 'Model discovery failed.', 'error')
-      setOpen(false)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const pick = async (index: number) => {
-    if (row?.dialogId === undefined) return
-    try {
-      await sessionAPI.resolve(sessionId, { dialogId: row.dialogId, index })
-      setOpen(false)
-      setRow(null)
-    } catch (err) {
-      // A settled picker means another surface answered it; that is benign.
-      const settled = err instanceof ApiError && err.code === 'settled'
-      if (!settled)
-        onToast(err instanceof ApiError ? err.message : 'Model change refused.', 'error')
-      void closeWithCleanup()
-    }
-  }
-
+  const label = snap.model.short || snap.model.key || 'model'
   return (
-    <div ref={menuRef} className="model-menu">
+    <div className="model-menu">
       <button
+        ref={chipRef}
         type="button"
         className="badge accent model-chip"
-        disabled={busy}
+        disabled={menu.busy}
         title="Switch model"
-        onClick={() => void openMenu()}
+        onClick={() => void menu.toggle()}
       >
-        {label || current || 'model'}
+        {label}
       </button>
-      {open && row !== null && (
-        <div className="menu card" role="menu">
-          {(row.options ?? []).map((opt, i) => (
-            <button key={i} type="button" role="menuitem" onClick={() => void pick(i)}>
-              {opt}
-              {opt === current && <span className="badge ok">current</span>}
-            </button>
-          ))}
-        </div>
+      {menu.open && (
+        <MenuPopover anchorRef={chipRef} role="menu" className="menu card" onClose={menu.close}>
+          <ModelMenuItems
+            models={menu.models}
+            active={menu.active}
+            currentKey={snap.model.key}
+            onPick={(key) => void menu.pick(key)}
+          />
+        </MenuPopover>
       )}
     </div>
   )

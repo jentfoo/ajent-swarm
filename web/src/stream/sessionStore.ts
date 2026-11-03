@@ -4,7 +4,7 @@
 //
 // Views acquire and release sessions; a small LRU of recently viewed sessions
 // stays subscribed and warm after their last view unmounts, so switching in
-// the inbox or re-tiling is instant and a resnapshot only happens on real
+// the focus queue or re-tiling is instant and a resnapshot only happens on real
 // reconnects. Multiple views of one session share one store entry, one
 // subscription and one AppliedSessionState.
 import { applierReducer, initialSessionState } from '../state/eventApplier'
@@ -15,7 +15,7 @@ import type { SwarmStream } from './swarmStream'
 // Warm budget: how many unreferenced sessions keep their subscriptions.
 const maxWarm = 4
 const resnapshotMs = 20_000
-const resnapshotAfterTurnMs = 250
+const resnapshotAfterTurnMs = 100
 const pageLimit = 200
 const maxHealPages = 5
 
@@ -27,11 +27,14 @@ interface StoreEntry {
   pollTimer: ReturnType<typeof setInterval> | null
   turnTimer: ReturnType<typeof setTimeout> | null
   healToken: number // bumps to cancel an in-flight heal loop
+  initTick: number // bumps on every stream rebuild; older snapshot reads drop
+  snapTick: number // bumps per snapshot request; superseded replies drop
 }
 
 export class SessionStore {
   private readonly stream: SwarmStream
   private readonly entries = new Map<string, StoreEntry>()
+  private readonly digestListeners = new Set<() => void>()
   private disposed = false
 
   constructor(stream: SwarmStream) {
@@ -52,16 +55,24 @@ export class SessionStore {
     }
   }
 
-  // subscribeState drives useSyncExternalStore for one session's state.
   subscribeState(sessionId: string, cb: () => void): () => void {
     const entry = this.ensureEntry(sessionId)
     entry.listeners.add(cb)
     return () => entry.listeners.delete(cb)
   }
 
-  // peek returns the current state object; stable identity between actions.
+  // stable identity between actions, what useSyncExternalStore needs
   peek(sessionId: string): AppliedSessionState {
     return this.entries.get(sessionId)?.state ?? emptyState
+  }
+
+  // onDigestChange observes attention-relevant state changes across every
+  // tracked session, so the provider can refresh the focus queue the moment
+  // the stream moves a session between queues instead of waiting out the
+  // digest poll.
+  onDigestChange(cb: () => void): () => void {
+    this.digestListeners.add(cb)
+    return () => this.digestListeners.delete(cb)
   }
 
   // dispatch feeds local actions through the same reducer the frames use.
@@ -75,10 +86,9 @@ export class SessionStore {
   // answering whether a page arrived (false when the server ran dry).
   async loadOlder(sessionId: string): Promise<boolean> {
     const entry = this.entries.get(sessionId)
-    const oldest = entry?.state.chain.oldestId
-    if (!entry || oldest === undefined || oldest === '') return false
+    if (!entry || entry.state.chain.oldestId === '') return false
     try {
-      const res = await sessionAPI.entries(sessionId, oldest, pageLimit)
+      const res = await sessionAPI.entries(sessionId, entry.state.chain.oldestId, pageLimit)
       this.apply(sessionId, entry, { type: 'backfill', entries: res.entries })
       return res.entries.length > 0
     } catch {
@@ -106,16 +116,22 @@ export class SessionStore {
       state: initialSessionState(),
       refs: 0,
       listeners: new Set(),
-      unsub: this.stream.subscribe(sessionId, (frame) => {
-        if (frame.type === 'init') this.apply(sessionId, entry!, { type: 'init', frame })
-        else if (frame.type === 'event') {
-          this.apply(sessionId, entry!, { type: 'event', event: frame.event })
-        }
-      }),
+      unsub: null,
       pollTimer: null,
       turnTimer: null,
       healToken: 0,
+      initTick: 0,
+      snapTick: 0,
     }
+    const e = entry
+    e.unsub = this.stream.subscribe(sessionId, (frame) => {
+      if (frame.type === 'init') {
+        e.initTick += 1 // the rebuild invalidates any read taken before it
+        this.apply(sessionId, e, { type: 'init', frame })
+      } else if (frame.type === 'event') {
+        this.apply(sessionId, e, { type: 'event', event: frame.event })
+      }
+    })
     this.entries.set(sessionId, entry)
     entry.pollTimer = setInterval(() => this.resnapshot(sessionId), resnapshotMs)
     return entry
@@ -149,6 +165,9 @@ export class SessionStore {
     if (next === prev) return
     entry.state = next
     for (const cb of [...entry.listeners]) cb()
+    if (digestSignature(prev) !== digestSignature(next)) {
+      for (const cb of [...this.digestListeners]) cb()
+    }
 
     // A finished turn is the resnapshot trigger: usage totals ride poll-only.
     if (action.type === 'event' && next.lastTurnEndAt !== prev.lastTurnEndAt) {
@@ -170,16 +189,26 @@ export class SessionStore {
   }
 
   // resnapshot merges the poll-only facts; skipped while the tab is hidden,
-  // mirroring the digest polls, and for sessions that ended for good.
+  // mirroring the digest polls, and for sessions that ended for good. A read
+  // that raced a stream rebuild drops: init replaced state wholesale, so the
+  // response predates what the client now holds. A reply a newer request
+  // superseded drops too: poll-only facts carry no stamp, so an older slow
+  // read must never land last over fresher state.
   private async resnapshot(sessionId: string): Promise<void> {
     if (this.disposed) return
-    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+    if (document.visibilityState === 'hidden') return
     const phase = this.stream.sessionPhase(sessionId)
     if (phase === 'ended') return
+    const entry = this.entries.get(sessionId)
+    if (!entry) return
+    const initTick = entry.initTick
+    const snapTick = ++entry.snapTick
     try {
       const snap = await sessionAPI.snapshot(sessionId)
-      const entry = this.entries.get(sessionId)
-      if (entry) this.apply(sessionId, entry, { type: 'snapshot', state: snap })
+      const current = this.entries.get(sessionId)
+      if (current !== entry || current.initTick !== initTick) return // rebuilt mid-read
+      if (current.snapTick !== snapTick) return // a newer request superseded this reply
+      this.apply(sessionId, current, { type: 'snapshot', state: snap })
     } catch {
       // Unknown sessions flip the phase through error frames instead.
     }
@@ -217,3 +246,20 @@ export class SessionStore {
 // Shared empty state for sessions with no store entry: useSyncExternalStore
 // needs a stable identity between renders, not a fresh object per read.
 const emptyState = initialSessionState()
+
+// digestSignature folds one applied state down to the facts the attention
+// digest ranks on: the open dialog set, busy flags and the last turn end. A
+// change between two states means the focus queue may re-sort, so only those
+// transitions are worth an out-of-band digest refresh; transcript and
+// activity churn keep riding the poll cadence.
+function digestSignature(state: AppliedSessionState): string {
+  const snap = state.snapshot
+  return [
+    (snap.interactions ?? []).map((d) => d.id).join(','),
+    snap.running,
+    snap.spinning,
+    snap.idle,
+    state.lastTurnEndAt,
+    state.exitReason !== undefined,
+  ].join('|')
+}

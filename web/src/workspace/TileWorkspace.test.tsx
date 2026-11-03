@@ -1,6 +1,6 @@
-import { act, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter, Route, Routes } from 'react-router'
+import { MemoryRouter, Route, Routes, useNavigate } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import TileWorkspace from './TileWorkspace'
@@ -13,7 +13,8 @@ import type { AttentionRow } from '../api/types'
 
 // The tile surface renders the persisted tree as panes with tab strips,
 // badges backgrounded sessions whose attention rises, closes tabs through the
-// strip, and offers the picker on an empty tree.
+// strip, and navigates to Sessions once the last pane closes. An empty tile
+// screen remains only when nothing live could be tiled at all.
 const LEFT = '01LEFTSESSION00001'
 const RIGHT = '01RIGHTSESSION0001'
 
@@ -24,6 +25,26 @@ const tree = {
   ratio: 0.5,
   a: { kind: 'pane', id: 'p1', tabs: [LEFT], active: LEFT },
   b: { kind: 'pane', id: 'p2', tabs: [RIGHT], active: RIGHT },
+}
+
+// One pane holding both sessions with the second active: closing that tab
+// activates its neighbor, which is how a tab swap runs without dragging.
+const stackedTree = {
+  kind: 'pane',
+  id: 'p1',
+  tabs: [LEFT, RIGHT],
+  active: RIGHT,
+}
+
+// TileAgain mimics the shell's Tile switcher: tiling is a verb carried by a
+// fresh navigation to an explicit open list, identical here across two clicks.
+function TileAgain({ open }: { open: string }) {
+  const navigate = useNavigate()
+  return (
+    <button type="button" data-testid="tile-again" onClick={() => navigate(`/tile?open=${open}`)}>
+      tile again
+    </button>
+  )
 }
 
 function attention(): AttentionRow[] {
@@ -42,6 +63,30 @@ function attention(): AttentionRow[] {
   ]
 }
 
+// pendingDialog is one text-answer interaction; paneAnswer finds the card's
+// input inside a pane's dock.
+function pendingDialog(id: number, prompt: string) {
+  return { id, kind: 'input', prompt, text: true }
+}
+
+function paneAnswer(paneId: string): HTMLInputElement | null {
+  return document.querySelector<HTMLInputElement>(`[data-pane-id="${paneId}"] .dialog-card input`)
+}
+
+// domPaneIds reads the mounted panes in document order. tileFor mints fresh
+// node ids on every run, so a re-tile always lands a different list.
+function domPaneIds(): (string | null)[] {
+  return [...document.querySelectorAll('[data-pane-id]')].map((el) =>
+    el.getAttribute('data-pane-id'),
+  )
+}
+
+// storedRatio reads the persisted ratio a divider drag commits.
+function storedRatio(): number {
+  const stored = JSON.parse(localStorage.getItem('swarm.workspace.v1') ?? '{}')
+  return stored.tile.tree.ratio
+}
+
 describe('TileWorkspace', () => {
   let sockets: MockWebSocket[]
 
@@ -50,8 +95,10 @@ describe('TileWorkspace', () => {
     resetLedger()
     localStorage.setItem(
       'swarm.workspace.v1',
-      JSON.stringify({ mode: 'tile', inbox: {}, tile: { tree, focusedPaneId: 'p1' } }),
+      JSON.stringify({ mode: 'tile', focused: {}, tile: { tree, focusedPaneId: 'p1' } }),
     )
+    // jsdom ships no pointer capture; divider drags only need the events
+    Element.prototype.setPointerCapture = () => {}
     vi.stubGlobal(
       'WebSocket',
       class extends MockWebSocket {
@@ -82,6 +129,9 @@ describe('TileWorkspace', () => {
         if (path === '/api/attention') return Promise.resolve(Response.json(attention()))
         const snap = /\/api\/sessions\/([^/]+)\/snapshot/.exec(path)
         if (snap) return Promise.resolve(Response.json({ session: { id: snap[1] } }))
+        if (path.endsWith('/candidates')) {
+          return Promise.resolve(Response.json({ head: '', candidates: [] }))
+        }
         return Promise.resolve(Response.json({}))
       }),
     )
@@ -89,23 +139,45 @@ describe('TileWorkspace', () => {
 
   afterEach(() => {
     sockets = []
+    Reflect.deleteProperty(Element.prototype, 'setPointerCapture')
     vi.unstubAllGlobals()
   })
 
-  function renderTile() {
+  function renderTile(initial = '/tile', retileOpen?: string) {
     return render(
-      <MemoryRouter initialEntries={['/tile']}>
+      <MemoryRouter initialEntries={[initial]}>
         <AuthProvider>
           <SwarmProvider>
             <WorkspaceProvider>
+              {retileOpen !== undefined && <TileAgain open={retileOpen} />}
               <Routes>
                 <Route path="/tile" element={<TileWorkspace />} />
+                {/* last-pane close lands here instead of an empty tile screen */}
+                <Route
+                  path="/sessions"
+                  element={<div data-testid="sessions-screen">Sessions</div>}
+                />
               </Routes>
             </WorkspaceProvider>
           </SwarmProvider>
         </AuthProvider>
       </MemoryRouter>,
     )
+  }
+
+  // pinnedDivider mounts the persisted split with its divider, pinning the
+  // split's box (jsdom has no layout) so a drag's clientX maps to a clean
+  // ratio: x within 0..1000.
+  async function pinnedDivider(): Promise<HTMLElement> {
+    renderTile()
+    await screen.findAllByText('right') // the persisted split rendered its divider
+    const split = document.querySelector('.tile-split')
+    const divider = document.querySelector('.tile-divider')
+    if (!(split instanceof HTMLElement) || !(divider instanceof HTMLElement)) {
+      throw new Error('no tile split mounted')
+    }
+    vi.spyOn(split, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 1000, 600))
+    return divider
   }
 
   it('renders the persisted tree as panes and hosts each active tab', async () => {
@@ -129,6 +201,44 @@ describe('TileWorkspace', () => {
     expect(badges[0].getAttribute('aria-label')).toBe('needs-input')
   })
 
+  it('gives dialog autofocus to the focused pane only', async () => {
+    renderTile()
+    await waitFor(() => expect(sockets.length).toBeGreaterThan(0))
+    act(() => sockets[0].open())
+    await waitFor(() => {
+      const opens = sockets[0].sent.map((raw) => JSON.parse(raw))
+      expect(opens).toContainEqual({ type: 'subscribe', sessionId: LEFT })
+      expect(opens).toContainEqual({ type: 'subscribe', sessionId: RIGHT })
+    })
+
+    // a text answer rises in the backgrounded pane first
+    act(() => {
+      sockets[0].message({
+        type: 'event',
+        sessionId: RIGHT,
+        event: { event: 'interaction.pending', seq: 1, data: pendingDialog(3, 'background key?') },
+      })
+    })
+    expect(await screen.findByText('background key?')).toBeInTheDocument()
+
+    // cross-pane theft is the bug the focus policy exists for; attention
+    // surfaces it instead (the badge case above covers that claim)
+    const background = paneAnswer('p2')
+    expect(background).not.toBeNull()
+    expect(document.activeElement).not.toBe(background)
+
+    // the focused pane's own dialog takes the caret on mount
+    act(() => {
+      sockets[0].message({
+        type: 'event',
+        sessionId: LEFT,
+        event: { event: 'interaction.pending', seq: 1, data: pendingDialog(4, 'focused key?') },
+      })
+    })
+    expect(await screen.findByText('focused key?')).toBeInTheDocument()
+    expect(document.activeElement).toBe(paneAnswer('p1'))
+  })
+
   it('closes a tab through the strip and keeps the sibling pane', async () => {
     renderTile()
     await waitFor(() => expect(sockets.length).toBeGreaterThan(0))
@@ -146,23 +256,276 @@ describe('TileWorkspace', () => {
     expect(stored.tile.tree.kind).toBe('pane') // the split rebalanced away
   })
 
-  it('offers the session picker when no panes are open', async () => {
+  it('auto-tiles reachable sessions when no panes are open', async () => {
     localStorage.setItem(
       'swarm.workspace.v1',
-      JSON.stringify({ mode: 'tile', inbox: {}, tile: { tree: null } }),
+      JSON.stringify({ mode: 'tile', focused: {}, tile: { tree: null } }),
     )
     renderTile()
 
-    const picker = await screen.findByText('No panes open.')
-    expect(picker).toBeInTheDocument()
-    const chips = within(document.querySelector('.tile-empty') as HTMLElement).getAllByRole(
-      'button',
-    )
-    expect(chips.map((c) => c.textContent)).toEqual(['left', 'right'])
-
-    await userEvent.setup().click(chips[0])
-    await waitFor(() => expect(document.querySelectorAll('[data-pane-id]')).toHaveLength(1))
+    // both live sessions split into their own panes without any clicks
+    await waitFor(() => expect(document.querySelectorAll('[data-pane-id]')).toHaveLength(2))
     const stored = JSON.parse(localStorage.getItem('swarm.workspace.v1') ?? '{}')
-    expect(stored.tile.tree.tabs).toEqual([LEFT])
+    expect(stored.tile.tree.kind).toBe('split')
+  })
+
+  it('retiles exactly the requested open list over a persisted tree', async () => {
+    // a stale single-pane arrangement must not swallow the explicit request
+    localStorage.setItem(
+      'swarm.workspace.v1',
+      JSON.stringify({
+        mode: 'tile',
+        focused: {},
+        tile: { tree: { kind: 'pane', id: 'p1', tabs: [LEFT], active: LEFT } },
+      }),
+    )
+    renderTile('/tile?open=' + LEFT + ',' + RIGHT)
+
+    await waitFor(() => expect(document.querySelectorAll('[data-pane-id]')).toHaveLength(2))
+    const stored = JSON.parse(localStorage.getItem('swarm.workspace.v1') ?? '{}')
+    expect(stored.tile.tree.kind).toBe('split')
+  })
+
+  it('tiles three requested sessions into three panes', async () => {
+    const THIRD = '01THIRDSESSION000001'
+    localStorage.setItem(
+      'swarm.workspace.v1',
+      JSON.stringify({ mode: 'tile', focused: {}, tile: { tree: null } }),
+    )
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string | URL | Request) => {
+        const path = String(url)
+          .replace(/^https?:\/\/[^/]+/, '')
+          .split('?')[0]
+        if (path === '/api/me') {
+          return Promise.resolve(Response.json({ username: 'you', via: 'cookie' }))
+        }
+        if (path === '/api/sessions') {
+          return Promise.resolve(
+            Response.json([
+              { sessionId: LEFT, name: 'left', state: 'online', spawnedBy: 'external' },
+              { sessionId: RIGHT, name: 'right', state: 'online', spawnedBy: 'external' },
+              { sessionId: THIRD, name: 'third', state: 'online', spawnedBy: 'external' },
+            ]),
+          )
+        }
+        if (path === '/api/attention') return Promise.resolve(Response.json([]))
+        const snap = /\/api\/sessions\/([^/]+)\/snapshot/.exec(path)
+        if (snap) return Promise.resolve(Response.json({ session: { id: snap[1] } }))
+        return Promise.resolve(Response.json({}))
+      }),
+    )
+    renderTile('/tile?open=' + [LEFT, RIGHT, THIRD].join(','))
+
+    await waitFor(() => expect(document.querySelectorAll('[data-pane-id]')).toHaveLength(3))
+  })
+
+  it('tiles a repeated open entry as twin panes', async () => {
+    // resuming an already running session lists one id twice: the selection
+    // carries that duplication, so both instances land in their own pane
+    renderTile('/tile?open=' + LEFT + ',' + LEFT)
+
+    await waitFor(() => expect(document.querySelectorAll('[data-pane-id]')).toHaveLength(2))
+    const names = [...document.querySelectorAll('.tab-name')].map((el) => el.textContent)
+    expect(names).toEqual(['left', 'left'])
+  })
+
+  it('retiles on a repeated identical open request', async () => {
+    localStorage.setItem(
+      'swarm.workspace.v1',
+      JSON.stringify({ mode: 'tile', focused: {}, tile: { tree: null } }),
+    )
+    renderTile('/tile?open=' + LEFT + ',' + RIGHT, LEFT + ',' + RIGHT)
+
+    await waitFor(() => expect(domPaneIds()).toHaveLength(2))
+    const first = domPaneIds()
+
+    // the same live set navigates again: every pane is rebuilt, not swallowed
+    const user = userEvent.setup()
+    await user.click(screen.getByTestId('tile-again'))
+    await waitFor(() => expect(domPaneIds()).not.toEqual(first))
+    expect(domPaneIds()).toHaveLength(2)
+  })
+
+  it('leaves tile mode for sessions when the last pane closes', async () => {
+    localStorage.setItem(
+      'swarm.workspace.v1',
+      JSON.stringify({ mode: 'tile', focused: {}, tile: { tree }, focusedPaneId: 'p1' }),
+    )
+    renderTile()
+    await screen.findAllByText('right')
+
+    // closing the last tab empties the tree; auto-tiling must not re-seed it
+    const user = userEvent.setup()
+    await user.click(screen.getByLabelText('Close right'))
+    await waitFor(() => expect(document.querySelectorAll('[data-pane-id]')).toHaveLength(1))
+
+    // the final close hands off to Sessions instead of the empty state
+    await user.click(screen.getByLabelText('Close left'))
+    expect(await screen.findByTestId('sessions-screen')).toBeInTheDocument()
+    expect(screen.queryByText('No panes open.')).not.toBeInTheDocument()
+
+    // the emptied arrangement is what persists for a later plain visit
+    const stored = JSON.parse(localStorage.getItem('swarm.workspace.v1') ?? '{}')
+    expect(stored.tile.tree).toBeNull()
+  })
+
+  it('opens the + picker into a body-level menu past pane clipping', async () => {
+    renderTile()
+    // the tab strips render alongside each pane's add-session picker trigger
+    await screen.findAllByText('right')
+
+    const user = userEvent.setup()
+    await user.click(screen.getAllByLabelText('Add a session to this pane')[0])
+
+    // jsdom has no layout, so placement is the claim under test: the menu
+    // portals out of .tile-pane, where overflow:hidden used to cut it off
+    const menus = document.querySelectorAll('.tile-menu')
+    expect(menus).toHaveLength(1)
+    const menu = menus[0]
+    expect(menu.parentElement).toBe(document.body)
+    expect(within(menu as HTMLElement).getByRole('menuitem', { name: 'left' })).toBeInTheDocument()
+  })
+
+  it('presents an activated tab fresh instead of reusing the last view', async () => {
+    localStorage.setItem(
+      'swarm.workspace.v1',
+      JSON.stringify({
+        mode: 'tile',
+        focused: {},
+        tile: { tree: stackedTree, focusedPaneId: 'p1' },
+      }),
+    )
+    renderTile()
+    await waitFor(() => expect(sockets.length).toBeGreaterThan(0))
+    act(() => sockets[0].open())
+    await screen.findAllByText('right') // the persisted tree landed
+
+    // transient chrome opens over the active session
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Rewind' }))
+    expect(
+      await screen.findByRole('dialog', { name: 'Rewind to an earlier point' }),
+    ).toBeInTheDocument()
+
+    // closing it activates the neighbor tab: a fresh view, no leftover dialog,
+    // and the newly shown session subscribes
+    await user.click(screen.getByLabelText('Close right'))
+    expect(
+      screen.queryByRole('dialog', { name: 'Rewind to an earlier point' }),
+    ).not.toBeInTheDocument()
+    await waitFor(() => {
+      const opens = sockets[0].sent.map((raw) => JSON.parse(raw))
+      expect(opens).toContainEqual({ type: 'subscribe', sessionId: LEFT })
+    })
+  })
+
+  it('activates a background tab when clicked', async () => {
+    localStorage.setItem(
+      'swarm.workspace.v1',
+      JSON.stringify({
+        mode: 'tile',
+        focused: {},
+        tile: { tree: stackedTree, focusedPaneId: 'p1' },
+      }),
+    )
+    renderTile()
+    await waitFor(() => expect(sockets.length).toBeGreaterThan(0))
+    act(() => sockets[0].open())
+    await screen.findAllByText('right') // the persisted tree landed
+
+    const activeName = () => document.querySelector('.tile-tab.active .tab-name')?.textContent
+    expect(activeName()).toBe('right')
+
+    const user = userEvent.setup()
+    await user.click(screen.getByText('left', { selector: '.tab-name' }))
+
+    // the pane swapped to the clicked session, which mounts its own view
+    expect(activeName()).toBe('left')
+    await waitFor(() => {
+      const opens = sockets[0].sent.map((raw) => JSON.parse(raw))
+      expect(opens).toContainEqual({ type: 'subscribe', sessionId: LEFT })
+    })
+
+    // the swap persists with focus kept on the pane
+    const stored = JSON.parse(localStorage.getItem('swarm.workspace.v1') ?? '{}')
+    expect(stored.tile.tree.active).toBe(LEFT)
+    expect(stored.tile.focusedPaneId).toBe('p1')
+  })
+
+  it('shows the empty state when no sessions are live', async () => {
+    localStorage.setItem(
+      'swarm.workspace.v1',
+      JSON.stringify({ mode: 'tile', focused: {}, tile: { tree: null } }),
+    )
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string | URL | Request) => {
+        const path = String(url)
+          .replace(/^https?:\/\/[^/]+/, '')
+          .split('?')[0]
+        if (path === '/api/me') {
+          return Promise.resolve(Response.json({ username: 'you', via: 'cookie' }))
+        }
+        if (path === '/api/sessions' || path === '/api/attention') {
+          return Promise.resolve(Response.json([]))
+        }
+        return Promise.resolve(Response.json({}))
+      }),
+    )
+    renderTile()
+
+    expect(await screen.findByText('No panes open.')).toBeInTheDocument()
+    expect(screen.getByText('No live sessions to open.')).toBeInTheDocument()
+  })
+
+  it('resizes the split through a divider drag', async () => {
+    const divider = await pinnedDivider()
+
+    fireEvent.pointerDown(divider, { pointerId: 1, clientX: 500, clientY: 300 })
+    fireEvent.pointerMove(divider, { pointerId: 1, clientX: 800, clientY: 300 })
+    fireEvent.pointerUp(divider, { pointerId: 1, clientX: 800, clientY: 300 })
+
+    expect(storedRatio()).toBeCloseTo(0.8)
+  })
+
+  it('stops resizing when the drag is cancelled mid-gesture', async () => {
+    const divider = await pinnedDivider()
+
+    fireEvent.pointerDown(divider, { pointerId: 1, clientX: 500, clientY: 300 })
+    fireEvent.pointerMove(divider, { pointerId: 1, clientX: 800, clientY: 300 })
+    // the system takes the pointer back: the drag ends where it last applied
+    fireEvent.pointerCancel(divider, { pointerId: 1 })
+    expect(storedRatio()).toBeCloseTo(0.8)
+
+    // movement with no drag live must not keep resizing the split
+    fireEvent.pointerMove(divider, { pointerId: 1, clientX: 100, clientY: 300 })
+    expect(storedRatio()).toBeCloseTo(0.8)
+  })
+
+  it('ends the drag when the divider loses pointer capture', async () => {
+    const divider = await pinnedDivider()
+
+    fireEvent.pointerDown(divider, { pointerId: 1, clientX: 500, clientY: 300 })
+    fireEvent.pointerMove(divider, { pointerId: 1, clientX: 800, clientY: 300 })
+    // capture stolen or dropped mid-gesture is an ending like any other
+    fireEvent(divider, new PointerEvent('lostpointercapture', { pointerId: 1, bubbles: true }))
+    fireEvent.pointerMove(divider, { pointerId: 1, clientX: 100, clientY: 300 })
+
+    expect(storedRatio()).toBeCloseTo(0.8)
+  })
+
+  it('ignores another pointer while a divider drag is live', async () => {
+    const divider = await pinnedDivider()
+
+    fireEvent.pointerDown(divider, { pointerId: 1, clientX: 500, clientY: 300 })
+    // a second finger wandering over the divider must not move the split
+    fireEvent.pointerMove(divider, { pointerId: 2, clientX: 100, clientY: 300 })
+    expect(storedRatio()).toBeCloseTo(0.5)
+
+    fireEvent.pointerMove(divider, { pointerId: 1, clientX: 800, clientY: 300 })
+    fireEvent.pointerUp(divider, { pointerId: 1, clientX: 800, clientY: 300 })
+    expect(storedRatio()).toBeCloseTo(0.8)
   })
 })

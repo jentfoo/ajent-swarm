@@ -1,17 +1,22 @@
-import { del, get, post, postForm, put, request } from './client'
+import { del, get, post, postForm, put } from './client'
 import type {
+  AgentsListResult,
+  AgentsStopResult,
   AttachmentReply,
   AttentionRow,
   CtlState,
   EntriesPage,
   FilesReply,
+  GlobalSettings,
   Job,
   LaunchRequest,
   LaunchResult,
   MeReply,
   ModelListing,
-  ModelRow,
   ModeReply,
+  ModelState,
+  QueueRequest,
+  RecallLinesReply,
   RecallRow,
   ResolveAnswer,
   ResolveReply,
@@ -26,6 +31,7 @@ import type {
   SettingsRowsReply,
   SubmitReply,
   ToolSetReply,
+  ToolState,
 } from './types'
 
 // Auth endpoints. Bootstrap answers 409 once a password already exists.
@@ -41,8 +47,7 @@ export const auth = {
 export const fleet = {
   sessions: () => get<SessionStatus[]>('/api/sessions'),
   attention: () => get<AttentionRow[]>('/api/attention'),
-  launch: (req: LaunchRequest) =>
-    request<LaunchResult>('/api/sessions', { method: 'POST', body: req }),
+  launch: (req: LaunchRequest) => post<LaunchResult>('/api/sessions', req),
   saved: () => get<SavedSession[]>('/api/saved-sessions'),
   // Offline transcript read for a recorded session; before continues the walk
   // back in time from a previous page's cursor.
@@ -53,12 +58,22 @@ export const fleet = {
   },
 }
 
-// Model listing; ?session= opens ajent's own picker for that session,
-// answered later through resolve. Bare returns one row per live session.
+// Model options for swarm-level pickers: every live session's registry
+// unioned into one sorted list.
 export const models = {
-  list: () => get<ModelRow[]>('/api/models'),
-  discover: (sessionId: string) =>
-    get<ModelRow[]>(`/api/models?session=${encodeURIComponent(sessionId)}`),
+  options: (signal?: AbortSignal) => get<ModelState[]>('/api/models/options', { signal }),
+}
+
+// Tool options for swarm-level pickers: every live session's /tools rows
+// unioned by name, best-effort since availability differs per workspace.
+export const tools = {
+  options: (signal?: AbortSignal) => get<ToolState[]>('/api/tools/options', { signal }),
+}
+
+// Swarm-level settings, persisted in swarm's database across restarts.
+export const settings = {
+  get: (signal?: AbortSignal) => get<GlobalSettings>('/api/settings', { signal }),
+  set: (next: GlobalSettings) => put<GlobalSettings>('/api/settings', next),
 }
 
 // Session reads and commands against one live instance.
@@ -78,11 +93,25 @@ export const sessions = {
   submit: (id: string, line: string, pendingId?: string) =>
     post<SubmitReply>(withID(id, '/submit'), { line, pendingId }),
   interrupt: (id: string) => post<{ stopped?: string }>(withID(id, '/interrupt')),
-  modeCycle: (id: string, back = false) => post<ModeReply>(withID(id, '/mode'), { back }),
+  // mode jumps straight to a named level; upstream's cycle stays server-side
+  setMode: (id: string, mode: string) => post<ModeReply>(withID(id, '/mode'), { mode }),
   rewind: (id: string, head: string) => post<RewindReply>(withID(id, '/rewind'), { head }),
   resolve: (id: string, answer: ResolveAnswer) =>
     post<ResolveReply>(withID(id, '/resolve'), answer),
   recall: (id: string) => post<RecallRow>(withID(id, '/recall')),
+  // agents.list is the structured sub-agent read; stop takes one job id or
+  // {all:true}, with exactly-one validated upstream.
+  agents: (id: string, signal?: AbortSignal) =>
+    get<AgentsListResult>(withID(id, '/agents'), { signal }),
+  stopAgents: (id: string, target: { id?: string; all?: boolean }) =>
+    post<AgentsStopResult>(withID(id, '/agents/stop'), target),
+  // The workspace-wide recall mirror behind Ctrl+R: typed prompts submitted
+  // through swarm in this session's workspace, ?query narrows server-side.
+  recallLines: (id: string, query = '', limit = 500, signal?: AbortSignal) => {
+    const params = new URLSearchParams({ limit: String(limit) })
+    if (query !== '') params.set('query', query)
+    return get<RecallLinesReply>(`${withID(id, '/recall-lines')}?${params}`, { signal })
+  },
   candidates: (id: string, signal?: AbortSignal) =>
     get<RewindCandidates>(withID(id, '/candidates'), { signal }),
   files: (id: string, query: string, signal?: AbortSignal) => {
@@ -112,10 +141,12 @@ export const sessions = {
 }
 
 // Scheduled jobs and their run history. preview evaluates one draft schedule
-// server-side through the trigger loop's own arithmetic.
+// server-side through the trigger loop's own arithmetic; queue parks one
+// prompt on a one-shot row that waits for an idle fleet.
 export const jobsApi = {
-  list: () => get<Job[]>('/api/jobs'),
+  list: (signal?: AbortSignal) => get<Job[]>('/api/jobs', { signal }),
   create: (job: Partial<Job>) => post<Job>('/api/jobs', job),
+  queue: (req: QueueRequest) => post<Job>('/api/jobs/queue', req),
   update: (id: number, job: Partial<Job>) => put<Job>(`/api/jobs/${id}`, job),
   remove: (id: number) => del<void>(`/api/jobs/${id}`),
   fire: (id: number) => post<Run>(`/api/jobs/${id}/run`),
@@ -125,9 +156,9 @@ export const jobsApi = {
 
 // Run history across every job; ?job= narrows to one.
 export const runsApi = {
-  list: (jobId?: number, limit = 200) => {
+  list: (jobId?: number, limit = 200, signal?: AbortSignal) => {
     const params = new URLSearchParams({ limit: String(limit) })
     if (jobId !== undefined) params.set('job', String(jobId))
-    return get<Run[]>(`/api/runs?${params}`)
+    return get<Run[]>(`/api/runs?${params}`, { signal })
   },
 }

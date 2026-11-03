@@ -17,7 +17,7 @@ const (
 
 	// coalesceWindow batches ephemeral stream deltas server-side. Committed
 	// events always flush what is staged and pass through verbatim.
-	coalesceWindow = 75 * time.Millisecond
+	coalesceWindow = 30 * time.Millisecond
 )
 
 // subscription is one viewer's seat on one session: a bounded queue drained by
@@ -244,9 +244,7 @@ func (s *subscription) sendLocked(frame []byte) bool {
 // fireDrop signals the connection once: a slow reader loses its socket. It is
 // always called outside mu, so callbacks may re-enter subscription methods.
 func (s *subscription) fireDrop() {
-	if s.onDrop != nil {
-		s.onDrop()
-	}
+	s.onDrop()
 }
 
 // close ends the subscription after an unsubscribe or teardown. Queued frames

@@ -17,6 +17,9 @@ import (
 // refusal naming it always means this service.
 const holderName = "swarm"
 
+// errShuttingDown answers calls racing an actor's teardown.
+var errShuttingDown = errors.New("session is shutting down")
+
 // Backoff bounds for one actor's redial loop. Bounded delay, unbounded
 // attempts: the manager stops actors whose record leaves discovery.
 const (
@@ -45,7 +48,7 @@ type actorKey struct {
 type Status struct {
 	SessionID        string `json:"sessionId"`
 	Name             string `json:"name,omitempty"`
-	Title            string `json:"title,omitempty"` // stored swarm display title, preferred for labels
+	Title            string `json:"title,omitempty"` // stored display title, preferred for labels
 	Workspace        string `json:"workspace,omitempty"`
 	Model            string `json:"model,omitempty"`
 	PID              int    `json:"pid,omitempty"`
@@ -57,12 +60,13 @@ type Status struct {
 	Running          bool   `json:"running"`
 	Idle             bool   `json:"idle"`
 	Spinning         bool   `json:"spinning,omitempty"`
+	Queued           int    `json:"queued"` // prompts waiting in the session's queue
 	OpenInteractions int    `json:"openInteractions"`
 	LastTurnEnd      int64  `json:"lastTurnEnd,omitempty"` // unix milliseconds
-	ExitedAt         int64  `json:"exitedAt,omitempty"`    // unix milliseconds, exited swarm children only
+	ExitedAt         int64  `json:"exitedAt,omitempty"`    // unix ms; ended sessions
 
 	// Attention digest facts: what holds input and how the last turn ended,
-	// one line each so the desktop inbox renders reasons without subscribing.
+	// one line each so the desktop focus queue renders reasons without subscribing.
 	DialogID     uint64 `json:"dialogId,omitempty"`     // oldest open dialog
 	DialogPrompt string `json:"dialogPrompt,omitempty"` // its prompt, one line
 	DialogAt     int64  `json:"dialogAt,omitempty"`     // when swarm first saw it, unix ms
@@ -79,8 +83,18 @@ type Status struct {
 	ExitCode  *int   `json:"exitCode,omitempty"`
 	LogTail   string `json:"logTail,omitempty"`
 
-	served bool // the actor attached at least once, so view facts are real
+	served      bool // the actor attached at least once, so view facts are real
+	hadActivity bool // a message entry committed or the session gained a name
 }
+
+// serving reports whether the row carries live view facts: the actor
+// attached at least once and the session has not exited. Every best-effort
+// feed filters on it.
+func (st *Status) serving() bool { return st.served && st.State != ChildExited }
+
+// emptyRun reports whether the row proves a run ajent dropped at exit: the
+// actor served and observed no message entry and no session name.
+func (st *Status) emptyRun() bool { return st.served && !st.hadActivity }
 
 // actorMsg is one mailbox message; the actor goroutine owns everything else.
 type actorMsg interface{}
@@ -136,8 +150,6 @@ type sessionActor struct {
 
 	done chan struct{}
 
-	token string // original writer token, kept for Followable
-
 	// actor-goroutine-confined state below
 	conn       *client.Conn
 	transcript string // transcript file this instance's hello named
@@ -147,6 +159,11 @@ type sessionActor struct {
 	state      string
 	detail     string
 	backoff    time.Duration
+
+	// recall ledger: recorded submits awaiting their committed entry, keyed by
+	// pendingId with arrival order beside it for bounded eviction
+	recallIDs   map[string]int64
+	recallOrder []string
 }
 
 // atomicStatus keeps the listing row readable off the actor goroutine.
@@ -165,17 +182,17 @@ func (s *atomicStatus) Load() *Status {
 
 func newSessionActor(mgr *Manager, inst ctl.Instance) *sessionActor {
 	a := &sessionActor{
-		mgr:     mgr,
-		key:     actorKey{sessionID: inst.SessionID, token: inst.Token},
-		token:   inst.Token,
-		inst:    inst,
-		log:     mgr.log.With("session", inst.Label(), "pid", inst.PID),
-		mailbox: make(chan actorMsg, mailboxDepth),
-		hub:     newHub(),
-		pending: make(map[*subscription]struct{}),
-		done:    make(chan struct{}),
-		state:   ChildReconnecting,
-		backoff: mgr.dialBackoffBase,
+		mgr:       mgr,
+		key:       actorKey{sessionID: inst.SessionID, token: inst.Token},
+		inst:      inst,
+		log:       mgr.log.With("session", inst.Label(), "pid", inst.PID),
+		mailbox:   make(chan actorMsg, mailboxDepth),
+		hub:       newHub(),
+		pending:   make(map[*subscription]struct{}),
+		recallIDs: make(map[string]int64),
+		done:      make(chan struct{}),
+		state:     ChildReconnecting,
+		backoff:   mgr.dialBackoffBase,
 	}
 	a.ctx, a.cancel = context.WithCancel(mgr.ctx)
 	a.refreshStatus()
@@ -271,7 +288,7 @@ func (a *sessionActor) follow() (ctl.Instance, bool) {
 		a.log.Debug("discovery failed", "err", err)
 		return ctl.Instance{}, false
 	}
-	cands := client.Followable(live, a.key.sessionID, a.token)
+	cands := client.Followable(live, a.key.sessionID, a.key.token)
 	if len(cands) == 0 {
 		return ctl.Instance{}, false
 	}
@@ -283,7 +300,7 @@ func (a *sessionActor) prepare(conn *client.Conn, hello ctl.Hello) error {
 	a.inst.PID = hello.PID
 	a.transcript = hello.TranscriptPath
 	if a.mgr.ownedInstance(a.inst) { // spawned by swarm: force-claim as holder swarm
-		cctx, cancel := context.WithTimeout(a.ctx, client.CallWait)
+		cctx, cancel := a.callWait()
 		defer cancel()
 		if _, err := conn.ClaimSeat(cctx, holderName, true); err != nil {
 			return fmt.Errorf("force claim seat: %w", err)
@@ -303,6 +320,10 @@ func (a *sessionActor) prepare(conn *client.Conn, hello ctl.Hello) error {
 	if a.mgr.ownedInstance(a.inst) {
 		a.view.seat = ctl.SeatState{Held: true, Holder: holderName, Yours: true}
 	}
+	// adopted sessions name from backfill too: their first prompt predates the
+	// live stream, so no entry.append announces it; guards keep reconnects cheap
+	a.mgr.maybeNameSession(a)
+	a.recallBackfill(snap, branch) // a drop may have overrun a tracked submit's commit
 	return nil
 }
 
@@ -410,10 +431,12 @@ func (a *sessionActor) handle(m actorMsg) {
 		a.handleResolve(msg)
 	case msgRecall:
 		a.handleRecall(msg)
+	case msgAgentsList:
+		a.handleAgentsList(msg)
+	case msgAgentsStop:
+		a.handleAgentsStop(msg)
 	case msgSnapshot:
 		a.handleSnapshot(msg)
-	case msgModelDiscover:
-		a.handleModelDiscover(msg)
 	case msgSnapshotModels:
 		a.handleModels(msg)
 	case msgSnapshotModelSet:
@@ -424,8 +447,6 @@ func (a *sessionActor) handle(m actorMsg) {
 		a.handleSettings(msg)
 	case msgSnapshotSettingSet:
 		a.handleSettingSet(msg)
-	case msgRename:
-		a.handleRename(msg)
 	case msgRewindSource:
 		src := rewindSource{path: a.transcript, ok: a.view != nil}
 		if a.view != nil {
@@ -452,6 +473,7 @@ func (a *sessionActor) applyEvent(ev ctl.Event) {
 	if ev.Name == ctl.EventEntryAppend { // the first prompt may name the session
 		a.mgr.maybeNameSession(a)
 	}
+	a.recallObserve(ev) // a tracked submit's row resolves or withholds here
 }
 
 // attachSub registers one subscriber with the current state: init first, then
@@ -503,11 +525,11 @@ func (a *sessionActor) buildInit() []byte {
 // handleTakeControl issues one force claim on user command; seat policy never
 // force-takes on its own, so two controllers cannot steal in a loop.
 func (a *sessionActor) handleTakeControl(msg msgTakeControl) {
-	if a.conn == nil || a.view == nil {
-		msg.reply <- ctl.Errf(ctl.CodeUnavailable, "session is not connected")
+	if !a.ready() {
+		msg.reply <- notReady()
 		return
 	}
-	cctx, cancel := context.WithTimeout(a.ctx, client.CallWait)
+	cctx, cancel := a.callWait()
 	defer cancel()
 	if _, err := a.conn.ClaimSeat(cctx, holderName, true); err != nil {
 		msg.reply <- err // seat-held keeps its holder name for the UI
@@ -522,7 +544,9 @@ func (a *sessionActor) handleTakeControl(msg msgTakeControl) {
 // only when swarm does not hold it, then submit /exit. A held seat surfaces
 // as seat-held rather than displacing its holder.
 func (a *sessionActor) handleStop(msg msgStop) {
-	if a.conn == nil || a.view == nil {
+	if !a.ready() {
+		// deliberately uncoded: StopSession falls through to signals unless the
+		// child itself answers with a coded refusal
 		msg.reply <- errors.New("session is not connected")
 		return
 	}
@@ -530,7 +554,7 @@ func (a *sessionActor) handleStop(msg msgStop) {
 		msg.reply <- err // seat-held names its holder
 		return
 	}
-	cctx, cancel := context.WithTimeout(a.ctx, client.CallWait)
+	cctx, cancel := a.callWait()
 	defer cancel()
 	msg.reply <- a.conn.Submit(cctx, ctl.SubmitParams{Line: stopLine})
 }
@@ -541,12 +565,12 @@ func (a *sessionActor) exit(reason string) {
 		return
 	}
 	a.closeConn()
-	a.state = ChildExited
-	a.detail = reason
-	a.hub.publishChild(ChildFrame{
-		Type: FrameChild, SessionID: a.key.sessionID, State: ChildExited, Detail: reason,
-	})
-	a.refreshStatus()
+	a.publishChild(ChildExited, reason)
+	if a.view != nil && !a.view.hadActivity() {
+		a.mgr.mu.Lock()
+		a.mgr.markEmptyRunLocked(a.inst.PID) // ajent drops empty transcripts at exit
+		a.mgr.mu.Unlock()
+	}
 	a.log.Info("session exited", "reason", reason)
 }
 
@@ -598,6 +622,7 @@ func (a *sessionActor) refreshStatus() {
 	}
 	if a.view != nil {
 		st.served = true // the listing and attention feeds only trust a seeded view
+		st.hadActivity = a.view.hadActivity()
 		st.Name = a.view.session.Name
 		st.Workspace = a.view.workspace
 		st.Model = a.view.model.Key
@@ -607,6 +632,7 @@ func (a *sessionActor) refreshStatus() {
 		st.Running = a.view.running
 		st.Idle = a.view.idle
 		st.Spinning = a.view.spinning
+		st.Queued = len(a.view.queuedRows)
 		st.OpenInteractions = len(a.view.interactions)
 		st.LastTurnEnd = a.view.lastTurnEnd
 		if dlg, at := a.view.oldestDialog(); dlg.ID != 0 {
@@ -643,7 +669,12 @@ func mailboxCall[T any](ctx context.Context, a *sessionActor, build func(chan T)
 		return zero, ctx.Err()
 	case <-a.done:
 		var zero T
-		return zero, errors.New("session is shutting down")
+		return zero, errShuttingDown
+	}
+	select { // a queued reply wins outright over a racing cancel
+	case v := <-reply:
+		return v, nil
+	default:
 	}
 	select {
 	case v := <-reply:
@@ -651,6 +682,14 @@ func mailboxCall[T any](ctx context.Context, a *sessionActor, build func(chan T)
 	case <-ctx.Done():
 		var zero T
 		return zero, ctx.Err()
+	case <-a.done: // an exit path can orphan the queued call unreplied
+		select { // a reply sent just before shutdown still counts
+		case v := <-reply:
+			return v, nil
+		default:
+		}
+		var zero T
+		return zero, errShuttingDown
 	}
 }
 

@@ -123,32 +123,32 @@ func rewindCandidates(entries []session.Entry, head string) RewindCandidates {
 			continue
 		}
 
+		picker := strings.TrimSpace(label) // trim the ends; the cap below keeps it list-sized
+		if runes := []rune(picker); len(runes) > candidateLabelMax {
+			picker = string(runes[:candidateLabelMax-1]) + "…"
+		}
 		c := RewindCandidate{
 			ID:       e.ID,
 			ParentID: e.ParentID,
 			Kind:     kind,
 			TS:       e.TS,
-			Label:    truncateLabel(label),
+			Label:    picker,
 			IsHead:   e.ID == head,
 		}
 		if row, ok := placement[e.ID]; ok {
 			c.Depth, c.Guide, c.Active = row.Depth, row.Guide, row.Active
 		}
 		if kind == CandidateUser { // the prefill a rewind-and-edit starts from
-			c.Text, c.Truncated = candidateText(label)
+			runes := []rune(label)
+			if len(runes) <= rewindTextMax {
+				c.Text, c.Truncated = label, false
+			} else {
+				c.Text, c.Truncated = string(runes[:rewindTextMax]), true
+			}
 		}
 		out.Candidates = append(out.Candidates, c)
 	}
 	return out
-}
-
-// candidateText bounds one prompt's full text, reporting when it was cut.
-func candidateText(s string) (string, bool) {
-	runes := []rune(s)
-	if len(runes) <= rewindTextMax {
-		return s, false
-	}
-	return string(runes[:rewindTextMax]), true
 }
 
 // isUserPrompt applies ajent's own prompt classification: typed user text,
@@ -156,15 +156,4 @@ func candidateText(s string) (string, bool) {
 func isUserPrompt(md session.MessageData) bool {
 	return md.Message.Role == llm.RoleUser && !md.Injected &&
 		!llm.OnlyToolResults(md.Message.Content)
-}
-
-// truncateLabel keeps labels picker-sized: one line and at most
-// candidateLabelMax runes counting the ellipsis.
-func truncateLabel(s string) string {
-	s = strings.TrimSpace(s)
-	runes := []rune(s)
-	if len(runes) <= candidateLabelMax {
-		return s
-	}
-	return string(runes[:candidateLabelMax-1]) + "…"
 }

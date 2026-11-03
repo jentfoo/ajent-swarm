@@ -2,6 +2,7 @@ package sched
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"sync"
 	"time"
@@ -9,7 +10,7 @@ import (
 	"github.com/jentfoo/ajent-swarm/pkg/store"
 )
 
-// Trigger loop defaults.
+// Scheduler defaults.
 const (
 	maxTick         = 10 * time.Second // never sleep past this, even with nothing due
 	missedGrace     = 2 * time.Minute  // a slot older than this counts as missed
@@ -87,11 +88,10 @@ func New(opts Options) *Scheduler {
 	return s
 }
 
-// Start sweeps interrupted runs and begins the trigger loop until Stop.
+// Start sweeps interrupted runs and begins the trigger loop until Stop. It
+// must precede concurrent Stop calls.
 func (s *Scheduler) Start(ctx context.Context) {
-	if s.cancel != nil { // retire the placeholder contexts New installed
-		s.cancel()
-	}
+	s.cancel()                                // retire the placeholder contexts New installed
 	bookkeeping := context.WithoutCancel(ctx) // run records outlive every caller
 	s.baseCtx, s.cancel = context.WithCancel(ctx)
 	s.ctx = bookkeeping
@@ -102,8 +102,16 @@ func (s *Scheduler) Start(ctx context.Context) {
 		s.log.Info("marked runs interrupted by restart", "count", n)
 	}
 
+	// a crash mid-run leaves queued rows with no slot and no watcher to finish
+	// them; the sweep above already settled their runs
+	if n, err := s.store.PruneAbandonedQueued(bookkeeping); err != nil {
+		s.log.Warn("queued-job sweep failed", "err", err)
+	} else if n > 0 {
+		s.log.Info("removed queued jobs abandoned by a restart", "count", n)
+	}
+
 	s.wg.Add(1)
-	go func() {
+	go func() { //nolint:contextcheck // loop binds ctx at Start; bookkeeping detaches
 		defer s.wg.Done()
 		s.loop()
 	}()
@@ -113,9 +121,7 @@ func (s *Scheduler) Start(ctx context.Context) {
 // they are: the next Start marks them failed with the interrupted reason.
 func (s *Scheduler) Stop() {
 	s.stopOnce.Do(func() {
-		if s.cancel != nil {
-			s.cancel()
-		}
+		s.cancel()
 		s.wg.Wait()
 	})
 }
@@ -132,24 +138,18 @@ func (s *Scheduler) Nudge() {
 // loop is the single trigger goroutine: sleep until the earliest scheduled
 // fire or a nudge, clamped to a short maximum tick, then claim every due job.
 func (s *Scheduler) loop() {
-	s.sweep() // one retention pass at startup keeps long-gone installs bounded
-
-	nextSweep := time.Now().Add(sweepEvery)
+	// one retention pass at startup keeps long-gone installs bounded
+	nextSweep := s.sweep()
+	// idleHeld tracks whether the last pass left a due job waiting for a quiet
+	// fleet: such a job keeps its past slot, so the earliest-slot hint would
+	// collapse every later wait to zero and spin the loop for the whole hold
+	var idleHeld bool
 	for s.baseCtx.Err() == nil {
-		untilDue := s.opts.Tick
-		if earliest, err := s.store.EarliestNextRun(s.ctx); err != nil {
-			s.log.Warn("reading the schedule failed", "err", err)
-		} else if earliest != nil {
-			if d := time.Until(*earliest); d < untilDue {
-				untilDue = max(d, 0)
-			}
-		}
-
 		select {
 		case <-s.baseCtx.Done():
 			return
 		case <-s.nudge:
-		case <-time.After(untilDue):
+		case <-time.After(s.nextWait(idleHeld)):
 		}
 
 		now := time.Now()
@@ -158,8 +158,11 @@ func (s *Scheduler) loop() {
 			s.log.Warn("reading due jobs failed", "err", err)
 			continue
 		}
+		idleHeld = false
 		for _, j := range due {
-			s.fireDue(j, now)
+			if s.fireDue(j, now) {
+				idleHeld = true
+			}
 		}
 
 		if !now.Before(nextSweep) {
@@ -168,26 +171,49 @@ func (s *Scheduler) loop() {
 	}
 }
 
-// fireDue claims one due slot: missed jobs follow their on_missed policy and
-// the schedule always advances before any launch. A claimed run then executes
-// asynchronously; a skipped or refused slot only records its row.
-func (s *Scheduler) fireDue(j store.Job, now time.Time) {
+// nextWait picks the loop's next sleep: the earliest scheduled fire wins,
+// clamped to the tick. A pass that held jobs for a quiet fleet leaves their
+// slots in the past, so the fleet's quiet moment bounds the wait instead and
+// the loop never spins on a slot it already declined to fire.
+func (s *Scheduler) nextWait(idleHeld bool) time.Duration {
+	if idleHeld {
+		quiet := time.Until(s.runner.LastBusyAt().Add(idleWindow))
+		return max(min(s.opts.Tick, quiet), 0)
+	}
+	wait := s.opts.Tick
+	if earliest, err := s.store.EarliestNextRun(s.ctx); err != nil {
+		s.log.Warn("reading the schedule failed", "err", err)
+	} else if earliest != nil {
+		if d := time.Until(*earliest); d < wait {
+			wait = max(d, 0)
+		}
+	}
+	return wait
+}
+
+// fireDue claims one due slot: run-when-idle jobs wait for a quiet fleet
+// (skipping once their delay cap passes), missed jobs follow their on_missed
+// policy, and the schedule always advances before any launch. A claimed run
+// then executes asynchronously; a skipped or refused slot only records its
+// row. It reports whether the job stayed due waiting for an idle fleet.
+func (s *Scheduler) fireDue(j store.Job, now time.Time) bool {
 	slot := *j.NextRunAt
 
-	// decide what happens to this slot before claiming it: the claim itself
-	// advances next_run_at optimistically, so restarts never double-fire
-	var newNext *time.Time // nil clears the schedule (a fired one-shot)
-	if j.ScheduleKind != store.ScheduleOnce {
-		next, err := InitialNext(j, now)
-		if err != nil {
-			s.log.Error("job schedule is broken", "job", j.Name, "err", err)
-			return
+	lastBusy := s.runner.LastBusyAt()
+	if j.RunWhenIdle && !lastBusy.IsZero() && now.Sub(lastBusy) < idleWindow {
+		maxDelay := time.Duration(j.IdleMaxDelaySeconds) * time.Second
+		waited := now.Sub(slot)
+		if maxDelay <= 0 || waited < maxDelay {
+			return true // stay due: a later tick fires it once the fleet quiets down
 		}
-		newNext = next
+		s.skipDue(j, slot, "skipped: still busy after waiting "+
+			formatDelay(waited)+" for an idle fleet")
+		return false
 	}
 
 	run := s.baseRun(j, store.TriggerSchedule, now)
-	late := now.Sub(slot) > s.opts.MissedGrace
+	late := !j.RunWhenIdle && // an idle wait delays by design, never late
+		now.Sub(slot) > s.opts.MissedGrace
 	if late && (j.ScheduleKind == store.ScheduleOnce || j.OnMissed == store.MissSkip) {
 		run.Status = store.RunSkipped // the slot is beyond its grace window
 		if j.ScheduleKind == store.ScheduleOnce {
@@ -198,14 +224,9 @@ func (s *Scheduler) fireDue(j store.Job, now time.Time) {
 		}
 	}
 
-	id, final, claimed, err := s.store.StartScheduledFire(s.ctx, j.ID, slot, newNext,
-		j.Overlap == store.OverlapSkipIfRunning, s.opts.MaxConcurrent, run)
-	if err != nil {
-		s.log.Warn("claiming a fire failed", "job", j.Name, "err", err)
-		return
-	}
+	id, final, claimed := s.claimFire(j, slot, now, run)
 	if !claimed { // advanced or deleted elsewhere; nothing to do
-		return
+		return false
 	}
 	run.ID = id
 	run.Status = final
@@ -213,11 +234,64 @@ func (s *Scheduler) fireDue(j store.Job, now time.Time) {
 	switch final {
 	case store.RunSkipped:
 		s.log.Info("run skipped", "job", j.Name, "reason", run.Error)
+		if j.Queued { // nothing follows a skipped slot: the wait is over
+			s.dropQueuedJob(j.ID)
+		}
 	default:
 		s.log.Info("firing job", "job", j.Name,
 			"late", late && j.OnMissed == store.MissFireLate)
 		s.wg.Add(1) // claimed before the goroutine starts, so Stop never races it
 		go s.execute(run, j)
+	}
+	return false
+}
+
+// skipDue claims one due slot only to record a skipped run with the reason,
+// advancing the schedule like any other claim so restarts never re-decide it.
+func (s *Scheduler) skipDue(j store.Job, slot time.Time, reason string) {
+	now := time.Now()
+	run := s.baseRun(j, store.TriggerSchedule, now)
+	run.Status = store.RunSkipped
+	run.Error = reason
+	id, final, claimed := s.claimFire(j, slot, now, run)
+	if claimed && final == store.RunSkipped {
+		s.log.Info("run skipped", "job", j.Name, "reason", reason,
+			"run", id)
+	}
+}
+
+// claimFire advances the slot and records one scheduled run, claiming it so
+// restarts never double-fire. It reports the claimed run's id and final
+// status; claimed is false when the schedule is broken or another pass
+// advanced or deleted the slot first.
+func (s *Scheduler) claimFire(j store.Job, slot, now time.Time, run store.Run) (int64, string, bool) {
+	var newNext *time.Time // nil clears the schedule (a fired one-shot)
+	if j.ScheduleKind != store.ScheduleOnce {
+		next, err := InitialNext(j, now)
+		if err != nil {
+			s.log.Error("job schedule is broken", "job", j.Name, "err", err)
+			return 0, "", false
+		}
+		newNext = next
+	}
+	id, final, claimed, err := s.store.StartScheduledFire(s.ctx, j.ID, slot, newNext,
+		j.Overlap == store.OverlapSkipIfRunning, s.opts.MaxConcurrent, run)
+	if err != nil {
+		s.log.Warn("claiming a fire failed", "job", j.Name, "err", err)
+		return 0, "", false
+	}
+	return id, final, claimed
+}
+
+// formatDelay renders a wait for skip reasons: 90s, 45m, 2h.
+func formatDelay(d time.Duration) string {
+	switch {
+	case d < time.Minute:
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	case d < time.Hour:
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	default:
+		return fmt.Sprintf("%dh", int(d.Hours()+0.5))
 	}
 }
 
@@ -252,7 +326,7 @@ func (s *Scheduler) FireNow(ctx context.Context, jobID int64) (store.Run, error)
 
 	s.log.Info("manual fire", "job", j.Name)
 	s.wg.Add(1)
-	go s.execute(run, j)
+	go s.execute(run, j) //nolint:contextcheck // runs outlive the caller's ctx
 	return run, nil
 }
 
@@ -278,14 +352,22 @@ func (s *Scheduler) CreateJob(ctx context.Context, j store.Job) (int64, error) {
 	return id, nil
 }
 
-// UpdateJob writes one job's fields.
+// UpdateJob writes one job's fields and wakes the trigger loop.
 func (s *Scheduler) UpdateJob(ctx context.Context, j store.Job) error {
-	return s.store.UpdateJob(ctx, j)
+	if err := s.store.UpdateJob(ctx, j); err != nil {
+		return err
+	}
+	s.Nudge()
+	return nil
 }
 
-// DeleteJob removes one job and unlinks its runs.
+// DeleteJob removes one job, unlinks its runs and wakes the trigger loop.
 func (s *Scheduler) DeleteJob(ctx context.Context, id int64) error {
-	return s.store.DeleteJob(ctx, id)
+	if err := s.store.DeleteJob(ctx, id); err != nil {
+		return err
+	}
+	s.Nudge()
+	return nil
 }
 
 // Runs lists run history newest first, optionally one job's only.

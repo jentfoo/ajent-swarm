@@ -1,23 +1,24 @@
-import { useState } from 'react'
 import type { ReactElement } from 'react'
 
+import { useAuth } from '../providers/auth'
+import type { NotificationPermission } from '../providers/notifications'
 import { useSwarm } from '../providers/swarm'
-import { SettingsMenu } from '../session/SettingsMenu'
+import { useWorkspace } from '../providers/workspace'
+import { TitleModelSelect } from '../shell/TitleModelSelect'
 
-// MobileSettings is the full-screen settings entry point: theme and density
-// toggles live inside it rather than in mobile chrome, above the shared
-// settings.get/settings.set menu for one of the live sessions.
+// MobileSettings is the full-screen global settings entry point: theme lives
+// inside it rather than in mobile chrome, beside swarm's own settings and the
+// notification permission. The per-session agent settings live on each session
+// screen, so there is no session picker here.
 export default function MobileSettings(): ReactElement {
-  const { sessions, theme, setTheme, density, setDensity } = useSwarm()
-  const [sessionId, setSessionId] = useState('')
-
-  const chosen = sessionId !== '' ? sessionId : (sessions[0]?.sessionId ?? '')
+  const { theme, setTheme } = useSwarm()
+  const { username, logout } = useAuth()
 
   return (
     <div className="mobile-settings">
       <h2>Settings</h2>
 
-      <section aria-label="Appearance" className="card appearance-row">
+      <section aria-label="Appearance" className="card settings-card">
         <div className="setting-row">
           <span className="setting-label">Theme</span>
           <SegmentedToggle
@@ -27,37 +28,61 @@ export default function MobileSettings(): ReactElement {
             labels={{ dark: 'Dark', light: 'Light' }}
           />
         </div>
-        <div className="setting-row">
-          <span className="setting-label">Density</span>
-          <SegmentedToggle
-            options={['cozy', 'compact'] as const}
-            value={density}
-            onChange={(v) => setDensity(v)}
-            labels={{ cozy: 'Cozy', compact: 'Compact' }}
-          />
-        </div>
       </section>
 
-      <h3>Agent settings</h3>
-      {sessions.length === 0 ? (
-        <p className="muted">No live sessions. Agent settings ride a session's control socket.</p>
-      ) : (
+      <section aria-label="Notifications" className="card settings-card">
+        <NotificationRow />
+      </section>
+
+      <h3>Global</h3>
+      <section aria-label="Global settings" className="card">
+        <TitleModelSelect />
+        <p className="muted" style={{ margin: 0, fontSize: 'var(--fs-small)' }}>
+          Per-session agent settings live in each session's ☰ header.
+        </p>
+      </section>
+
+      <h3>Account</h3>
+      <section aria-label="Account" className="card">
+        <div className="setting-row">
+          <span className="account-name">{username}</span>
+          <button type="button" onClick={() => void logout()}>
+            Sign out
+          </button>
+        </div>
+      </section>
+    </div>
+  )
+}
+
+// NotificationRow reports the current permission and keeps a manual enable
+// path beside it, independent of the contextual prompt. Denied permission can
+// only lift through the browser's own site settings.
+function NotificationRow(): ReactElement {
+  const { notificationPermission: permission, requestNotifications } = useWorkspace()
+  return (
+    <div className="setting-row">
+      <span className="setting-label">Notifications</span>
+      {permission === 'default' ? (
         <>
-          <label className="session-picker">
-            Session
-            <select value={chosen} onChange={(ev) => setSessionId(ev.target.value)}>
-              {sessions.map((s) => (
-                <option key={s.sessionId} value={s.sessionId}>
-                  {s.title || s.name || s.workspace || s.sessionId}
-                </option>
-              ))}
-            </select>
-          </label>
-          {chosen && <SettingsMenu sessionId={chosen} />}
+          <span className="muted">Off</span>
+          <button type="button" onClick={() => requestNotifications()}>
+            Enable
+          </button>
         </>
+      ) : (
+        <span>{permissionStatus[permission]}</span>
       )}
     </div>
   )
+}
+
+// Status text for the settled permissions; the undecided state is not a status
+// at all, it carries the enable action instead.
+const permissionStatus: Record<Exclude<NotificationPermission, 'default'>, string> = {
+  granted: 'On',
+  denied: 'Blocked in browser settings',
+  unsupported: 'Not available here',
 }
 
 // SegmentedToggle is a two-option inline switch sized for thumbs.

@@ -12,9 +12,8 @@ import (
 // drainWait bounds graceful shutdown so a wedged client cannot hang exit.
 const drainWait = 5 * time.Second
 
-// NewServer builds the http.Server with timeouts that leave room for the
-// long-lived stream endpoint arriving in the fleet phase: no global write or
-// read deadline, only header and idle limits.
+// NewServer builds the http.Server with timeouts that keep long-lived
+// streams alive: no global write or read deadline, only header and idle limits.
 func NewServer(handler http.Handler) *http.Server {
 	return &http.Server{
 		Handler:           handler,

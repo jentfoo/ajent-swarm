@@ -4,14 +4,19 @@ import type { ReactElement } from 'react'
 import { ApiError } from '../api/client'
 import { sessions as sessionAPI } from '../api/endpoints'
 import type { RewindCandidate } from '../api/types'
+import { absoluteTime, kindClass, relativeTime } from '../session/rewind'
+import { BottomSheet } from './BottomSheet'
 
 // maxRecent caps the flat list; older prompts stay reachable on desktop.
 const maxRecent = 25
 
-// RewindSheet presents rewind as a flat list of recent prompts rather than the
-// full tree. Selecting one rewinds onto it and prefills its full prompt text
-// into the composer for an edit — exactly the desktop dialog's contract, minus
-// the tree.
+// RewindSheet presents rewind as a draggable bottom sheet with a flat list of
+// recent prompts rather than the full tree, so the transcript stays visible
+// behind the picks. Rows share the desktop picker's visual language — kind dot,
+// label, relative age — and selecting one rewinds onto it and prefills its full
+// prompt text into the composer for an edit: exactly the desktop dialog's
+// contract, minus the tree. Candidates load per open with a pending notice
+// until they arrive, keeping the empty message for genuinely empty sessions.
 export function RewindSheet({
   sessionId,
   open,
@@ -25,27 +30,47 @@ export function RewindSheet({
   onPrefill: (text: string) => void
   onToast: (text: string, level?: 'info' | 'error') => void
 }): ReactElement | null {
-  const [candidates, setCandidates] = useState<RewindCandidate[]>([])
+  if (!open) return null
+  return (
+    <BottomSheet open onClose={onClose} label="Rewind">
+      <RewindList sessionId={sessionId} onClose={onClose} onPrefill={onPrefill} onToast={onToast} />
+    </BottomSheet>
+  )
+}
+
+// RewindList is the open list; mounting is what loads it, so a reopen always
+// starts from the pending notice rather than the previous open's rows.
+function RewindList({
+  sessionId,
+  onClose,
+  onPrefill,
+  onToast,
+}: {
+  sessionId: string
+  onClose: () => void
+  onPrefill: (text: string) => void
+  onToast: (text: string, level?: 'info' | 'error') => void
+}): ReactElement {
+  const [candidates, setCandidates] = useState<RewindCandidate[] | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [error, setError] = useState('')
 
   useEffect(() => {
-    if (!open) return
     let alive = true
     sessionAPI
       .candidates(sessionId)
-      .then((res) => alive && setCandidates(res.candidates ?? []))
+      .then((res) => {
+        if (alive) setCandidates(res.candidates ?? [])
+      })
       .catch((err: unknown) => {
         if (alive) setError(err instanceof ApiError ? err.message : 'Loading rewind points failed.')
       })
     return () => {
       alive = false
     }
-  }, [open, sessionId])
+  }, [sessionId])
 
-  if (!open) return null
-
-  const recent = candidates
+  const recent = (candidates ?? [])
     .filter((c) => c.kind === 'user')
     .sort((a, b) => b.ts - a.ts)
     .slice(0, maxRecent)
@@ -65,33 +90,30 @@ export function RewindSheet({
   }
 
   return (
-    <div className="pushed-screen" role="dialog" aria-label="Rewind to a recent prompt">
-      <header className="pushed-header">
-        <button type="button" onClick={onClose}>
-          ← Back
-        </button>
-        <h2>Rewind</h2>
-      </header>
+    <div className="rewind-list">
       {error && <p className="error-text">{error}</p>}
-      <div className="rewind-list">
-        {recent.length === 0 && !error && <p className="muted">No prompts to rewind to.</p>}
-        {recent.map((c) => (
-          <button
-            key={c.id}
-            type="button"
-            className={`card rewind-row ${c.isHead ? 'head' : ''}`}
-            disabled={busyId !== null || c.isHead}
-            onClick={() => void pick(c)}
-            data-testid={`rewind-${c.id}`}
-          >
-            <span className="rewind-text">{c.text || '(empty prompt)'}</span>
-            <span className="muted">
-              {c.isHead ? 'current' : new Date(c.ts).toLocaleString()}
-              {c.truncated ? ' · truncated' : ''}
-            </span>
-          </button>
-        ))}
-      </div>
+      {candidates === null && !error && <p className="muted">Loading rewind points…</p>}
+      {candidates !== null && recent.length === 0 && !error && (
+        <p className="muted">No prompts to rewind to.</p>
+      )}
+      {recent.map((c) => (
+        <button
+          key={c.id}
+          type="button"
+          className={`rewind-row ${c.isHead ? 'head' : ''}`}
+          disabled={busyId !== null || c.isHead}
+          onClick={() => void pick(c)}
+          data-testid={`rewind-${c.id}`}
+          title={c.isHead ? 'current prompt' : absoluteTime(c.ts)}
+        >
+          <span className={`rewind-dot ${kindClass(c.kind)}`} aria-hidden="true" />
+          <span className="rewind-label">{c.label || c.text || '(empty prompt)'}</span>
+          <span className="rewind-detail">
+            {c.isHead ? 'current' : relativeTime(c.ts)}
+            {c.truncated ? ' · truncated' : ''}
+          </span>
+        </button>
+      ))}
     </div>
   )
 }

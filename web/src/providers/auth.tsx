@@ -4,12 +4,11 @@ import type { ReactNode } from 'react'
 import { ApiError, onUnauthorized } from '../api/client'
 import { auth } from '../api/endpoints'
 
-export type AuthStatus = 'loading' | 'bootstrap' | 'anon' | 'authed'
+type AuthStatus = 'loading' | 'bootstrap' | 'anon' | 'authed'
 
-export interface AuthContextValue {
+interface AuthContextValue {
   status: AuthStatus
   username?: string
-  via?: string
   home?: string // the service host's home directory, for ~-relative paths
   login: (username: string, password: string) => Promise<void>
   bootstrap: (password: string) => Promise<void>
@@ -23,7 +22,7 @@ const AuthContext = createContext<AuthContextValue | null>(null)
 // expired sessions land on the login screen with the current location kept.
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>('loading')
-  const [principal, setPrincipal] = useState<{ username?: string; via?: string; home?: string }>({})
+  const [principal, setPrincipal] = useState<{ username?: string; home?: string }>({})
 
   useEffect(() => {
     let alive = true
@@ -32,7 +31,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .then((me) => {
         if (!alive) return
         setStatus('authed')
-        setPrincipal({ username: me.username, via: me.via, home: me.home })
+        setPrincipal({ username: me.username, home: me.home })
       })
       .catch((err: unknown) => {
         if (!alive) return
@@ -58,14 +57,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (username: string, password: string) => {
     await auth.login(username, password)
     const me = await auth.me()
-    setPrincipal({ username: me.username, via: me.via, home: me.home })
+    setPrincipal({ username: me.username, home: me.home })
     setStatus('authed')
   }, [])
 
   const bootstrap = useCallback(async (password: string) => {
     // Bootstrap sets the first password but issues no session; the login
     // screen takes over once the gate clears.
-    await auth.bootstrap(password)
+    try {
+      await auth.bootstrap(password)
+    } catch (err) {
+      // A 409 means another tab set a password first, so this gate drops to
+      // the login screen. Any other failure stays on the form.
+      if (!(err instanceof ApiError && err.code === 'already_bootstrapped')) throw err
+    }
     setStatus('anon')
   }, [])
 
@@ -82,13 +87,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     () => ({
       status,
       username: principal.username,
-      via: principal.via,
       home: principal.home,
       login,
       bootstrap,
       logout,
     }),
-    [status, principal.username, principal.via, principal.home, login, bootstrap, logout],
+    [status, principal.username, principal.home, login, bootstrap, logout],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

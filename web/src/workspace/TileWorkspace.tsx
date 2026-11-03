@@ -1,30 +1,55 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { DragEvent, PointerEvent as ReactPointerEvent } from 'react'
+import { useNavigate, useSearchParams } from 'react-router'
 
 import { useSwarm } from '../providers/swarm'
-import { useAuth } from '../providers/auth'
 import { useWorkspace } from '../providers/workspace'
 import SessionView from '../screens/SessionView'
-import { displayName } from '../session/names'
+import { ChildState } from '../api/types'
+import type { SessionStatus } from '../api/types'
+import { useSessionNamer } from '../session/useSessionLabel'
+import { MenuPopover } from '../ui/MenuPopover'
 import { useWorkspaceKeys } from './keys'
 import type { Direction } from './keys'
 import { ShortcutOverlay } from './ShortcutOverlay'
-import type { AttentionItem } from './attention'
-import { ChildState } from '../api/types'
-import { closeTab, findPane, moveTab, openTab, paneIds, setRatio, splitPane } from './tileTree'
+import { isActionable, type AttentionItem } from './attention'
+import {
+  activateTab,
+  closeTab,
+  findPane,
+  moveTab,
+  openTab,
+  paneIds,
+  setRatio,
+  splitPane,
+  tileFor,
+} from './tileTree'
 import type { TileNode, TilePane, SplitDirection } from './tileTree'
 
 const resizeStep = 0.05
+
+// reachableSession reports whether a pane can stream the session right now:
+// connected (online) or active (reconnecting, e.g. just launched, or running).
+// The shell's Tile button tiles exactly this set.
+export function reachableSession(s: SessionStatus): boolean {
+  return s.state === ChildState.Online || s.state === ChildState.Reconnecting || s.running
+}
 
 // TileWorkspace treats sessions like windows in a tiling manager: a split
 // tree with per-pane tab strips, drag-to-split and drag-to-reorder, full
 // keyboard management. The tree persists in the layout profile, so reloads
 // and mode switches never disturb the arrangement; ended sessions stay as
-// tabs with their final state until closed.
+// tabs with their final state until closed. An explicit ?open= list (the
+// Tile button's live set or a sessions-grid selection) retiles from scratch
+// on every fresh navigation carrying it, while a plain visit restores
+// whatever was arranged before. Closing the last pane hands the screen back
+// to Sessions, where the next session is picked.
+
 export default function TileWorkspace() {
   const { sessions } = useSwarm()
-  const auth = useAuth()
   const { profile, setTileLayout, itemFor } = useWorkspace()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const navigate = useNavigate()
   const { tree, focusedPaneId } = profile.tile
 
   const [showShortcuts, setShowShortcuts] = useState(false)
@@ -34,6 +59,13 @@ export default function TileWorkspace() {
   // between the pointer and the hosted views.
   const [dragging, setDragging] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
+  // Auto-tiling seeds once per mount: an empty layout tiles every reachable
+  // session, while later closes keep their emptiness instead of re-seeding.
+  const seededRef = useRef(false)
+  // a mount that started with panes never auto-tiles after they all close
+  const seenTreeRef = useRef(profile.tile.tree !== null)
+  // the last explicit ?open= list applied, so one request tiles exactly once
+  const openedRef = useRef<string | null>(null)
 
   const focused = useMemo(() => {
     const ids = paneIds(tree)
@@ -41,22 +73,67 @@ export default function TileWorkspace() {
     return focusedPaneId !== undefined && ids.includes(focusedPaneId) ? focusedPaneId : ids[0]
   }, [tree, focusedPaneId])
 
+  // All closes funnel through commit, so tree emptying means the last pane
+  // closed: hand off to Sessions for the next pick (the Tile button re-tiles
+  // from there).
   const commit = useCallback(
     (next: TileNode | null, focus?: string) => {
       setTileLayout({ tree: next, focusedPaneId: focus })
+      if (tree !== null && next === null) navigate('/sessions')
     },
-    [setTileLayout],
+    [navigate, setTileLayout, tree],
   )
+
+  // Tiling from a request: an explicit ?open= list replaces the whole tree so
+  // the Tile button and sessions-grid selections tile exactly what was asked,
+  // even over a persisted arrangement. Without one, an empty layout seeds
+  // every reachable session once per mount, and a mount that had panes never
+  // re-seeds once they close, so emptying the workspace stays possible.
+  useEffect(() => {
+    const open = searchParams.get('open')
+    if (open !== null) {
+      if (openedRef.current === open) return // this exact request already tiled
+      const ids = open
+        .split(',')
+        .map((id) => decodeURIComponent(id.trim()))
+        .filter((id) => sessions.some((s) => s.sessionId === id))
+      if (ids.length === 0) return // wait for the sessions list to catch up
+      openedRef.current = open
+      setSearchParams({}, { replace: true }) // deep links clean up after tiling
+      const next = tileFor(ids)
+      setTileLayout({ tree: next, focusedPaneId: paneIds(next)[0] })
+      return
+    }
+    // no ?open= means no request is pending: re-arm the once guard so a
+    // repeat navigation retiles even with an unchanged live set
+    openedRef.current = null
+    if (tree !== null) {
+      seenTreeRef.current = true
+      return
+    }
+    if (seenTreeRef.current || seededRef.current) return
+    const ids = sessions.filter(reachableSession).map((s) => s.sessionId)
+    if (ids.length === 0) return
+    seededRef.current = true
+    const next = tileFor(ids)
+    // focus lands on the first pane: focusedPaneId is a pane id in the
+    // persisted layout profile, not a session id
+    setTileLayout({ tree: next, focusedPaneId: paneIds(next)[0] })
+    // seeding runs once per mount; guards above keep later dep changes quiet
+  }, [tree, sessions, setTileLayout, setSearchParams, searchParams])
 
   const focusPane = useCallback((paneId: string) => commit(tree, paneId), [commit, tree])
 
-  const nameFor = useCallback(
-    (sessionId: string) => {
-      const s = sessions.find((row) => row.sessionId === sessionId)
-      return s ? displayName(s, auth.home) : shortID(sessionId)
+  // activateInPane switches a pane to one of its existing tabs, focusing it
+  const activateInPane = useCallback(
+    (paneId: string, sessionId: string) => {
+      if (!tree) return
+      commit(activateTab(tree, paneId, sessionId), paneId)
     },
-    [sessions, auth.home],
+    [commit, tree],
   )
+
+  const nameFor = useSessionNamer()
 
   // The next session nowhere open in the tree, for splits and pickers.
   const nextCandidate = useCallback((): string | null => {
@@ -135,15 +212,7 @@ export default function TileWorkspace() {
               : dir === 'up'
                 ? from.top - to.bottom
                 : to.top - from.bottom
-        const toward =
-          dir === 'left'
-            ? to.right <= from.left + 1
-            : dir === 'right'
-              ? to.left >= from.right - 1
-              : dir === 'up'
-                ? to.bottom <= from.top + 1
-                : to.top >= from.bottom - 1
-        if (!toward || gap < 0) continue
+        if (gap < 0) continue
         if (best === null || gap < best.gap) best = { id, gap }
       }
       if (best) focusPane(best.id)
@@ -169,7 +238,7 @@ export default function TileWorkspace() {
         return false
       }
       if (!walk(tree)) return
-      const hit = [...path].reverse().find((p) => p.node.dir === want)
+      const hit = path.findLast((p) => p.node.dir === want)
       if (!hit) return
       const growing = (dir === 'right' || dir === 'down') === hit.inA
       commit(setRatio(tree, hit.node.id, hit.node.ratio + (growing ? resizeStep : -resizeStep)))
@@ -178,12 +247,6 @@ export default function TileWorkspace() {
   )
 
   useWorkspaceKeys({
-    onPaneClose: () => {
-      if (!tree) return
-      const pane = findPane(tree, focused)
-      if (!pane) return
-      commit(closeTab(tree, pane.id, pane.active), pane.id)
-    },
     onSplitRight: () => splitFocused('row'),
     onSplitDown: () => splitFocused('column'),
     onFocusDirection: moveFocus,
@@ -247,22 +310,7 @@ export default function TileWorkspace() {
       {tree === null ? (
         <div className="tile-empty">
           <p className="muted">No panes open.</p>
-          <div className="chips">
-            {sessions
-              .filter((s) => s.state === ChildState.Online)
-              .map((s) => (
-                <button
-                  key={s.sessionId}
-                  type="button"
-                  onClick={() => commit(openTab(null, s.sessionId))}
-                >
-                  {nameFor(s.sessionId)}
-                </button>
-              ))}
-            {sessions.filter((s) => s.state === ChildState.Online).length === 0 && (
-              <span>No live sessions to open.</span>
-            )}
-          </div>
+          {!sessions.some(reachableSession) && <span>No live sessions to open.</span>}
         </div>
       ) : (
         <NodeView
@@ -273,6 +321,7 @@ export default function TileWorkspace() {
           itemFor={itemFor}
           nameFor={nameFor}
           onFocusPane={focusPane}
+          onActivateTab={activateInPane}
           onCloseTab={closeInPane}
           onOpenSession={openInTree}
           onStartDrag={startDrag}
@@ -295,6 +344,7 @@ interface NodeProps {
   itemFor: (sessionId: string) => AttentionItem | undefined
   nameFor: (sessionId: string) => string
   onFocusPane: (paneId: string) => void
+  onActivateTab: (paneId: string, sessionId: string) => void
   onCloseTab: (paneId: string, sessionId: string) => void
   onOpenSession: (sessionId: string, paneId?: string, split?: boolean) => void
   onStartDrag: (ev: DragEvent, sessionId: string, paneId: string) => void
@@ -326,7 +376,10 @@ function NodeView(props: NodeProps) {
 }
 
 // Divider drags to resize its split: the pointer position within the split's
-// box becomes the ratio.
+// box becomes the ratio. The gesture rides pointer capture on the divider
+// itself instead of window listeners, so a release, a pointercancel (a browser
+// or system gesture stealing the pointer) or this node unmounting mid-drag
+// can never leave a resize behind that later pointer movement keeps feeding.
 function Divider({
   dir,
   splitId,
@@ -336,31 +389,45 @@ function Divider({
   splitId: string
   onResize: (splitId: string, ratio: number) => void
 }) {
+  // null while idle; the box is fixed at drag start, resizing only reshuffles
+  // the split's children inside it
+  const dragRef = useRef<{ pointerId: number; rect: DOMRect } | null>(null)
+
   const onPointerDown = (ev: ReactPointerEvent<HTMLDivElement>) => {
     const box = ev.currentTarget.parentElement
     if (!box) return
-    const rect = box.getBoundingClientRect()
     ev.preventDefault()
-    const onMove = (move: PointerEvent) => {
-      const ratio =
-        dir === 'row'
-          ? (move.clientX - rect.left) / rect.width
-          : (move.clientY - rect.top) / rect.height
-      onResize(splitId, ratio)
-    }
-    const onUp = () => {
-      window.removeEventListener('pointermove', onMove)
-      window.removeEventListener('pointerup', onUp)
-    }
-    window.addEventListener('pointermove', onMove)
-    window.addEventListener('pointerup', onUp)
+    ev.currentTarget.setPointerCapture(ev.pointerId)
+    dragRef.current = { pointerId: ev.pointerId, rect: box.getBoundingClientRect() }
   }
+
+  const onPointerMove = (ev: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current
+    if (!drag || drag.pointerId !== ev.pointerId) return // another pointer's noise
+    const ratio =
+      dir === 'row'
+        ? (ev.clientX - drag.rect.left) / drag.rect.width
+        : (ev.clientY - drag.rect.top) / drag.rect.height
+    onResize(splitId, ratio)
+  }
+
+  // a release, a cancel and a lost capture all end the drag exactly alike:
+  // the ratio stays wherever the last applied move put it
+  const endDrag = (ev: ReactPointerEvent<HTMLDivElement>) => {
+    if (dragRef.current?.pointerId !== ev.pointerId) return
+    dragRef.current = null
+  }
+
   return (
     <div
       className={`tile-divider ${dir === 'row' ? 'v' : 'h'}`}
       role="separator"
       aria-orientation={dir === 'row' ? 'vertical' : 'horizontal'}
       onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={endDrag}
+      onPointerCancel={endDrag}
+      onLostPointerCapture={endDrag}
     />
   )
 }
@@ -375,6 +442,7 @@ function PaneView({
   itemFor,
   nameFor,
   onFocusPane,
+  onActivateTab,
   onCloseTab,
   onOpenSession,
   onStartDrag,
@@ -388,8 +456,7 @@ function PaneView({
   // A tab badges while its attention rises and it is not the focused view.
   const badgeFor = (sessionId: string): string | null => {
     const item = itemFor(sessionId)
-    if (item === undefined) return null
-    if (item.kind !== 'needs-input' && item.kind !== 'needs-review') return null
+    if (item === undefined || !isActionable(item.kind)) return null
     if (isFocused && pane.active === sessionId) return null
     return item.kind
   }
@@ -424,7 +491,8 @@ function PaneView({
               onDragEnd={onDragEnd}
               onDragOver={(ev) => onAllowDrop(ev, pane.id, `tab:${index}`)}
               onDrop={drop(`tab:${index}`)}
-              onClick={() => onFocusPane(pane.id)}
+              // activation focuses the pane through its commit too
+              onClick={() => onActivateTab(pane.id, sessionId)}
               title={nameFor(sessionId)}
             >
               {badge !== null && <span className={`tab-badge ${badge}`} aria-label={badge} />}
@@ -460,7 +528,11 @@ function PaneView({
         ))}
 
       <div className="tile-body">
-        <SessionView sessionId={pane.active} />
+        {/* focus follows the focused pane: dialogs take the caret there while
+            background sessions surface them through attention
+            (dialog-focus-policy.md), and only the focused pane's stream
+            answers Escape with an interrupt */}
+        <SessionView sessionId={pane.active} focused={isFocused} />
       </div>
     </div>
   )
@@ -468,7 +540,8 @@ function PaneView({
 
 // SessionPicker is the tab strip's + affordance: every known session opens as
 // a tab here (a second button splits it into its own pane), so several
-// sessions stream side by side without touching the keyboard.
+// sessions stream side by side without touching the keyboard. The menu portals
+// through MenuPopover, so a short pane's overflow clipping cannot cut it off.
 function SessionPicker({
   nameFor,
   onOpen,
@@ -477,56 +550,66 @@ function SessionPicker({
   onOpen: (sessionId: string, split?: boolean) => void
 }) {
   const { sessions } = useSwarm()
-  const ref = useRef<HTMLDetailsElement>(null)
-  // Live sessions first, then the rest; each keeps its listing order.
+  const [open, setOpen] = useState(false)
+  const addRef = useRef<HTMLButtonElement>(null)
+  // Connected or active first, then the rest; each keeps its listing order.
   const ordered = useMemo(() => {
-    const live = sessions.filter((s) => s.state === ChildState.Online)
-    const rest = sessions.filter((s) => s.state !== ChildState.Online)
+    const live = sessions.filter(reachableSession)
+    const rest = sessions.filter((s) => !reachableSession(s))
     return [...live, ...rest]
   }, [sessions])
 
-  const close = () => {
-    if (ref.current?.open) ref.current.open = false
-  }
+  const empty = ordered.length === 0
   const pick = (sessionId: string, split?: boolean) => {
-    close()
+    setOpen(false)
     onOpen(sessionId, split)
   }
 
   return (
-    <details className="tile-add" ref={ref} title="Open a session in this pane">
-      <summary aria-label="Add a session to this pane">+</summary>
-      {ordered.length === 0 ? (
-        <div className="tile-menu muted">No sessions known.</div>
-      ) : (
-        <div className="tile-menu" role="menu">
-          {ordered.map((s) => (
-            <div key={s.sessionId} className="tile-menu-row">
-              <button
-                type="button"
-                role="menuitem"
-                title={nameFor(s.sessionId)}
-                onClick={() => pick(s.sessionId)}
-              >
-                {nameFor(s.sessionId)}
-              </button>
-              <button
-                type="button"
-                className="tile-menu-split"
-                aria-label={`Split pane with ${nameFor(s.sessionId)}`}
-                title="Open in a new split beside this pane"
-                onClick={() => pick(s.sessionId, true)}
-              >
-                ⊞
-              </button>
-            </div>
-          ))}
-        </div>
+    <span className="tile-add">
+      <button
+        type="button"
+        ref={addRef}
+        aria-label="Add a session to this pane"
+        title="Open a session in this pane"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+      >
+        +
+      </button>
+      {open && (
+        <MenuPopover
+          anchorRef={addRef}
+          align="right"
+          className={empty ? 'tile-menu muted' : 'tile-menu'}
+          role={empty ? undefined : 'menu'}
+          onClose={() => setOpen(false)}
+        >
+          {empty
+            ? 'No sessions known.'
+            : ordered.map((s) => (
+                <div key={s.sessionId} className="tile-menu-row">
+                  <button
+                    type="button"
+                    role="menuitem"
+                    title={nameFor(s.sessionId)}
+                    onClick={() => pick(s.sessionId)}
+                  >
+                    {nameFor(s.sessionId)}
+                  </button>
+                  <button
+                    type="button"
+                    className="tile-menu-split"
+                    aria-label={`Split pane with ${nameFor(s.sessionId)}`}
+                    title="Open in a new split beside this pane"
+                    onClick={() => pick(s.sessionId, true)}
+                  >
+                    ⊞
+                  </button>
+                </div>
+              ))}
+        </MenuPopover>
       )}
-    </details>
+    </span>
   )
-}
-
-function shortID(id: string): string {
-  return id.length <= 12 ? id : id.slice(0, 8) + '…'
 }

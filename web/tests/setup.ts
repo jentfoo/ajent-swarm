@@ -28,6 +28,26 @@ if (typeof window !== 'undefined') {
       return 72
     },
   })
-  // jsdom ships no implementation; the inbox cursor only keeps rows in view.
+  // jsdom ships no implementation; the queue cursor only keeps rows in view.
   Element.prototype.scrollIntoView = () => {}
+
+  // jsdom reports every box at zero; a fixed in-viewport rect keeps geometry
+  // checks (armed confirms, popover anchoring) deterministic. Tests that care
+  // about placement spy per element.
+  Element.prototype.getBoundingClientRect = function (this: Element) {
+    return new DOMRect(0, 0, 1200, 72)
+  }
+
+  // jsdom ships no matchMedia either; components must not special-case that.
+  window.matchMedia = (query: string): MediaQueryList =>
+    ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addEventListener() {},
+      removeEventListener() {},
+      addListener() {},
+      removeListener() {},
+      dispatchEvent: () => false,
+    }) as MediaQueryList
 }

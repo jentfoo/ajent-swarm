@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 
-import { ApiError } from '../api/client'
 import { useAuth } from '../providers/auth'
 
 // BootstrapScreen sets the first password, shown only while the backend
@@ -24,14 +23,10 @@ export default function BootstrapScreen() {
     setError('')
     try {
       await bootstrap(password)
-      // The gate now sees a bootstrapped service and shows the login screen.
+      // A successful save and another tab's 409 both drop the gate to login.
     } catch (err) {
       setBusy(false)
-      if (err instanceof ApiError && err.code === 'already_bootstrapped') {
-        setError('A password already exists; sign in instead.')
-      } else {
-        setError(err instanceof Error ? `Bootstrap failed: ${err.message}` : 'Bootstrap failed.')
-      }
+      setError(err instanceof Error ? `Bootstrap failed: ${err.message}` : 'Bootstrap failed.')
     }
   }
 

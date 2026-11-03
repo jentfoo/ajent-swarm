@@ -9,9 +9,8 @@ import (
 	"github.com/jentfoo/ajent/pkg/ctl"
 )
 
-// Control-method endpoints: the phase 13 upstream surface (models, tools,
-// settings) proxied onto live sessions for the mobile chrome, plus swarm-side
-// display titles.
+// Control-method endpoints: upstream control-surface commands (models,
+// tools, settings) proxied onto live sessions, plus swarm-side display titles.
 
 // modelSetRequest is the POST /model body; a missing model is bad-request.
 type modelSetRequest struct {
@@ -40,13 +39,11 @@ type titleRequest struct {
 // handleSessionModels serves the model registry listing.
 func (s *apiServer) handleSessionModels(w http.ResponseWriter, r *http.Request) {
 	data, err := s.fleet.Models(r.Context(), r.PathValue("id"))
-	switch {
-	case err == nil:
-		writeJSON(w, http.StatusOK, data)
-	case writeCommandFailure(w, err):
-	default:
-		writeError(w, http.StatusInternalServerError, "internal_error", "")
+	if err != nil {
+		writeCommandFailure(w, err)
+		return
 	}
+	writeJSON(w, http.StatusOK, data)
 }
 
 // handleSessionModelSet switches the session-only model and answers what it
@@ -57,17 +54,15 @@ func (s *apiServer) handleSessionModelSet(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if req.Model == "" {
-		writeError(w, http.StatusBadRequest, "invalid_request", "model must not be empty")
+		writeError(w, http.StatusBadRequest, codeInvalidRequest, "model must not be empty")
 		return
 	}
 	key, err := s.fleet.ModelSet(r.Context(), r.PathValue("id"), req.Model)
-	switch {
-	case err == nil:
-		writeJSON(w, http.StatusOK, modelSetReply{Model: key})
-	case writeCommandFailure(w, err):
-	default:
-		writeError(w, http.StatusInternalServerError, "internal_error", "")
+	if err != nil {
+		writeCommandFailure(w, err)
+		return
 	}
+	writeJSON(w, http.StatusOK, modelSetReply{Model: key})
 }
 
 // modelSetReply names the canonical key the switch resolved to.
@@ -83,25 +78,21 @@ func (s *apiServer) handleSessionTools(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	res, err := s.fleet.ToolsSet(r.Context(), r.PathValue("id"), req.Names)
-	switch {
-	case err == nil:
-		writeJSON(w, http.StatusOK, res)
-	case writeCommandFailure(w, err):
-	default:
-		writeError(w, http.StatusInternalServerError, "internal_error", "")
+	if err != nil {
+		writeCommandFailure(w, err)
+		return
 	}
+	writeJSON(w, http.StatusOK, res)
 }
 
 // handleSessionSettings serves the /settings rows in menu order.
 func (s *apiServer) handleSessionSettings(w http.ResponseWriter, r *http.Request) {
 	data, err := s.fleet.Settings(r.Context(), r.PathValue("id"))
-	switch {
-	case err == nil:
-		writeJSON(w, http.StatusOK, data)
-	case writeCommandFailure(w, err):
-	default:
-		writeError(w, http.StatusInternalServerError, "internal_error", "")
+	if err != nil {
+		writeCommandFailure(w, err)
+		return
 	}
+	writeJSON(w, http.StatusOK, data)
 }
 
 // handleSessionSettingSet applies one setting as a session override; the reply
@@ -112,7 +103,7 @@ func (s *apiServer) handleSessionSettingSet(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if req.Key == "" {
-		writeError(w, http.StatusBadRequest, "invalid_request", "key must not be empty")
+		writeError(w, http.StatusBadRequest, codeInvalidRequest, "key must not be empty")
 		return
 	}
 	res, err := s.fleet.SettingSet(r.Context(), r.PathValue("id"), ctl.SettingsSetParams{
@@ -120,13 +111,11 @@ func (s *apiServer) handleSessionSettingSet(w http.ResponseWriter, r *http.Reque
 		Value:   req.Value,
 		Persist: req.Persist,
 	})
-	switch {
-	case err == nil:
-		writeJSON(w, http.StatusOK, res)
-	case writeCommandFailure(w, err):
-	default:
-		writeError(w, http.StatusInternalServerError, "internal_error", "")
+	if err != nil {
+		writeCommandFailure(w, err)
+		return
 	}
+	writeJSON(w, http.StatusOK, res)
 }
 
 // handleSessionTitle writes one swarm-side display title. Renames never touch
@@ -141,10 +130,12 @@ func (s *apiServer) handleSessionTitle(w http.ResponseWriter, r *http.Request) {
 	case err == nil:
 		w.WriteHeader(http.StatusNoContent)
 	case errors.Is(err, fleet.ErrUnknownSession):
-		writeError(w, http.StatusBadRequest, "invalid_request", "sessionId must not be empty")
+		// SetTitle only returns that sentinel for an empty id: renames target
+		// swarm storage, not tracked sessions, so this is a bad request
+		writeError(w, http.StatusBadRequest, codeInvalidRequest, "sessionId must not be empty")
 	case errors.Is(err, fleet.ErrNoTitleStore):
-		writeError(w, http.StatusInternalServerError, "internal_error", err.Error())
+		writeError(w, http.StatusInternalServerError, codeInternalError, err.Error())
 	default:
-		writeError(w, http.StatusInternalServerError, "internal_error", "writing the title failed")
+		writeError(w, http.StatusInternalServerError, codeInternalError, "writing the title failed")
 	}
 }

@@ -1,29 +1,24 @@
-/* Theme tokens as CSS custom properties. Two independent axes:
-   dark/light via [data-theme], compact/cozy via [data-density]. */
+/* Theme tokens as CSS custom properties; dark/light via [data-theme]. */
 
 :root {
   --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, Ubuntu, Cantarell, sans-serif;
   --font-mono: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   --radius: 8px;
 
-  /* density scale; compact and cozy override below */
-  --unit: 5px;
-  --fs-body: 14.5px;
-  --fs-small: 12.5px;
-}
-
-[data-density='compact'] {
+  /* one compact density scale; no cozy variant anymore */
   --unit: 3px;
   --fs-body: 13px;
   --fs-small: 11.5px;
-}
-[data-density='cozy'] {
-  --unit: 5px;
-  --fs-body: 14.5px;
-  --fs-small: 12.5px;
+
+  /* spinner states mirror ajent's TUI glyph colors */
+  --spin-idle: var(--muted);
+  --spin-wait: var(--text);
+  --spin-stream: var(--accent);
+  --spin-tool: var(--warn);
 }
 
-/* dark is the default; SwarmProvider applies the stored choice post-load */
+/* dark is the default; index.html's head script applies the stored choice
+   before first paint, SwarmProvider on runtime change */
 :root,
 [data-theme='dark'] {
   color-scheme: dark;
@@ -38,6 +33,8 @@
   --ok: #35c46f;
   --warn: #e5b24a;
   --danger: #e5534b;
+  /* hunk @@ markers get their own hue so a boundary reads as a separator */
+  --diff-hunk: #3fc6d9;
 }
 
 [data-theme='light'] {
@@ -53,6 +50,7 @@
   --ok: #188543;
   --warn: #a06a00;
   --danger: #c33f36;
+  --diff-hunk: #0e7490;
 }
 
 * {
@@ -85,9 +83,11 @@ pre {
 /* --- layout chrome --- */
 
 /* definite height so inner regions own their scrolling: the workspace rail
-   and transcript never share a scrollbar with each other or the page */
+   and transcript never share a scrollbar with each other or the page. dvh
+   rides collapsing browser toolbars instead of clipping behind them */
 .app-shell {
-  height: 100vh;
+  height: 100vh; /* static fallback for engines without dynamic units */
+  height: 100dvh;
   display: flex;
   flex-direction: column;
 }
@@ -97,12 +97,11 @@ pre {
   align-items: center;
   gap: calc(var(--unit) * 3);
   padding: calc(var(--unit) * 2) calc(var(--unit) * 4);
+  /* env() is zero without a notch; standalone PWA keeps chrome below the
+     status bar while the surface still paints behind it */
+  padding-top: calc(env(safe-area-inset-top, 0px) + var(--unit) * 2);
   background: var(--surface);
   border-bottom: 1px solid var(--border);
-}
-.topbar .brand {
-  font-weight: 650;
-  color: var(--text);
 }
 .topbar nav {
   display: flex;
@@ -141,40 +140,6 @@ main.content {
   width: 100%;
   margin: 0 auto;
   overflow-y: auto; /* pages scroll inside the shell, never the window */
-}
-
-/* mobile chrome swaps navigation to a bottom bar */
-.mobile-nav {
-  display: none;
-}
-@media (max-width: 48rem) {
-  .topbar nav,
-  .topbar .account-name {
-    display: none;
-  }
-  .mobile-nav {
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    display: flex;
-    background: var(--surface);
-    border-top: 1px solid var(--border);
-    z-index: 10;
-  }
-  .mobile-nav a {
-    flex: 1;
-    text-align: center;
-    padding: calc(var(--unit) * 3);
-    color: var(--muted);
-  }
-  .mobile-nav a.active {
-    color: var(--text);
-    background: var(--surface-2);
-  }
-  main.content {
-    padding-bottom: calc(var(--unit) * 14);
-  }
 }
 
 /* --- shared widgets --- */
@@ -229,6 +194,20 @@ button.primary {
   border-color: var(--accent);
   color: var(--accent-text);
 }
+/* destructive intent reads through weight: danger border and text, a quiet red
+   fill only on hover, so the button invites reading rather than mashing */
+button.danger {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+button.danger:hover {
+  background: color-mix(in srgb, var(--danger) 15%, var(--surface-2));
+}
+/* the armed confirm step is the one loud moment */
+button.danger.armed {
+  background: var(--danger);
+  color: #fff;
+}
 button:disabled {
   opacity: 0.55;
   cursor: default;
@@ -247,6 +226,16 @@ textarea {
 input:focus,
 select:focus {
   outline: 1px solid var(--accent);
+}
+
+/* touch keyboards auto-zoom any focused control under 16px, so coarse
+   pointers get a readable floor while desktop keeps its compact density */
+@media (pointer: coarse) {
+  input,
+  select,
+  textarea {
+    font-size: max(var(--fs-body), 16px);
+  }
 }
 
 label {
@@ -271,7 +260,8 @@ label {
 /* --- auth screens --- */
 
 .auth-screen {
-  min-height: 100vh;
+  min-height: 100vh; /* static fallback for engines without dynamic units */
+  min-height: 100dvh;
   display: grid;
   place-items: center;
 }
@@ -317,7 +307,7 @@ label {
   padding: calc(var(--unit) * 2) 0;
   border-bottom: 1px solid var(--border);
 }
-.entry.prompt {
+.entry.user {
   border-left: 3px solid var(--accent);
   padding-left: calc(var(--unit) * 3);
 }
@@ -325,6 +315,35 @@ label {
   border: 1px dashed var(--border);
   border-radius: var(--radius);
   padding: calc(var(--unit) * 2);
+}
+/* the delivered half of the shell-run accent, matching the live shell card */
+.entry.injected.shell-run {
+  border-left: 3px solid var(--warn);
+}
+/* injected context mirrors ajent's InjectBlock shape: a mono header label with
+   tool output beneath, so both wrap instead of widening the card on phones */
+.injected-label,
+.injected-body {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.injected-label {
+  font-weight: 550;
+}
+.injected-body {
+  margin: calc(var(--unit) * 1) 0 0;
+}
+/* the head-rule disclosure under a collapsed injected body */
+.injected-toggle {
+  margin-top: calc(var(--unit) * 1);
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+.injected-toggle:hover {
+  color: var(--text);
 }
 .entry.system,
 .entry.unknown {
@@ -347,6 +366,19 @@ label {
   color: var(--muted);
   font-style: italic;
 }
+/* ajent paints thinking under an accent marker; the label keeps the muted tone */
+.thinking summary::before {
+  content: '✻ ';
+  color: var(--accent);
+  font-style: normal;
+}
+/* the agent's own line breaks are content here, so pre-wrap them like the TUI
+   and dim italic as ajent shades it */
+.thinking-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-style: italic;
+}
 .entry-image {
   max-width: 20rem;
   max-height: 12rem;
@@ -367,6 +399,13 @@ label {
   bottom: calc(var(--unit) * 4);
   right: calc(var(--unit) * 4);
   box-shadow: 0 2px 8px rgb(0 0 0 / 35%);
+}
+
+@media (max-width: 48rem) {
+  /* the pill is the only way back to the live tail on a phone */
+  .jump-latest {
+    min-height: 44px;
+  }
 }
 
 /* markdown */
@@ -397,6 +436,76 @@ label {
   background: transparent !important;
 }
 
+/* raw-copy buttons: one icon per state cell, so a swap never resizes the
+   button; labels stay in the tree for screen readers via .sr-only */
+.copy-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: calc(var(--unit) * 1);
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.copy-labels {
+  display: inline-grid;
+  grid-template-areas: 'stack';
+  justify-items: center;
+}
+.copy-labels > span {
+  grid-area: stack;
+  visibility: hidden;
+}
+.copy-labels > span[data-on='true'] {
+  visibility: visible;
+}
+
+.fence-wrap {
+  position: relative;
+}
+/* the fence is dark in both themes, so the pill matches it, not the page */
+.fence-copy {
+  position: absolute;
+  top: calc(var(--unit) * 1);
+  right: calc(var(--unit) * 1);
+  z-index: 1;
+  background: rgb(22 27 34 / 85%);
+  border-color: #30363d;
+  color: #e6edf3;
+}
+
+/* clipboard affordance at the bottom-right corner of an assistant message:
+   the entry lays out as a column so align-self parks the button at its end */
+.entry.assistant {
+  display: flex;
+  flex-direction: column;
+}
+.entry-copy {
+  align-self: flex-end;
+  margin-top: calc(var(--unit) * 1);
+  padding: calc(var(--unit) * 0.5) calc(var(--unit) * 2);
+  border: none;
+  background: none;
+  color: var(--muted);
+}
+.entry-copy:hover {
+  color: var(--text);
+}
+@media (max-width: 48rem) {
+  /* phones get the theme's touch floor; neither button is hover-revealed */
+  .fence-copy,
+  .entry-copy {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
+
 /* diffs */
 .diff-card {
   border: 1px solid var(--border);
@@ -408,8 +517,10 @@ label {
   background: var(--surface-2);
   padding: calc(var(--unit) * 1) calc(var(--unit) * 3);
   font-size: var(--fs-small);
+  /* long workspace paths wrap instead of widening the card on phones */
+  overflow-wrap: anywhere;
 }
-.diff-card > pre {
+.diff-pre {
   margin: 0;
   overflow-x: auto;
 }
@@ -417,14 +528,28 @@ label {
   white-space: pre;
   padding: 0 calc(var(--unit) * 2);
 }
+/* four roles on screen at once, matching ajent's TUI diffs: color and the
+   gutter marker carry meaning, never a background shade */
 .diff-line.add {
-  background: color-mix(in srgb, var(--ok) 18%, transparent);
+  color: var(--ok);
 }
 .diff-line.del {
-  background: color-mix(in srgb, var(--danger) 18%, transparent);
+  color: var(--danger);
+}
+.diff-line.ctx {
+  color: var(--muted);
 }
 .diff-line.meta {
+  color: var(--diff-hunk);
+}
+.diff-num {
   color: var(--muted);
+}
+/* intraline emphasis, the web analog of the TUI's reverse video marks */
+.diff-em {
+  background: color-mix(in srgb, currentColor 30%, transparent);
+  border-radius: 2px;
+  font-weight: 600;
 }
 
 /* tool cards */
@@ -436,6 +561,15 @@ label {
 }
 .tool-card.error {
   border-color: var(--danger);
+}
+/* staged user shell run: the amber left edge ties the composer glyph, the live
+   card, its staged badge and the delivered block into one object; a `!!` run
+   reads danger and never delivers, so the delivered accent is always amber */
+.tool-card.shell {
+  border-left: 3px solid var(--warn);
+}
+.tool-card.shell.excluded {
+  border-left-color: var(--danger);
 }
 .tool-header {
   display: flex;
@@ -458,6 +592,11 @@ label {
   word-break: break-word;
   margin: calc(var(--unit) * 1) 0 0;
 }
+/* edit input preview: per-op fragment diffs under the path chip; rows keep
+   their own nowrap so long hunks scroll inside the card */
+.edit-input {
+  margin-top: calc(var(--unit) * 1);
+}
 
 /* live stream */
 .live-block {
@@ -479,6 +618,11 @@ label {
 }
 .dialog-card button + button {
   margin-left: calc(var(--unit) * 2);
+}
+/* optional permit note input, one per permit card above its option buttons */
+.dialog-note {
+  width: 100%;
+  margin: calc(var(--unit) * 1) 0 calc(var(--unit) * 2);
 }
 .multipick {
   display: flex;
@@ -510,24 +654,34 @@ label {
   font-size: var(--fs-small);
 }
 .resolved-dialog {
+  width: 100%;
+  text-align: left;
   color: var(--muted);
   padding: calc(var(--unit) * 2);
 }
 
-/* composer */
+/* composer: prompt line with the attach and send buttons beside it */
 .composer {
   border-top: 1px solid var(--border);
   padding-top: calc(var(--unit) * 3);
 }
 .composer textarea {
-  width: 100%;
+  flex: 1;
   resize: none;
   display: block;
+  min-width: 0;
 }
 .composer-actions {
   display: flex;
   gap: calc(var(--unit) * 2);
-  margin-top: calc(var(--unit) * 2);
+  flex-shrink: 0;
+}
+@media (max-width: 48rem) {
+  /* phones meet the theme's touch floor while desktop keeps its density */
+  .composer-actions button {
+    min-height: 44px;
+    min-width: 44px;
+  }
 }
 .queue-chip.failed .badge.danger {
   margin-left: calc(var(--unit) * 1);
@@ -547,19 +701,10 @@ label {
 .usage-chip {
   cursor: pointer;
 }
-.meter.warn > div {
-  background: var(--warn);
-}
-.meter.danger > div {
-  background: var(--danger);
-}
-.model-menu {
-  position: relative;
-}
+/* MenuPopover portals .menu layers into body and fixes them in place; these
+   rules only size and stack them. */
 .menu {
-  position: absolute;
-  top: calc(100% + var(--unit) * 1);
-  left: 0;
+  position: fixed;
   z-index: 20;
   display: flex;
   flex-direction: column;
@@ -603,27 +748,62 @@ label {
   max-height: 80vh;
   overflow-y: auto;
 }
-.rewind-list {
+/* the optional corner ✕ floats into the card's top right and sticks there
+   while the card's own content scrolls past it */
+.modal-close {
+  position: sticky;
+  top: 0;
+  z-index: 1; /* stay above content flowing beside the float */
+  float: right;
+  min-width: 26px;
+  min-height: 26px;
+  margin: calc(var(--unit) * -1) calc(var(--unit) * -2) 0 calc(var(--unit) * 2);
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 1em;
+  line-height: 26px;
+}
+.modal-close:hover {
+  color: var(--danger);
+}
+@media (max-width: 48rem) {
+  /* rename rides this modal on phones, so the ✕ meets the touch floor */
+  .modal-close {
+    min-width: 44px;
+    min-height: 44px;
+    line-height: 44px;
+  }
+}
+/* the rewind modal is a column: the list is the one scroll container, header
+   and footer stay put */
+.modal.rewind-modal {
   display: flex;
   flex-direction: column;
-  gap: calc(var(--unit) * 1);
+  overflow: hidden;
 }
-.rewind-list button {
-  text-align: left;
+.rewind-modal > .rewind-list {
+  min-height: 0; /* lets the capped modal shrink the list, not overflow it */
+}
+.rewind-foot {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: calc(var(--unit) * 2);
+  margin-top: calc(var(--unit) * 3);
 }
-.rewind-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.rewind-hint {
+  font-size: var(--fs-small);
 }
 
 /* toasts */
 .toasts {
   position: fixed;
-  bottom: calc(var(--unit) * 6);
+  /* --keyboard-inset lifts notices above the OS keyboard, where ancestor
+     padding cannot reach a fixed element; unset on desktop reads as zero */
+  bottom: calc(var(--unit) * 6 + var(--keyboard-inset, 0px));
   left: 50%;
   transform: translateX(-50%);
   display: flex;
@@ -643,14 +823,6 @@ label {
   color: var(--danger);
 }
 
-.blocks > div {
-  padding: calc(var(--unit) * 2) 0;
-  border-bottom: 1px solid var(--border);
-}
-.block-role {
-  font-size: var(--fs-small);
-  color: var(--muted);
-}
 .block-notice.info {
   color: var(--text);
 }
@@ -682,18 +854,43 @@ label {
   border-radius: 999px;
   padding: calc(var(--unit) * 0.5) calc(var(--unit) * 2);
 }
+/* the overflow line stands in for rows hidden by the chip cap */
+.queue-more {
+  align-self: center;
+  color: var(--muted);
+  font-size: var(--fs-small);
+}
 
-/* context meter */
+/* context meter: the track fills against the compaction budget so full means
+   compaction fires now, the count reads used over the real window, and the
+   color escalates on the same denominator as the fill */
 .meter {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--unit) * 1.5);
+  flex-shrink: 0;
+}
+.meter-track {
   width: 9rem;
   height: 6px;
   background: var(--surface-2);
   border-radius: 3px;
   overflow: hidden;
 }
-.meter > div {
+.meter-fill {
+  display: block;
   height: 100%;
   background: var(--accent);
+}
+.meter.warn .meter-fill {
+  background: var(--warn);
+}
+.meter.danger .meter-fill {
+  background: var(--danger);
+}
+.meter-count {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
 
 /* --- desktop workspaces (phase 09) --- */
@@ -747,12 +944,17 @@ label {
 .shortcut-card {
   max-width: 26rem;
 }
+.shortcut-card h3 {
+  margin: calc(var(--unit) * 3) 0 calc(var(--unit) * 1);
+  font-size: inherit;
+  color: var(--muted);
+}
 .shortcut-table td {
   padding: calc(var(--unit) * 0.5) calc(var(--unit) * 3) calc(var(--unit) * 0.5) 0;
 }
 
-/* inbox rail */
-.inbox-rail {
+/* focus rail */
+.focus-rail {
   width: 320px;
   min-width: 250px;
   border-right: 1px solid var(--border);
@@ -774,10 +976,6 @@ label {
   text-transform: uppercase;
   letter-spacing: 0.06em;
   padding: calc(var(--unit) * 1) calc(var(--unit) * 2) 0;
-}
-.rail-empty {
-  padding: calc(var(--unit) * 2);
-  font-size: var(--fs-small);
 }
 .rail-row {
   display: flex;
@@ -809,6 +1007,7 @@ label {
   display: flex;
   align-items: center;
   gap: calc(var(--unit) * 2);
+  position: relative;
 }
 .rail-name {
   font-weight: 550;
@@ -835,12 +1034,16 @@ label {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* the check-off rides only the mobile switcher rows today, so it carries the
+   touch floor outright rather than behind a breakpoint */
 .rail-check {
   border: none;
   background: none;
   color: var(--muted);
   cursor: pointer;
   padding: 0 2px;
+  min-width: 44px;
+  min-height: 44px;
   font-size: var(--fs-small);
 }
 .rail-check:hover {
@@ -870,6 +1073,21 @@ label {
 .composer-box {
   position: relative;
   display: flex;
+  align-items: flex-end;
+  gap: calc(var(--unit) * 2);
+}
+/* shell-mode marker beside the prompt: the draft's own prefix as a glyph,
+   amber for a staged run, danger for one excluded from context */
+.composer-kind {
+  flex-shrink: 0;
+  padding-bottom: calc(var(--unit) * 1.5); /* rides the textarea's text line */
+  font-family: var(--font-mono);
+  font-weight: 700;
+  color: var(--warn);
+  user-select: none;
+}
+.composer-kind.excluded {
+  color: var(--danger);
 }
 .at-menu {
   position: absolute;
@@ -898,37 +1116,173 @@ label {
   background: color-mix(in srgb, var(--accent) 25%, transparent);
 }
 
-/* rewind picker rows carry their tree placement inline */
-.rewind-list {
+/* slash-command menu: the @-menu shell, each row pairing the command with its
+   one-line description so the menu teaches as it completes */
+.slash-menu button {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
-  max-height: 55vh;
-  overflow-y: auto;
+  align-items: baseline;
+  gap: calc(var(--unit) * 2);
 }
-.rewind-row {
-  font-family: var(--font-mono);
-  text-align: left;
+.slash-menu .slash-name {
+  flex-shrink: 0;
+}
+.slash-menu .slash-desc {
+  margin-left: auto;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* reverse history search: opens blank above the composer, an inline live
+   block like the @-menu rather than a modal picker, with more room since a
+   searched prompt may span lines */
+.search-menu {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  padding: calc(var(--unit) * 1);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  z-index: 12;
+}
+.search-header {
   display: flex;
   align-items: center;
-  gap: calc(var(--unit) * 1);
-  max-width: 100%;
+  gap: calc(var(--unit) * 2);
+  font-family: var(--font-mono);
+  font-size: var(--fs-small);
+  color: var(--accent);
 }
-.rewind-row.active-branch {
-  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+.search-echo {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.search-count {
+  color: var(--muted);
+}
+.search-close {
+  flex-shrink: 0;
+  margin-left: auto;
+  padding: 0 calc(var(--unit) * 1);
+}
+.search-empty {
+  margin: calc(var(--unit) * 1) 0 0;
+  font-size: var(--fs-small);
+  color: var(--muted);
+}
+.search-list {
+  margin: calc(var(--unit) * 1) 0 0;
+  padding: 0;
+  list-style: none;
+  max-height: 24rem;
+  overflow-y: auto;
+}
+.search-list button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font-family: var(--font-mono);
+  font-size: var(--fs-small);
+  background: none;
+}
+.search-list button.active {
+  background: color-mix(in srgb, var(--accent) 25%, transparent);
+}
+.search-row {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  overflow: hidden;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.search-row mark {
+  background: color-mix(in srgb, var(--accent) 35%, transparent);
+  color: inherit;
+  border-radius: 2px;
+}
+
+/* rewind picker rows: one grid row per candidate, columns shared through
+   subgrid so guide, tag, label and detail line up down the whole tree */
+.rewind-list {
+  display: grid;
+  grid-template-columns: max-content max-content minmax(0, 1fr) max-content;
+  gap: 1px calc(var(--unit) * 3);
+  align-content: start;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.rewind-list > p {
+  grid-column: 1 / -1; /* load states never squeeze into the guide track */
+}
+.rewind-row {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  align-items: center;
+  min-height: calc(var(--unit) * 8);
+  padding: 0 calc(var(--unit) * 2);
+  border-radius: var(--radius);
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+}
+.rewind-row:not([aria-disabled='true']):hover,
+.rewind-row[data-cursor='true'] {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.rewind-row[aria-disabled='true'] {
+  cursor: default;
+}
+.rewind-row.head {
+  box-shadow: inset 2px 0 0 var(--accent); /* the one head marker */
+}
+.rewind-row.off {
+  opacity: 0.55; /* abandoned forks recede, ajent's Off shading */
+}
+/* kind colors follow ajent's marks: prompts accent, replies plain, rest muted */
+.rewind-row .kind-user {
+  --rewind-kind: var(--accent);
+}
+.rewind-row .kind-assistant {
+  --rewind-kind: var(--text);
+}
+.rewind-row .kind-compaction {
+  --rewind-kind: var(--muted);
 }
 .rewind-guide {
-  flex: none;
-  white-space: pre;
+  font-family: var(--font-mono);
+  font-size: var(--fs-small);
+  color: var(--muted);
+  white-space: pre; /* connector cells are four-column mono runs */
+}
+.rewind-tag {
+  font-size: var(--fs-small);
+  color: var(--rewind-kind, var(--muted));
+}
+.rewind-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--rewind-kind, var(--muted));
 }
 .rewind-label {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.ok-badge {
-  background: color-mix(in srgb, var(--ok) 25%, transparent);
-  color: var(--ok);
+.rewind-detail {
+  font-size: var(--fs-small);
+  color: var(--muted);
+  padding-left: calc(var(--unit) * 2);
+}
+.rewind-row.head .rewind-detail {
+  color: var(--accent);
 }
 
 /* tile mode */
@@ -977,32 +1331,28 @@ label {
   background: var(--surface-2);
   border-bottom: 1px solid var(--border);
   min-height: 28px;
-  overflow-x: visible; /* the add menu may hang below the strip */
+  overflow-x: visible; /* overflowing tabs paint instead of scrolling */
 }
 .tile-add {
   margin-left: auto;
-  position: relative;
+  display: inline-flex;
 }
-.tile-add summary {
-  list-style: none;
-  cursor: pointer;
+.tile-add button {
+  background: none;
+  border: none;
   padding: 0 calc(var(--unit) * 2);
   border-radius: var(--radius);
   color: var(--muted);
   user-select: none;
 }
-.tile-add summary::-webkit-details-marker {
-  display: none;
-}
-.tile-add[open] summary,
-.tile-add summary:hover {
+.tile-add button:hover,
+.tile-add button[aria-expanded='true'] {
   background: var(--surface);
   color: var(--text);
 }
+/* positioned by MenuPopover; a pane's overflow must never clip it */
 .tile-menu {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 2px);
+  position: fixed;
   min-width: 14rem;
   max-height: 18rem;
   overflow-y: auto;
@@ -1073,6 +1423,7 @@ label {
 .tile-divider {
   flex: 0 0 6px;
   z-index: 5;
+  touch-action: none; /* pan gestures must not steal a divider drag */
 }
 .tile-divider.v {
   cursor: col-resize;
@@ -1243,10 +1594,65 @@ label {
   color: var(--muted);
   font-size: var(--fs-small);
 }
+/* copy/play controls sit under the enabled toggle instead of wrapping beside it */
+.job-row-actions {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--unit) * 1);
+  margin-top: calc(var(--unit) * 1);
+}
 .editor-actions {
   display: flex;
   gap: calc(var(--unit) * 2);
   margin-top: calc(var(--unit) * 4);
+}
+
+/* weekday picker: one row of day chips inside the job editor's schedule grid */
+.weekday-picker {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: calc(var(--unit) * 2);
+  color: var(--muted);
+  font-size: var(--fs-small);
+}
+.weekday-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--unit) * 1);
+  margin: 0;
+  padding: calc(var(--unit) * 0.5) calc(var(--unit) * 1.5);
+  background: var(--surface-2);
+  border-radius: var(--radius);
+  color: inherit;
+}
+.weekday-chip input {
+  margin: 0;
+}
+
+/* custom tool set inside the job editor's launch-facts grid: a master
+   checkbox plus chat-panel-styled rows, stacked across both columns */
+.job-tools {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--unit) * 2);
+}
+.job-tools .tool-row input {
+  margin: 0;
+}
+
+/* rename control: a quiet pencil beside session labels everywhere */
+.rename-control {
+  padding: 0 calc(var(--unit) * 1);
+  font-size: var(--fs-small);
+  color: var(--muted);
+  background: none;
+  border: none;
+}
+.rename-control:hover {
+  color: var(--text);
 }
 
 /* schedule preview beside the editor's mode chooser */
@@ -1290,13 +1696,16 @@ label {
   overflow-y: auto;
 }
 
-/* the editor fills small screens, so mobile gets a full-screen form */
+/* the editor fills small screens, so mobile gets a full-screen form; dvh
+   keeps its action buttons above browser toolbars instead of behind them */
 @media (max-width: 48rem) {
   .modal.job-editor,
   .modal.run-detail {
     width: 100vw;
-    height: 100vh;
+    height: 100vh; /* static fallback for engines without dynamic units */
+    height: 100dvh;
     max-height: 100vh;
+    max-height: 100dvh;
     border-radius: 0;
     overflow-y: auto;
   }
@@ -1310,9 +1719,21 @@ label {
 .mobile-topbar {
   padding-right: calc(var(--unit) * 4);
 }
+/* the badge is the phone's only needs-input affordance, so it meets the
+   touch floor. Desktop's compact topbar button keeps its own density */
+.mobile-topbar .attend-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+}
 .mobile-content {
   padding: calc(var(--unit) * 3);
   max-width: none;
+  /* pull-to-refresh plays in the launcher's own dead overscroll; containing it
+     here keeps the browser's page-level refresh from stealing the gesture */
+  overscroll-behavior-y: contain;
 }
 
 /* launcher and switcher rows: large targets with status beside the label */
@@ -1320,6 +1741,10 @@ label {
   display: flex;
   flex-direction: column;
   gap: calc(var(--unit) * 2);
+}
+/* section headings reuse the desktop rail's label style, padded to the rows */
+.switcher-rows .rail-section-title {
+  padding: calc(var(--unit) * 2) calc(var(--unit) * 3) 0;
 }
 .switch-row {
   display: flex;
@@ -1360,6 +1785,21 @@ label {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* trailing action area per row: Rename everywhere, Settings and Stop on live
+   rows, Resume on ended ones with a workspace; refusals wrap onto their own
+   line */
+.switch-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: calc(var(--unit) * 2);
+}
+.switch-actions button {
+  min-height: 44px; /* touch target */
+}
+.switch-actions .error-text {
+  flex-basis: 100%;
+}
 
 .mobile-home section {
   margin-bottom: calc(var(--unit) * 5);
@@ -1370,6 +1810,9 @@ label {
   gap: calc(var(--unit) * 3);
   font-size: var(--fs-body);
   margin: 0 0 calc(var(--unit) * 2);
+}
+.mobile-home h2 button {
+  min-height: 44px; /* touch floor: the launch/hide toggle */
 }
 .mobile-links {
   display: flex;
@@ -1417,11 +1860,18 @@ label {
 .saved-meta {
   font-size: var(--fs-small);
 }
+/* the launcher card's buttons: Launch plus every saved row's Resume */
+.launch-form button {
+  min-height: 44px; /* touch target floor */
+}
 
 /* bottom sheet with drag handle */
 .sheet-backdrop {
   position: fixed;
   inset: 0;
+  /* the sheet rides this offset above the keyboard; ancestor padding cannot
+     move a fixed element, so the component publishes --keyboard-inset here */
+  bottom: var(--keyboard-inset, 0px);
   background: color-mix(in srgb, var(--bg) 55%, transparent);
   z-index: 30;
 }
@@ -1430,7 +1880,9 @@ label {
   bottom: 0;
   left: 0;
   right: 0;
-  max-height: 82vh;
+  /* the keyboard-lifted backdrop is shorter than the layout viewport, so
+     cap against both instead of poking past the screen top */
+  max-height: min(82vh, 100%);
   display: flex;
   flex-direction: column;
   background: var(--surface);
@@ -1441,10 +1893,17 @@ label {
 .bottom-sheet.dragging {
   transition: none;
 }
+.bottom-sheet > * {
+  min-height: 0; /* children shrink so the body can own scrolling */
+}
+/* the one child exempt from the flatten rule above: drag surface plus
+   tap-to-dismiss in a single 44px target. Same specificity, so this rule
+   must stay below that one */
 .sheet-handle {
   display: flex;
+  align-items: center;
   justify-content: center;
-  padding: calc(var(--unit) * 3) 0; /* generous grab target */
+  min-height: 44px; /* touch floor */
   touch-action: none;
   cursor: grab;
 }
@@ -1454,21 +1913,37 @@ label {
   border-radius: 999px;
   background: var(--border);
 }
-.bottom-sheet > .switcher-rows,
-.bottom-sheet > * {
-  min-height: 0;
-}
-.switcher-rows,
-.rewind-list {
+/* only the sheet's rows scroll their own body: unscoped, the launcher's rows
+   carry a dead overflow-y that shadows the page scroller and lets
+   pull-to-refresh fire mid-list */
+.bottom-sheet > .switcher-rows {
   overflow-y: auto;
   padding: 0 calc(var(--unit) * 3) calc(var(--unit) * 4);
 }
 
-/* mobile session screen: compact sticky header, strip above the composer */
+/* mobile rewind rows: the desktop picker's row language at touch scale — kind
+   dot, label, age — as single-line cards inside the sheet */
+.bottom-sheet .rewind-list {
+  grid-template-columns: auto minmax(0, 1fr) max-content;
+  gap: calc(var(--unit) * 1);
+  padding: 0 calc(var(--unit) * 3) calc(var(--unit) * 4);
+}
+.bottom-sheet .rewind-row {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  min-height: 44px; /* touch floor */
+}
+
+/* mobile session screen: compact sticky header, shared status bar under the
+   composer. The safe-area baseline keeps Send and the status bar out of the
+   home-indicator gesture zone with the keyboard closed; --keyboard-inset adds
+   on top while it is open, so the two insets compose instead of replacing
+   each other */
 .mobile-session {
   display: flex;
   flex-direction: column;
   height: 100%;
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--keyboard-inset, 0px));
 }
 .mobile-session-header {
   position: sticky;
@@ -1476,83 +1951,94 @@ label {
   z-index: 5;
   display: flex;
   align-items: center;
+  /* one line on every phone: the secondary actions collapse behind the
+     trailing menu button and the chips ellipsize before the row can overflow */
   gap: calc(var(--unit) * 2);
   padding: calc(var(--unit) * 2) calc(var(--unit) * 3);
   background: var(--surface);
   border-bottom: 1px solid var(--border);
 }
+/* 44px touch-target floor for the header buttons, matching the back link */
+.mobile-session-header button {
+  min-height: 44px;
+}
+/* navigation controls never yield space to the shrinking chips */
+.mobile-session-header .back-link,
+.mobile-session-header .header-menu-trigger {
+  flex: none;
+}
+.mobile-session-header .header-menu-trigger {
+  min-width: 44px; /* touch target, width included */
+}
 .mobile-session-header .back-link {
   font-size: 1.2em;
-  min-width: 32px;
+  min-width: 44px; /* touch target, width included */
   min-height: 44px; /* touch target */
   display: inline-flex;
   align-items: center;
   justify-content: center;
 }
-.seat-claim {
-  white-space: normal;
-  text-align: left;
+/* session identity: one ellipsized label after the back link, sized by
+   leftover space so a long title truncates instead of forcing wraps */
+.mobile-session-header .session-title {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 550;
+}
+/* chips and badges give way instead of wrapping: each ellipsizes inside the
+   one-line row, shrinking behind its own min-width */
+.mobile-session-header .badge,
+.mobile-session-header .model-menu {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* the chip wrapper yields with its button, since a visible-overflow flex item
+   otherwise floors at its content's width */
+.mobile-session-header .model-chip-wrap {
+  min-width: 0;
 }
 
 .model-chip-wrap {
   position: relative;
   display: inline-flex;
 }
-.model-menu-list {
-  position: absolute;
-  top: calc(100% + var(--unit) * 1);
-  left: 0;
-  z-index: 20;
-  display: flex;
-  flex-direction: column;
-  gap: calc(var(--unit) * 1);
-  max-height: 50vh;
-  overflow-y: auto;
-}
-.model-menu-list button {
-  text-align: left;
-}
 
-.spinner {
-  margin-left: calc(var(--unit) * 1.5);
-  display: inline-block;
-}
-
-/* status strip: side rails collapsed into one slim line */
-.status-strip {
-  display: flex;
-  align-items: center;
-  gap: calc(var(--unit) * 2);
-  padding: calc(var(--unit) * 1) calc(var(--unit) * 3);
-  border-top: 1px solid var(--border);
-  font-size: var(--fs-small);
-  overflow-x: auto;
-  white-space: nowrap;
-}
+/* segment chip inside a status line; both label lengths render and the bar's
+   width picks, standing in for upstream's terminal-width collapse ladder */
 .strip-segment {
   flex-shrink: 0;
 }
-.activity-dots {
-  display: inline-flex;
-  gap: calc(var(--unit) * 1);
-  align-items: center;
-  flex-shrink: 0;
+.strip-segment .seg-short {
+  display: none;
 }
-.activity-dots .dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 999px;
-  background: var(--accent);
+@container (max-width: 44rem) {
+  .strip-segment .seg-text {
+    display: none;
+  }
+  .strip-segment .seg-short {
+    display: inline;
+  }
+  .meter-track {
+    width: 5rem;
+  }
 }
 
-/* touch dialogs: full-width stacked cards, big answer buttons */
+/* touch dialogs: full-width stacked cards, big answer buttons; every
+   tappable button in a card meets the 44px floor */
 .dialog-dock.touch {
   padding: calc(var(--unit) * 2) calc(var(--unit) * 3);
 }
+.dialog-card.touch button {
+  min-height: 44px;
+}
 .dialog-card.touch .dialog-choice {
   display: block;
-  width: 100%;
-  min-height: 44px; /* against the one-line compact row on purpose */
+  width: 100%; /* against the one-line compact row on purpose */
   margin-bottom: calc(var(--unit) * 2);
   text-align: center;
 }
@@ -1568,7 +2054,9 @@ label {
   flex: 1;
 }
 
-/* pushed full-screen panels (tools, rewind) */
+/* pushed full-screen panels (tools, settings); named *Screen components,
+   beside draggable BottomSheets for lightweight pickers and centered modals
+   for tiny shared forms */
 .pushed-screen {
   position: fixed;
   inset: 0;
@@ -1577,7 +2065,9 @@ label {
   display: flex;
   flex-direction: column;
   overflow-y: auto;
-  padding-bottom: env(safe-area-inset-bottom, 0px);
+  /* safe-area baseline plus the keyboard inset .mobile-session or
+     .sheet-backdrop publishes, so inputs inside scroll clear of the keyboard */
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--keyboard-inset, 0px));
 }
 .pushed-header {
   position: sticky;
@@ -1594,10 +2084,23 @@ label {
   margin: 0;
   flex: 1;
 }
-.tools-hint,
-.rewind-list {
+/* 44px touch-target floor for the header buttons; the ended screen reuses
+   this header, so its back and resume ride the same floor */
+.pushed-header button {
+  min-height: 44px;
+}
+/* fixed panels cover the whole viewport, so their sticky header carries the
+   top safe area itself; the ended-screen header sits below the shell topbar
+   and must not double it */
+.pushed-screen > .pushed-header {
+  padding-top: calc(env(safe-area-inset-top, 0px) + var(--unit) * 2);
+}
+.tools-hint {
   padding-left: calc(var(--unit) * 3);
   padding-right: calc(var(--unit) * 3);
+}
+.settings-screen-body {
+  padding: 0 calc(var(--unit) * 3) calc(var(--unit) * 4);
 }
 .tool-rows {
   display: flex;
@@ -1622,30 +2125,14 @@ label {
   margin-left: auto;
   font-size: var(--fs-small);
 }
-.rewind-list .rewind-row {
-  display: flex;
-  flex-direction: column;
-  gap: calc(var(--unit) * 1);
-  text-align: left;
-  width: 100%;
-  cursor: pointer;
-}
-.rewind-list .rewind-row.head {
-  opacity: 0.6;
-}
-.rewind-text {
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-}
 
 /* full-screen settings */
 .mobile-settings h2,
 .mobile-settings h3 {
   font-size: var(--fs-body);
 }
-.appearance-row {
+/* every top-level settings card, so sections read as separate rows */
+.settings-card {
   margin-bottom: calc(var(--unit) * 4);
 }
 .setting-row {
@@ -1672,7 +2159,7 @@ label {
   overflow: hidden;
 }
 .segmented button {
-  min-height: 36px;
+  min-height: 44px; /* touch target floor, like every mobile button */
   padding: 0 calc(var(--unit) * 4);
   background: transparent;
 }
@@ -1681,10 +2168,246 @@ label {
   color: var(--accent-text);
 }
 
-/* mobile session screen owns its scrolling under the sticky header */
+/* contextual notification opt-in: one quiet card riding the attention moment,
+   shown only while a session waits and permission is undecided */
+.notify-prompt {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--unit) * 2) calc(var(--unit) * 3);
+}
+.notify-copy {
+  flex: 1;
+  min-width: 14rem;
+  margin: 0;
+}
+.notify-actions {
+  display: flex;
+  gap: calc(var(--unit) * 2);
+}
+.notify-prompt button {
+  min-height: 44px; /* touch target floor, like every mobile button */
+}
+
+/* mobile session screen: the transcript owns the scroll under the sticky
+   header, and the bottom status bar gets touch padding the desktop bar does
+   not need; it stays inside .mobile-session's safe-area baseline, hugging the
+   bottom edge like desktop's */
 @media (max-width: 48rem) {
   .mobile-session .transcript-wrap {
     flex: 1;
     min-height: 0;
   }
+  .mobile-session .status-bar {
+    padding: calc(var(--unit) * 2) calc(var(--unit) * 3);
+  }
+  /* queue chips wrap instead of clipping, and the edit button gets the 44px
+     touch target floor */
+  .mobile-session .queue-chip {
+    display: inline-flex;
+    align-items: center;
+    flex-wrap: wrap;
+    overflow-wrap: anywhere;
+  }
+  .mobile-session .queue-chip button {
+    min-height: 44px;
+  }
+  /* the sub-agent stop rides its chip, so it meets the floor too */
+  .mobile-session .sub-agent-stop {
+    min-height: 44px;
+  }
+}
+
+/* --- phase 14: status bar, tools panel, settings hamburger, barrier rows --- */
+
+/* bottom status bar under the composer: agent state at a glance */
+.status-bar {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--unit) * 3);
+  border-top: 1px solid var(--border);
+  padding: calc(var(--unit) * 1.5) 0;
+  font-size: var(--fs-small);
+  min-height: 2em;
+  /* inline-size container so segment chips trade long labels for short forms */
+  container-type: inline-size;
+}
+.bar-activity {
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 40%;
+}
+.strip-segment.muted,
+.status-bar .muted {
+  flex-shrink: 0;
+}
+
+/* sub-agent jobs */
+.subagent-chips,
+.subagent-state {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--unit) * 1);
+  margin: calc(var(--unit) * 1) 0;
+}
+/* one job = live line chip, record status/elapsed badges, optional stop */
+.sub-agent-job {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--unit) * 0.5);
+  min-width: 0;
+}
+/* rows run long upstream (~2048 runes); clamp keeps the bar one line tall */
+.sub-agent-chip {
+  max-width: 28rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--fs-small);
+}
+.sub-agent-stop {
+  font-size: var(--fs-small);
+  padding: 0 calc(var(--unit) * 1.5);
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.sub-agent-stop:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* tools panel popover, positioned by MenuPopover beside its trigger chip */
+.menu .menu-empty {
+  display: block;
+  padding: calc(var(--unit) * 1) 0;
+}
+/* provider label heading a grouped model menu renders before its items */
+.menu .menu-heading {
+  display: block;
+  padding: calc(var(--unit) * 1.5) calc(var(--unit) * 2);
+  color: var(--muted);
+  font-size: var(--fs-small);
+}
+/* a provider group is semantic only; its items join the menu's own layout */
+.menu .model-menu-group {
+  display: contents;
+}
+.tool-row {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--unit) * 2);
+  color: var(--text);
+  font-size: var(--fs-small);
+  white-space: nowrap;
+}
+.tool-row.disabled {
+  opacity: 0.5;
+}
+.tool-row .tool-source {
+  margin-left: auto;
+}
+
+/* rename rides a centered modal at every breakpoint, so cramped cards and
+   rails never bury the editor */
+.rename-modal {
+  width: min(26rem, 92vw);
+}
+.rename-modal label {
+  margin-top: 0;
+}
+.rename-modal input {
+  width: 100%;
+  margin-top: calc(var(--unit) * 1);
+}
+.rename-modal .rename-actions {
+  display: flex;
+  gap: calc(var(--unit) * 2);
+  margin-top: calc(var(--unit) * 3);
+}
+
+/* spinner: the working glyph, first element of the status line, colored by
+   what the turn is waiting on and static dim at rest */
+.spinner {
+  display: inline-block;
+  min-width: 1.2em;
+  text-align: center;
+  font-family: var(--font-mono);
+}
+.spinner.idle {
+  color: var(--spin-idle);
+}
+.spinner.wait {
+  color: var(--spin-wait);
+}
+.spinner.stream {
+  color: var(--spin-stream);
+}
+.spinner.tool {
+  color: var(--spin-tool);
+}
+
+/* barrier buttons and cancel share one compact row */
+.dialog-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: calc(var(--unit) * 2);
+  margin-top: calc(var(--unit) * 2);
+}
+.dialog-actions button {
+  margin: 0;
+}
+
+/* both ☰ settings menus ride a centered modal narrower than the default, so
+   the setting rows read comfortably on wide screens too */
+.modal.settings-modal {
+  width: min(28rem, 92vw);
+}
+
+/* seat badge and stop affordance */
+.seat-badge {
+  cursor: pointer;
+}
+.stop-session {
+  color: var(--danger);
+}
+
+/* exited session cards keep their facts readable */
+.session-card .card-detail {
+  overflow-wrap: anywhere;
+}
+.exited-transcript {
+  margin-top: calc(var(--unit) * 2);
+  max-height: 60vh;
+  overflow: auto;
+}
+
+/* focus rail: stored title leading line one, its workspace path a smaller
+   sub-line below so long titles keep the whole row width */
+.rail-path {
+  display: block;
+  font-size: var(--fs-small);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+/* job editor prompt takes the whole card width under its heading */
+.prompt-field,
+.prompt-field textarea {
+  display: block;
+  width: 100%;
+}
+.prompt-field textarea {
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+/* chat header identity: stored title leading, short session id trailing */
+.header-session-id {
+  margin-left: calc(var(--unit) * 2);
+  font-size: var(--fs-small);
 }

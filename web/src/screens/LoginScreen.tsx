@@ -6,7 +6,8 @@ import { ApiError } from '../api/client'
 import { useAuth } from '../providers/auth'
 
 // LoginScreen signs in with the unix account. The location state carries
-// where an expired session started, so signing in returns there.
+// where an expired session started (path plus query), so signing in returns
+// there.
 export default function LoginScreen() {
   const { login, status } = useAuth()
   const navigate = useNavigate()
@@ -72,9 +73,15 @@ export default function LoginScreen() {
   )
 }
 
+// fromLocation reads the redirect target AuthGate stored on its way to
+// /login. History state is client-writable, so only same-origin absolute
+// paths are honored and anything else falls back home.
 function fromLocation(state: unknown): string {
   const from = (state as { from?: unknown } | null)?.from
-  return typeof from === 'string' ? from : ''
+  if (typeof from !== 'string') return ''
+  // "//" is a protocol-relative URL and "\\" parses like one, both off-site
+  if (!from.startsWith('/') || from.startsWith('//') || from.includes('\\')) return ''
+  return from
 }
 
 function describeFailure(err: unknown): string {

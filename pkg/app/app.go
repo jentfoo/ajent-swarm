@@ -10,7 +10,7 @@ type Options struct {
 	Port                 int    // TCP port the control API binds
 	Host                 string // bind address
 	StateDir             string // state directory override
-	Password             string // login password seed or replacement
+	SetPassword          bool   // --password: set the login password from a prompt or PasswordEnv
 	Daemon               bool   // run detached in the background
 	Pidfile              string // pid file path override
 	LogPath              string // log file path override
@@ -20,6 +20,8 @@ type Options struct {
 	NoSessionNaming      bool   // skip auto-naming sessions from their first prompt
 	RunRetentionDays     int    // prune run history older than this many days, 0 keeps forever
 	RunRetentionMax      int    // cap on stored run rows, 0 keeps unlimited
+	LogMaxBytes          int64  // rotate service and child logs past this size, 0 keeps unbounded
+	LogBackups           int    // rotated archives kept per log
 }
 
 // Run starts the service and returns the process exit code. With Daemon set it

@@ -1,6 +1,5 @@
 import { Link } from 'react-router'
 
-// JobTabs is the jobs area's shared sub-navigation.
 export function JobTabs({ active }: { active: 'jobs' | 'runs' }) {
   return (
     <nav className="job-tabs">

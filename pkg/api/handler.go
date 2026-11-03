@@ -8,6 +8,8 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"strings"
+	"time"
 
 	"github.com/jentfoo/ajent-swarm/pkg/auth"
 	"github.com/jentfoo/ajent-swarm/pkg/fleet"
@@ -15,56 +17,11 @@ import (
 	"github.com/jentfoo/ajent-swarm/pkg/web"
 )
 
-// API paths that need no credential. The bootstrap endpoint is handled inside
-// the auth middleware; login and me answer for themselves.
+// API paths needing no credential.
 const (
 	pathLogin = "/api/auth/login"
 	pathMe    = "/api/me"
 )
-
-// apiMethods lists every registered method-specific API path with the
-// methods it accepts, so wrong-method requests can still answer 405.
-var apiMethods = map[string]string{
-	pathLogin:          http.MethodPost,
-	"/api/auth/logout": http.MethodPost,
-	pathMe:             http.MethodGet,
-	auth.BootstrapPath: http.MethodPost,
-
-	"/api/stream":                      http.MethodGet,
-	"/api/sessions":                    "GET, POST",
-	"/api/sessions/{id}/entries":       http.MethodGet,
-	"/api/sessions/{id}/stop":          http.MethodPost,
-	"/api/sessions/{id}/take-control":  http.MethodPost,
-	"/api/sessions/{id}/submit":        http.MethodPost,
-	"/api/sessions/{id}/interrupt":     http.MethodPost,
-	"/api/sessions/{id}/mode":          http.MethodPost,
-	"/api/sessions/{id}/rewind":        http.MethodPost,
-	"/api/sessions/{id}/resolve":       http.MethodPost,
-	"/api/sessions/{id}/recall":        http.MethodPost,
-	"/api/sessions/{id}/candidates":    http.MethodGet,
-	"/api/sessions/{id}/snapshot":      http.MethodGet,
-	"/api/sessions/{id}/files":         http.MethodGet,
-	"/api/sessions/{id}/attachments":   http.MethodPost,
-	"/api/sessions/{id}/models":        http.MethodGet,
-	"/api/sessions/{id}/model":         http.MethodPost,
-	"/api/sessions/{id}/tools":         http.MethodPost,
-	"/api/sessions/{id}/settings":      http.MethodGet,
-	"/api/sessions/{id}/setting":       http.MethodPost,
-	"/api/sessions/{id}/title":         http.MethodPost,
-	"/api/attention":                   http.MethodGet,
-	"/api/models":                      http.MethodGet,
-	"/api/saved-sessions":              http.MethodGet,
-	"/api/saved-sessions/{id}/entries": http.MethodGet,
-
-	"/api/jobs":          "GET, POST",
-	"/api/jobs/{id}":     "GET, PUT, DELETE",
-	"/api/jobs/{id}/run": http.MethodPost,
-	"/api/jobs/preview":  http.MethodPost,
-	"/api/runs":          http.MethodGet,
-
-	"/api/tokens":        "GET, POST",
-	"/api/tokens/{name}": http.MethodDelete,
-}
 
 // Config wires the API handler to its collaborators; all fields are required.
 type Config struct {
@@ -72,7 +29,7 @@ type Config struct {
 	Fleet                *fleet.Manager   // session listing, streams and commands
 	Sched                *sched.Scheduler // job CRUD, manual fires and run history
 	AttachmentsDir       string           // where composer uploads land for @-reference submits
-	AllowRemoteBootstrap bool             // --allow-remote-bootstrap: non-loopback may set the first password
+	AllowRemoteBootstrap bool             // non-loopback may set the first password
 	Log                  *slog.Logger
 }
 
@@ -83,11 +40,19 @@ type apiServer struct {
 	sched                *sched.Scheduler
 	attachmentsDir       string
 	allowRemoteBootstrap bool
+	loginLimiter         *auth.FailLimiter // failed-login budget per source address
 }
 
-// Handler builds the full HTTP handler: request logging and panic recovery
-// around an API subtree gated by auth, plus the SPA at root. Static assets
-// stay reachable so the login page can render in every bootstrap state.
+// limiterDefaults bound failed credential attempts per source address.
+const (
+	loginFailuresAllowed = 10
+	loginWindow          = 5 * time.Minute
+)
+
+// Handler builds the full HTTP handler: security headers, request logging
+// and panic recovery around an API subtree gated by auth, plus the SPA at
+// root. Static assets stay reachable so the login page can render in every
+// bootstrap state.
 func Handler(cfg Config) http.Handler {
 	srv := &apiServer{
 		auth:                 cfg.Auth,
@@ -95,71 +60,109 @@ func Handler(cfg Config) http.Handler {
 		sched:                cfg.Sched,
 		attachmentsDir:       cfg.AttachmentsDir,
 		allowRemoteBootstrap: cfg.AllowRemoteBootstrap,
+		loginLimiter:         auth.NewFailLimiter(loginFailuresAllowed, loginWindow),
 	}
 
+	// one route table drives the mux and each path's 405 Allow set
+	allow := map[string]string{}
 	apiMux := http.NewServeMux()
-	apiMux.HandleFunc("POST "+pathLogin, srv.handleLogin)
-	apiMux.HandleFunc("POST /api/auth/logout", srv.handleLogout)
-	apiMux.HandleFunc("GET "+pathMe, srv.handleMe)
-	apiMux.HandleFunc("POST "+auth.BootstrapPath, srv.handleBootstrap)
+	for _, rt := range []struct {
+		method, path string
+		handle       func(http.ResponseWriter, *http.Request)
+	}{
+		{http.MethodPost, pathLogin, srv.handleLogin},
+		{http.MethodPost, "/api/auth/logout", srv.handleLogout},
+		{http.MethodGet, pathMe, srv.handleMe},
+		{http.MethodPost, auth.BootstrapPath, srv.handleBootstrap},
 
-	apiMux.HandleFunc("GET /api/stream", srv.handleStream)
-	apiMux.HandleFunc("GET /api/sessions", srv.handleSessionList)
-	apiMux.HandleFunc("POST /api/sessions", srv.handleLaunch)
-	apiMux.HandleFunc("GET /api/sessions/{id}/entries", srv.handleSessionEntries)
-	apiMux.HandleFunc("POST /api/sessions/{id}/stop", srv.handleStop)
-	apiMux.HandleFunc("POST /api/sessions/{id}/take-control", srv.handleTakeControl)
-	apiMux.HandleFunc("POST /api/sessions/{id}/submit", srv.handleSessionSubmit)
-	apiMux.HandleFunc("POST /api/sessions/{id}/interrupt", srv.handleSessionInterrupt)
-	apiMux.HandleFunc("POST /api/sessions/{id}/mode", srv.handleSessionMode)
-	apiMux.HandleFunc("POST /api/sessions/{id}/rewind", srv.handleSessionRewind)
-	apiMux.HandleFunc("POST /api/sessions/{id}/resolve", srv.handleSessionResolve)
-	apiMux.HandleFunc("POST /api/sessions/{id}/recall", srv.handleSessionRecall)
-	apiMux.HandleFunc("GET /api/sessions/{id}/candidates", srv.handleSessionCandidates)
-	apiMux.HandleFunc("GET /api/sessions/{id}/snapshot", srv.handleSessionSnapshot)
-	apiMux.HandleFunc("GET /api/sessions/{id}/files", srv.handleSessionFiles)
-	apiMux.HandleFunc("POST /api/sessions/{id}/attachments", srv.handleSessionAttachment)
-	apiMux.HandleFunc("GET /api/sessions/{id}/models", srv.handleSessionModels)
-	apiMux.HandleFunc("POST /api/sessions/{id}/model", srv.handleSessionModelSet)
-	apiMux.HandleFunc("POST /api/sessions/{id}/tools", srv.handleSessionTools)
-	apiMux.HandleFunc("GET /api/sessions/{id}/settings", srv.handleSessionSettings)
-	apiMux.HandleFunc("POST /api/sessions/{id}/setting", srv.handleSessionSettingSet)
-	apiMux.HandleFunc("POST /api/sessions/{id}/title", srv.handleSessionTitle)
-	apiMux.HandleFunc("GET /api/attention", srv.handleAttention)
-	apiMux.HandleFunc("GET /api/models", srv.handleModels)
-	apiMux.HandleFunc("GET /api/saved-sessions", srv.handleSavedSessions)
-	apiMux.HandleFunc("GET /api/saved-sessions/{id}/entries", srv.handleSavedEntries)
+		{http.MethodGet, "/api/stream", srv.handleStream},
+		{http.MethodGet, "/api/sessions", srv.handleSessionList},
+		{http.MethodPost, "/api/sessions", srv.handleLaunch},
+		{http.MethodGet, "/api/sessions/{id}/entries", srv.handleSessionEntries},
+		{http.MethodPost, "/api/sessions/{id}/stop", srv.handleStop},
+		{http.MethodPost, "/api/sessions/{id}/take-control", srv.handleTakeControl},
+		{http.MethodPost, "/api/sessions/{id}/submit", srv.handleSessionSubmit},
+		{http.MethodPost, "/api/sessions/{id}/interrupt", srv.handleSessionInterrupt},
+		{http.MethodPost, "/api/sessions/{id}/mode", srv.handleSessionMode},
+		{http.MethodPost, "/api/sessions/{id}/rewind", srv.handleSessionRewind},
+		{http.MethodPost, "/api/sessions/{id}/resolve", srv.handleSessionResolve},
+		{http.MethodPost, "/api/sessions/{id}/recall", srv.handleSessionRecall},
+		{http.MethodGet, "/api/sessions/{id}/recall-lines", srv.handleSessionRecallLines},
+		{http.MethodGet, "/api/sessions/{id}/agents", srv.handleSessionAgents},
+		{http.MethodPost, "/api/sessions/{id}/agents/stop", srv.handleSessionAgentsStop},
+		{http.MethodGet, "/api/sessions/{id}/candidates", srv.handleSessionCandidates},
+		{http.MethodGet, "/api/sessions/{id}/snapshot", srv.handleSessionSnapshot},
+		{http.MethodGet, "/api/sessions/{id}/files", srv.handleSessionFiles},
+		{http.MethodPost, "/api/sessions/{id}/attachments", srv.handleSessionAttachment},
+		{http.MethodGet, "/api/sessions/{id}/models", srv.handleSessionModels},
+		{http.MethodPost, "/api/sessions/{id}/model", srv.handleSessionModelSet},
+		{http.MethodPost, "/api/sessions/{id}/tools", srv.handleSessionTools},
+		{http.MethodGet, "/api/sessions/{id}/settings", srv.handleSessionSettings},
+		{http.MethodPost, "/api/sessions/{id}/setting", srv.handleSessionSettingSet},
+		{http.MethodPost, "/api/sessions/{id}/title", srv.handleSessionTitle},
+		{http.MethodGet, "/api/attention", srv.handleAttention},
+		{http.MethodGet, "/api/models", srv.handleModels},
+		{http.MethodGet, "/api/models/options", srv.handleModelOptions},
+		{http.MethodGet, "/api/tools/options", srv.handleToolOptions},
+		{http.MethodGet, "/api/settings", srv.handleSettingsGet},
+		{http.MethodPut, "/api/settings", srv.handleSettingsSet},
+		{http.MethodGet, "/api/saved-sessions", srv.handleSavedSessions},
+		{http.MethodGet, "/api/saved-sessions/{id}/entries", srv.handleSavedEntries},
 
-	apiMux.HandleFunc("GET /api/jobs", srv.handleJobList)
-	apiMux.HandleFunc("POST /api/jobs", srv.handleJobCreate)
-	apiMux.HandleFunc("GET /api/jobs/{id}", srv.handleJobGet)
-	apiMux.HandleFunc("PUT /api/jobs/{id}", srv.handleJobUpdate)
-	apiMux.HandleFunc("DELETE /api/jobs/{id}", srv.handleJobDelete)
-	apiMux.HandleFunc("POST /api/jobs/{id}/run", srv.handleJobFire)
-	apiMux.HandleFunc("POST /api/jobs/preview", srv.handleJobPreview)
-	apiMux.HandleFunc("GET /api/runs", srv.handleRuns)
+		{http.MethodGet, "/api/jobs", srv.handleJobList},
+		{http.MethodPost, "/api/jobs", srv.handleJobCreate},
+		{http.MethodGet, "/api/jobs/{id}", srv.handleJobGet},
+		{http.MethodPut, "/api/jobs/{id}", srv.handleJobUpdate},
+		{http.MethodDelete, "/api/jobs/{id}", srv.handleJobDelete},
+		{http.MethodPost, "/api/jobs/{id}/run", srv.handleJobFire},
+		{http.MethodPost, "/api/jobs/preview", srv.handleJobPreview},
+		{http.MethodPost, "/api/jobs/queue", srv.handleJobQueue},
+		{http.MethodGet, "/api/runs", srv.handleRuns},
 
-	apiMux.HandleFunc("GET /api/tokens", srv.handleTokenList)
-	apiMux.HandleFunc("POST /api/tokens", srv.handleTokenCreate)
-	apiMux.HandleFunc("DELETE /api/tokens/{name}", srv.handleTokenDelete)
+		{http.MethodGet, "/api/tokens", srv.handleTokenList},
+		{http.MethodPost, "/api/tokens", srv.handleTokenCreate},
+		{http.MethodDelete, "/api/tokens/{name}", srv.handleTokenDelete},
+	} {
+		apiMux.HandleFunc(rt.method+" "+rt.path, rt.handle)
+		if prev, ok := allow[rt.path]; ok {
+			allow[rt.path] = prev + ", " + rt.method
+		} else {
+			allow[rt.path] = rt.method
+		}
+	}
 
-	// unmatched API paths answer as JSON, never as the SPA document; a known
-	// path hit with the wrong method answers 405, since the method-specific
-	// patterns above do not match and would otherwise land here as a 404
+	// unmatched /api paths answer JSON, never the SPA; a wrong-method hit on a
+	// known path answers 405 from the Allow set above
 	apiMux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
-		if methods, ok := apiMethods[r.URL.Path]; ok {
+		if methods, ok := allow[r.URL.Path]; ok {
 			w.Header().Set("Allow", methods)
 			writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "")
 			return
 		}
-		writeError(w, http.StatusNotFound, "not_found", "")
+		writeError(w, http.StatusNotFound, codeNotFound, "")
 	})
 
 	root := http.NewServeMux()
 	root.Handle("/api/", cfg.Auth.Middleware(exemptFromAuth)(apiMux))
 	root.Handle("/", web.Handler())
 
-	return logRequests(cfg.Log)(recoverPanics(cfg.Log)(root))
+	return logRequests(cfg.Log)(recoverPanics(cfg.Log)(securityHeaders(root)))
+}
+
+// securityHeaders sets the baseline protection headers on every response.
+// API results carry session state and transcripts, so they also opt out of
+// caching; static content keeps the cache classes pkg/web applies by path.
+func securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("Referrer-Policy", "no-referrer")
+		h.Set("X-Frame-Options", "DENY")
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			h.Set("Cache-Control", "no-store")
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // exemptFromAuth lists the requests the gate lets through once a password
@@ -183,7 +186,7 @@ func recoverPanics(log *slog.Logger) func(http.Handler) http.Handler {
 				if rec := recover(); rec != nil {
 					log.Error("handler panic", "path", r.URL.Path, "panic", rec)
 					if !ww.wrote {
-						writeError(ww, http.StatusInternalServerError, "internal_error", "")
+						writeError(ww, http.StatusInternalServerError, codeInternalError, "")
 					}
 				}
 			}()
@@ -207,8 +210,8 @@ func logRequests(log *slog.Logger) func(http.Handler) http.Handler {
 	}
 }
 
-// responseWriter tracks whether headers went out and forwards the interfaces
-// later phases need (flushing, connection hijacking for websockets).
+// responseWriter tracks whether headers went out and passes websocket
+// hijack requests through.
 type responseWriter struct {
 	http.ResponseWriter
 	wrote  bool
@@ -241,6 +244,3 @@ func (w *responseWriter) Write(b []byte) (int, error) {
 	}
 	return w.ResponseWriter.Write(b)
 }
-
-// Unwrap supports http.ResponseController lookups through the wrapper.
-func (w *responseWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }

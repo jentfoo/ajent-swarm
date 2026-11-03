@@ -1,7 +1,6 @@
 package app
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -33,6 +32,16 @@ func isDaemonChild() bool {
 // daemonize spawns a detached copy of argv and waits for its startup outcome:
 // success returns promptly, failure surfaces the child's error.
 func daemonize(opts Options, argv []string, stdout, stderr io.Writer) int {
+	var handoff []string
+	if opts.SetPassword {
+		pw, err := resolveLoginPassword(stderr)
+		if err != nil {
+			_, _ = fmt.Fprintf(stderr, "ajent-swarm: --password: %v\n", err)
+			return 1
+		}
+		handoff = append(handoff, PasswordEnv+"="+pw)
+	}
+
 	dir, _, err := ensureStateDir(opts.StateDir)
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "ajent-swarm: %v\n", err)
@@ -62,12 +71,12 @@ func daemonize(opts Options, argv []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
-	// no deadline on purpose: the child outlives this process by design and
-	// its readiness is bounded separately below
-	cmd := exec.CommandContext(context.Background(), exe, argv...)
+	// no deadline: the child owns its lifetime; readiness is bounded below
+	cmd := exec.Command(exe, argv...) //nolint:noctx // detached daemon child, lifetime owned by itself
 	cmd.Env = append(os.Environ(),
 		daemonChildEnv+"=1",
 		readyFileEnv+"="+readyPath)
+	cmd.Env = append(cmd.Env, handoff...)
 	cmd.Stdout = lf
 	cmd.Stderr = lf
 	detach(cmd)
@@ -81,7 +90,8 @@ func daemonize(opts Options, argv []string, stdout, stderr io.Writer) int {
 
 	deadline := time.After(readyTimeout)
 	for {
-		if line, ok := readReadyFile(readyPath); ok {
+		data, err := os.ReadFile(readyPath) // the child's one-line status once present
+		if line := strings.TrimSpace(string(data)); err == nil && line != "" {
 			if reason, failed := strings.CutPrefix(line, "error "); failed {
 				_, _ = fmt.Fprintf(stderr, "ajent-swarm: daemon startup failed: %s\n", reason)
 				return 1
@@ -122,16 +132,6 @@ func makeReadyFile() (path string, cleanup func(), err error) {
 		return "", nil, fmt.Errorf("create ready file: %w", err)
 	}
 	return path, func() { _ = os.Remove(path) }, nil
-}
-
-// readReadyFile returns the child's one-line status once present.
-func readReadyFile(path string) (string, bool) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return "", false
-	}
-	line := strings.TrimSpace(string(data))
-	return line, line != ""
 }
 
 // notifyReady reports this child's startup outcome to a waiting --daemon

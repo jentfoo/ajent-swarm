@@ -9,11 +9,11 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/go-analyze/bulk"
 	"github.com/jentfoo/ajent/pkg/ctl"
 	"github.com/jentfoo/ajent/pkg/paths"
 	"github.com/jentfoo/ajent/pkg/session"
@@ -28,13 +28,11 @@ const stubWorkspace = "/repo"
 
 // Options configures one stub at creation.
 type Options struct {
-	SessionID  string
-	Name       string
-	Token      string // writer token; a fixed default when empty
-	Protocol   int    // hello protocol override; the real one when zero
-	PID        int    // hello pid override; this process when zero
-	Unrecorded bool   // recording off: backfill is an error to report
-	Refuses    bool   // attach with control always refuses, seat-held
+	SessionID string
+	Name      string
+	Token     string // writer token; a fixed default when empty
+	PID       int    // hello pid override; this process when zero
+	Refuses   bool   // attach with control always refuses, seat-held
 }
 
 // RecordedRequest is one request the stub received beside its raw params.
@@ -56,18 +54,17 @@ type Stub struct {
 	mu       sync.Mutex
 	seq      uint64 // one number space per session lifetime
 	snap     ctl.State
-	recordTo string // transcript file hello and backfill name; empty when off
+	recordTo string // transcript file hello and backfill name
 	heldBy   string // holder name while the seat is claimed, "" otherwise
 	heldConn *stubConn
 	refuse   bool
 	conns    map[*stubConn]struct{}
 	dials    int // served hellos, so tests count dials
 
-	refuseScript  map[string]*ctl.Error // scripted per-method refusals
-	resultScript  map[string]any        // scripted success payloads
-	pickerOptions []string              // set: bare /model opens this picker
-	dialogSeq     uint64                // broker-assigned dialog ids
-	requests      []RecordedRequest
+	refuseScript map[string]*ctl.Error  // scripted per-method refusals
+	resultScript map[string]any         // scripted success payloads
+	onSubmit     func(ctl.SubmitParams) // fires after a submit request is recorded
+	requests     []RecordedRequest
 }
 
 // New binds a stub's socket under home and starts accepting. Callers still
@@ -80,12 +77,9 @@ func New(t *testing.T, home string, opts Options) *Stub {
 	if opts.Token == "" {
 		opts.Token = "token1234"
 	}
-	recordTo := ""
-	if !opts.Unrecorded { // serve mode always records; start with an empty file
-		recordTo = filepath.Join(home, "transcript.jsonl")
-		if err := os.WriteFile(recordTo, nil, 0o600); err != nil {
-			t.Fatal(err)
-		}
+	recordTo := filepath.Join(home, "transcript.jsonl") // serve mode always records
+	if err := os.WriteFile(recordTo, nil, 0o600); err != nil {
+		t.Fatal(err)
 	}
 	dir := filepath.Join(home, paths.ControlDirName, opts.SessionID)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -97,10 +91,6 @@ func New(t *testing.T, home string, opts Options) *Stub {
 	}
 	t.Cleanup(func() { _ = ln.Close() })
 
-	protocol := opts.Protocol
-	if protocol == 0 {
-		protocol = ctl.Protocol
-	}
 	pid := opts.PID
 	if pid == 0 {
 		pid = os.Getpid()
@@ -112,7 +102,7 @@ func New(t *testing.T, home string, opts Options) *Stub {
 		sessionID:    opts.SessionID,
 		name:         opts.Name,
 		token:        opts.Token,
-		protocol:     protocol,
+		protocol:     ctl.Protocol,
 		recordTo:     recordTo,
 		conns:        make(map[*stubConn]struct{}),
 		refuse:       opts.Refuses,
@@ -186,8 +176,8 @@ func (f *Stub) WriteTranscript(t *testing.T, entries ...Entry) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.recordTo = path
-	for _, e := range entries { // the head is the newest entry on the branch
-		f.snap.Head = e.ID
+	if len(entries) > 0 { // the head is the newest entry on the branch
+		f.snap.Head = entries[len(entries)-1].ID
 	}
 }
 
@@ -206,10 +196,7 @@ func (f *Stub) Broadcast(name string, data any) ctl.Event {
 // DropConns severs every open connection without an exit event.
 func (f *Stub) DropConns() {
 	f.mu.Lock()
-	conns := make([]*stubConn, 0, len(f.conns))
-	for c := range f.conns {
-		conns = append(conns, c)
-	}
+	conns := bulk.MapKeysSlice(f.conns)
 	f.mu.Unlock()
 	for _, c := range conns {
 		_ = c.conn.Close()
@@ -257,12 +244,12 @@ func (f *Stub) Result(method string, result any) {
 	f.resultScript[method] = result
 }
 
-// OpenPickerOnSubmit scripts bare /model submits to open a pick dialog with
-// these option labels, like ajent's own model picker. Nil disables.
-func (f *Stub) OpenPickerOnSubmit(options []string) {
+// OnSubmit registers fn to run whenever the stub serves a submit request;
+// the params are already recorded when it fires. Safe to call mid-flight.
+func (f *Stub) OnSubmit(fn func(ctl.SubmitParams)) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.pickerOptions = options
+	f.onSubmit = fn
 }
 
 // Received returns every request the stub has served, oldest first.
@@ -284,10 +271,9 @@ func (f *Stub) acceptLoop() {
 
 // stubConn is one controller connection the stub serves.
 type stubConn struct {
-	s      *Stub
-	conn   net.Conn
-	enc    *ctl.Encoder
-	holder string // announced name once it claims the seat
+	s    *Stub
+	conn net.Conn
+	enc  *ctl.Encoder
 }
 
 func (f *Stub) serveConn(conn net.Conn) {
@@ -360,11 +346,6 @@ func (c *stubConn) handle(req ctl.Request) bool {
 			return c.reply(ctl.Reply{ID: req.ID, Seq: seq,
 				Error: ctl.Errf(ctl.CodeSeatHeld, "seat held by %s", holder)})
 		}
-		if p.Holder != "" {
-			c.holder = p.Holder
-		} else {
-			c.holder = "controller"
-		}
 		return c.reply(ctl.Reply{ID: req.ID,
 			Result: ctl.EncodeData(ctl.AttachResult{Control: true})})
 
@@ -375,17 +356,13 @@ func (c *stubConn) handle(req ctl.Request) bool {
 		var p ctl.SubmitParams
 		_ = json.Unmarshal(req.Params, &p)
 		c.s.mu.Lock()
-		pick := c.s.pickerOptions != nil && strings.TrimSpace(p.Line) == modelLine
 		seq := c.s.seq
-		if pick {
-			c.s.openPickerLocked()
-		}
 		c.s.mu.Unlock()
 		return c.reply(ctl.Reply{ID: req.ID, Seq: seq})
 
 	case ctl.MethodInterrupt, ctl.MethodModeCycle,
-		ctl.MethodInputSet, ctl.MethodQueueRecall, ctl.MethodRewind,
-		ctl.MethodResolve, ctl.MethodSeatYield:
+		ctl.MethodQueueRecall, ctl.MethodRewind,
+		ctl.MethodResolve:
 		if !c.requireSeat(req) {
 			return true
 		}
@@ -393,6 +370,24 @@ func (c *stubConn) handle(req ctl.Request) bool {
 		seq := c.s.seq
 		c.s.mu.Unlock()
 		return c.reply(ctl.Reply{ID: req.ID, Seq: seq})
+
+	case ctl.MethodAgentsStop: // stops serialize inside the sub-agent manager
+		if !c.requireSeat(req) {
+			return true
+		}
+		c.s.mu.Lock()
+		seq := c.s.seq
+		c.s.mu.Unlock()
+		// the stub holds no jobs, so the default reply cancels none
+		return c.reply(ctl.Reply{ID: req.ID, Seq: seq,
+			Result: ctl.EncodeData(ctl.AgentsStopResult{})})
+
+	case ctl.MethodAgentsList: // answers any connection, like state.get
+		c.s.mu.Lock()
+		seq := c.s.seq
+		c.s.mu.Unlock()
+		return c.reply(ctl.Reply{ID: req.ID, Seq: seq,
+			Result: ctl.EncodeData(ctl.AgentsListResult{Jobs: []ctl.AgentJob{}})})
 
 	default:
 		return c.reply(ctl.Reply{ID: req.ID,
@@ -416,35 +411,31 @@ func (c *stubConn) requireSeat(req ctl.Request) bool {
 
 // scripted answers a request whose reply the test fixed, recording it first.
 func (f *Stub) scripted(req ctl.Request) (ctl.Reply, bool) {
+	var hookSubmit ctl.SubmitParams
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	f.requests = append(f.requests, RecordedRequest{Method: req.Method, Params: req.Params})
+	hook := f.onSubmit
+	if hook != nil && req.Method == ctl.MethodSubmit {
+		_ = json.Unmarshal(req.Params, &hookSubmit)
+	}
+	var reply ctl.Reply
 	if err, ok := f.refuseScript[req.Method]; ok {
-		return ctl.Reply{ID: req.ID, Seq: f.seq, Error: err}, true
+		reply.Error = err
+	} else if res, ok := f.resultScript[req.Method]; ok {
+		reply.Result = ctl.EncodeData(res)
+	} else {
+		f.mu.Unlock()
+		if hook != nil && req.Method == ctl.MethodSubmit {
+			hook(hookSubmit)
+		}
+		return ctl.Reply{}, false
 	}
-	if res, ok := f.resultScript[req.Method]; ok {
-		return ctl.Reply{ID: req.ID, Seq: f.seq, Result: ctl.EncodeData(res)}, true
+	reply.ID, reply.Seq = req.ID, f.seq
+	f.mu.Unlock()
+	if hook != nil && req.Method == ctl.MethodSubmit {
+		hook(hookSubmit)
 	}
-	return ctl.Reply{}, false
-}
-
-// modelLine is the submit that opens ajent's own model picker.
-const modelLine = "/model"
-
-// openPickerLocked broadcasts one pending pick dialog with fresh options.
-// mu must be held.
-func (f *Stub) openPickerLocked() {
-	f.dialogSeq++
-	f.seq++
-	ev := ctl.NewEvent(ctl.EventInteractionPending, f.seq, ctl.InteractionPendingData{
-		ID:      f.dialogSeq,
-		Kind:    "pick",
-		Prompt:  "Select model",
-		Options: f.pickerOptions,
-	})
-	for c := range f.conns {
-		_ = c.enc.Encode(ev)
-	}
+	return reply, true
 }
 
 // attach applies the seat rules; false refuses with seat-held.

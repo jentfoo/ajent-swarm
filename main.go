@@ -19,7 +19,18 @@ func main() {
 }
 
 // run parses argv and starts the service, returning the process exit code.
+// The stop and status subcommands run first: they operate on an already-
+// running instance and read only the pid file.
 func run(argv []string, stdout, stderr io.Writer) int {
+	if len(argv) > 0 {
+		switch argv[0] {
+		case cmdStop:
+			return lifecycleRun(cmdStop, app.Stop, argv[1:], stdout, stderr)
+		case cmdStatus:
+			return lifecycleRun(cmdStatus, app.Status, argv[1:], stdout, stderr)
+		}
+	}
+
 	f, err := parseFlags(argv)
 	if errors.Is(err, pflag.ErrHelp) {
 		return 0 // help already printed; exit cleanly
@@ -36,7 +47,7 @@ func run(argv []string, stdout, stderr io.Writer) int {
 		Port:                 f.port,
 		Host:                 f.host,
 		StateDir:             f.state,
-		Password:             f.password,
+		SetPassword:          f.password,
 		Daemon:               f.daemon,
 		Pidfile:              f.pidfile,
 		LogPath:              f.logPath,
@@ -46,5 +57,7 @@ func run(argv []string, stdout, stderr io.Writer) int {
 		NoSessionNaming:      f.noNaming,
 		RunRetentionDays:     f.runRetentionDays,
 		RunRetentionMax:      f.runRetentionMax,
+		LogMaxBytes:          int64(f.logMaxMB) << 20,
+		LogBackups:           f.logBackups,
 	}, argv, stdout, stderr)
 }

@@ -5,6 +5,7 @@ import { useNavigate, useParams } from 'react-router'
 import { ApiError } from '../api/client'
 import { fleet as fleetAPI } from '../api/endpoints'
 import { TranscriptPreview } from '../jobs/TranscriptPreview'
+import { useResume } from '../hooks/useResume'
 
 // EndedSessionScreen is an ended session's read-only transcript with a Resume
 // button that launches headless `--resume id`. The recording rides the saved-
@@ -28,45 +29,43 @@ export default function EndedSessionScreen(): ReactElement {
 }
 
 function ResumeButton({ sessionId }: { sessionId: string }): ReactElement {
-  const navigate = useNavigate()
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
+  const [lookupError, setLookupError] = useState('')
+  const { resume, resumingId, error } = useResume()
 
   // The workspace must come from somewhere: the saved listing carries it.
-  const resume = async () => {
+  const start = async () => {
     if (busy) return
     setBusy(true)
-    setError('')
+    setLookupError('')
     try {
       const rows = await fleetAPI.saved()
       const row = rows.find((r) => r.id === sessionId || r.target === sessionId)
       if (!row?.workspace) {
-        setError('No recorded workspace; launch manually from the home screen.')
-        setBusy(false)
+        setLookupError('No recorded workspace; launch manually from the home screen.')
         return
       }
-      const res = await fleetAPI.launch({
-        workspace: row.workspace,
-        mode: 'resume',
-        target: sessionId, // the listing matched this id directly
-      })
-      navigate(`/s/${encodeURIComponent(res.sessionId)}`)
+      // the listing matched this id directly, so it rides as the target
+      await resume(row.workspace, sessionId)
     } catch (err) {
+      setLookupError(err instanceof ApiError ? err.message : 'Resume failed.')
+    } finally {
       setBusy(false)
-      setError(err instanceof ApiError ? err.message : 'Resume failed.')
     }
   }
 
+  const starting = busy || resumingId !== null
+
   return (
     <span className="resume-wrap">
-      {error && <span className="error-text">{error}</span>}
+      {(lookupError || error) && <span className="error-text">{lookupError || error}</span>}
       <button
         type="button"
-        disabled={busy}
-        onClick={() => void resume()}
+        disabled={starting}
+        onClick={() => void start()}
         data-testid="resume-ended"
       >
-        {busy ? 'Resuming…' : 'Resume'}
+        {starting ? 'Resuming…' : 'Resume'}
       </button>
     </span>
   )

@@ -8,12 +8,18 @@ import { SessionStore } from '../stream/sessionStore'
 import { SwarmStream } from '../stream/swarmStream'
 import type { SocketState } from '../stream/swarmStream'
 
-export type Theme = 'dark' | 'light'
-export type Density = 'compact' | 'cozy'
+type Theme = 'dark' | 'light'
 
-const pollSessionsMs = 4_000
-const pollAttentionMs = 5_000
+// Discovery and digest cadences: fast enough that launches, exits and queue
+// rows read live, slow enough to stay invisible on the wire. The digest keeps
+// a slower background cadence for hidden tabs.
+const pollSessionsMs = 2_000
+const pollAttentionMs = 2_500
 const pollAttentionHiddenMs = 30_000
+
+// Debounce for stream-driven digest refreshes: turn boundaries land several
+// frames in quick succession, so the burst coalesces into one fetch.
+const digestRefreshMs = 150
 
 interface SwarmContextValue {
   stream: SwarmStream
@@ -22,9 +28,7 @@ interface SwarmContextValue {
   attention: AttentionRow[]
   connection: SocketState
   theme: Theme
-  density: Density
   setTheme: (theme: Theme) => void
-  setDensity: (density: Density) => void
   // refreshSessions forces the discovery poll; label edits use it so rows
   // re-render without waiting out the cadence.
   refreshSessions: () => Promise<void>
@@ -32,27 +36,9 @@ interface SwarmContextValue {
 
 const SwarmContext = createContext<SwarmContextValue | null>(null)
 
-function readStored<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
-  try {
-    const raw = localStorage.getItem(key)
-    if (raw !== null && allowed.includes(raw as T)) return raw as T
-  } catch {
-    // Storage may be unavailable; the default applies.
-  }
-  return fallback
-}
-
-function writeStored(key: string, value: string) {
-  try {
-    localStorage.setItem(key, value)
-  } catch {
-    // Persisting preferences is best effort.
-  }
-}
-
 // SwarmProvider owns app-wide state: the one multiplexed stream connection
 // and the session state store, the discovery and attention polls feeding
-// badges and the inbox, and theme and density persisted in localStorage.
+// badges and the focus queue, and the theme persisted in localStorage.
 export function SwarmProvider({ children }: { children: ReactNode }) {
   // One stream per provider; StrictMode's simulated remount only disconnects
   // it, and a fresh subscribe reconnects on demand.
@@ -95,25 +81,51 @@ export function SwarmProvider({ children }: { children: ReactNode }) {
   // notifications; everything else stays visible-only.
   usePoll(() => void refreshAttention(), pollAttentionMs, pollAttentionHiddenMs)
 
-  const [theme, setThemeState] = useState<Theme>(() =>
-    readStored('swarm.theme', ['dark', 'light'] as const, preferredTheme()),
-  )
-  const [density, setDensityState] = useState<Density>(() =>
-    readStored('swarm.density', ['compact', 'cozy'] as const, 'cozy'),
-  )
+  // The chat pane updates straight off the stream, so the digest poll alone
+  // leaves the focus queue re-sorting seconds behind what the user just saw.
+  // Frames that move a session between queues (a dialog answered, a turn
+  // started or ended) refresh the digest right away, keeping the rail in
+  // step with the chat; unrelated transcript churn still rides the poll.
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const unsub = store.onDigestChange(() => {
+      if (timer !== null) clearTimeout(timer)
+      timer = setTimeout(() => {
+        timer = null
+        void refreshAttention()
+      }, digestRefreshMs)
+    })
+    return () => {
+      unsub()
+      if (timer !== null) clearTimeout(timer)
+    }
+  }, [store, refreshAttention])
 
+  // theme degrades to the preferred scheme when storage is unreadable
+  const [theme, setThemeState] = useState<Theme>(() => {
+    try {
+      const raw = localStorage.getItem('swarm.theme')
+      if (raw === 'dark' || raw === 'light') return raw
+    } catch {
+      // Storage may be unavailable; the default applies.
+    }
+    return preferredTheme()
+  })
+
+  // index.html's head script applied this value before first paint; the
+  // effect owns runtime changes, persistence and installed-chrome color.
   useEffect(() => {
     document.documentElement.dataset.theme = theme
-    writeStored('swarm.theme', theme)
+    try {
+      localStorage.setItem('swarm.theme', theme)
+    } catch {
+      // Persisting preferences is best effort.
+    }
     // installed web app chrome follows the in-app setting, not just prefers-
     // color-scheme, so add-to-home-screen keeps one consistent surface
     const meta = document.querySelector('meta[data-theme-color]')
     meta?.setAttribute('content', theme === 'dark' ? '#101216' : '#f6f7f9')
   }, [theme])
-  useEffect(() => {
-    document.documentElement.dataset.density = density
-    writeStored('swarm.density', density)
-  }, [density])
 
   const value = useMemo<SwarmContextValue>(
     () => ({
@@ -123,19 +135,16 @@ export function SwarmProvider({ children }: { children: ReactNode }) {
       attention,
       connection,
       theme,
-      density,
-      setTheme: (t) => setThemeState(t),
-      setDensity: (d) => setDensityState(d),
-      refreshSessions: refreshSessions,
+      setTheme: setThemeState,
+      refreshSessions,
     }),
-    [stream, store, sessions, attention, connection, theme, density, refreshSessions],
+    [stream, store, sessions, attention, connection, theme, refreshSessions],
   )
 
   return <SwarmContext.Provider value={value}>{children}</SwarmContext.Provider>
 }
 
 function preferredTheme(): Theme {
-  if (typeof window === 'undefined' || !window.matchMedia) return 'dark'
   return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'
 }
 

@@ -1,9 +1,16 @@
 // Keyboard plumbing shared by both workspace modes. Plain keys drive the
-// inbox queue and pane digits, mod (Ctrl/Cmd) drives tile management, Alt
+// focus queue and pane digits, mod (Ctrl/Cmd) drives tile management, Alt
 // arrows resize. Editable targets always win: typing in the composer or a
-// dialog answer must never move the workspace.
-import { useEffect } from 'react'
-import { useRef } from 'react'
+// dialog answer must never move the workspace, and every binding rests
+// behind an open overlay layer, leaving keys to what shows there. Plain
+// keys also stand down on a focused button or link so Enter activates that
+// control instead of being swallowed by a shortcut. An event another
+// listener already claimed (defaultPrevented) is left alone entirely, and
+// the digits rest while a focused pane's head dialog answers them itself.
+import { useEffect, useRef } from 'react'
+
+import { caretInInput, dialogDigitsClaimed } from '../session/dialogKeys'
+import { overlayOpen } from '../ui/overlayStack'
 
 export type Direction = 'left' | 'right' | 'up' | 'down'
 
@@ -15,17 +22,10 @@ export interface WorkspaceKeyHandlers {
   onDigit?: (position: number) => void // 1..9
   onEscape?: () => void
   onShortcuts?: () => void // ?
-  onPaneClose?: () => void // mod+w
   onSplitRight?: () => void // mod+\
   onSplitDown?: () => void // mod+shift+\
   onFocusDirection?: (dir: Direction) => void // mod+arrow
   onResize?: (dir: Direction) => void // alt+arrow
-}
-
-export function isEditable(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false
-  if (target.isContentEditable) return true
-  return ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)
 }
 
 // useWorkspaceKeys binds the workspace's global keys; pass null handlers to
@@ -39,7 +39,13 @@ export function useWorkspaceKeys(handlers: WorkspaceKeyHandlers): void {
 
   useEffect(() => {
     const onKey = (ev: KeyboardEvent) => {
-      if (isEditable(ev.target)) return
+      // an earlier listener that claimed the event wins, e.g. the viewed
+      // session's Escape interrupt
+      if (ev.defaultPrevented) return
+      // editable targets win; behind any open overlay layer every
+      // binding rests, leaving keys to what the layer shows instead of rows
+      // and panes its backdrop hides
+      if (caretInInput(ev.target) || overlayOpen()) return
       const h = ref.current
       const mod = ev.ctrlKey || ev.metaKey
 
@@ -53,16 +59,15 @@ export function useWorkspaceKeys(handlers: WorkspaceKeyHandlers): void {
         return
       }
       if (mod && !ev.altKey) {
+        // Shift turns '\' into '|', so splits match the physical key through
+        // ev.code instead of the produced character.
+        if (ev.code === 'Backslash') {
+          ev.preventDefault()
+          if (ev.shiftKey) h.onSplitDown?.()
+          else h.onSplitRight?.()
+          return
+        }
         switch (ev.key.toLowerCase()) {
-          case 'w':
-            ev.preventDefault()
-            h.onPaneClose?.()
-            return
-          case '\\':
-            ev.preventDefault()
-            if (ev.shiftKey) h.onSplitDown?.()
-            else h.onSplitRight?.()
-            return
           case 'arrowleft':
             ev.preventDefault()
             h.onFocusDirection?.('left')
@@ -106,22 +111,38 @@ export function useWorkspaceKeys(handlers: WorkspaceKeyHandlers): void {
         }
       }
       if (mod || ev.altKey) return
+      // a focused real button or link keeps its native activation, so Enter
+      // clicks the control instead of being swallowed by a queue shortcut;
+      // role-button markup gets no native activation, keys keep answering it
+      const target = ev.target
+      if (target instanceof HTMLButtonElement || target instanceof HTMLAnchorElement) return
 
+      // Plain keys preventDefault only when a handler is bound, so unclaimed
+      // keys keep browser semantics like Enter activating a focused control.
+      const fire = (fn?: () => void) => {
+        if (!fn) return
+        ev.preventDefault()
+        fn()
+      }
       switch (ev.key) {
         case 'j':
-          h.onNext?.()
+          fire(h.onNext)
           return
         case 'k':
-          h.onPrevious?.()
+          fire(h.onPrevious)
           return
         case 'Enter':
-          h.onOpen?.()
+          fire(h.onOpen)
           return
         case 'r':
-          h.onReview?.()
+          fire(h.onReview)
           return
         default:
-          if (/^[1-9]$/.test(ev.key)) h.onDigit?.(Number(ev.key))
+          // the focused pane's head dialog owns the digits while it answers
+          if (/^[1-9]$/.test(ev.key) && h.onDigit && !dialogDigitsClaimed()) {
+            ev.preventDefault()
+            h.onDigit(Number(ev.key))
+          }
       }
     }
     window.addEventListener('keydown', onKey)

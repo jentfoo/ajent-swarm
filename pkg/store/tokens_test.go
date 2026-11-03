@@ -8,88 +8,82 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestCreateAPIToken(t *testing.T) {
-	t.Parallel()
-
-	s := newTestStore(t)
-	ctx := t.Context()
-	now := time.Unix(1_700_000_000, 0)
-	tok := APIToken{Name: "ci", TokenHash: "hash-ci", CreatedAt: now}
-	require.NoError(t, s.CreateAPIToken(ctx, tok))
-
-	err := s.CreateAPIToken(ctx, tok)
-	require.ErrorIs(t, err, ErrConflict)
-
-	err = s.CreateAPIToken(ctx, APIToken{Name: "other", TokenHash: "hash-ci", CreatedAt: now})
-	require.ErrorIs(t, err, ErrConflict)
-}
-
 func TestTokens(t *testing.T) {
 	t.Parallel()
 
-	s := newTestStore(t)
-	ctx := t.Context()
-	now := time.Unix(1_700_000_000, 0)
+	t.Run("create_rejects_duplicates", func(t *testing.T) {
+		s := newTestStore(t)
+		ctx := t.Context()
+		now := time.Unix(1_700_000_000, 0)
+		tok := APIToken{Name: "ci", TokenHash: "hash-ci", CreatedAt: now}
+		require.NoError(t, s.CreateAPIToken(ctx, tok))
 
-	out, err := s.Tokens(ctx)
-	require.NoError(t, err)
-	assert.Empty(t, out)
+		err := s.CreateAPIToken(ctx, tok)
+		require.ErrorIs(t, err, ErrConflict)
 
-	require.NoError(t, s.CreateAPIToken(ctx, APIToken{Name: "second", TokenHash: "hash-2", CreatedAt: now}))
-	require.NoError(t, s.CreateAPIToken(ctx, APIToken{Name: "first", TokenHash: "hash-1", CreatedAt: now}))
+		err = s.CreateAPIToken(ctx, APIToken{Name: "other", TokenHash: "hash-ci", CreatedAt: now})
+		require.ErrorIs(t, err, ErrConflict)
+	})
 
-	out, err = s.Tokens(ctx)
-	require.NoError(t, err)
-	require.Len(t, out, 2)
-	assert.Equal(t, []string{"second", "first"}, []string{out[0].Name, out[1].Name})
-	assert.Zero(t, out[0].LastUsed)
-}
+	t.Run("list_order", func(t *testing.T) {
+		s := newTestStore(t)
+		ctx := t.Context()
+		now := time.Unix(1_700_000_000, 0)
 
-func TestAPITokenByHash(t *testing.T) {
-	t.Parallel()
+		out, err := s.Tokens(ctx)
+		require.NoError(t, err)
+		assert.Empty(t, out)
 
-	s := newTestStore(t)
-	ctx := t.Context()
-	now := time.Unix(1_700_000_000, 0)
-	require.NoError(t, s.CreateAPIToken(ctx, APIToken{Name: "ci", TokenHash: "hash-ci", CreatedAt: now}))
+		require.NoError(t, s.CreateAPIToken(ctx, APIToken{Name: "second", TokenHash: "hash-2", CreatedAt: now}))
+		require.NoError(t, s.CreateAPIToken(ctx, APIToken{Name: "first", TokenHash: "hash-1", CreatedAt: now}))
 
-	tok, err := s.APITokenByHash(ctx, "hash-ci")
-	require.NoError(t, err)
-	assert.Equal(t, "ci", tok.Name)
+		out, err = s.Tokens(ctx)
+		require.NoError(t, err)
+		require.Len(t, out, 2)
+		assert.Equal(t, []string{"second", "first"}, []string{out[0].Name, out[1].Name})
+		assert.Zero(t, out[0].LastUsed)
+	})
 
-	_, err = s.APITokenByHash(ctx, "missing")
-	require.ErrorIs(t, err, ErrNotFound)
-}
+	t.Run("lookup_by_hash", func(t *testing.T) {
+		s := newTestStore(t)
+		ctx := t.Context()
+		now := time.Unix(1_700_000_000, 0)
+		require.NoError(t, s.CreateAPIToken(ctx, APIToken{Name: "ci", TokenHash: "hash-ci", CreatedAt: now}))
 
-func TestTouchTokenUsage(t *testing.T) {
-	t.Parallel()
+		tok, err := s.APITokenByHash(ctx, "hash-ci")
+		require.NoError(t, err)
+		assert.Equal(t, "ci", tok.Name)
 
-	s := newTestStore(t)
-	ctx := t.Context()
-	now := time.Unix(1_700_000_000, 0)
-	require.NoError(t, s.CreateAPIToken(ctx, APIToken{Name: "ci", TokenHash: "hash-ci", CreatedAt: now}))
+		_, err = s.APITokenByHash(ctx, "missing")
+		require.ErrorIs(t, err, ErrNotFound)
+	})
 
-	used := now.Add(time.Hour)
-	require.NoError(t, s.TouchTokenUsage(ctx, "hash-ci", used))
+	t.Run("touch_usage", func(t *testing.T) {
+		s := newTestStore(t)
+		ctx := t.Context()
+		now := time.Unix(1_700_000_000, 0)
+		require.NoError(t, s.CreateAPIToken(ctx, APIToken{Name: "ci", TokenHash: "hash-ci", CreatedAt: now}))
 
-	tok, err := s.APITokenByHash(ctx, "hash-ci")
-	require.NoError(t, err)
-	assert.Equal(t, used, tok.LastUsed)
-}
+		used := now.Add(time.Hour)
+		require.NoError(t, s.TouchTokenUsage(ctx, "hash-ci", used))
 
-func TestDeleteAPIToken(t *testing.T) {
-	t.Parallel()
+		tok, err := s.APITokenByHash(ctx, "hash-ci")
+		require.NoError(t, err)
+		assert.Equal(t, used, tok.LastUsed)
+	})
 
-	s := newTestStore(t)
-	ctx := t.Context()
-	now := time.Unix(1_700_000_000, 0)
-	require.NoError(t, s.CreateAPIToken(ctx, APIToken{Name: "ci", TokenHash: "hash-ci", CreatedAt: now}))
+	t.Run("delete", func(t *testing.T) {
+		s := newTestStore(t)
+		ctx := t.Context()
+		now := time.Unix(1_700_000_000, 0)
+		require.NoError(t, s.CreateAPIToken(ctx, APIToken{Name: "ci", TokenHash: "hash-ci", CreatedAt: now}))
 
-	removed, err := s.DeleteAPIToken(ctx, "ci")
-	require.NoError(t, err)
-	assert.True(t, removed)
+		removed, err := s.DeleteAPIToken(ctx, "ci")
+		require.NoError(t, err)
+		assert.True(t, removed)
 
-	removed, err = s.DeleteAPIToken(ctx, "ci")
-	require.NoError(t, err)
-	assert.False(t, removed)
+		removed, err = s.DeleteAPIToken(ctx, "ci")
+		require.NoError(t, err)
+		assert.False(t, removed)
+	})
 }

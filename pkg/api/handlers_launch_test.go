@@ -17,8 +17,8 @@ import (
 	"github.com/jentfoo/ajent-swarm/pkg/auth"
 	"github.com/jentfoo/ajent-swarm/pkg/fleet"
 	"github.com/jentfoo/ajent-swarm/pkg/store"
+	"github.com/jentfoo/ajent-swarm/pkg/testutil"
 	"github.com/jentfoo/ajent/pkg/ctl"
-	"github.com/jentfoo/ajent/pkg/paths"
 	"github.com/jentfoo/ajent/pkg/session"
 )
 
@@ -26,10 +26,7 @@ import (
 // returning the server, an authenticated client and the home for fixtures.
 func newLaunchAPI(t *testing.T) (*httptest.Server, *http.Client, string) {
 	t.Helper()
-	home, err := os.MkdirTemp("", "savedapi")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = os.RemoveAll(home) })
-	t.Setenv(paths.EnvHome, home)
+	home := testutil.IsolateHome(t)
 
 	st, err := store.Open(filepath.Join(t.TempDir(), store.FileName))
 	require.NoError(t, err)
@@ -108,100 +105,120 @@ func writeSavedFixtures(t *testing.T, home string) savedFixture {
 	write("plain.jsonl", sessEntry(fix.plainID, ""))
 	return fix
 }
+func TestLaunchHandlers(t *testing.T) {
+	t.Run("saved_sessions_listing", func(t *testing.T) {
+		server, client, home := newLaunchAPI(t)
+		fix := writeSavedFixtures(t, home)
 
-func TestSavedSessionsListing(t *testing.T) {
-	server, client, home := newLaunchAPI(t)
-	fix := writeSavedFixtures(t, home)
-
-	code, rows := callJSON[[]fleet.SavedSession](t, client, server.URL, http.MethodGet, "/api/saved-sessions", nil)
-	require.Equal(t, http.StatusOK, code)
-	require.Len(t, rows, 2)
-
-	// most recently used first; the named session has the newer entries
-	assert.Equal(t, fix.namedID, rows[0].ID)
-	assert.Equal(t, "deploy-job", rows[0].Name)
-	assert.Equal(t, "deploy-job", rows[0].Target)
-	assert.Equal(t, "/repo", rows[0].Workspace)
-	assert.Equal(t, 2, rows[0].Messages) // the fork's message stays out of the branch
-	assert.Equal(t, "ship it", rows[0].First)
-	assert.False(t, rows[0].Blocked)
-	assert.False(t, rows[0].Live)
-
-	assert.Equal(t, fix.plainID, rows[1].ID)
-	assert.Equal(t, fix.plainID, rows[1].Target) // unnamed rows resume by id
-}
-
-func TestSavedEntriesPages(t *testing.T) {
-	server, client, home := newLaunchAPI(t)
-	fix := writeSavedFixtures(t, home)
-
-	t.Run("branch_under_derived_tip", func(t *testing.T) {
-		code, page := callJSON[fleet.SavedEntriesPage](t, client, server.URL,
-			http.MethodGet, "/api/saved-sessions/"+fix.namedID+"/entries", nil)
+		code, rows := callJSON[[]fleet.SavedSession](t, client, server.URL, http.MethodGet, "/api/saved-sessions", nil)
 		require.Equal(t, http.StatusOK, code)
-		assert.Equal(t, "tip", page.Head) // the abandoned fork loses to the live leaf
-		assert.Equal(t, []string{fix.namedID, "m1", "tip"}, entryIDs(page.Entries))
-		assert.Empty(t, page.Cursor) // the whole branch fit
+		require.Len(t, rows, 2)
+
+		// most recently used first; the named session has the newer entries
+		assert.Equal(t, fix.namedID, rows[0].ID)
+		assert.Equal(t, "deploy-job", rows[0].Name)
+		assert.Equal(t, "deploy-job", rows[0].Target)
+		assert.Equal(t, "/repo", rows[0].Workspace)
+		assert.Equal(t, 2, rows[0].Messages) // the fork's message stays out of the branch
+		assert.Equal(t, "ship it", rows[0].First)
+		assert.False(t, rows[0].Blocked)
+		assert.False(t, rows[0].Live)
+
+		assert.Equal(t, fix.plainID, rows[1].ID)
+		assert.Equal(t, fix.plainID, rows[1].Target) // unnamed rows resume by id
 	})
 
-	t.Run("cursor_pages_older_entries", func(t *testing.T) {
-		code, older := callJSON[fleet.SavedEntriesPage](t, client, server.URL,
-			http.MethodGet, "/api/saved-sessions/"+fix.namedID+"/entries?before=m1&limit=1", nil)
+	t.Run("saved_entries_pages", func(t *testing.T) {
+		server, client, home := newLaunchAPI(t)
+		fix := writeSavedFixtures(t, home)
+
+		t.Run("branch_under_derived_tip", func(t *testing.T) {
+			code, page := callJSON[fleet.SavedEntriesPage](t, client, server.URL,
+				http.MethodGet, "/api/saved-sessions/"+fix.namedID+"/entries", nil)
+			require.Equal(t, http.StatusOK, code)
+			assert.Equal(t, "tip", page.Head) // the abandoned fork loses to the live leaf
+			assert.Equal(t, []string{fix.namedID, "m1", "tip"}, entryIDs(page.Entries))
+			assert.Empty(t, page.Cursor) // the whole branch fit
+		})
+
+		t.Run("cursor_pages_older_entries", func(t *testing.T) {
+			code, older := callJSON[fleet.SavedEntriesPage](t, client, server.URL,
+				http.MethodGet, "/api/saved-sessions/"+fix.namedID+"/entries?before=m1&limit=1", nil)
+			require.Equal(t, http.StatusOK, code)
+			assert.Equal(t, []string{fix.namedID}, entryIDs(older.Entries))
+			assert.Empty(t, older.Cursor)
+		})
+
+		t.Run("name_target_resolves", func(t *testing.T) {
+			code, byName := callJSON[fleet.SavedEntriesPage](t, client, server.URL,
+				http.MethodGet, "/api/saved-sessions/deploy-job/entries", nil)
+			require.Equal(t, http.StatusOK, code)
+			assert.Equal(t, "tip", byName.Head)
+		})
+
+		t.Run("unknown_target_is_404", func(t *testing.T) {
+			code, _ := callJSON[fleet.SavedEntriesPage](t, client, server.URL,
+				http.MethodGet, "/api/saved-sessions/01NOPE/entries", nil)
+			assert.Equal(t, http.StatusNotFound, code)
+		})
+	})
+
+	t.Run("saved_entries_refuse_blocked_format", func(t *testing.T) {
+		server, client, home := newLaunchAPI(t)
+		dir := filepath.Join(home, "sessions", "proj")
+		require.NoError(t, os.MkdirAll(dir, 0o700))
+		raw, err := json.Marshal(map[string]any{"version": 99, "workspace": "/repo"})
+		require.NoError(t, err)
+		entry := session.Entry{ID: "01BLOCKED0000000001", Type: session.TypeSession, TS: 1, Data: raw}
+		line, err := json.Marshal(entry)
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "blocked.jsonl"), append(line, '\n'), 0o600))
+
+		code, rows := callJSON[[]fleet.SavedSession](t, client, server.URL, http.MethodGet, "/api/saved-sessions", nil)
 		require.Equal(t, http.StatusOK, code)
-		assert.Equal(t, []string{fix.namedID}, entryIDs(older.Entries))
-		assert.Empty(t, older.Cursor)
+		require.Len(t, rows, 1)
+		assert.True(t, rows[0].Blocked)
+
+		code, _ = callJSON[fleet.SavedEntriesPage](t, client, server.URL,
+			http.MethodGet, "/api/saved-sessions/"+rows[0].ID+"/entries", nil)
+		assert.Equal(t, http.StatusConflict, code)
 	})
 
-	t.Run("name_target_resolves", func(t *testing.T) {
-		code, byName := callJSON[fleet.SavedEntriesPage](t, client, server.URL,
-			http.MethodGet, "/api/saved-sessions/deploy-job/entries", nil)
-		require.Equal(t, http.StatusOK, code)
-		assert.Equal(t, "tip", byName.Head)
-	})
+	t.Run("launch_and_stop_handlers", func(t *testing.T) {
+		server, client, _ := newLaunchAPI(t)
 
-	t.Run("unknown_target_is_404", func(t *testing.T) {
-		code, _ := callJSON[fleet.SavedEntriesPage](t, client, server.URL,
-			http.MethodGet, "/api/saved-sessions/01NOPE/entries", nil)
-		assert.Equal(t, http.StatusNotFound, code)
-	})
-}
+		t.Run("invalid_launch_is_400", func(t *testing.T) {
+			// refused before any process work; the fleet here has no launch
+			// wiring, so nothing else could succeed either
+			code, _ := callJSON[struct{}](t, client, server.URL, http.MethodPost, "/api/sessions",
+				fleet.LaunchRequest{Mode: fleet.LaunchResume})
+			assert.Equal(t, http.StatusBadRequest, code)
+		})
 
-func TestSavedEntriesRefusesBlockedFormat(t *testing.T) {
-	server, client, home := newLaunchAPI(t)
-	dir := filepath.Join(home, "sessions", "proj")
-	require.NoError(t, os.MkdirAll(dir, 0o700))
-	raw, err := json.Marshal(map[string]any{"version": 99, "workspace": "/repo"})
-	require.NoError(t, err)
-	entry := session.Entry{ID: "01BLOCKED0000000001", Type: session.TypeSession, TS: 1, Data: raw}
-	line, err := json.Marshal(entry)
-	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "blocked.jsonl"), append(line, '\n'), 0o600))
+		t.Run("unrecorded_resume_is_404", func(t *testing.T) {
+			server, client, home := newLaunchAPI(t)
+			fix := writeSavedFixtures(t, home)
 
-	code, rows := callJSON[[]fleet.SavedSession](t, client, server.URL, http.MethodGet, "/api/saved-sessions", nil)
-	require.Equal(t, http.StatusOK, code)
-	require.Len(t, rows, 1)
-	assert.True(t, rows[0].Blocked)
+			// a target the listing answers gets past the pre-check and fails on
+			// the unwired fleet instead: 500, never the unrecorded 404
+			code, _ := callJSON[struct{}](t, client, server.URL, http.MethodPost, "/api/sessions",
+				fleet.LaunchRequest{Workspace: home, Mode: fleet.LaunchResume, Target: fix.plainID})
+			assert.Equal(t, http.StatusInternalServerError, code)
 
-	code, _ = callJSON[fleet.SavedEntriesPage](t, client, server.URL,
-		http.MethodGet, "/api/saved-sessions/"+rows[0].ID+"/entries", nil)
-	assert.Equal(t, http.StatusConflict, code)
-}
+			code, body := callJSON[struct {
+				Error string `json:"error"`
+			}](t, client, server.URL,
+				http.MethodPost, "/api/sessions",
+				fleet.LaunchRequest{Workspace: home, Mode: fleet.LaunchResume, Target: "01NOPE00000000000000"})
+			require.Equal(t, http.StatusNotFound, code)
+			assert.Equal(t, "session_not_found", body.Error)
+		})
 
-func TestLaunchAndStopHandlers(t *testing.T) {
-	server, client, _ := newLaunchAPI(t)
-
-	t.Run("invalid launch is 400", func(t *testing.T) {
-		// refused before any process work; the fleet here has no launch
-		// wiring, so nothing else could succeed either
-		code, _ := callJSON[struct{}](t, client, server.URL, http.MethodPost, "/api/sessions",
-			fleet.LaunchRequest{Mode: fleet.LaunchResume})
-		assert.Equal(t, http.StatusBadRequest, code)
-	})
-
-	t.Run("unknown stop is 404", func(t *testing.T) {
-		code, _ := callJSON[struct{}](t, client, server.URL,
-			http.MethodPost, "/api/sessions/01NOPE/stop", nil)
-		assert.Equal(t, http.StatusNotFound, code)
+		t.Run("unknown_stop_is_404", func(t *testing.T) {
+			code, _ := callJSON[struct{}](t, client, server.URL,
+				http.MethodPost, "/api/sessions/01NOPE/stop", nil)
+			assert.Equal(t, http.StatusNotFound, code)
+		})
 	})
 }
 

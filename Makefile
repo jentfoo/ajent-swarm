@@ -25,7 +25,7 @@ test test-all: .SHELLFLAGS := -o pipefail -c
 _FILTER := | { grep -v "no test files" || true; }; exit $${PIPESTATUS[0]}
 endif
 
-.PHONY: build clean dist test test-all test-web web-check test-integration test-cover bench fmt-changed lint FORCE
+.PHONY: build clean dist test test-all test-web web-check test-integration test-integration-fleet test-e2e audit release release-clean test-cover bench fmt-changed lint FORCE
 FORCE:
 
 build: $(WEB_STAMP) | embed-stubs
@@ -33,6 +33,20 @@ build: $(WEB_STAMP) | embed-stubs
 	go build $(LDFLAGS) -o ./bin/ajent-swarm ./
 
 PLATFORMS := linux-amd64 linux-arm64 darwin-amd64 darwin-arm64
+
+# release builds one static binary per platform with the frontend embedded;
+# CGO stays off (modernc.org/sqlite is pure Go) and output lands in dist/
+release: $(WEB_STAMP) | embed-stubs
+	mkdir -p dist
+	@for platform in $(PLATFORMS); do \
+		os=$${platform%-*}; arch=$${platform#*-}; \
+		echo "==> dist/ajent-swarm-$$platform"; \
+		GOOS=$$os GOARCH=$$arch CGO_ENABLED=0 \
+			go build $(LDFLAGS) -trimpath -o dist/ajent-swarm-$$platform ./ || exit 1; \
+	done
+
+release-clean:
+	rm -rf dist/
 
 clean:
 	rm -rf bin/ $(DIST)/ $(WEB_STAMP)
@@ -77,14 +91,26 @@ test-all: | embed-stubs
 # builds the binary and exercises daemon mode end to end; guarded so unit
 # runs stay hermetic (see docs/phases/02-service-skeleton.md)
 test-integration: | embed-stubs
-	AJENT_SWARM_INTEGRATION=1 go test -count=1 -run 'TestDaemonLifecycle' ./pkg/app
+	AJENT_SWARM_INTEGRATION=1 go test -count=1 -run 'TestDaemon' ./pkg/app
 
 # builds ajent and exercises the phase 04 launch path against it; guarded so
 # unit runs stay hermetic (see docs/phases/04-launch-resume.md)
 test-integration-fleet: | embed-stubs
 	@mkdir -p bin
 	cd ../ajent && go build -o "$(CURDIR)/bin/test-ajent" .
-	AJENT_SWARM_TEST_AJENT="$(CURDIR)/bin/test-ajent" go test -count=1 -run 'TestFleetLaunchIntegration' ./pkg/fleet
+	AJENT_SWARM_TEST_AJENT="$(CURDIR)/bin/test-ajent" go test -count=1 -run 'TestLauncher/launch_integration' ./pkg/fleet
+
+# full UI smoke: builds ajent + swarm, drives one turn through Playwright
+# (see docs/phases/12-polish-hardening.md); needs browsers once via
+# `cd web && pnpm exec playwright install chromium`. SWARM_SHOTS=docs/img also
+# refreshes the README screenshots.
+test-e2e: | embed-stubs
+	SWARM_SHOTS=$(SWARM_SHOTS) ./scripts/e2e.sh
+
+# dependency audits for both trees, recording current advisories
+audit: | embed-stubs
+	go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+	cd web && $(PNPM) audit --prod
 
 test-cover: | embed-stubs
 	go test -race -coverprofile=test.out ./... && go tool cover --html=test.out

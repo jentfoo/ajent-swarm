@@ -23,7 +23,6 @@ const (
 	initMaxBytes   = 2 << 20 // before base64 image bodies are deferred
 
 	pageMaxEntries = 500
-	pageDefault    = 200
 )
 
 // view is the reconciled state of one ajent instance: snapshot fields kept
@@ -58,6 +57,7 @@ type view struct {
 	lastStopErr string // transport or context failure that ended it
 
 	firstPrompt string // the session's first typed user prompt, for auto-naming
+	hadMessage  bool   // any committed message entry, ajent's retention trigger
 
 	entries    []entryRecord // committed entries in arrival order, oldest first
 	seen       map[string]struct{}
@@ -91,9 +91,7 @@ func buildView(snap ctl.State, branch []session.Entry, watermark uint64) *view {
 		seen:       make(map[string]struct{}, len(branch)),
 	}
 	v.tools = cloneTools(snap.Tools)
-	if snap.QueuedRows != nil {
-		v.queuedRows = slices.Clone(snap.QueuedRows)
-	}
+	v.queuedRows = slices.Clone(snap.QueuedRows)
 	v.activity = make(map[string]ctl.ActivityRow, len(snap.Activity))
 	for _, row := range snap.Activity {
 		v.activity[row.Key] = row
@@ -224,6 +222,10 @@ func (v *view) apply(ev ctl.Event) {
 		v.running = false
 		v.lastTurnEnd = time.Now().UnixMilli()
 
+	case ctl.EventSessionExit: // exit can land mid-turn: the run ends with the turn open
+		v.running = false
+		v.spinning = false
+
 	case ctl.EventSessionRenamed:
 		var d ctl.SessionRenamedData
 		if err := ev.Decode(&d); err == nil && d.Name != "" {
@@ -282,11 +284,9 @@ func (v *view) applyStatus(ev ctl.Event) {
 
 // pendingInteraction records one open dialog; a re-announcement updates in place.
 func (v *view) pendingInteraction(d ctl.InteractionPendingData) {
-	for i := range v.interactions {
-		if v.interactions[i].ID == d.ID {
-			v.interactions[i] = d
-			return
-		}
+	if i := slices.IndexFunc(v.interactions, func(p ctl.InteractionPendingData) bool { return p.ID == d.ID }); i >= 0 {
+		v.interactions[i] = d
+		return
 	}
 	v.interactions = append(v.interactions, d)
 	v.dialogSeen[d.ID] = time.Now().UnixMilli()
@@ -322,8 +322,7 @@ func firstUserPrompt(e ctl.Entry) string {
 	if json.Unmarshal(e.Data, &md) != nil {
 		return ""
 	}
-	if md.Message.Role != llm.RoleUser || md.Injected ||
-		llm.OnlyToolResults(md.Message.Content) {
+	if !isUserPrompt(md) {
 		return ""
 	}
 	return strings.TrimSpace(llm.JoinText(md.Message.Content))
@@ -373,7 +372,7 @@ func sortedActivity(rows map[string]ctl.ActivityRow) []ctl.ActivityRow {
 		if a.Rank != b.Rank {
 			return a.Rank - b.Rank
 		}
-		return orderLess(a.Key, b.Key)
+		return strings.Compare(a.Key, b.Key)
 	})
 	return out
 }
@@ -385,21 +384,17 @@ func sortedSegments(rows map[string]ctl.Segment) []ctl.Segment {
 		if a.Order != b.Order {
 			return a.Order - b.Order
 		}
-		return orderLess(a.Key, b.Key)
+		return strings.Compare(a.Key, b.Key)
 	})
 	return out
 }
 
-// orderLess breaks ordering ties by key.
-func orderLess(a, b string) int {
-	switch {
-	case a < b:
-		return -1
-	case a > b:
-		return 1
-	default:
-		return 0
-	}
+// hadActivity reports whether the session did anything ajent retains a
+// transcript for: a committed message entry or its own name. Mirrors ajent's
+// exit-time retention rule, so false on a served run means the file was
+// deleted at exit and the id no longer resumes.
+func (v *view) hadActivity() bool {
+	return v.hadMessage || v.session.Name != ""
 }
 
 // appendEntry adds one committed entry, deduping by id against backfill
@@ -411,6 +406,9 @@ func (v *view) appendEntry(e ctl.Entry) {
 		v.seen[e.ID] = struct{}{}
 		v.entryBytes += rec.size
 		v.trimEntries()
+		if e.Type == string(session.TypeMessage) {
+			v.hadMessage = true // sticky: retention bounds trim old entries
+		}
 	}
 	v.head = e.ID
 }
@@ -428,29 +426,35 @@ func (v *view) trimEntries() {
 	}
 }
 
-// initTail returns the newest committed entries for an init, bounded by count
-// and bytes, with base64 image bodies deferred to lazy loads. The cursor is
-// the id of the oldest entry included, empty when history starts there.
-func (v *view) initTail() ([]ctl.Entry, string) {
-	out := make([]ctl.Entry, 0, min(len(v.entries), initMaxEntries))
+// tailEntries walks items backwards from end, oldest first: the newest entry
+// always rides along, then the walk stops once limit entries or the byte
+// budget is reached. The cursor continues the walk as the id of the oldest
+// entry taken, empty when history starts there.
+func tailEntries[T any](items []T, end, limit int, size func(T) int, shape func(T) ctl.Entry) ([]ctl.Entry, string) {
+	out := make([]ctl.Entry, 0, min(end, limit))
 	used := 0
-	i := len(v.entries) - 1
+	i := end - 1
 	for ; i >= 0; i-- {
-		if len(out) > 0 && (len(out) >= initMaxEntries || used >= initMaxBytes) {
+		if len(out) > 0 && (len(out) >= limit || used >= initMaxBytes) {
 			break
 		}
-		out = append(out, deferImageBodies(v.entries[i].e))
-		used += v.entries[i].size
+		out = append(out, shape(items[i]))
+		used += size(items[i])
 	}
 	slices.Reverse(out)
-	if i < 0 { // the whole retained history fit
-		return out, ""
-	}
 	cursor := ""
-	if len(out) > 0 {
+	if i >= 0 && len(out) > 0 {
 		cursor = out[0].ID
 	}
 	return out, cursor
+}
+
+// initTail returns the newest committed entries for an init, bounded by count
+// and bytes, with base64 image bodies deferred to lazy loads.
+func (v *view) initTail() ([]ctl.Entry, string) {
+	return tailEntries(v.entries, len(v.entries), initMaxEntries,
+		func(r entryRecord) int { return r.size },
+		func(r entryRecord) ctl.Entry { return deferImageBodies(r.e) })
 }
 
 // pageEntries returns up to limit full-fidelity entries older than before,
@@ -465,32 +469,14 @@ func (v *view) pageEntries(before string, limit int) ([]ctl.Entry, string) {
 		}
 		end = idx
 	}
-	limit = min(max(limit, 1), pageMaxEntries)
-
-	out := make([]ctl.Entry, 0, min(end, limit))
-	used := 0
-	i := end - 1
-	for ; i >= 0; i-- {
-		if len(out) > 0 && (len(out) >= limit || used >= initMaxBytes) {
-			break
-		}
-		out = append(out, v.entries[i].e)
-		used += v.entries[i].size
-	}
-	slices.Reverse(out)
-	cursor := ""
-	if i >= 0 && len(out) > 0 {
-		cursor = out[0].ID
-	}
-	return out, cursor
+	return tailEntries(v.entries, end, min(max(limit, 1), pageMaxEntries),
+		func(r entryRecord) int { return r.size },
+		func(r entryRecord) ctl.Entry { return r.e })
 }
 
 // deferImageBodies replaces base64 image payloads with their media type so an
 // init never carries megabytes of pixels; /entries returns the full bodies.
 func deferImageBodies(e ctl.Entry) ctl.Entry {
-	if !bytes.Contains(e.Data, []byte(`"image"`)) {
-		return e
-	}
 	stripped, changed := stripImages(e.Data)
 	if !changed {
 		return e
@@ -526,9 +512,7 @@ func stripImages(raw json.RawMessage) (json.RawMessage, bool) {
 				MediaType string `json:"mediaType"`
 			}
 			if err := json.Unmarshal(obj["data"], &body); err == nil {
-				obj["data"] = mustJSON(struct {
-					MediaType string `json:"mediaType"`
-				}{body.MediaType})
+				obj["data"] = mustJSON(body)
 				changed = true
 			}
 		}

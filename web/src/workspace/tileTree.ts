@@ -8,7 +8,6 @@
 // the user; nothing here ever touches the live-session list.
 
 export type SplitDirection = 'row' | 'column' // row: children side by side
-
 export interface TilePane {
   kind: 'pane'
   id: string
@@ -27,8 +26,8 @@ export interface TileSplit {
 
 export type TileNode = TilePane | TileSplit
 
-export const minRatio = 0.12
-export const maxRatio = 0.88
+const minRatio = 0.12
+const maxRatio = 0.88
 
 export function clampRatio(ratio: number): number {
   if (!Number.isFinite(ratio)) return 0.5
@@ -37,7 +36,7 @@ export function clampRatio(ratio: number): number {
 
 let idCounter = 0
 
-export function newNodeId(): string {
+function newNodeId(): string {
   idCounter += 1
   return `n${Date.now().toString(36)}${idCounter.toString(36)}`
 }
@@ -68,20 +67,21 @@ export function findPane(tree: TileNode | null, paneId: string): TilePane | null
 // first pane, else as the root pane of an empty tree. A session already
 // tabbed anywhere just activates there.
 export function openTab(tree: TileNode | null, sessionId: string, paneId?: string): TileNode {
-  if (tree === null) {
-    return { kind: 'pane', id: newNodeId(), tabs: [sessionId], active: sessionId }
-  }
+  if (tree === null) return freshPane(sessionId)
   const existing = findSessionPane(tree, sessionId)
-  if (existing) return setActive(tree, existing.id, sessionId)
+  if (existing) return activateTab(tree, existing.id, sessionId)
   const target = (paneId && findPane(tree, paneId)) || firstPane(tree)
   if (!target) return tree
   return withTabs(tree, target.id, (tabs) => [...tabs, sessionId], sessionId)
 }
 
-// setActive focuses one tab in its pane.
-export function setActive(tree: TileNode, paneId: string, sessionId: string): TileNode {
+// activateTab shows one existing tab in its pane: the session must already be
+// a tab there, anything else keeps the tree identity.
+export function activateTab(tree: TileNode, paneId: string, sessionId: string): TileNode {
   return mapPane(tree, paneId, (pane) =>
-    pane.tabs.includes(sessionId) ? { ...pane, active: sessionId } : pane,
+    !pane.tabs.includes(sessionId) || pane.active === sessionId
+      ? pane
+      : { ...pane, active: sessionId },
   )
 }
 
@@ -118,7 +118,7 @@ export function splitPane(
   sessionId: string,
   where: 'before' | 'after',
 ): { tree: TileNode; paneId: string } {
-  const fresh: TilePane = { kind: 'pane', id: newNodeId(), tabs: [sessionId], active: sessionId }
+  const fresh = freshPane(sessionId)
   const insert = (node: TileNode): TileNode => {
     if (node.kind === 'pane') {
       if (node.id !== paneId) return node
@@ -131,9 +131,10 @@ export function splitPane(
   return { tree: insert(tree), paneId: fresh.id }
 }
 
-// moveTab reorders tabs within a pane or moves one across panes. Dropping at
-// a toIndex in the target pane; a source pane left empty closes. Same-pane
-// no-ops keep the tree identity so drag ghosts settle without churn.
+// moveTab reorders tabs within a pane or moves one across panes. toIndex is
+// a tab position in the target pane: insert before it, past the end appends.
+// A source pane left empty closes. Same-pane no-ops keep the tree identity so
+// drag ghosts settle without churn.
 export function moveTab(
   tree: TileNode,
   fromPane: string,
@@ -146,7 +147,15 @@ export function moveTab(
   if (!source || !target || !source.tabs.includes(sessionId)) return tree
   if (fromPane === toPane) {
     const from = source.tabs.indexOf(sessionId)
-    const to = Math.max(0, Math.min(target.tabs.length - 1, toIndex))
+    // The id is removed before splicing, so a forward target shifts down one
+    // slot to stay where the drop-before indicator sat; strip drops append.
+    let to: number
+    if (toIndex >= target.tabs.length) {
+      to = target.tabs.length - 1
+    } else {
+      to = Math.max(0, toIndex)
+      if (from < to) to -= 1
+    }
     if (from === to) return tree
     const tabs = source.tabs.filter((id) => id !== sessionId)
     tabs.splice(to, 0, sessionId)
@@ -175,20 +184,56 @@ export function setRatio(tree: TileNode, splitId: string, ratio: number): TileNo
 
 // --- internal helpers ---
 
+// firstPane returns the leftmost pane of the tree, null when empty.
 function firstPane(tree: TileNode): TilePane | null {
-  let out: TilePane | null = null
-  const walk = (node: TileNode): void => {
-    if (out || node.kind === 'pane') {
-      out ??= node.kind === 'pane' ? node : null
-      return
-    }
-    walk(node.a)
-    walk(node.b)
-  }
-  walk(tree)
-  return out
+  if (tree.kind === 'pane') return tree
+  return firstPane(tree.a) ?? firstPane(tree.b)
 }
 
+// Panes per row in grids tileFor generates.
+const tileRowCap = 3
+
+// tileFor lays one pane per session id out as a balanced grid of equal panes:
+// rows hold at most three, wrapping over as few rows as possible with larger
+// rows first (5 → 3+2; 7 → 3+2+2), joined by column splits. Reading order is
+// left-to-right then top-down. ids must be non-empty.
+export function tileFor(ids: string[]): TileNode {
+  if (ids.length === 0) throw new Error('tileFor requires at least one session id')
+  const rows = Math.ceil(ids.length / tileRowCap)
+  let at = 0
+  const rowTrees: TileNode[] = []
+  for (let row = 0; row < rows; row++) {
+    // leading rows take the remainder, so row sizes come out larger-first
+    const count = Math.floor(ids.length / rows) + (row < ids.length % rows ? 1 : 0)
+    rowTrees.push(chainSplits('row', ids.slice(at, at + count).map(freshPane)))
+    at += count
+  }
+  return chainSplits('column', rowTrees)
+}
+
+// freshPane builds a pane holding one session as its only active tab.
+function freshPane(sessionId: string): TilePane {
+  return { kind: 'pane', id: newNodeId(), tabs: [sessionId], active: sessionId }
+}
+
+// chainSplits nests nodes along dir with ratios that give every node an equal
+// share: k nodes split as 1/k, then 1/(k-1) of the rest, and so on.
+function chainSplits(dir: SplitDirection, nodes: TileNode[]): TileNode {
+  let merged = nodes[nodes.length - 1]
+  for (let i = nodes.length - 2; i >= 0; i--) {
+    merged = {
+      kind: 'split',
+      id: newNodeId(),
+      dir,
+      ratio: 1 / (nodes.length - i),
+      a: nodes[i],
+      b: merged,
+    }
+  }
+  return merged
+}
+
+// findSessionPane locates the pane tabbing a session, null when nowhere open.
 function findSessionPane(tree: TileNode | null, sessionId: string): TilePane | null {
   if (!tree) return null
   if (tree.kind === 'pane') return tree.tabs.includes(sessionId) ? tree : null
@@ -221,16 +266,7 @@ function replacePane(tree: TileNode, paneId: string, pane: TilePane): TileNode {
 
 // --- serialization: the layout profile persists the tree as plain JSON ---
 
-export function serializeTree(tree: TileNode | null): unknown {
-  return tree
-}
-
 export function parseTree(raw: unknown): TileNode | null {
-  if (raw === null || raw === undefined) return null
-  return validNode(raw)
-}
-
-function validNode(raw: unknown): TileNode | null {
   if (typeof raw !== 'object' || raw === null) return null
   const node = raw as Record<string, unknown>
   if (node.kind === 'pane') {
@@ -247,8 +283,8 @@ function validNode(raw: unknown): TileNode | null {
   if (node.kind !== 'split') return null
   if (typeof node.id !== 'string' || node.id === '') return null
   if (node.dir !== 'row' && node.dir !== 'column') return null
-  const a = validNode(node.a)
-  const b = validNode(node.b)
+  const a = parseTree(node.a)
+  const b = parseTree(node.b)
   if (!a || !b) return null
   const ratio = typeof node.ratio === 'number' && Number.isFinite(node.ratio) ? node.ratio : 0.5
   return { kind: 'split', id: node.id, dir: node.dir, ratio: clampRatio(ratio), a, b }

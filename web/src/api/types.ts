@@ -66,6 +66,7 @@ export interface Segment {
   text: string
   short?: string
   order: number
+  counts?: Record<string, number> // machine-readable tallies beside the prose
 }
 
 export interface SeatState {
@@ -106,6 +107,10 @@ export interface CtlState {
   status?: { segments?: Segment[] }
   seat: SeatState
   interactions?: InteractionPending[]
+  // Snapshot stamp, present on GET /snapshot replies only (init frames omit
+  // it): the actor watermark this state was read under, so events at or below
+  // it are already covered by these fields.
+  seq?: number
 }
 
 // Entry is one transcript line. Data stays opaque here; renderers decode the
@@ -149,6 +154,12 @@ export const ChildState = {
   Gone: 'gone',
 } as const
 
+// childEnded reports whether a child state means the session no longer
+// serves. Gone covers a run the service itself no longer sees at all.
+export function childEnded(state: string): boolean {
+  return state === ChildState.Exited || state === ChildState.Gone
+}
+
 export interface ChildFrame {
   type: 'child'
   sessionId: string
@@ -186,9 +197,12 @@ export interface SessionStatus {
   seatOurs: boolean
   running: boolean
   idle: boolean
+  queued: number // prompts waiting in the session's queue
   openInteractions: number
   lastTurnEnd?: number // unix milliseconds
-  exitedAt?: number // unix milliseconds, exited swarm children only
+  lastStop?: string // stop reason of the last finished turn
+  lastStopErr?: string // transport or context failure that ended it
+  exitedAt?: number // unix milliseconds, ended sessions
   spawnedBy: 'swarm' | 'external'
   argv?: string
   logPath?: string
@@ -197,7 +211,7 @@ export interface SessionStatus {
 }
 
 // AttentionRow is one live session's row of GET /api/attention. The digest
-// facts (dialog, last stop, activity) carry the inbox rail's one-line reasons.
+// facts (dialog, last stop, activity) carry the focus rail's one-line reasons.
 export interface AttentionRow {
   sessionId: string
   pid?: number
@@ -261,16 +275,6 @@ export interface RecallRow {
   text?: string
 }
 
-// ModelRow is one session's model facts from GET /api/models. Options and
-// DialogID appear only when discovery opened ajent's own picker; answer it
-// through resolve or cancel it, never leave it stranded.
-export interface ModelRow {
-  sessionId: string
-  current: ModelState
-  options?: string[]
-  dialogId?: number
-}
-
 export type RewindKind = 'user' | 'assistant' | 'compaction'
 
 // RewindCandidate is one rewirable entry of the transcript tree, every fork
@@ -312,6 +316,19 @@ export interface FilesReply {
   items: FileSuggestion[]
 }
 
+// RecallLineRow is one row of the workspace recall mirror from GET
+// /recall-lines: a typed prompt submitted through swarm in that workspace,
+// newest first. Text is never empty; withheld rows stay server-side.
+export interface RecallLineRow {
+  id: number
+  text: string
+  createdAt: string
+}
+
+export interface RecallLinesReply {
+  items: RecallLineRow[]
+}
+
 // SavedSession is one row of the resume picker listing, most recently used
 // first; target is what a launch passes back for the row.
 export interface SavedSession {
@@ -335,6 +352,7 @@ export type LaunchMode = 'new' | 'resume' | 'continue' | 'session'
 export type ScheduleKind = 'once' | 'interval' | 'daily'
 export type MissPolicy = 'skip' | 'fire_late'
 export type OverlapPolicy = 'run' | 'skip_if_running'
+export type TriggerOn = 'success' | 'error'
 export type RunStatus = 'running' | 'awaiting_input' | 'ok' | 'failed' | 'timeout' | 'skipped'
 
 // Job is one scheduled job row from /api/jobs. nextRunAt stays null while the
@@ -349,17 +367,40 @@ export interface Job {
   sessionTarget?: string
   model?: string
   permission?: string
+  tools?: string // comma list of enabled tool names; custom sets only
+  toolsCustom?: boolean // off keeps the launched session's default set
   enabled: boolean
+  queued?: boolean // one-shot parked by the queue endpoint; server-owned
   scheduleKind: ScheduleKind
   intervalSeconds?: number
   dailyTime?: string // HH:MM wall clock in tz
   tz?: string // IANA name; absent means server local
+  weekdays?: string // comma list of sun..sat; absent means every day
   nextRunAt?: string | null
   onMissed: MissPolicy
   overlap: OverlapPolicy
   timeoutMinutes?: number // zero means the service default applies
   keepAlive: boolean
+  runWhenIdle?: boolean // hold fires until the fleet has been quiet
+  idleMaxDelaySeconds?: number // past this wait a held fire skips; zero waits forever
+  triggerCommand?: string // shell gate evaluated before each launch
+  triggerOn?: TriggerOn // which exit outcome lets the job run
   createdAt: string
+}
+
+// QueueRequest is the POST /api/jobs/queue body: one prompt parked until the
+// fleet is idle. Name, workspace and prompt are required; the optional fields
+// shape the launch. The fixed job shape around them is server-owned.
+export interface QueueRequest {
+  name: string
+  workspace: string
+  prompt: string
+  model?: string
+  permission?: string
+  toolsCustom?: boolean
+  tools?: string
+  triggerCommand?: string
+  triggerOn?: TriggerOn
 }
 
 // Run is one row of run history from /api/runs. sessionId stays absent until
@@ -409,6 +450,12 @@ export interface ModelListing {
   models: ModelState[]
 }
 
+// GlobalSettings is GET /api/settings, swarm's own persisted settings: the
+// model the one-shot session titler runs with, empty for the default.
+export interface GlobalSettings {
+  titleModel: string
+}
+
 export interface ToolSetReply {
   rows: ToolState[] // full replacement after the reshape
 }
@@ -426,6 +473,26 @@ export interface SettingRow {
 
 export interface SettingsRowsReply {
   rows: SettingRow[]
+}
+
+// AgentJob is one sub-agent job as agents.list carries it: the id, its task
+// label, lifecycle status and elapsed time. The id doubles as the activity
+// row key (sub-N), so records join rows without a second mapping.
+export type AgentJobStatus = 'queued' | 'running' | 'done' | 'error' | 'aborted'
+
+export interface AgentJob {
+  id: string
+  task?: string
+  status: AgentJobStatus
+  elapsedMs?: number // queue wait when the job never ran, else frozen at finish
+}
+
+export interface AgentsListResult {
+  jobs: AgentJob[] // job-number order, finished ones included
+}
+
+export interface AgentsStopResult {
+  stopped: number // jobs actually cancelled
 }
 
 export interface SettingSetReply {

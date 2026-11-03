@@ -4,9 +4,15 @@
 //   - an init replaces everything and resets the watermark
 //   - events apply only above the watermark (ephemeral) and dedupe by entry
 //     id (committed)
+//   - a snapshot applies its event-covered fields only when stamped at or
+//     above the applied watermark; poll-only facts always merge
 //   - keyed families replace wholesale, empty text removes a row
 //   - dialogs are state: rebuilt from snapshots, cleared when absent
+//   - a mid-turn session.exit closes the turn itself: no turn.end follows an
+//     unsettled exit, and ended sessions never resnapshot
 //   - queue rows resolve by id, secret redaction respected
+//   - a user-shell card (a `!`/`!!` label) outlives its turn: snapshots keep
+//     it, the injected "User Ran:" flush retires it, a count cap bounds it
 //
 // The reducer returns new top-level state objects per action, while the entry
 // map and child index mutate in place. Every mutating operation is idempotent
@@ -25,23 +31,29 @@ export interface DiffView {
   path: string
   before: string
   after: string
+  // Last entry id on the visible chain at arrival; '' when nothing was
+  // committed yet. Rendering pins the card beneath its block.
+  afterId: string
 }
 
 export interface ToolProgressView {
-  name?: string
   path?: string
   bytes?: number
   lines?: number
-  done?: boolean
 }
 
 export interface ToolCallView {
   id: string
   name: string
+  label?: string // header text, kept only for user-shell cards ('! cmd')
+  shell?: boolean // a staged user `!`/`!!` run, executing outside any turn
+  excluded?: boolean // a `!!` run: output never reaches context or the transcript
   input?: unknown
   progress?: ToolProgressView
   outputs: string[] // streamed deltas painted so far; result.output adds nothing when set
-  result?: { output: string; error: boolean }
+  result?: { output: string; error: boolean; fault?: string }
+  verdict?: string // permit outcome chip, e.g. 'auto allowed'
+  closed?: boolean // turn ended before a result arrived; never shows "running"
 }
 
 // LiveTurn buffers one in-flight turn's stream. Tolerant ordering holds:
@@ -50,7 +62,12 @@ export interface ToolCallView {
 export interface LiveTurn {
   model: string
   thinking: string
+  // Panel intent for the live thinking details. The panel renders
+  // uncontrolled and follows only flips of this value, never per render.
   thinkingOpen: boolean
+  // Set once a user toggle reaches the applier; programmatic collapses then
+  // stop applying for the rest of this buffer.
+  thinkingUserToggled?: boolean
   text: string
   textOpen: boolean
   tools: ToolCallView[] // first-seen order, keyed by id
@@ -60,14 +77,22 @@ export interface NoticeView {
   key: string // '' for unkeyed notices, which stack instead of replacing
   text: string
   level: 'info' | 'warn' | 'error'
+  at: number // wall clock of arrival; rendering expires stale lines
 }
 
-export interface PrintCard {
+// PermitVerdict is one tool call's approval outcome, captured from upstream's
+// resolve notices so it rides its card instead of stacking above the composer.
+export interface PermitVerdict {
+  id: string // tool call id the verdict was gated against
+  text: string // chip label shown on both the live and committed cards
+}
+
+interface PrintCard {
   id: number
   markdown: string
 }
 
-export type PendingState = 'pending' | 'queued' | 'committed' | 'failed' | 'dropped'
+type PendingState = 'pending' | 'queued' | 'committed' | 'failed' | 'dropped'
 
 // PendingSubmit is one optimistic prompt row, resolved by queue events or the
 // committed entry's queueIds, never by text.
@@ -97,10 +122,17 @@ export interface DialogOutcome {
 
 // ChainInfo describes the visible transcript branch: ids oldest first,
 // whether the parent walk reached a transcript root, and the id to page from.
-export interface ChainInfo {
+interface ChainInfo {
   ids: string[]
   rooted: boolean // false means older history exists beyond what we hold
   oldestId: string // '' when empty; paging uses it as its before cursor
+}
+
+// sessionBusy reports whether a session is mid-turn or parked at a spinner:
+// running tracks turn events while spinning reconciles only via snapshots.
+// The structural parameter keeps digest rows and snapshots on one rule.
+export function sessionBusy(s: { running: boolean; spinning?: boolean }): boolean {
+  return s.running || s.spinning === true
 }
 
 export interface AppliedSessionState {
@@ -113,6 +145,7 @@ export interface AppliedSessionState {
 
   live: LiveTurn | null
   notices: NoticeView[]
+  permitVerdicts: PermitVerdict[] // newest last, bounded; keeps chips past the handoff
   prints: PrintCard[]
   diffs: DiffView[] // newest last, bounded
   pendings: PendingSubmit[]
@@ -120,9 +153,9 @@ export interface AppliedSessionState {
   resolvedElsewhere: DialogOutcome[] // dialogs settled without this viewer's answer
   ownDialogs: Set<number> // dialog ids this client answered; suppresses the outcome card
 
-  exitReason?: string // set once session.exit applies; the run ended cleanly
+  exitReason?: string // set once session.exit applies; the run ended, turn state is closed
 
-  lastTurnEndAt: number // wall clock of the last applied turn.end; drives resnapshot
+  lastTurnEndAt: number // wall clock of the last applied turn close; drives resnapshot
   healTick: number // bumped when a branch change left the chain incomplete
 }
 
@@ -133,15 +166,23 @@ export type ApplierAction =
   | { type: 'backfill'; entries: Entry[] }
   | { type: 'pendingSubmitted'; pendingId: string; text: string }
   | { type: 'pendingFailed'; pendingId: string }
+  | { type: 'liveThinkingToggled'; open: boolean }
   | { type: 'dialogAnswered'; dialogId: number }
+  | { type: 'outcomeDismissed'; dialogId: number }
 
 // Bounds keeping the ephemeral surfaces finite across long sessions.
 const maxNotices = 50
+const maxPermitVerdicts = 50
 const maxPrints = 20
 const maxDiffs = 10
 const maxPendings = 100
 const maxDroppedRows = 20
 const maxOutcomes = 5
+const maxShellCards = 5
+
+// swarmHolder matches pkg/fleet's holderName: upstream announces every swarm
+// claim with it, so displacement by this name reads as our own takeover.
+const swarmHolder = 'swarm'
 
 export function initialSessionState(): AppliedSessionState {
   return {
@@ -152,6 +193,7 @@ export function initialSessionState(): AppliedSessionState {
     chain: { ids: [], rooted: true, oldestId: '' },
     live: null,
     notices: [],
+    permitVerdicts: [],
     prints: [],
     diffs: [],
     pendings: [],
@@ -192,12 +234,14 @@ function zeroUsage() {
 
 // --- payload decoders; malformed payloads drop rather than corrupting state ---
 
+// MessageEntryData is a committed 'message' entry's data shape, decoded by
+// the reducer (queueIds) and transcript derivation (role, content, stop,
+// injected/replayed marking) alike.
 export interface MessageEntryData {
   message?: { role?: string; content?: unknown }
   stop?: string
   injected?: boolean
   replayed?: boolean
-  origin?: string
   queueIds?: string[]
 }
 
@@ -222,7 +266,7 @@ export function applierReducer(
     case 'backfill': {
       const next = cloneShallow(state)
       for (const entry of action.entries) {
-        insertEntry(next, entry)
+        if (insertEntry(next, entry)) drainLiveCoveredBy(next, entry)
       }
       recomputeChain(next)
       return next
@@ -243,6 +287,16 @@ export function applierReducer(
       )
       return next
     }
+    case 'liveThinkingToggled': {
+      // A user toggle takes the panel over: later programmatic collapses
+      // (thinking.end, turn end) stop applying for this buffer. Replaying a
+      // recorded toggle converges instead of churning the state object.
+      const live = state.live
+      if (!live || (live.thinkingUserToggled && live.thinkingOpen === action.open)) return state
+      const next = cloneShallow(state)
+      next.live = { ...live, thinkingOpen: action.open, thinkingUserToggled: true }
+      return next
+    }
     case 'dialogAnswered': {
       // Recording our own answer keeps the settled event from painting an
       // "answered elsewhere" card for a dialog this viewer resolved.
@@ -251,6 +305,13 @@ export function applierReducer(
       const own = new Set(state.ownDialogs)
       own.add(action.dialogId)
       next.ownDialogs = own
+      return next
+    }
+    case 'outcomeDismissed': {
+      // Resolved chips leave on click as well as on their timer.
+      if (!state.resolvedElsewhere.some((o) => o.id === action.dialogId)) return state
+      const next = cloneShallow(state)
+      next.resolvedElsewhere = state.resolvedElsewhere.filter((o) => o.id !== action.dialogId)
       return next
     }
   }
@@ -300,7 +361,7 @@ function applyEvent(state: AppliedSessionState, ev: WireEvent): AppliedSessionSt
   switch (ev.event) {
     case 'entry.append': {
       const entry = decode<{ entry?: Entry }>(ev.data)?.entry
-      if (!isValidEntry(entry)) return keepSeq(state, ev.seq)
+      if (!isValidEntry(entry)) return next
       // The head follows the committed family wherever it lands.
       next.snapshot = { ...next.snapshot, head: entry.id }
       insertEntry(next, entry)
@@ -311,7 +372,7 @@ function applyEvent(state: AppliedSessionState, ev: WireEvent): AppliedSessionSt
 
     case 'branch.changed': {
       const d = decode<{ head?: string }>(ev.data)
-      if (!isValidId(d?.head)) return keepSeq(state, ev.seq)
+      if (!isValidId(d?.head)) return next
       next.snapshot = { ...next.snapshot, head: d.head }
       recomputeChain(next)
       // The visible chain must follow the branch; a head whose ancestors are
@@ -325,24 +386,20 @@ function applyEvent(state: AppliedSessionState, ev: WireEvent): AppliedSessionSt
 
     case 'activity': {
       const row = decode<{ key?: string; text?: string; rank?: number }>(ev.data)
-      if (!row || !isValidId(row.key)) return keepSeq(state, ev.seq)
+      if (!row || !isValidId(row.key)) return next
       const { key, text, rank } = row
-      // Keyed family: non-empty text adds or replaces, empty text removes.
-      const activity =
-        text !== undefined && text !== ''
-          ? upsertByKey(next.snapshot.activity ?? [], key, () => ({
-              key,
-              text,
-              rank: rank ?? 0,
-            }))
-          : (next.snapshot.activity ?? []).filter((r) => r.key !== key)
+      const activity = keyedFamily(
+        next.snapshot.activity,
+        key,
+        text !== undefined && text !== '' ? { key, text, rank: rank ?? 0 } : null,
+      )
       next.snapshot = { ...next.snapshot, activity }
       return next
     }
 
     case 'tools': {
       const rows = decode<{ rows?: ToolState[] }>(ev.data)?.rows
-      if (rows === undefined) return keepSeq(state, ev.seq)
+      if (rows === undefined) return next
       next.snapshot = { ...next.snapshot, tools: rows }
       return next
     }
@@ -350,7 +407,7 @@ function applyEvent(state: AppliedSessionState, ev: WireEvent): AppliedSessionSt
     case 'queued': {
       // Full replacement of pending-prompt rows, oldest first.
       const rows = decode<{ rows?: QueueRow[] }>(ev.data)?.rows
-      if (rows === undefined) return keepSeq(state, ev.seq)
+      if (rows === undefined) return next
       next.snapshot = { ...next.snapshot, queuedRows: rows, queued: rows.length }
       next.pendings = reconcilePendings(next.pendings, rows, new Set())
       return next
@@ -358,7 +415,7 @@ function applyEvent(state: AppliedSessionState, ev: WireEvent): AppliedSessionSt
 
     case 'queue.dropped': {
       const d = decode<{ rows?: QueueRow[]; cause?: string }>(ev.data)
-      if (d === undefined) return keepSeq(state, ev.seq)
+      if (d === undefined) return next
       // Rows are dropped by id: secret redaction means text may be empty.
       const dropped = new Set((d.rows ?? []).map((row) => row.id))
       const rows = (next.snapshot.queuedRows ?? []).filter((row) => !dropped.has(row.id))
@@ -377,21 +434,21 @@ function applyEvent(state: AppliedSessionState, ev: WireEvent): AppliedSessionSt
 
     case 'permission': {
       const d = decode<{ mode?: string }>(ev.data)
-      if (d === undefined) return keepSeq(state, ev.seq)
+      if (d === undefined) return next
       next.snapshot = { ...next.snapshot, permission: d.mode ?? '' }
       return next
     }
 
     case 'context': {
       const d = decode<CtlState['context']>(ev.data)
-      if (d === undefined) return keepSeq(state, ev.seq)
+      if (d === undefined) return next
       next.snapshot = { ...next.snapshot, context: d }
       return next
     }
 
     case 'idle': {
       const d = decode<{ idle?: boolean }>(ev.data)
-      if (d === undefined) return keepSeq(state, ev.seq)
+      if (d === undefined) return next
       next.snapshot = { ...next.snapshot, idle: d.idle ?? false }
       return next
     }
@@ -406,13 +463,18 @@ function applyEvent(state: AppliedSessionState, ev: WireEvent): AppliedSessionSt
     case 'thinking.delta':
     case 'text.delta': {
       const delta = decode<{ delta?: string }>(ev.data)?.delta
-      if (!delta) return keepSeq(state, ev.seq)
+      if (!delta) return next
       ensureLive(next)
       const live = next.live!
-      next.live =
-        ev.event === 'text.delta'
-          ? { ...live, text: live.text + delta }
-          : { ...live, thinking: live.thinking + delta }
+      if (ev.event === 'text.delta') {
+        next.live = { ...live, text: live.text + delta }
+        return next
+      }
+      // A fresh stream mounts expanded again unless the user owns the panel,
+      // matching how a buffer rebuilt from scratch would seed it.
+      const thinkingOpen =
+        live.thinking === '' && !live.thinkingUserToggled ? true : live.thinkingOpen
+      next.live = { ...live, thinking: live.thinking + delta, thinkingOpen }
       return next
     }
 
@@ -420,8 +482,12 @@ function applyEvent(state: AppliedSessionState, ev: WireEvent): AppliedSessionSt
     case 'text.end': {
       ensureLive(next)
       const live = next.live!
-      next.live =
-        ev.event === 'text.end' ? { ...live, textOpen: false } : { ...live, thinkingOpen: false }
+      if (ev.event === 'text.end') {
+        next.live = { ...live, textOpen: false }
+        return next
+      }
+      // The end-of-thinking collapse skips a panel the user has toggled.
+      if (!live.thinkingUserToggled) next.live = { ...live, thinkingOpen: false }
       return next
     }
 
@@ -433,10 +499,15 @@ function applyEvent(state: AppliedSessionState, ev: WireEvent): AppliedSessionSt
 
     case 'diff': {
       const d = decode<{ path?: string; before?: string; after?: string }>(ev.data)
-      if (!isValidId(d?.path)) return keepSeq(state, ev.seq)
+      if (!isValidId(d?.path)) return next
       next.diffs = boundedAppend(
         next.diffs,
-        { path: d.path, before: d.before ?? '', after: d.after ?? '' },
+        {
+          path: d.path,
+          before: d.before ?? '',
+          after: d.after ?? '',
+          afterId: next.chain.ids.at(-1) ?? '',
+        },
         maxDiffs,
       )
       return next
@@ -444,24 +515,33 @@ function applyEvent(state: AppliedSessionState, ev: WireEvent): AppliedSessionSt
 
     case 'notice': {
       const d = decode<{ text?: string; level?: string; key?: string }>(ev.data)
-      if (!d?.text) return keepSeq(state, ev.seq)
+      if (!d?.text) return next
+      // A permit verdict describes one call's approval, so it rides that card
+      // rather than parking above the composer. Without an open card (a lost
+      // tool.start, a mid-turn join) the line keeps its notice path instead.
+      const label = permitVerdict(d.text)
+      if (label !== undefined && attachPermitVerdict(next, label)) return next
       const level: NoticeView['level'] =
         d.level === 'warn' || d.level === 'error' ? d.level : 'info'
       if (d.key) {
         // Keyed notices replace in place instead of stacking.
         next.notices = [
           ...next.notices.filter((n) => n.key !== d.key),
-          { key: d.key, text: d.text, level },
+          { key: d.key, text: d.text, level, at: Date.now() },
         ].slice(-maxNotices)
       } else {
-        next.notices = boundedAppend(next.notices, { key: '', text: d.text, level }, maxNotices)
+        next.notices = boundedAppend(
+          next.notices,
+          { key: '', text: d.text, level, at: Date.now() },
+          maxNotices,
+        )
       }
       return next
     }
 
     case 'print': {
       const markdown = decode<{ markdown?: string }>(ev.data)?.markdown
-      if (!markdown) return keepSeq(state, ev.seq)
+      if (!markdown) return next
       next.prints = boundedAppend(next.prints, { id: ev.seq, markdown }, maxPrints)
       return next
     }
@@ -469,22 +549,20 @@ function applyEvent(state: AppliedSessionState, ev: WireEvent): AppliedSessionSt
     case 'turn.end': {
       // Running derives from turn.start/turn.end; the spinner reconciles from
       // snapshots only. Poll-only totals refresh by resnapshotting after this.
-      next.live = null
-      next.snapshot = { ...next.snapshot, running: false }
-      next.lastTurnEndAt = Date.now()
+      closeTurn(next)
       return next
     }
 
     case 'session.renamed': {
       const name = decode<{ name?: string }>(ev.data)?.name
-      if (!isValidId(name)) return keepSeq(state, ev.seq)
+      if (!isValidId(name)) return next
       next.snapshot = { ...next.snapshot, session: { ...next.snapshot.session, name } }
       return next
     }
 
     case 'interaction.pending': {
       const d = decode<InteractionPending>(ev.data)
-      if (!d?.id) return keepSeq(state, ev.seq)
+      if (!d?.id) return next
       const existing = next.snapshot.interactions ?? []
       const idx = existing.findIndex((dlg) => dlg.id === d.id)
       // A re-announcement updates in place; a new dialog joins the oldest-first set.
@@ -502,7 +580,7 @@ function applyEvent(state: AppliedSessionState, ev: WireEvent): AppliedSessionSt
         index?: number
         indexes?: number[]
       }>(ev.data)
-      if (!d?.id) return keepSeq(state, ev.seq)
+      if (!d?.id) return next
       next.snapshot = {
         ...next.snapshot,
         interactions: (next.snapshot.interactions ?? []).filter((dlg) => dlg.id !== d.id),
@@ -511,7 +589,7 @@ function applyEvent(state: AppliedSessionState, ev: WireEvent): AppliedSessionSt
       if (!own && (d.answered || d.cancelled)) {
         // Real outcome, never an error: another surface won the answer race.
         next.resolvedElsewhere = boundedAppend(
-          state.resolvedElsewhere,
+          next.resolvedElsewhere,
           {
             id: d.id,
             answered: d.answered ?? false,
@@ -532,45 +610,93 @@ function applyEvent(state: AppliedSessionState, ev: WireEvent): AppliedSessionSt
 
     case 'seat.lost': {
       const to = decode<{ to?: string }>(ev.data)?.to
-      if (!isValidId(to)) return keepSeq(state, ev.seq)
-      next.snapshot = { ...next.snapshot, seat: { held: true, holder: to, yours: false } }
+      if (!isValidId(to)) return next
+      // A claim by swarm is this single-user service itself, never a third party.
+      const ours = to === swarmHolder
+      next.snapshot = { ...next.snapshot, seat: { held: true, holder: to, yours: ours } }
       return next
     }
 
     case 'session.exit': {
+      // Exit can land mid-turn: an unsettled teardown never sends turn.end
+      // and the poll backstop skips ended sessions, so the turn closes here.
+      // Every step is idempotent under an earlier turn.end.
       const reason = decode<{ reason?: string }>(ev.data)?.reason
       next.exitReason = reason ?? ''
+      closeTurn(next)
+      // the spinner rides turn boundaries upstream, so it dies with the run
+      next.snapshot = { ...next.snapshot, spinning: false }
       return next
     }
 
     default:
       // Unknown events are additive changes: ignore them rather than failing.
-      return keepSeq(state, ev.seq)
+      return next
   }
+}
+
+// permitVerdict matches ajent's barrier resolve notices ("Tool auto allowed",
+// "Tool allowed for session", "Tool call allowed this time") and returns the
+// card chip label, undefined for any other notice. Matched as substrings so
+// upstream wording drift never breaks the attach.
+function permitVerdict(text: string): string | undefined {
+  const t = text.toLowerCase()
+  if (t.includes('auto allowed')) return 'auto allowed'
+  if (t.includes('allowed for session')) return 'allowed for session'
+  if (t.includes('allowed this time')) return 'allowed this time'
+  return undefined
+}
+
+// attachPermitVerdict stamps label onto the newest call still waiting for a
+// result, since a verdict resolves inside its guard chain between start and
+// result. It also records the pairing by id so the committed card keeps the
+// chip after the live buffer retires. Reports whether an open card took it.
+function attachPermitVerdict(state: AppliedSessionState, label: string): boolean {
+  const tools = state.live?.tools
+  if (!tools) return false
+  const idx = tools.findLastIndex((t) => t.result === undefined)
+  if (idx < 0) return false
+  state.permitVerdicts = [...state.permitVerdicts, { id: tools[idx].id, text: label }].slice(
+    -maxPermitVerdicts,
+  )
+  state.live = {
+    ...state.live!,
+    tools: tools.map((t, j) => (j === idx ? { ...t, verdict: label } : t)),
+  }
+  return true
 }
 
 function applyStatus(next: AppliedSessionState, ev: WireEvent): AppliedSessionState {
   const d = decode<{
-    segment?: { key?: string; text?: string; short?: string; order?: number }
+    segment?: {
+      key?: string
+      text?: string
+      short?: string
+      order?: number
+      counts?: Record<string, number>
+    }
     model?: CtlState['model']
     spinning?: boolean
   }>(ev.data)
-  if (d === undefined) return keepSeq(next, ev.seq)
+  if (d === undefined) return next
 
   if (d.segment !== undefined && d.segment !== null) {
     const seg = d.segment
-    if (!seg || !isValidId(seg.key)) return keepSeq(next, ev.seq)
+    if (!isValidId(seg.key)) return next
     const { key } = seg
-    // Keyed family: non-empty text adds or replaces, empty text removes.
-    const segments =
+    const segments = keyedFamily(
+      next.snapshot.status?.segments,
+      key,
       seg.text !== undefined && seg.text !== ''
-        ? upsertByKey(next.snapshot.status?.segments ?? [], key, () => ({
+        ? {
             key,
-            text: seg.text!,
+            text: seg.text,
             short: seg.short,
             order: seg.order ?? 0,
-          }))
-        : (next.snapshot.status?.segments ?? []).filter((s) => s.key !== key)
+            counts: seg.counts, // tallies replace whole with the text
+          }
+        : null,
+    )
     next.snapshot = { ...next.snapshot, status: { segments } }
     return next
   }
@@ -582,7 +708,7 @@ function applyStatus(next: AppliedSessionState, ev: WireEvent): AppliedSessionSt
     next.snapshot = { ...next.snapshot, spinning: d.spinning }
     return next
   }
-  return keepSeq(next, ev.seq)
+  return next
 }
 
 function applyToolEvent(next: AppliedSessionState, ev: WireEvent): AppliedSessionState {
@@ -591,20 +717,34 @@ function applyToolEvent(next: AppliedSessionState, ev: WireEvent): AppliedSessio
 
   switch (ev.event) {
     case 'tool.start': {
-      const d = decode<{ id?: string; name?: string; input?: unknown }>(ev.data)
-      if (!isValidId(d?.id)) return keepSeq(next, ev.seq)
-      return withLive(
-        next,
-        upsertTool(live.tools, d.id!, (t) => ({
-          ...t,
-          name: d.name ?? t.name,
-          input: d.input !== undefined ? d.input : t.input,
-        })),
-      )
+      const d = decode<{ id?: string; name?: string; input?: unknown; label?: string }>(ev.data)
+      if (!isValidId(d?.id)) return next
+      // ajent's stager labels a staged user run with the bangs typed
+      // ('! cmd' staged onto context, '!! cmd' excluded from it)
+      const shell = typeof d.label === 'string' && d.label.startsWith('!')
+      const excluded = typeof d.label === 'string' && d.label.startsWith('!!')
+      const tools = upsertTool(live.tools, d.id!, (t) => ({
+        ...t,
+        name: d.name ?? t.name,
+        input: d.input !== undefined ? d.input : t.input,
+        label: shell ? d.label : t.label,
+        shell: shell || t.shell,
+        excluded: excluded || t.excluded,
+      }))
+      // an excluded `!!` run never flushes, so lingering shell cards need a bound
+      const shells = tools.filter((t) => t.shell)
+      if (shells.length > maxShellCards) {
+        const drop = new Set(shells.slice(0, shells.length - maxShellCards).map((t) => t.id))
+        return withLive(
+          next,
+          tools.filter((t) => !drop.has(t.id)),
+        )
+      }
+      return withLive(next, tools)
     }
     case 'tool.output': {
       const d = decode<{ id?: string; delta?: string }>(ev.data)
-      if (!isValidId(d?.id) || !d.delta) return keepSeq(next, ev.seq)
+      if (!isValidId(d?.id) || !d.delta) return next
       return withLive(
         next,
         upsertTool(live.tools, d.id!, (t) => ({
@@ -620,29 +760,40 @@ function applyToolEvent(next: AppliedSessionState, ev: WireEvent): AppliedSessio
         path?: string
         bytes?: number
         lines?: number
-        done?: boolean
       }>(ev.data)
-      if (!isValidId(d?.id)) return keepSeq(next, ev.seq)
+      if (!isValidId(d?.id)) return next
       // Progress may name a call before its start: upsert keeps first-seen order.
       return withLive(
         next,
         upsertTool(live.tools, d.id!, (t) => ({
           ...t,
           name: t.name || d.name || '',
-          progress: { path: d.path, bytes: d.bytes, lines: d.lines, done: d.done },
+          progress: { path: d.path, bytes: d.bytes, lines: d.lines },
         })),
       )
     }
     case 'tool.result': {
       const d = decode<{ id?: string; name?: string; output?: string; error?: boolean }>(ev.data)
-      if (!isValidId(d?.id)) return keepSeq(next, ev.seq)
+      if (!isValidId(d?.id)) return next
       // Result without a start still renders the header.
+      const result: NonNullable<ToolCallView['result']> = {
+        output: d.output ?? '',
+        error: d.error ?? false,
+      }
+      if (result.error && result.output !== '') {
+        // Upstream's recover path emits its fault-location notice immediately
+        // before this result; surface it on the failed card.
+        const fault = next.notices.findLast(
+          (n) => n.level === 'error' && n.text.startsWith(result.output),
+        )
+        if (fault !== undefined) result.fault = fault.text
+      }
       return withLive(
         next,
         upsertTool(live.tools, d.id!, (t) => ({
           ...t,
           name: t.name || d.name || '',
-          result: { output: d.output ?? '', error: d.error ?? false },
+          result,
         })),
       )
     }
@@ -651,18 +802,34 @@ function applyToolEvent(next: AppliedSessionState, ev: WireEvent): AppliedSessio
   }
 }
 
-// applyResnapshot merges the poll-only facts a snapshot exists to refresh:
-// identity, workspace, cwd and usage totals. Event-covered fields stay, since
-// stream state may already be newer than the read. Dialogs are the one
-// exception: rebuilt from the snapshot and cleared when absent.
+// applyResnapshot merges one REST snapshot. Poll-only facts (workspace, cwd,
+// usage totals, seat) merge unconditionally, since no change event can regress
+// under them: releases and swarm's own claims spend no event number, so a
+// resnapshot is where SeatBadge learns either. The reply's stamp names the
+// watermark the actor had applied when it read: at or above ours, its
+// event-covered fields land wholesale since they fold every event this client
+// has seen; below, events already moved past the read and only those facts
+// merge, so a late response can never empty a dialog, drop the live turn's
+// buffer, or queue rows the stream just announced.
 function applyResnapshot(state: AppliedSessionState, snap: CtlState): AppliedSessionState {
+  const fresh = snap.seq === undefined || snap.seq >= state.seq
   const next = cloneShallow(state)
   next.snapshot = {
     ...next.snapshot,
-    session: { ...next.snapshot.session, name: snap.session.name },
     workspace: snap.workspace,
     cwd: snap.cwd,
     usage: snap.usage,
+    seat: snap.seat,
+  }
+  if (!fresh) return next
+  // An exit is final for turn state: a read that raced it can still carry the
+  // pre-exit running/spinner facts, and no later poll exists to correct them.
+  // Only the poll-only facts above keep merging.
+  if (state.exitReason !== undefined) return next
+
+  next.snapshot = {
+    ...next.snapshot,
+    session: { ...next.snapshot.session, name: snap.session.name },
     // A drop can lose a turn's end event; the snapshot is where a stuck
     // spinner finally clears.
     spinning: snap.spinning,
@@ -671,7 +838,68 @@ function applyResnapshot(state: AppliedSessionState, snap: CtlState): AppliedSes
   const rows = snap.queuedRows ?? []
   next.snapshot = { ...next.snapshot, queuedRows: rows, queued: rows.length }
   next.pendings = reconcilePendings(next.pendings, rows, new Set())
+
+  // Lost-carrier reconciliation: when the snapshot reports no turn in flight,
+  // any leftover buffer missed its close (dropped result, lost carrier entry,
+  // a missed turn.end). The commit handoff drains first: this fires ~100 ms
+  // after turn.end and the poll is the backstop, so what remains is residue.
+  // Drop it outright instead of sealing. Committed entries own the content
+  // from here, and kept residue would pin its panel forever. A user-shell
+  // card is the one exception: a staged run executes outside any turn and
+  // nothing commits its output until the flush entry lands, so it survives.
+  if (!snap.running && next.live !== null) {
+    next.live = shellOnlyLive(next.live)
+  }
   return next
+}
+
+// shellOnlyLive strips one not-running buffer down to its user-shell cards,
+// dropping the sealed stream residue. Returns null when no shell card stays.
+function shellOnlyLive(live: LiveTurn): LiveTurn | null {
+  const tools = live.tools.filter((t) => t.shell)
+  if (tools.length === 0) return null
+  return {
+    ...live,
+    thinking: '',
+    thinkingOpen: false,
+    text: '',
+    textOpen: false,
+    tools,
+  }
+}
+
+// closeLiveTurn retires one finished turn's buffer the way ajent's own
+// reference client does: painted content stays, streams seal and any call
+// without a result closes instead of discarding the whole card. Returns null
+// when nothing remains worth painting.
+function closeLiveTurn(live: LiveTurn | null): LiveTurn | null {
+  if (live === null) return null
+  // A staged shell run outlives the turn: its card neither seals nor counts
+  // the buffer empty, so it keeps painting until its own result arrives.
+  const tools = live.tools.map((t) =>
+    t.result || t.closed || t.shell ? t : { ...t, closed: true },
+  )
+  const empty =
+    live.text === '' &&
+    live.thinking === '' &&
+    tools.every((t) => t.outputs.length === 0 && !t.result && !t.shell)
+  if (empty) return null
+  return {
+    ...live,
+    // the resting state at commit is collapsed unless the user owns the panel;
+    // the committed block's own default keeps it collapsed after handoff
+    thinkingOpen: live.thinkingUserToggled ? live.thinkingOpen : false,
+    textOpen: false,
+    tools,
+  }
+}
+
+// closeTurn settles one finished turn: the buffer seals, running clears and
+// the resnapshot clock moves. Idempotent under an earlier turn.end.
+function closeTurn(state: AppliedSessionState): void {
+  state.live = closeLiveTurn(state.live)
+  state.snapshot = { ...state.snapshot, running: false }
+  state.lastTurnEndAt = Date.now()
 }
 
 // --- entry bookkeeping ---
@@ -752,7 +980,7 @@ function drainLiveCoveredBy(state: AppliedSessionState, entry: Entry): void {
   if (!state.live || entry.type !== 'message') return
   const d = decode<MessageEntryData>(entry.data)
   const role = d?.message?.role
-  const blocks = contentBlocks(d?.message?.content)
+  const blocks = Array.isArray(d?.message?.content) ? (d.message.content as ContentBlockView[]) : []
   if (blocks.length === 0) return
 
   let live = state.live
@@ -782,13 +1010,30 @@ function drainLiveCoveredBy(state: AppliedSessionState, entry: Entry): void {
         .filter((b) => b.type === 'tool_result' && isValidId(toolCallId(b)))
         .map((b) => toolCallId(b)!),
     )
-    if (resultIds.size > 0) {
-      const tools = live.tools.filter((t) => !resultIds.has(t.id))
-      changed = tools.length !== live.tools.length
-      live = { ...live, tools }
-    }
+    // A staged run's flush commits as an injected "User Ran: <cmd>" message:
+    // its finished cards retire, the output is transcript history now. Both
+    // sides compare on the command's first line.
+    const text = textOf(blocks[0])
+    const flushed =
+      d?.injected && text.startsWith(userRanPrefix)
+        ? firstLine(text.slice(userRanPrefix.length))
+        : undefined
+    const retired = (t: ToolCallView): boolean =>
+      (resultIds.size > 0 && resultIds.has(t.id)) ||
+      (flushed !== undefined &&
+        t.shell === true &&
+        t.result !== undefined &&
+        firstLine((t.label ?? '').replace(/^!+ /, '')) === flushed)
+    const tools = live.tools.filter((t) => !retired(t))
+    changed = tools.length !== live.tools.length
+    live = { ...live, tools }
   }
-  if (changed) state.live = live
+  if (!changed) return
+  state.live = live
+  // a fully drained buffer stops painting the pinned row at all
+  if (live.text === '' && live.thinking === '' && live.tools.length === 0) {
+    state.live = null
+  }
 }
 
 // stripSuffix removes one occurrence of covered from the end of painted,
@@ -799,6 +1044,15 @@ function stripSuffix(painted: string, covered: string): string {
   return painted.slice(0, painted.length - covered.length)
 }
 
+// userRanPrefix opens the injected message a staged run's flush commits; it
+// also marks the delivered block that shares the live card's styling.
+export const userRanPrefix = 'User Ran: '
+
+function firstLine(text: string): string {
+  const i = text.indexOf('\n')
+  return i === -1 ? text : text.slice(0, i)
+}
+
 // --- content block helpers shared with the view's own decoding ---
 
 interface ContentBlockData {
@@ -807,6 +1061,11 @@ interface ContentBlockData {
   name?: string
   input?: unknown
   callId?: string
+  toolName?: string
+  isError?: boolean
+  display?: string
+  content?: unknown
+  data?: string // base64 image body
 }
 
 export interface ContentBlockView {
@@ -814,15 +1073,12 @@ export interface ContentBlockView {
   data?: ContentBlockData & { mediaType?: string }
 }
 
-function contentBlocks(content: unknown): ContentBlockView[] {
-  return Array.isArray(content) ? (content as ContentBlockView[]) : []
-}
-
 function textOf(block: ContentBlockView): string {
   return block.data?.text ?? ''
 }
 
-function toolCallId(block: ContentBlockView): string | undefined {
+// toolCallId reads a block's call identity, accepting both wire spellings.
+export function toolCallId(block: ContentBlockView): string | undefined {
   const id = block.data?.callId ?? block.data?.id
   return isValidId(id) ? id : undefined
 }
@@ -838,21 +1094,14 @@ function cloneShallow(state: AppliedSessionState): AppliedSessionState {
   return next
 }
 
-function keepSeq(state: AppliedSessionState, seq: number): AppliedSessionState {
-  // The event consumed its number even when the payload dropped.
-  if (state.seq === seq) return state
-  const next = cloneShallow(state)
-  next.seq = seq
-  return next
-}
-
 function ensureLive(state: AppliedSessionState): void {
-  // Deltas and tool events after a lost turn.start still paint.
+  // Deltas and tool events after a lost turn.start still paint; every buffer
+  // mounts expanded, so a mid-turn join streams with the panel open too.
   if (!state.live) {
     state.live = {
       model: '',
       thinking: '',
-      thinkingOpen: false,
+      thinkingOpen: true,
       text: '',
       textOpen: true,
       tools: [],
@@ -879,6 +1128,17 @@ function upsertByKey<T extends { key: string }>(rows: T[], key: string, build: (
   const idx = rows.findIndex((row) => row.key === key)
   if (idx < 0) return [...rows, build()]
   return rows.map((row, i) => (i === idx ? build() : row))
+}
+
+// keyedFamily applies the keyed family contract: a row adds or replaces by
+// key, null removes.
+function keyedFamily<T extends { key: string }>(
+  rows: T[] | undefined,
+  key: string,
+  row: T | null,
+): T[] {
+  if (row === null) return (rows ?? []).filter((r) => r.key !== key)
+  return upsertByKey(rows ?? [], key, () => row)
 }
 
 function boundedAppend<T>(list: T[], item: T, max: number): T[] {

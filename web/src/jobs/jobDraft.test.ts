@@ -3,7 +3,12 @@ import { describe, expect, it } from 'vitest'
 import {
   defaultDraft,
   draftFromJob,
+  duplicateDraft,
   localInputToDate,
+  maxNameLen,
+  maxSessionNameLen,
+  maxToolsLen,
+  maxTriggerLen,
   toPayload,
   validateDraft,
   validDailyTime,
@@ -56,6 +61,11 @@ describe('validateDraft', () => {
         field: 'sessionTarget',
       },
       {
+        name: 'session_target_too_long',
+        mutate: (d) => void ((d.spawnMode = 'session'), (d.sessionTarget = 'x'.repeat(65))),
+        field: 'sessionTarget',
+      },
+      {
         name: 'once_needs_slot',
         mutate: (d) => void ((d.scheduleKind = 'once'), (d.onceAt = '')),
         field: 'onceAt',
@@ -88,6 +98,54 @@ describe('validateDraft', () => {
     }
   })
 
+  it('splits the session target bound from the job name bound', () => {
+    // one draft holding both edges: a 200-character job name passes while a
+    // 65-character session target fails ajent's tighter cap
+    const overTarget = {
+      ...defaultDraft(),
+      name: 'x'.repeat(maxNameLen),
+      workspace: '/repo',
+      spawnMode: 'session' as const,
+      sessionTarget: 'y'.repeat(maxSessionNameLen + 1),
+    }
+    expect(validateDraft(overTarget)).toEqual({ sessionTarget: expect.any(String) })
+
+    const fits = { ...overTarget, sessionTarget: 'y'.repeat(maxSessionNameLen) }
+    expect(validateDraft(fits)).toEqual({})
+  })
+
+  it('counts name length in bytes like the server', () => {
+    // 199 ASCII plus one emoji passes the UTF-16 count but exceeds 200 bytes
+    const passesUtf16 = {
+      ...defaultDraft(),
+      workspace: '/repo',
+      name: 'x'.repeat(199) + '\u{1F600}',
+    }
+    expect([...passesUtf16.name].length).toBeLessThanOrEqual(maxNameLen)
+    expect(validateDraft(passesUtf16)).toHaveProperty('name')
+
+    const fitsInBytes = { ...defaultDraft(), workspace: '/repo', name: 'x'.repeat(199) + 'y' }
+    expect(validateDraft(fitsInBytes)).toEqual({})
+  })
+
+  it('counts trigger command length in bytes like the server', () => {
+    const emoji = '\u{1F600}' // four UTF-8 bytes per emoji
+    const tooBig = {
+      ...defaultDraft(),
+      workspace: '/repo',
+      triggerCommand: emoji.repeat(501),
+    }
+    expect(validateDraft(tooBig)).toHaveProperty('triggerCommand')
+
+    const fitsInBytes = {
+      ...defaultDraft(),
+      name: 'job',
+      workspace: '/repo',
+      triggerCommand: 'x'.repeat(maxTriggerLen),
+    }
+    expect(validateDraft(fitsInBytes)).toEqual({})
+  })
+
   it('accepts one-digit daily times like the backend', () => {
     expect(validDailyTime('7:05')).toBe(true)
     expect(validDailyTime('09:60')).toBe(false)
@@ -100,6 +158,8 @@ describe('validateDraft', () => {
     expect(validSessionName('-lead')).toBe(false)
     expect(validSessionName('has space')).toBe(false)
     expect(validSessionName('')).toBe(false)
+    expect(validSessionName('x'.repeat(maxSessionNameLen))).toBe(true)
+    expect(validSessionName('x'.repeat(maxSessionNameLen + 1))).toBe(false)
   })
 })
 
@@ -155,5 +215,139 @@ describe('draftFromJob', () => {
     const draft = draftFromJob({ ...stored, scheduleKind: 'once' })
     const parsed = localInputToDate(draft.onceAt)
     expect(parsed?.getTime()).toBe(new Date(stored.nextRunAt!).getTime())
+  })
+
+  it('keeps sub-minute intervals through an edit round trip', () => {
+    const draft = draftFromJob({ ...stored, scheduleKind: 'interval', intervalSeconds: 30 })
+    expect(draft.intervalValue).toBe(30)
+    expect(draft.intervalUnit).toBe('seconds')
+    expect(toPayload(draft, stored.id).intervalSeconds).toBe(30)
+  })
+})
+
+describe('duplicateDraft', () => {
+  it('copies a row verbatim with the seeded adjustments', () => {
+    const draft = duplicateDraft(stored)
+    expect(draft).toEqual({ ...draftFromJob(stored), name: 'Copy of nightly', enabled: false })
+    // the copy opens ready to save under the client's own validation
+    expect(validateDraft(draft)).toEqual({})
+  })
+
+  it('clips the copied name to the server byte bound', () => {
+    const emoji = '\u{1F600}' // four UTF-8 bytes per emoji
+    const draft = duplicateDraft({ ...stored, name: emoji.repeat(80) })
+    expect(validateDraft(draft)).toEqual({})
+    // 'Copy of ' spends 8 of the 200 bytes, the rest fills with whole emojis
+    expect([...draft.name]).toHaveLength(8 + 48)
+
+    const ascii = duplicateDraft({ ...stored, name: 'y'.repeat(300) })
+    expect([...ascii.name]).toHaveLength(maxNameLen)
+  })
+
+  it('clears a one shot slot but keeps recurring fields', () => {
+    const once = duplicateDraft({ ...stored, scheduleKind: 'once' })
+    expect(once.onceAt).toBe('')
+
+    const daily = duplicateDraft(stored)
+    expect(daily.onceAt).not.toBe('') // the stored next slot still round-trips
+    expect(daily.dailyTime).toBe('09:00')
+  })
+})
+
+describe('tool selection', () => {
+  it('round-trips a custom list through draft and payload', () => {
+    const job = { ...stored, toolsCustom: true, tools: 'builtin:read,builtin:web_search' }
+    const draft = draftFromJob(job)
+    expect(draft.customTools).toBe(true)
+    expect(draft.tools).toEqual(['builtin:read', 'builtin:web_search'])
+
+    const payload = toPayload(draft, job.id)
+    expect(payload.toolsCustom).toBe(true)
+    expect(payload.tools).toBe('builtin:read,builtin:web_search')
+  })
+
+  it('drops junk from a hand-edited stored list', () => {
+    const draft = draftFromJob({
+      ...stored,
+      toolsCustom: true,
+      tools: ' builtin:read ,,builtin:read,',
+    })
+    expect(draft.tools).toEqual(['builtin:read'])
+  })
+
+  it('clears the payload tools when custom is off', () => {
+    const draft = { ...defaultDraft(), name: 'j', workspace: '/w' }
+    const payload = toPayload({ ...draft, tools: ['builtin:read'] })
+    expect(payload.toolsCustom).toBe(false)
+    expect(payload.tools).toBe('') // the server stores no list without the flag
+  })
+
+  it('keeps a custom set through duplication', () => {
+    const job = { ...stored, toolsCustom: true, tools: 'builtin:read' }
+    const draft = duplicateDraft(job)
+    expect(draft.customTools).toBe(true)
+    expect(draft.tools).toEqual(['builtin:read'])
+  })
+
+  it('bounds the joined list like the server does', () => {
+    const draft = {
+      ...defaultDraft(),
+      name: 'j',
+      workspace: '/w',
+      customTools: true,
+      tools: ['x'.repeat(maxToolsLen + 1)],
+    }
+    expect(validateDraft(draft)).toHaveProperty('tools')
+
+    const fits = { ...draft, tools: ['builtin:read'] }
+    expect(validateDraft(fits)).toEqual({})
+  })
+
+  it('ignores the list bound while custom is off', () => {
+    const draft = {
+      ...defaultDraft(),
+      name: 'j',
+      workspace: '/w',
+      customTools: false,
+      tools: ['x'.repeat(maxToolsLen + 1)],
+    }
+    expect(validateDraft(draft)).toEqual({})
+  })
+})
+
+describe('trigger fields', () => {
+  it('round-trips weekdays through the payload in canonical order', () => {
+    const draft = { ...defaultDraft(), weekdays: ['fri', 'mon'] as const }
+    const payload = toPayload(draft as never)
+    expect(payload.weekdays).toBe('mon,fri')
+    // once jobs never carry a weekday restriction
+    const once = toPayload({ ...draft, scheduleKind: 'once' } as never)
+    expect(once.weekdays).toBeUndefined()
+  })
+
+  it('parses stored weekdays and ignores unknown tokens', () => {
+    const job = { ...stored, weekdays: 'wed,sat,bogus' }
+    const draft = draftFromJob(job)
+    expect(draft.weekdays).toEqual(['wed', 'sat'])
+  })
+
+  it('carries the trigger command fields into the payload', () => {
+    const draft = {
+      ...defaultDraft(),
+      triggerCommand: ' git pull ',
+      triggerOn: 'error' as const,
+      runWhenIdle: true,
+      idleMaxDelaySeconds: -5,
+    }
+    const payload = toPayload(draft)
+    expect(payload.triggerCommand).toBe(' git pull ') // trimmed server-side
+    expect(payload.triggerOn).toBe('error')
+    expect(payload.runWhenIdle).toBe(true)
+    expect(payload.idleMaxDelaySeconds).toBe(0) // negative clamps to wait forever
+  })
+
+  it('flags an oversized trigger command', () => {
+    const draft = { ...defaultDraft(), triggerCommand: 'x'.repeat(2001) }
+    expect(validateDraft(draft)).toHaveProperty('triggerCommand')
   })
 })

@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/jentfoo/ajent-swarm/pkg/fleet"
+	"github.com/jentfoo/ajent/pkg/ctl"
 	"github.com/jentfoo/ajent/pkg/session"
 )
 
@@ -20,7 +21,11 @@ func (s *apiServer) handleLaunch(w http.ResponseWriter, r *http.Request) {
 	case err == nil:
 		writeJSON(w, http.StatusOK, res)
 	case errors.Is(err, fleet.ErrInvalidLaunch):
-		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		writeError(w, http.StatusBadRequest, codeInvalidRequest, err.Error())
+	case errors.Is(err, fleet.ErrUnknownSaved):
+		// an unrecorded resume target: the transcript never landed or ajent
+		// dropped it on exit, so no child is spawned to rediscover that
+		writeError(w, http.StatusNotFound, codeSessionNotFound, err.Error())
 	default:
 		writeError(w, http.StatusInternalServerError, "launch_failed", err.Error())
 	}
@@ -30,23 +35,25 @@ func (s *apiServer) handleLaunch(w http.ResponseWriter, r *http.Request) {
 // for children swarm spawned.
 func (s *apiServer) handleStop(w http.ResponseWriter, r *http.Request) {
 	err := s.fleet.StopSession(r.Context(), r.PathValue("id"))
-	switch {
-	case err == nil:
+	if err == nil {
 		w.WriteHeader(http.StatusNoContent)
-	case errors.Is(err, fleet.ErrUnknownSession):
-		writeError(w, http.StatusNotFound, "session_not_found", "")
-	case writeControlError(w, err):
-	default:
-		writeError(w, http.StatusInternalServerError, "stop_failed", err.Error())
+		return
 	}
+	var ce *ctl.Error
+	if errors.Is(err, fleet.ErrUnknownSession) || errors.As(err, &ce) {
+		// mapped failures keep their codes; anything else names the stop itself
+		writeCommandFailure(w, err)
+		return
+	}
+	writeError(w, http.StatusInternalServerError, "stop_failed", err.Error())
 }
 
 // handleSavedSessions serves the resume picker listing: every saved session
 // under the ajent home, most recently used first.
-func (s *apiServer) handleSavedSessions(w http.ResponseWriter, r *http.Request) {
+func (s *apiServer) handleSavedSessions(w http.ResponseWriter, _ *http.Request) {
 	rows, err := s.fleet.SavedSessions()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal_error", "reading saved sessions failed")
+		writeError(w, http.StatusInternalServerError, codeInternalError, "reading saved sessions failed")
 		return
 	}
 	writeJSON(w, http.StatusOK, rows)
@@ -64,12 +71,12 @@ func (s *apiServer) handleSavedEntries(w http.ResponseWriter, r *http.Request) {
 	case err == nil:
 		writeJSON(w, http.StatusOK, page)
 	case errors.Is(err, fleet.ErrUnknownSaved):
-		writeError(w, http.StatusNotFound, "session_not_found", "")
+		writeError(w, http.StatusNotFound, codeSessionNotFound, "")
 	case errors.Is(err, fleet.ErrAmbiguousSaved):
-		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		writeError(w, http.StatusBadRequest, codeInvalidRequest, err.Error())
 	case errors.Is(err, session.ErrNewerFormat):
 		writeError(w, http.StatusConflict, "unsupported_format", err.Error())
 	default:
-		writeError(w, http.StatusInternalServerError, "internal_error", "reading transcript failed")
+		writeError(w, http.StatusInternalServerError, codeInternalError, "reading transcript failed")
 	}
 }

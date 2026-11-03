@@ -2,7 +2,7 @@
 // else the agent's own name, else its workspace directory with $HOME folded to
 // ~, else a short id. Every surface that lists sessions renders through here
 // so mobile switcher rows and desktop rail rows agree on one label.
-export interface NamedSession {
+interface NamedSession {
   sessionId: string
   title?: string
   name?: string
@@ -28,6 +28,7 @@ export function tildePath(p: string, home: string | undefined): string {
   return '~' + p.slice(home.length)
 }
 
-function shortID(id: string): string {
+// shortID trims a session id for display beside its title.
+export function shortID(id: string): string {
   return id.length <= 12 ? id : id.slice(0, 8) + '…'
 }

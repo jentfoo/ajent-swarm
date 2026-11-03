@@ -1,4 +1,4 @@
-// Typed fetch wrapper over the phase 05 REST surface. Cookie auth rides
+// Typed fetch wrapper over the REST surface. Cookie auth rides
 // automatically on same-origin calls; every failure surfaces as an ApiError
 // carrying the backend's structured body, never a flattened string.
 

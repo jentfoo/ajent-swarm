@@ -1,11 +1,19 @@
+import { shortID } from './names'
 import type { DroppedQueueRow, PendingSubmit } from '../state/eventApplier'
 import type { QueueRow } from '../api/types'
 
-// QueuedPrompts renders queue management as chips at all times: the wire's
-// rows beside this client's optimistic ones, secret rows redacted to their id,
-// and recently dropped rows badged with why they left (interrupt, rewind or
-// recalled). Editing goes through recall in the composer; since the wire's
-// recall always pops the newest row, only that chip offers it.
+// maxChips bounds the queue area to four visible rows plus one overflow line,
+// ajent's TUI input cap during submit bursts.
+const maxChips = 4
+
+// QueuedPrompts renders queue management as chips: the wire's rows beside this
+// client's optimistic ones, secret rows redacted to their id, and recently
+// dropped rows badged with why they left (interrupt, rewind or recalled). The
+// rows form one chronological list capped at maxChips keeping the newest end,
+// where the recall affordance and live submit feedback sit, older rows
+// collapsing into one "+N more" line. Editing goes through recall in the
+// composer; since the wire's recall always pops the newest row, only that chip
+// offers it.
 export function QueuedPrompts({
   queuedRows,
   pendings,
@@ -17,34 +25,39 @@ export function QueuedPrompts({
   droppedRows: DroppedQueueRow[]
   onEdit: () => void
 }) {
-  if (queuedRows.length === 0 && pendings.length === 0 && droppedRows.length === 0) return null
+  // dropped rows are former queue contents, then the wire queue oldest first,
+  // then this client's in-flight submits; one order so the cap keeps the
+  // newest end
+  const named = new Set(queuedRows.map((row) => row.id))
+  const chips = [
+    ...droppedRows.map((row) => (
+      <QueueChip key={`dropped-${row.id}`} id={row.id} text={row.text} cause={row.cause} />
+    )),
+    ...queuedRows.map((row, i) => (
+      <QueueChip
+        key={row.id}
+        id={row.id}
+        text={row.text}
+        // the wire's recall pops the newest row; older chips cannot edit yet
+        editable={i === queuedRows.length - 1}
+        onEdit={onEdit}
+      />
+    )),
+    // optimistic rows the wire has not named yet stay visible, refused ones
+    // until read
+    ...pendings.flatMap((p) => {
+      if (p.state !== 'pending' && p.state !== 'failed') return []
+      if (p.state === 'pending' && named.has(p.id)) return []
+      return [<QueueChip key={p.id} id={p.id} text={p.text} state={p.state} />]
+    }),
+  ]
+  if (chips.length === 0) return null
 
+  const overflow = chips.length - maxChips
   return (
     <div className="chips" aria-label="Queued prompts">
-      {queuedRows.map((row, i) => (
-        <QueueChip
-          key={row.id}
-          id={row.id}
-          text={row.text}
-          // the wire's recall pops the newest row; older chips cannot edit yet
-          editable={i === queuedRows.length - 1}
-          onEdit={onEdit}
-        />
-      ))}
-      {/* Optimistic rows the wire has not named yet stay visible while pending */}
-      {pendings
-        .filter((p) => p.state === 'pending' && !queuedRows.some((r) => r.id === p.id))
-        .map((p) => (
-          <QueueChip key={p.id} id={p.id} text={p.text} state="pending" />
-        ))}
-      {pendings
-        .filter((p) => p.state === 'failed')
-        .map((p) => (
-          <QueueChip key={p.id} id={p.id} text={p.text} state="failed" />
-        ))}
-      {droppedRows.map((row) => (
-        <QueueChip key={`dropped-${row.id}`} id={row.id} text={row.text} cause={row.cause} />
-      ))}
+      {overflow > 0 && <span className="queue-more">+{overflow} more</span>}
+      {chips.slice(-maxChips)}
     </div>
   )
 }
@@ -84,8 +97,4 @@ function QueueChip({
       )}
     </span>
   )
-}
-
-function shortID(id: string): string {
-  return id.length <= 10 ? id : id.slice(0, 8) + '…'
 }

@@ -44,7 +44,7 @@ func (m *Manager) Files(ctx context.Context, sessionID string, query string) ([]
 	}
 
 	items := make([]FileSuggestion, 0, min(filesMax, len(dirents)))
-	lower := strings.ToLower(base)
+	lower := base // splitQuery already lowercased it
 	for _, de := range dirents {
 		name := de.Name()
 		if !strings.HasPrefix(strings.ToLower(name), lower) {
@@ -54,7 +54,11 @@ func (m *Manager) Files(ctx context.Context, sessionID string, query string) ([]
 			continue // hidden entries surface only when asked for
 		}
 		fragment := relPrefix + name
-		dirLike := de.IsDir() || de.Type()&os.ModeSymlink != 0 && isDir(filepath.Join(dir, name))
+		dirLike := de.IsDir()
+		if !dirLike && de.Type()&os.ModeSymlink != 0 {
+			fi, err := os.Stat(filepath.Join(dir, name)) // symlink targets may be directories
+			dirLike = err == nil && fi.IsDir()
+		}
 		if dirLike {
 			fragment += "/"
 		}
@@ -93,15 +97,8 @@ func splitQuery(cwd, query string) (dir, base, relPrefix string) {
 	} else if typed != "" {
 		dir = filepath.Join(cwd, typed)
 	}
-	base = ""
 	if !endsSep {
-		base = strings.ToLower(filepath.Base(strings.TrimSuffix(query, "/")))
+		base = strings.ToLower(filepath.Base(query))
 	}
 	return dir, base, typed
-}
-
-// isDir reports whether path resolves to a directory.
-func isDir(path string) bool {
-	fi, err := os.Stat(path)
-	return err == nil && fi.IsDir()
 }

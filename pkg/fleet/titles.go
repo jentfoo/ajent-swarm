@@ -7,9 +7,9 @@ import (
 	"time"
 )
 
-// titleWriteWait bounds one write-through; SQLite under WAL answers fast, so
-// anything slower means the store is wedged and the caller may retry.
-const titleWriteWait = 5 * time.Second
+// storeWriteWait bounds one write-through to swarm's SQLite store; WAL
+// answers fast, so anything slower means the store is wedged.
+const storeWriteWait = 5 * time.Second
 
 // ErrNoTitleStore reports a rename against a manager started without a store,
 // which cannot remember titles across restarts.
@@ -30,10 +30,10 @@ const maxTitleRunes = 120
 // loadTitles reads every stored title into the manager's cache on start.
 // Failures log once and leave the cache empty: labels fall back to names and
 // paths until a rename writes through.
-func (m *Manager) loadTitles(ctx context.Context, store TitleStore) {
-	wctx, cancel := context.WithTimeout(ctx, titleWriteWait)
+func (m *Manager) loadTitles(ctx context.Context) {
+	wctx, cancel := context.WithTimeout(ctx, storeWriteWait)
 	defer cancel()
-	titles, err := store.SessionTitles(wctx)
+	titles, err := m.titleStore.SessionTitles(wctx)
 	if err != nil {
 		m.log.Warn("reading session titles failed", "err", err)
 		return
@@ -61,15 +61,12 @@ func (m *Manager) SetTitle(ctx context.Context, sessionID, title string) error {
 	}
 
 	title = clipRunes(title, maxTitleRunes)
-	wctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), titleWriteWait)
+	wctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), storeWriteWait)
 	defer cancel()
 	if err := m.titleStore.SetSessionTitle(wctx, sessionID, title); err != nil {
 		return err
 	}
 	m.mu.Lock()
-	if m.titles == nil {
-		m.titles = make(map[string]string)
-	}
 	if title == "" {
 		delete(m.titles, sessionID)
 	} else {

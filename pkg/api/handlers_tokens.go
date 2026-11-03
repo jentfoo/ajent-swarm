@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/jentfoo/ajent-swarm/pkg/auth"
-	"github.com/jentfoo/ajent-swarm/pkg/store"
 )
 
 // tokenBody is the API shape of one API token: no hash ever leaves.
@@ -14,14 +13,6 @@ type tokenBody struct {
 	Name      string `json:"name"`
 	CreatedAt string `json:"createdAt"` // RFC 3339, empty when unset
 	LastUsed  string `json:"lastUsed"`  // RFC 3339, empty when never used
-}
-
-func toTokenBody(tok store.APIToken) tokenBody {
-	return tokenBody{
-		Name:      tok.Name,
-		CreatedAt: rfcTime(tok.CreatedAt),
-		LastUsed:  rfcTime(tok.LastUsed),
-	}
 }
 
 // rfcTime renders stored timestamps; the zero time stays empty.
@@ -36,12 +27,12 @@ func rfcTime(t time.Time) string {
 func (s *apiServer) handleTokenList(w http.ResponseWriter, r *http.Request) {
 	toks, err := s.auth.Tokens(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal_error", "listing tokens failed")
+		writeError(w, http.StatusInternalServerError, codeInternalError, "listing tokens failed")
 		return
 	}
 	out := make([]tokenBody, len(toks))
 	for i, tok := range toks {
-		out[i] = toTokenBody(tok)
+		out[i] = tokenBody{Name: tok.Name, CreatedAt: rfcTime(tok.CreatedAt), LastUsed: rfcTime(tok.LastUsed)}
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -62,7 +53,7 @@ func (s *apiServer) handleTokenCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	} else if err != nil {
 		// token-name validation failures surface here as request problems
-		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		writeError(w, http.StatusBadRequest, codeInvalidRequest, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]string{"name": req.Name, "token": secret})
@@ -72,16 +63,16 @@ func (s *apiServer) handleTokenCreate(w http.ResponseWriter, r *http.Request) {
 func (s *apiServer) handleTokenDelete(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if err := auth.ValidateTokenName(name); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		writeError(w, http.StatusBadRequest, codeInvalidRequest, err.Error())
 		return
 	}
 
 	removed, err := s.auth.DeleteToken(r.Context(), name)
 	switch {
 	case err != nil:
-		writeError(w, http.StatusInternalServerError, "internal_error", "delete failed")
+		writeError(w, http.StatusInternalServerError, codeInternalError, "delete failed")
 	case !removed:
-		writeError(w, http.StatusNotFound, "not_found", "")
+		writeError(w, http.StatusNotFound, codeNotFound, "")
 	default:
 		w.WriteHeader(http.StatusNoContent)
 	}

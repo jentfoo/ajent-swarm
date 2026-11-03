@@ -14,7 +14,6 @@ function item(overrides: Partial<AttentionItem> & { sessionId: string }): Attent
     pid: 1,
     dialogId: 5,
     running: false,
-    idle: false,
     ...overrides,
   }
 }

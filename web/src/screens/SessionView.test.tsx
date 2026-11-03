@@ -8,6 +8,8 @@ import { AuthProvider } from '../providers/auth'
 import { SwarmProvider } from '../providers/swarm'
 import { WorkspaceProvider } from '../providers/workspace'
 import { MockWebSocket } from '../test/mockWebSocket'
+import { resetDrafts } from '../session/draftStore'
+import { resetLedger } from '../workspace/attention'
 
 // The backend round trip runs against fetch mocks shaped exactly like the Go
 // handlers answer; the stream rides a mock WebSocket through the real client.
@@ -15,6 +17,8 @@ import { MockWebSocket } from '../test/mockWebSocket'
 // end, including the echo-fidelity and pending-row contracts of phase 08.
 
 const VIEW = '01VIEWTEST00000'
+const SWAP_A = '01SWAPAAAA000001'
+const SWAP_B = '01SWAPBBBB000002'
 
 class FetchRouter {
   handler = vi.fn((url: string | URL, _init?: RequestInit): Response => {
@@ -110,6 +114,9 @@ describe('SessionView', () => {
   const sockets: MockWebSocket[] = []
 
   beforeEach(() => {
+    localStorage.clear()
+    resetDrafts() // drafts persist by session, so tests start from a clean slate
+    resetLedger() // submits acknowledge turns into module state storage misses
     vi.stubGlobal(
       'WebSocket',
       class extends MockWebSocket {
@@ -131,6 +138,7 @@ describe('SessionView', () => {
   afterEach(() => {
     sockets.length = 0
     vi.unstubAllGlobals()
+    vi.restoreAllMocks() // a leaked Date.now spy must not freeze later tests
   })
 
   function renderView() {
@@ -176,7 +184,8 @@ describe('SessionView', () => {
     // markdown renders through the shared pipeline, not a plain pre
     expect(screen.getByText('my').closest('strong')).not.toBeNull()
     expect(screen.getAllByText('sonnet').length).toBeGreaterThan(0)
-    expect(screen.getByText(/seat: swarm/)).toBeInTheDocument()
+    // one clickable affordance covers both idle seat states
+    expect(screen.getByRole('button', { name: /take control: swarm/ })).toBeInTheDocument()
   })
 
   it('streams live turns into one pinned row with tool cards', async () => {
@@ -245,15 +254,55 @@ describe('SessionView', () => {
       type: 'message',
       ts: 6,
       data: JSON.parse(
-        '{"message":{"role":"user","content":[{"type":"tool_result","data":{"callId":"c1","content":[]}}]}}',
+        JSON.stringify({
+          message: {
+            role: 'user',
+            content: [
+              {
+                type: 'tool_result',
+                data: {
+                  callId: 'c1',
+                  content: [{ type: 'text', data: { text: 'patched cleanly' } }],
+                },
+              },
+            ],
+          },
+        }),
       ),
     }
     frame(ws, wireEvent('entry.append', 7, { entry: carrier }))
-    // the committed card takes over with the same body, exactly once
+    // the committed card takes over with its own body, exactly once
     await waitFor(async () => {
-      const cards = await screen.findAllByText(/patching/)
+      expect(screen.queryByLabelText('Live stream')).not.toBeInTheDocument()
+      const cards = await screen.findAllByText(/patched cleanly/)
       return expect(cards).toHaveLength(1)
     })
+  })
+
+  it('keeps a manual thinking collapse while the turn streams', async () => {
+    renderView()
+    const ws = await openSocket()
+
+    frame(ws, { type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
+    frame(ws, wireEvent('turn.start', 1, { model: 'sonnet' }))
+    frame(ws, wireEvent('thinking.delta', 2, { delta: 'working through it' }))
+
+    // the deterministic default mounts expanded while streaming
+    const panel = await screen.findByText('thinking…')
+    expect(panel.closest('details')?.open).toBe(true)
+
+    const user = userEvent.setup()
+    await user.click(panel)
+
+    // further deltas re-render the row without popping the panel back open,
+    // and the applier records ownership so thinking.end respects it too
+    frame(ws, wireEvent('thinking.delta', 3, { delta: ' and more' }))
+    await waitFor(() => expect(screen.getByText(/working through it and more/)))
+    const collapsed = screen.getByText('thinking…').closest('details')!
+    expect(collapsed.open).toBe(false)
+
+    frame(ws, wireEvent('thinking.end', 4))
+    expect(screen.getByText('thinking…').closest('details')!.open).toBe(false)
   })
 
   it('renders diff events as client-side patch cards', async () => {
@@ -269,8 +318,35 @@ describe('SessionView', () => {
     const card = await screen.findByTestId('diff-card')
     expect(card.textContent).toContain('src/main.go')
     // unified patch text never rides the wire; lines render with their sign
-    expect(card.querySelector('.diff-line.add')?.textContent).toBe('THREE')
-    expect(card.querySelector('.diff-line.del')?.textContent).toBe('two')
+    expect(card.querySelector('.diff-line.add .diff-text')?.textContent).toBe('THREE')
+    expect(card.querySelector('.diff-line.del .diff-text')?.textContent).toBe('two')
+  })
+
+  it('anchors a diff above committed messages that arrive later', async () => {
+    renderView()
+    const ws = await openSocket()
+
+    frame(ws, {
+      type: 'init',
+      sessionId: VIEW,
+      state: snapshotFor(VIEW, { head: '01D0' }),
+      entries: [messageEntry('01D0', undefined, 'user', 'edit the file')],
+    })
+    await screen.findByText('edit the file')
+
+    // the edit lands mid-turn, anchored to the chain tail at arrival
+    frame(ws, wireEvent('diff', 1, { path: 'src/main.go', before: 'one\n', after: 'two\n' }))
+    frame(
+      ws,
+      wireEvent('entry.append', 2, {
+        entry: assistantEntry('01D1', '01D0', 'all done editing'),
+      }),
+    )
+
+    // the later message stacks below the diff card in document order
+    const card = await screen.findByTestId('diff-card')
+    const later = await screen.findByText('all done editing')
+    expect(card.compareDocumentPosition(later) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
   it('renders print events as transient cards in the flow', async () => {
@@ -312,6 +388,27 @@ describe('SessionView', () => {
     })
   })
 
+  it('takes the dialog caret on the standalone focused view', async () => {
+    renderView()
+    const ws = await openSocket()
+
+    frame(ws, {
+      type: 'init',
+      sessionId: VIEW,
+      state: snapshotFor(VIEW, {
+        interactions: [{ id: 5, kind: 'input', prompt: 'API key?', text: true }],
+      }),
+      entries: [],
+    })
+
+    // the standalone route is always its surface's focused view (the default),
+    // so the head dialog's answer mounts with focus
+    expect(await screen.findByText('API key?')).toBeInTheDocument()
+    const input = document.querySelector('.dialog-card input')
+    expect(input).not.toBeNull()
+    expect(document.activeElement).toBe(input)
+  })
+
   it('shows the real outcome for dialogs answered elsewhere', async () => {
     renderView()
     const ws = await openSocket()
@@ -333,7 +430,7 @@ describe('SessionView', () => {
     )
 
     // a resolved state from the settled payload, never an error
-    expect(await screen.findByText(/answered elsewhere/)).toBeInTheDocument()
+    expect(await screen.findByText('Dialog answered')).toBeInTheDocument()
     await waitFor(() => expect(screen.queryByText('Pick one')).not.toBeInTheDocument())
   })
 
@@ -378,6 +475,198 @@ describe('SessionView', () => {
     })
   })
 
+  it('interrupts a running stream on escape', async () => {
+    fetcher.on(`/api/sessions/${VIEW}/interrupt`, () => Response.json({ stopped: VIEW }))
+    renderView()
+    const ws = await openSocket()
+
+    frame(ws, { type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
+    frame(ws, wireEvent('turn.start', 1, { model: 'sonnet' }))
+
+    const user = userEvent.setup()
+    await user.keyboard('{Escape}')
+
+    await waitFor(() => expect(fetcher.callsTo('/interrupt')).toHaveLength(1))
+  })
+
+  // A stubbed clock holds the rewind gesture's two presses deterministically
+  // inside and outside its window; the press helper reports the claim.
+  function doubleEscapeSetup() {
+    fetcher.on(`/api/sessions/${VIEW}/candidates`, () =>
+      Response.json({ head: '', candidates: [] }),
+    )
+    let clock = 1_000_000
+    const now = vi.spyOn(Date, 'now').mockImplementation(() => clock)
+    const press = async () => {
+      const ev = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+      await act(async () => {
+        window.dispatchEvent(ev)
+      })
+      return ev.defaultPrevented
+    }
+    return {
+      press,
+      advance: (ms: number) => {
+        clock += ms
+      },
+      restore: () => now.mockRestore(),
+    }
+  }
+
+  it('opens the rewind picker on a double escape while idle', async () => {
+    const gesture = doubleEscapeSetup()
+    renderView()
+    const ws = await openSocket()
+    frame(ws, { type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
+    await waitFor(() => expect(screen.getByLabelText('Prompt')).toBeEnabled())
+
+    expect(await gesture.press()).toBe(false) // a lone first press stays unclaimed
+    gesture.advance(100)
+    expect(await gesture.press()).toBe(true) // the pair opens the picker
+    gesture.restore()
+
+    expect(
+      await screen.findByRole('dialog', { name: 'Rewind to an earlier point' }),
+    ).toBeInTheDocument()
+    expect(fetcher.callsTo('/candidates')).toHaveLength(1)
+  })
+
+  it('opens the picker over a draft without clearing it', async () => {
+    const gesture = doubleEscapeSetup()
+    renderView()
+    const ws = await openSocket()
+    frame(ws, { type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
+    const promptBox = await screen.findByLabelText('Prompt')
+    const user = userEvent.setup()
+    await user.type(promptBox, 'my draft')
+
+    await gesture.press()
+    gesture.advance(50)
+    await gesture.press()
+    gesture.restore()
+
+    expect(
+      await screen.findByRole('dialog', { name: 'Rewind to an earlier point' }),
+    ).toBeInTheDocument()
+    expect(promptBox).toHaveValue('my draft')
+  })
+
+  it('re-arms after the window instead of opening on a slow pair', async () => {
+    const gesture = doubleEscapeSetup()
+    renderView()
+    const ws = await openSocket()
+    frame(ws, { type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
+    await screen.findByLabelText('Prompt')
+
+    await gesture.press()
+    gesture.advance(401)
+    expect(await gesture.press()).toBe(false) // too slow: re-arm, no picker
+    expect(
+      screen.queryByRole('dialog', { name: 'Rewind to an earlier point' }),
+    ).not.toBeInTheDocument()
+
+    gesture.advance(50)
+    expect(await gesture.press()).toBe(true)
+    gesture.restore()
+    expect(
+      await screen.findByRole('dialog', { name: 'Rewind to an earlier point' }),
+    ).toBeInTheDocument()
+  })
+
+  it('never rewinds from the second press of an interrupted double', async () => {
+    fetcher.on(`/api/sessions/${VIEW}/interrupt`, () => Response.json({ stopped: VIEW }))
+    const gesture = doubleEscapeSetup()
+    renderView()
+    const ws = await openSocket()
+    frame(ws, { type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
+    frame(ws, wireEvent('turn.start', 1, { model: 'sonnet' }))
+    await screen.findByLabelText('Live stream')
+
+    // the turn keeps running across both presses, so each one interrupts
+    expect(await gesture.press()).toBe(true)
+    await waitFor(() => expect(fetcher.callsTo('/interrupt')).toHaveLength(1))
+    gesture.advance(50)
+    expect(await gesture.press()).toBe(true)
+    gesture.restore()
+
+    expect(
+      screen.queryByRole('dialog', { name: 'Rewind to an earlier point' }),
+    ).not.toBeInTheDocument()
+    expect(fetcher.callsTo('/candidates')).toHaveLength(0)
+    await waitFor(() => expect(fetcher.callsTo('/interrupt')).toHaveLength(2))
+  })
+
+  it('stands down while a layer holds the screen', async () => {
+    const gesture = doubleEscapeSetup()
+    renderView()
+    const ws = await openSocket()
+    frame(ws, { type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: 'Rewind' }))
+    expect(
+      await screen.findByRole('dialog', { name: 'Rewind to an earlier point' }),
+    ).toBeInTheDocument()
+
+    // the picker's own Escape closes it; the press behind never re-opens it
+    await gesture.press()
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('dialog', { name: 'Rewind to an earlier point' }),
+      ).not.toBeInTheDocument(),
+    )
+    gesture.advance(50)
+    await gesture.press()
+    gesture.restore()
+    expect(
+      screen.queryByRole('dialog', { name: 'Rewind to an earlier point' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('arms fresh after the composer spends its own escape', async () => {
+    const gesture = doubleEscapeSetup()
+    renderView()
+    const ws = await openSocket()
+    frame(ws, { type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
+    const promptBox = await screen.findByLabelText('Prompt')
+    const user = userEvent.setup()
+    await user.type(promptBox, '/') // the line-initial slash menu opens
+
+    // the first Escape hides the menu and belongs to the composer, so it never
+    // counts toward a pair
+    await user.type(promptBox, '{Escape}')
+    expect(document.querySelector('.slash-menu')).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('dialog', { name: 'Rewind to an earlier point' }),
+    ).not.toBeInTheDocument()
+
+    // the next two presses are the pair
+    await gesture.press()
+    gesture.advance(50)
+    expect(await gesture.press()).toBe(true)
+    gesture.restore()
+    expect(
+      await screen.findByRole('dialog', { name: 'Rewind to an earlier point' }),
+    ).toBeInTheDocument()
+  })
+
+  it('stops a running stream from beside send rather than the header', async () => {
+    fetcher.on(`/api/sessions/${VIEW}/interrupt`, () => Response.json({ stopped: VIEW }))
+    renderView()
+    const ws = await openSocket()
+
+    frame(ws, { type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
+    frame(ws, wireEvent('turn.start', 1, { model: 'sonnet' }))
+
+    // the header carries no interrupt control; the composer's Stop does
+    expect(screen.queryByRole('button', { name: 'Interrupt' })).not.toBeInTheDocument()
+    const stop = await screen.findByRole('button', { name: 'Stop' })
+    const send = screen.getByRole('button', { name: 'Send' })
+    expect(stop.compareDocumentPosition(send) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+
+    await userEvent.setup().click(stop)
+    await waitFor(() => expect(fetcher.callsTo('/interrupt')).toHaveLength(1))
+  })
+
   it('marks refused submits without losing the draft', async () => {
     fetcher.on(`/api/sessions/${VIEW}/submit`, () =>
       Response.json({ error: 'unavailable', message: 'a dialog holds input' }, { status: 409 }),
@@ -394,6 +683,121 @@ describe('SessionView', () => {
     // the optimistic row resolves as refused; the error surfaces beside it
     expect(await screen.findByText(/a dialog holds input/)).toBeInTheDocument()
     expect(screen.getByText('refused')).toBeInTheDocument()
+    // and the composer still holds exactly what was typed
+    expect(promptBox).toHaveValue('my unsent idea')
+  })
+
+  it('prefills a rewound prompt above an existing draft with a notice', async () => {
+    fetcher.on(`/api/sessions/${VIEW}/candidates`, () =>
+      Response.json({
+        head: '01C1',
+        candidates: [{ id: '01C0', kind: 'user', ts: 1000, isHead: false, text: 'rewound prompt' }],
+      }),
+    )
+    fetcher.on(`/api/sessions/${VIEW}/rewind`, () => Response.json({ head: '01C0' }))
+    renderView()
+    const ws = await openSocket()
+
+    frame(ws, { type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
+    const promptBox = await screen.findByLabelText('Prompt')
+    const user = userEvent.setup()
+    await user.type(promptBox, 'my draft')
+
+    await user.click(screen.getByRole('button', { name: 'Rewind' }))
+    await user.click(await screen.findByRole('button', { name: /^user/ }))
+
+    // the rewind lands above what was typed instead of overwriting it
+    expect(promptBox).toHaveValue('rewound prompt\nmy draft')
+    expect(await screen.findByText('Placed above your existing draft.')).toBeInTheDocument()
+  })
+
+  it('restores a recalled queue row through the same prefill rule', async () => {
+    fetcher.on(`/api/sessions/${VIEW}/recall`, () =>
+      Response.json({ id: 'q1', text: 'recalled prompt' }),
+    )
+    renderView()
+    const ws = await openSocket()
+
+    frame(ws, { type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
+    frame(
+      ws,
+      wireEvent('queued', 1, {
+        rows: [
+          { id: 'q0', text: 'older row' },
+          { id: 'q1', text: 'recalled prompt' },
+        ],
+      }),
+    )
+
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: /edit/ }))
+
+    // the newest row pops into an empty composer whole
+    expect(await screen.findByLabelText('Prompt')).toHaveValue('recalled prompt')
+  })
+
+  it('recalls the newest queued prompt with alt+arrowup while composing', async () => {
+    fetcher.on(`/api/sessions/${VIEW}/recall`, () =>
+      Response.json({ id: 'q1', text: 'recalled prompt' }),
+    )
+    renderView()
+    const ws = await openSocket()
+
+    frame(ws, { type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
+    frame(
+      ws,
+      wireEvent('queued', 1, {
+        rows: [
+          { id: 'q0', text: 'older row' },
+          { id: 'q1', text: 'recalled prompt' },
+        ],
+      }),
+    )
+
+    const user = userEvent.setup()
+    const promptBox = await screen.findByLabelText('Prompt')
+    await user.type(promptBox, 'my draft')
+    await user.keyboard('{Alt>}{ArrowUp}{/Alt}')
+
+    // the same recall flow as the chip's edit button fills above the draft
+    expect(await screen.findByText('Placed above your existing draft.')).toBeInTheDocument()
+    expect(promptBox).toHaveValue('recalled prompt\nmy draft')
+    expect(fetcher.callsTo('/recall')).toHaveLength(1)
+  })
+
+  it('searches committed prompts with ctrl_r and accepts above the draft', async () => {
+    renderView()
+    const ws = await openSocket()
+
+    frame(ws, {
+      type: 'init',
+      sessionId: VIEW,
+      state: snapshotFor(VIEW, { head: '01V4' }),
+      entries: [
+        messageEntry('01V1', undefined, 'user', 'explain the retry logic'),
+        assistantEntry('01V2', '01V1', 'Explaining.'),
+        messageEntry('01V3', '01V2', 'user', 'ship the v2 endpoint'),
+        assistantEntry('01V4', '01V3', 'Shipping.'),
+      ],
+    })
+    await screen.findByText('ship the v2 endpoint')
+
+    const user = userEvent.setup()
+    const promptBox = screen.getByLabelText('Prompt') as HTMLTextAreaElement
+    await user.type(promptBox, 'my draft')
+    await user.click(promptBox)
+    await user.keyboard('{Control>}r{/Control}')
+    expect(screen.getByText(/reverse-i-search/)).toBeInTheDocument()
+
+    // injected-style text never committed as a prompt, so it cannot match
+    await user.keyboard('retry{Enter}')
+
+    // the accepted prompt rides above the draft, announced like every prefill
+    expect(promptBox).toHaveValue('explain the retry logic\nmy draft')
+    // the caret sits on the match occurrence inside the accepted text
+    expect(promptBox.selectionStart).toBe(12)
+    expect(await screen.findByText('Placed above your existing draft.')).toBeInTheDocument()
+    expect(screen.queryByText(/reverse-i-search/)).not.toBeInTheDocument()
   })
 
   it('badges queue drops with their cause and redacts secret rows', async () => {
@@ -459,11 +863,108 @@ describe('SessionView', () => {
     const ws = await openSocket()
 
     frame(ws, { type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
-    expect(await screen.findByText(/seat: swarm/)).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: /take control: swarm/ })).toBeInTheDocument()
 
     // A clean end announces itself with the backend's child fact.
     frame(ws, { type: 'child', sessionId: VIEW, state: 'exited' })
     expect(await screen.findByText('Session ended.')).toBeInTheDocument()
+  })
+
+  it('hides the seat takeover when the seat is free or already ours', async () => {
+    renderView()
+    const ws = await openSocket()
+
+    // a free seat costs nothing to use, so there is nothing to claim
+    frame(ws, {
+      type: 'init',
+      sessionId: VIEW,
+      state: snapshotFor(VIEW, { seat: { held: false, yours: false } }),
+      entries: [],
+    })
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: /claim control/ })).not.toBeInTheDocument(),
+    )
+    expect(screen.queryByRole('button', { name: /take control/ })).not.toBeInTheDocument()
+
+    // a seat this viewer already holds is equally uncontested
+    frame(ws, {
+      type: 'init',
+      sessionId: VIEW,
+      state: snapshotFor(VIEW, { seat: { held: true, holder: 'swarm', yours: true } }),
+      entries: [],
+    })
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: /take control/ })).not.toBeInTheDocument(),
+    )
+  })
+
+  // Hosted views swap sessions by prop (focus rail, tile tabs); the key on the
+  // content must present every swap as a remount so chrome and drafts follow
+  // the session instead of bleeding across it.
+  function renderHosted(id: string) {
+    return render(
+      <MemoryRouter>
+        <AuthProvider>
+          <SwarmProvider>
+            <WorkspaceProvider>
+              <SessionView sessionId={id} />
+            </WorkspaceProvider>
+          </SwarmProvider>
+        </AuthProvider>
+      </MemoryRouter>,
+    )
+  }
+
+  it('remounts per session so chrome and drafts never bleed across a swap', async () => {
+    fetcher.on(`/api/sessions/${SWAP_A}/snapshot`, () => Response.json(snapshotFor(SWAP_A)))
+    fetcher.on(`/api/sessions/${SWAP_B}/snapshot`, () => Response.json(snapshotFor(SWAP_B)))
+    fetcher.on(`/api/sessions/${SWAP_A}/candidates`, () =>
+      Response.json({ head: '', candidates: [] }),
+    )
+    const view = renderHosted(SWAP_A)
+    const ws = await openSocket()
+
+    frame(ws, { type: 'init', sessionId: SWAP_A, state: snapshotFor(SWAP_A), entries: [] })
+    const user = userEvent.setup()
+    await user.type(await screen.findByLabelText('Prompt'), 'alpha draft')
+
+    // transient chrome opens over the first session
+    await user.click(screen.getByRole('button', { name: 'Rewind' }))
+    expect(
+      await screen.findByRole('dialog', { name: 'Rewind to an earlier point' }),
+    ).toBeInTheDocument()
+
+    // swapping presents the other session fresh: dialog closed, empty composer
+    view.rerender(
+      <MemoryRouter>
+        <AuthProvider>
+          <SwarmProvider>
+            <WorkspaceProvider>
+              <SessionView sessionId={SWAP_B} />
+            </WorkspaceProvider>
+          </SwarmProvider>
+        </AuthProvider>
+      </MemoryRouter>,
+    )
+    frame(ws, { type: 'init', sessionId: SWAP_B, state: snapshotFor(SWAP_B), entries: [] })
+    expect(
+      screen.queryByRole('dialog', { name: 'Rewind to an earlier point' }),
+    ).not.toBeInTheDocument()
+    expect(await screen.findByLabelText('Prompt')).toHaveValue('')
+
+    // switching back restores that session's own draft from the store
+    view.rerender(
+      <MemoryRouter>
+        <AuthProvider>
+          <SwarmProvider>
+            <WorkspaceProvider>
+              <SessionView sessionId={SWAP_A} />
+            </WorkspaceProvider>
+          </SwarmProvider>
+        </AuthProvider>
+      </MemoryRouter>,
+    )
+    expect(await screen.findByLabelText('Prompt')).toHaveValue('alpha draft')
   })
 
   it('shows the connecting banner while no init has arrived', async () => {

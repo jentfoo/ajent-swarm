@@ -5,7 +5,8 @@ import { EntryBlock } from './EntryBlock'
 import { LiveStreamBlock } from './LiveStreamBlock'
 import { DiffCard } from './DiffCard'
 import { MarkdownBlock } from './MarkdownBlock'
-import type { AppliedSessionState } from '../state/eventApplier'
+import type { AgentJobs } from './useAgentJobs'
+import type { AppliedSessionState, DiffView } from '../state/eventApplier'
 import { deriveBlocks } from '../state/derive'
 
 // Bottom gap still counting as "at the latest row"; scrolling above it
@@ -17,23 +18,39 @@ const stickGap = 60
 const pullDownPx = 64
 
 // TranscriptView renders the committed chain as a virtualized block list keyed
-// by entry id, with prints and diffs as transient cards beneath it and the
-// pinned live stream at the bottom. Stick-to-bottom autoscroll disengages on
-// scroll-up; a pill jumps back to the latest.
+// by entry id, with each anchored diff riding its block's row, unanchored ones
+// trailing beneath, and the pinned live stream at the bottom. Stick-to-bottom
+// autoscroll disengages on scroll-up; a pill jumps back to the latest. A
+// sessionId change (swapping sessions inside one hosted view) re-lands on the
+// latest too.
 export function TranscriptView({
+  sessionId,
   state,
   loadOlder,
   pullDownToLatest = false, // mobile: rubber-band at the top jumps to latest
+  onThinkingToggle,
+  agentJobs,
 }: {
+  sessionId: string
   state: AppliedSessionState
   loadOlder: () => Promise<boolean>
   pullDownToLatest?: boolean
+  // Threaded to the live thinking panel so user toggles reach the applier.
+  onThinkingToggle: (open: boolean) => void
+  // The sub-agent pull listing feeding the chips band and poll cards.
+  agentJobs?: AgentJobs
 }) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
   const stuckRef = useRef(true)
   const anchorRef = useRef<string | null>(null) // block id kept in view across a prepend
+  const lastTopRef = useRef(0) // previous scrollTop, for the direction check
   const [showPill, setShowPill] = useState(false)
+
+  const setStuck = useCallback((stuck: boolean) => {
+    stuckRef.current = stuck
+    setShowPill(!stuck)
+  }, [])
 
   // Calls still painting live hide their committed twins until a carrier's
   // results fold and the buffer retires them: one card per call, not two.
@@ -42,14 +59,40 @@ export function TranscriptView({
     [state.live?.tools],
   )
 
+  // Permit verdicts keyed by call id keep approval chips on committed cards
+  // after the live buffer retires them.
+  const verdicts = useMemo(
+    () => new Map(state.permitVerdicts.map((v) => [v.id, v.text])),
+    [state.permitVerdicts],
+  )
+
   // Derivation re-runs only when the chain object or the live tool set
   // changes; streaming deltas touch neither, so settled history renders once.
   // The entries map mutates in place with a stable identity, which is why the
   // chain is the trigger.
   const blocks = useMemo(
-    () => deriveBlocks(state.chain.ids, state.entries, hideLiveToolIds),
-    [state.chain, state.entries, hideLiveToolIds],
+    () => deriveBlocks(state.chain.ids, state.entries, hideLiveToolIds, verdicts),
+    [state.chain, state.entries, hideLiveToolIds, verdicts],
   )
+
+  // Diffs anchor to the block they arrived after; a card sits inside its row
+  // wrapper so the virtualizer measures them together. Anchors that left the
+  // retained chain (rewound away, never committed) fall back below it.
+  const { diffsByAnchor, trailingDiffs } = useMemo(() => {
+    const visible = new Set(blocks.map((b) => b.id))
+    const byAnchor = new Map<string, DiffView[]>()
+    const trailing: DiffView[] = []
+    for (const d of state.diffs) {
+      if (!visible.has(d.afterId)) {
+        trailing.push(d)
+        continue
+      }
+      const anchored = byAnchor.get(d.afterId)
+      if (anchored === undefined) byAnchor.set(d.afterId, [d])
+      else anchored.push(d)
+    }
+    return { diffsByAnchor: byAnchor, trailingDiffs: trailing }
+  }, [blocks, state.diffs])
 
   // TanStack Virtual returns unstable function values by design; the compiler
   // opt-out is documented upstream and safe with our row keys.
@@ -80,18 +123,25 @@ export function TranscriptView({
     const el = scrollRef.current
     if (!el) return
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < stickGap
-    stuckRef.current = atBottom
-    setShowPill(!atBottom && blocks.length > 0)
-  }, [blocks.length])
+    // Only a genuine upward scroll disengages autoscroll: programmatic
+    // adjustments (thinking blocks expanding and collapsing, the virtualizer
+    // compensating) also move scrollTop above the gap without user intent.
+    if (atBottom) {
+      setStuck(true)
+    } else if (el.scrollTop < lastTopRef.current) {
+      setStuck(false)
+    }
+    lastTopRef.current = el.scrollTop
+  }, [setStuck])
 
   // Loading older history prepends rows; anchor the previously-first block so
   // the view does not jump, and disengage autoscroll while reading. A dry or
   // failed page drops the anchor instead of letting it fire later.
   const loadOlderAnchored = useCallback(async () => {
     anchorRef.current = blocks[0]?.id ?? null
-    stuckRef.current = false
+    setStuck(false)
     if (!(await loadOlder())) anchorRef.current = null
-  }, [blocks, loadOlder])
+  }, [blocks, loadOlder, setStuck])
 
   useEffect(() => {
     if (anchorRef.current === null) return
@@ -104,11 +154,19 @@ export function TranscriptView({
   }, [blocks, virtualizer])
 
   const jumpToLatest = useCallback(() => {
-    stuckRef.current = true
-    setShowPill(false)
+    setStuck(true)
     const el = scrollRef.current
     if (el) el.scrollTop = el.scrollHeight // the observer settles measurement
-  }, [])
+  }, [setStuck])
+
+  // A hosted view swaps sessions in place; the new session's transcript
+  // always opens on its latest, never wherever the previous one sat.
+  const lastSessionRef = useRef(sessionId)
+  useEffect(() => {
+    if (lastSessionRef.current === sessionId) return
+    lastSessionRef.current = sessionId
+    jumpToLatest()
+  }, [sessionId, jumpToLatest])
 
   // Pull-to-latest: while already at the top of history, dragging further down
   // is dead overscroll — exactly where a gesture cannot fight scrolling. The
@@ -155,34 +213,52 @@ export function TranscriptView({
         <div ref={contentRef}>
           {blocks.length > 0 && (
             <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
-              {virtualizer.getVirtualItems().map((item) => (
-                <div
-                  key={item.key}
-                  data-index={item.index}
-                  ref={virtualizer.measureElement}
-                  style={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    width: '100%',
-                    transform: `translateY(${item.start}px)`,
-                  }}
-                >
-                  <EntryBlock block={blocks[item.index]} />
-                </div>
-              ))}
+              {virtualizer.getVirtualItems().map((item) => {
+                const block = blocks[item.index]
+                return (
+                  <div
+                    key={item.key}
+                    data-index={item.index}
+                    ref={virtualizer.measureElement}
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      width: '100%',
+                      transform: `translateY(${item.start}px)`,
+                    }}
+                  >
+                    <EntryBlock block={block} />
+                    {diffsByAnchor.get(block.id)?.map((d, i) => (
+                      <DiffCard
+                        key={`${i}-${d.path}`}
+                        path={d.path}
+                        before={d.before}
+                        after={d.after}
+                      />
+                    ))}
+                  </div>
+                )
+              })}
             </div>
           )}
+          {trailingDiffs.map((d, i) => (
+            <DiffCard key={`${i}-${d.path}`} path={d.path} before={d.before} after={d.after} />
+          ))}
           {state.prints.map((p) => (
             <div key={p.id} className="entry print-card card">
               <span className="block-role">printed</span>
               <MarkdownBlock text={p.markdown} />
             </div>
           ))}
-          {state.diffs.map((d, i) => (
-            <DiffCard key={`${i}-${d.path}`} path={d.path} before={d.before} after={d.after} />
-          ))}
-          {state.live && <LiveStreamBlock live={state.live} />}
+          {state.live && (
+            <LiveStreamBlock
+              live={state.live}
+              activity={state.snapshot.activity}
+              agentJobs={agentJobs}
+              onThinkingToggle={onThinkingToggle}
+            />
+          )}
         </div>
       </div>
       {showPill && (

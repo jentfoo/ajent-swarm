@@ -1,19 +1,35 @@
-import { useCallback, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import type { ReactElement } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 
-import { sessions as sessionAPI } from '../api/endpoints'
+import { sessionBusy } from '../state/eventApplier'
+import { headerBadgeOf } from '../workspace/attention'
 import { Composer } from '../session/Composer'
+import { SeatBadge } from '../session/SeatBadge'
+import { Notices } from '../session/Notices'
+import { StatusBadge } from '../session/StatusBadge'
+import { isTransientPhase, PhaseBanner } from '../session/phases'
+import { QueuedPrompts } from '../session/QueuedPrompts'
+import { ModeMenu } from '../session/StatusHeader'
+import { StatusBar } from '../session/StatusBar'
 import { TranscriptView } from '../session/TranscriptView'
-import { useKeyboardInset } from '../hooks/useKeyboardInset'
+import { useAgentJobs } from '../session/useAgentJobs'
+import { useInterruptStream } from '../session/useInterruptStream'
+import { useSessionCompose } from '../session/useSessionCompose'
+import { useSessionLabel } from '../session/useSessionLabel'
+import { useKeyboardInset, keyboardInsetStyle } from '../hooks/useKeyboardInset'
 import { useSessionChannel } from '../hooks/useSessionChannel'
+import { overlayOpen } from '../ui/overlayStack'
 import { useWorkspace } from '../providers/workspace'
 import { BottomSheet } from './BottomSheet'
 import { ModelChip } from './ModelChip'
+import { OverlayMenu } from './OverlayMenu'
 import { RewindSheet } from './RewindSheet'
-import { StatusStrip } from './StatusStrip'
+import { SettingsScreen } from './SettingsScreen'
+import { horizontallyScrollable } from './scrollable'
+import { switcherRoute } from './switcher'
 import { SwitcherRows } from './SwitcherRows'
-import { ToolsSheet } from './ToolsSheet'
+import { ToolsScreen } from './ToolsScreen'
 import { TouchDialogDock } from './TouchDialogDock'
 import { useSwitcherRows } from './useSwitcherRows'
 
@@ -21,79 +37,123 @@ import { useSwitcherRows } from './useSwitcherRows'
 // travel to reopen the switcher sheet.
 const edgeSwipePx = 56
 
-interface Toast {
-  id: number
-  text: string
-  level: 'info' | 'error'
-}
+// edgeZonePx is the left strip a swipe must start in.
+const edgeZonePx = 24
 
 // MobileSessionScreen drives one session on a phone. The component tree stays
-// shared with desktop (TranscriptView, Composer); only the chrome forks: a
-// sticky compact header collapsing to model plus spinner, dialogs as stacked
-// full-width cards above the composer, and a status strip where side rails
-// used to be.
+// shared with desktop (TranscriptView, notices, dialogs, queue chips, Composer,
+// StatusBar); only the chrome forks: a sticky one-line header carrying the
+// session label, the shared status badge, the model chip and mode menu, with
+// the secondary actions collapsed behind one menu button. The working turn's
+// Stop rides beside Send, and dialogs stack as full-width cards above the
+// composer.
+//
+// The content keys on sessionId, so the route reusing this screen for another
+// session presents it as a remount: that session's own draft restores from the
+// store while open sheets, menus and toasts reset instead of bleeding across
+// sessions.
 export default function MobileSessionScreen(): ReactElement {
   const { sessionId = '' } = useParams()
+  return <MobileSessionSurface key={sessionId} sessionId={sessionId} />
+}
+
+// MobileSessionSurface is one session's mounted presentation; the key above
+// makes a session swap a remount, so local state never outlives its session.
+function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElement {
   const { state, phase, loadOlder, dispatch } = useSessionChannel(sessionId)
-  const { acknowledgeDialog, acknowledgeTurn } = useWorkspace()
+  const { acknowledgeDialog, acknowledgeTurn, itemFor } = useWorkspace()
   const snap = state.snapshot
 
-  const [draft, setDraft] = useState('')
+  const {
+    draft,
+    setDraft,
+    placedAbove,
+    recall,
+    recallToEdit,
+    dialogs,
+    composerDisabled,
+    disabledReason,
+    toasts,
+    pushToast,
+  } = useSessionCompose(sessionId)
   const [showTools, setShowTools] = useState(false)
   const [showRewind, setShowRewind] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
   const [sheetOpen, setSheetOpen] = useState(false)
   const keyboardInset = useKeyboardInset()
 
   // Edge-swipe from the left reopens the switcher over any session view; the
   // touch zone is only the first 24px so transcript selection never fights it.
-  const edgeStartX = useRef<number | null>(null)
+  const edgeStart = useRef<{ x: number; y: number } | null>(null)
 
-  const [toasts, setToasts] = useState<Toast[]>([])
-  const toastID = useRef(0)
-  const pushToast = useCallback((text: string, level: 'info' | 'error' = 'info') => {
-    const id = ++toastID.current
-    setToasts((ts) => [...ts.slice(-4), { id, text, level }])
-    setTimeout(() => setToasts((ts) => ts.filter((t) => t.id !== id)), 6_000)
-  }, [])
-
-  const dialogs = snap.interactions ?? []
-  const composerDisabled = phase !== 'live' || dialogs.length > 0
-  const disabledReason =
-    dialogs.length > 0
-      ? 'A dialog needs an answer before prompts can send.'
-      : 'The session is not reachable right now.'
+  const working = sessionBusy(snap)
+  // sub-agent job records are pull-only: re-listed while any job is live, so
+  // the chips band and poll cards carry stop controls and real statuses
+  const agentJobs = useAgentJobs(sessionId, snap.activity, snap.status?.segments, pushToast)
+  // Escape shares the composer Stop button's guarded fire; sheets and pushed
+  // screens gate it through the shared overlay stack, so the interrupt stands
+  // down behind any open layer without naming each one
+  const { interrupt, inFlight: stopBusy } = useInterruptStream({
+    sessionId,
+    busy: working,
+    onToast: pushToast,
+  })
+  // the switcher's own label chain, so a rename follows the user into the view
+  const label = useSessionLabel(sessionId)
 
   return (
     <div
       className="session-screen mobile-session"
-      style={keyboardInset > 0 ? { paddingBottom: keyboardInset } : undefined}
+      style={keyboardInsetStyle(keyboardInset)}
       onTouchStart={(ev) => {
-        edgeStartX.current = ev.touches[0]?.clientX ?? null
+        // one fresh finger seeds a candidate; anything else (a second touch
+        // landing mid-gesture, a pinch) kills the pending one. A touch targets
+        // the element it began on, so one starting inside a sideways scroller
+        // stands down: dragging a long code line scrolls its fence instead of
+        // opening the switcher
+        const t = ev.touches[0]
+        edgeStart.current =
+          ev.touches.length === 1 && !horizontallyScrollable(ev.target)
+            ? { x: t.clientX, y: t.clientY }
+            : null
       }}
       onTouchEnd={(ev) => {
-        const start = edgeStartX.current
-        edgeStartX.current = null
-        if (start === null || start > 24 || showRewind || showTools) return
-        const dx = (ev.changedTouches[0]?.clientX ?? 0) - start
-        if (dx >= edgeSwipePx) setSheetOpen(true)
+        const start = edgeStart.current
+        edgeStart.current = null
+        // an open overlay layer owns the screen, so the swipe stands down
+        if (start === null || start.x > edgeZonePx || overlayOpen()) return
+        // a finger still down or several lifted together was never a swipe
+        if (ev.touches.length > 0 || ev.changedTouches.length !== 1) return
+        const end = ev.changedTouches[0]
+        const dx = end.clientX - start.x
+        const dy = Math.abs(end.clientY - start.y)
+        // horizontal dominance keeps vertical scrolls from reading as swipes
+        if (dx >= edgeSwipePx && dx > dy) {
+          setSheetOpen(true)
+        }
+      }}
+      onTouchCancel={() => {
+        edgeStart.current = null
       }}
     >
       <header className="mobile-session-header">
         <Link to="/" aria-label="Back to launcher" className="back-link">
           ←
         </Link>
+        <span className="session-title">{label}</span>
+        {/* the same badge desktop's header renders, off the same derivation */}
+        <StatusBadge status={headerBadgeOf(working, itemFor(sessionId))} />
         <ModelChip sessionId={sessionId} snap={snap} onToast={pushToast} />
-        {phase !== 'live' && phase !== 'ended' && (
+        <ModeMenu sessionId={sessionId} mode={snap.permission} onToast={pushToast} />
+        {isTransientPhase(phase) && (
           <span className={`badge ${phase === 'resyncing' ? 'warn' : ''}`}>{phase}</span>
         )}
-        <span className="spacer" />
-        <SeatClaim sessionId={sessionId} held={!snap.seat.yours} holder={snap.seat.holder} />
-        <button type="button" onClick={() => setShowRewind(true)}>
-          Rewind
-        </button>
-        <button type="button" onClick={() => setShowTools(true)} aria-label="Open tools panel">
-          Tools
-        </button>
+        <SeatBadge sessionId={sessionId} seat={snap.seat} compact />
+        <HeaderMenu
+          onRewind={() => setShowRewind(true)}
+          onTools={() => setShowTools(true)}
+          onSettings={() => setShowSettings(true)}
+        />
       </header>
 
       {phase === 'ended' && (
@@ -103,15 +163,18 @@ export default function MobileSessionScreen(): ReactElement {
           from the launcher.
         </div>
       )}
-      {phase !== 'live' && phase !== 'ended' && (
-        <div className="banner info" role="status">
-          Returning to the app will refresh what you see here.
-        </div>
-      )}
+      <PhaseBanner phase={phase} />
 
-      <TranscriptView state={state} loadOlder={loadOlder} pullDownToLatest />
+      <TranscriptView
+        sessionId={sessionId}
+        state={state}
+        loadOlder={loadOlder}
+        pullDownToLatest
+        agentJobs={agentJobs}
+        onThinkingToggle={(open) => dispatch({ type: 'liveThinkingToggled', open })}
+      />
 
-      <StatusStrip snap={snap} />
+      <Notices notices={state.notices} />
       <TouchDialogDock
         sessionId={sessionId}
         dialogs={dialogs}
@@ -120,6 +183,13 @@ export default function MobileSessionScreen(): ReactElement {
           dispatch({ type: 'dialogAnswered', dialogId })
           acknowledgeDialog(sessionId, dialogId)
         }}
+        onOutcomeDismissed={(dialogId) => dispatch({ type: 'outcomeDismissed', dialogId })}
+      />
+      <QueuedPrompts
+        queuedRows={snap.queuedRows ?? []}
+        pendings={state.pendings}
+        droppedRows={state.droppedRows}
+        onEdit={() => void recallToEdit()}
       />
       <Composer
         sessionId={sessionId}
@@ -132,20 +202,30 @@ export default function MobileSessionScreen(): ReactElement {
           acknowledgeTurn(sessionId, Date.now())
         }}
         onSubmitFailed={(pendingId) => dispatch({ type: 'pendingFailed', pendingId })}
+        recall={recall}
+        stop={working ? { onClick: interrupt, busy: stopBusy } : undefined}
       />
+      <StatusBar snap={snap} live={state.live} />
 
-      <ToolsSheet
+      <ToolsScreen
         sessionId={sessionId}
         snap={snap}
         open={showTools}
         onClose={() => setShowTools(false)}
         onToast={pushToast}
       />
+      <SettingsScreen
+        sessionId={sessionId}
+        open={showSettings}
+        onClose={() => setShowSettings(false)}
+      />
       <RewindSheet
         sessionId={sessionId}
         open={showRewind}
         onClose={() => setShowRewind(false)}
-        onPrefill={setDraft}
+        // a rewound prompt lands above the draft to edit, announced like every
+        // other prefill that merges above existing text
+        onPrefill={placedAbove}
         onToast={pushToast}
       />
 
@@ -160,6 +240,59 @@ export default function MobileSessionScreen(): ReactElement {
         ))}
       </div>
     </div>
+  )
+}
+
+// HeaderMenu collapses the header's secondary actions behind one entry point:
+// Rewind, Tools and agent settings open from the menu, so the sticky row keeps
+// a single line while every target keeps its touch floor.
+function HeaderMenu({
+  onRewind,
+  onTools,
+  onSettings,
+}: {
+  onRewind: () => void
+  onTools: () => void
+  onSettings: () => void
+}): ReactElement {
+  const [open, setOpen] = useState(false)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+
+  const item = (label: string, run: () => void): ReactElement => (
+    <button
+      key={label}
+      type="button"
+      role="menuitem"
+      onClick={() => {
+        setOpen(false)
+        run()
+      }}
+    >
+      {label}
+    </button>
+  )
+
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        className="header-menu-trigger"
+        aria-label="Session actions"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+      >
+        ⋯
+      </button>
+      {open && (
+        <OverlayMenu anchorRef={triggerRef} onClose={() => setOpen(false)}>
+          {item('Rewind', onRewind)}
+          {item('Tools', onTools)}
+          {item('Agent settings', onSettings)}
+        </OverlayMenu>
+      )}
+    </>
   )
 }
 
@@ -182,48 +315,11 @@ function SwitcherOverlay({
         rows={rows}
         onOpen={(row) => {
           onClose()
-          if (row.status === 'ended') navigate(`/m/read/${encodeURIComponent(row.sessionId)}`)
-          else navigate(`/s/${encodeURIComponent(row.sessionId)}`)
+          // replacing recycles the sheet's own history entry, so back from
+          // the switched session returns here rather than onto a leftover
+          navigate(switcherRoute(row), { replace: true })
         }}
       />
     </BottomSheet>
-  )
-}
-
-// SeatClaim is the compact seat affordance: hidden while this connection
-// already holds or shares the write seat, a takeover button when someone else
-// owns it.
-function SeatClaim({
-  sessionId,
-  held,
-  holder,
-}: {
-  sessionId: string
-  held: boolean
-  holder?: string
-}): ReactElement | null {
-  const [busy, setBusy] = useState(false)
-  if (!held) return null
-
-  const takeControl = async () => {
-    setBusy(true)
-    try {
-      await sessionAPI.takeControl(sessionId)
-    } catch {
-      // Refusals keep their holder name; the next snapshot updates the badge.
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <button
-      type="button"
-      className="badge warn seat-claim"
-      onClick={() => void takeControl()}
-      disabled={busy}
-    >
-      {holder ? `seat: ${holder}` : 'seat held'}
-    </button>
   )
 }

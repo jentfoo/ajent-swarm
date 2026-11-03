@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  activateTab,
   clampRatio,
   closeTab,
   findPane,
@@ -9,9 +10,9 @@ import {
   paneIds,
   parseTree,
   removePane,
-  serializeTree,
   setRatio,
   splitPane,
+  tileFor,
 } from './tileTree'
 import type { TileNode, TilePane, TileSplit } from './tileTree'
 
@@ -40,6 +41,24 @@ function twoByTwo(): TileNode {
   )
 }
 
+// sessions flattens each pane's tabs in document order; tiled trees hold one
+// tab per pane, so this reads back the ids tileFor was given.
+function sessions(tree: TileNode): string[] {
+  if (tree.kind === 'pane') return tree.tabs
+  return [...sessions(tree.a), ...sessions(tree.b)]
+}
+
+// shares resolves every pane's width and height as a fraction of the whole,
+// in document order.
+function shares(tree: TileNode, w = 1, h = 1): { id: string; w: number; h: number }[] {
+  if (tree.kind === 'pane') return [{ id: tree.id, w, h }]
+  const row = tree.dir === 'row'
+  return [
+    ...shares(tree.a, row ? w * tree.ratio : w, row ? h : h * tree.ratio),
+    ...shares(tree.b, row ? w * (1 - tree.ratio) : w, row ? h : h * (1 - tree.ratio)),
+  ]
+}
+
 describe('tile tree operations', () => {
   it('opens tabs, activates existing sessions and roots an empty tree', () => {
     expect(openTab(null, 's1')).toMatchObject({ kind: 'pane', tabs: ['s1'], active: 's1' })
@@ -54,6 +73,29 @@ describe('tile tree operations', () => {
     const again = openTab(grown, 's1')
     expect(again).not.toBe(grown)
     expect((again as TilePane).active).toBe('s1')
+  })
+
+  it('activates an existing tab in place', () => {
+    const stacked = pane('p1', ['s1', 's2'], 's2')
+    const next = activateTab(stacked, 'p1', 's1') as TilePane
+    expect(next.active).toBe('s1')
+    expect(next.tabs).toEqual(['s1', 's2'])
+
+    // activating the shown tab or naming an absent session keeps identity
+    expect(activateTab(stacked, 'p1', 's2')).toBe(stacked)
+    const tree = twoByTwo()
+    expect(activateTab(tree, 'rightTop', 's9')).toBe(tree)
+    expect(activateTab(tree, 'nope', 's1')).toBe(tree)
+
+    // activation reaches panes nested under splits
+    const nested = split(
+      'row1',
+      'row',
+      0.5,
+      pane('left', ['s1']),
+      pane('right', ['s2', 's3'], 's2'),
+    )
+    expect(((activateTab(nested, 'right', 's3') as TileSplit).b as TilePane).active).toBe('s3')
   })
 
   it('splits panes in a direction and reports the new pane', () => {
@@ -118,6 +160,23 @@ describe('tile tree operations', () => {
     expect((moveTab(solo, 'solo', 's1', 'solo', 5) as TilePane).tabs).toEqual(['s1'])
   })
 
+  it('lands forward same-pane drops where the indicator sat', () => {
+    const triple = pane('p1', ['s1', 's2', 's3'])
+
+    // dropping s1 before s3 must not slide past it ([A,B,C] case)
+    expect((moveTab(triple, 'p1', 's1', 'p1', 2) as TilePane).tabs).toEqual(['s2', 's1', 's3'])
+
+    // a one-slot forward drop is already there: identity, no churn
+    expect(moveTab(triple, 'p1', 's1', 'p1', 1)).toBe(triple)
+
+    // strip drops still append after every tab
+    const appended = moveTab(triple, 'p1', 's1', 'p1', Number.MAX_SAFE_INTEGER) as TilePane
+    expect(appended.tabs).toEqual(['s2', 's3', 's1'])
+
+    // backward drops splice straight at the target index
+    expect((moveTab(triple, 'p1', 's3', 'p1', 0) as TilePane).tabs).toEqual(['s3', 's1', 's2'])
+  })
+
   it('clamps ratios so panes never vanish', () => {
     expect(clampRatio(0.5)).toBe(0.5)
     expect(clampRatio(-1)).toBe(0.12)
@@ -133,7 +192,7 @@ describe('tile tree operations', () => {
 
   it('round-trips through JSON and rejects corrupt trees', () => {
     const tree = twoByTwo()
-    expect(parseTree(JSON.parse(JSON.stringify(serializeTree(tree))))).toEqual(tree)
+    expect(parseTree(JSON.parse(JSON.stringify(tree)))).toEqual(tree)
     expect(parseTree(null)).toBeNull()
 
     const bad: unknown[] = [
@@ -161,5 +220,83 @@ describe('tile tree operations', () => {
   it('lists panes in document order', () => {
     expect(paneIds(twoByTwo())).toEqual(['left', 'rightTop', 'rightBottom'])
     expect(paneIds(null)).toEqual([])
+  })
+})
+
+describe('tileFor', () => {
+  it('single session is a lone pane', () => {
+    const solo = tileFor(['s1']) as TilePane
+    expect(solo.kind).toBe('pane')
+    expect(solo.tabs).toEqual(['s1'])
+    expect(solo.active).toBe('s1')
+  })
+
+  it('one row for two or three', () => {
+    const pair = tileFor(['s1', 's2']) as TileSplit
+    expect(pair.dir).toBe('row')
+    expect(pair.ratio).toBe(1 / 2)
+    expect(sessions(pair)).toEqual(['s1', 's2'])
+
+    // a three-pane row nests: the first pane takes a third, the rest halve it
+    const triple = tileFor(['s1', 's2', 's3']) as TileSplit
+    expect(triple.dir).toBe('row')
+    expect(triple.ratio).toBe(1 / 3)
+    expect((triple.b as TileSplit).dir).toBe('row')
+    expect((triple.b as TileSplit).ratio).toBe(1 / 2)
+    for (const cell of shares(triple)) {
+      expect(cell.w).toBeCloseTo(1 / 3)
+      expect(cell.h).toBe(1)
+    }
+    expect(sessions(triple)).toEqual(['s1', 's2', 's3'])
+  })
+
+  it('four panes wrap into two equal rows', () => {
+    const grid = tileFor(['s1', 's2', 's3', 's4']) as TileSplit
+    expect(grid.dir).toBe('column')
+    expect(grid.ratio).toBe(1 / 2)
+    for (const row of [grid.a, grid.b]) {
+      expect((row as TileSplit).dir).toBe('row')
+      expect((row as TileSplit).ratio).toBe(1 / 2)
+    }
+    for (const cell of shares(grid)) {
+      expect(cell.w).toBeCloseTo(1 / 2)
+      expect(cell.h).toBeCloseTo(1 / 2)
+    }
+    expect(sessions(grid)).toEqual(['s1', 's2', 's3', 's4'])
+  })
+
+  it('five wraps as three then two', () => {
+    const grid = tileFor(['s1', 's2', 's3', 's4', 's5']) as TileSplit
+    expect(grid.dir).toBe('column')
+    expect(grid.ratio).toBe(1 / 2)
+    const top = grid.a as TileSplit
+    expect(top.dir).toBe('row')
+    expect(top.ratio).toBe(1 / 3)
+    expect((top.b as TileSplit).ratio).toBe(1 / 2)
+    expect(sessions(grid)).toEqual(['s1', 's2', 's3', 's4', 's5'])
+  })
+
+  it('seven wraps as three two two', () => {
+    const grid = tileFor(['s1', 's2', 's3', 's4', 's5', 's6', 's7']) as TileSplit
+    expect(grid.dir).toBe('column')
+    expect(grid.ratio).toBe(1 / 3)
+    const rest = grid.b as TileSplit
+    expect(rest.dir).toBe('column')
+    expect(rest.ratio).toBe(1 / 2)
+    expect(sessions(grid.a)).toEqual(['s1', 's2', 's3'])
+    expect(sessions(rest.a)).toEqual(['s4', 's5'])
+    expect(sessions(rest.b)).toEqual(['s6', 's7'])
+    for (const cell of shares(grid)) {
+      expect(cell.h).toBeCloseTo(1 / 3)
+    }
+  })
+
+  it('reading order matches the input ids', () => {
+    const ids = ['s1', 's2', 's3', 's4', 's5', 's6', 's7', 's8', 's9']
+    expect(sessions(tileFor(ids))).toEqual(ids)
+  })
+
+  it('rejects an empty id list', () => {
+    expect(() => tileFor([])).toThrow()
   })
 })

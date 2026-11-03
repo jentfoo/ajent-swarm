@@ -1,7 +1,6 @@
 package api
 
 import (
-	"cmp"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -32,9 +31,11 @@ type interruptReply struct {
 	Stopped string `json:"stopped,omitempty"`
 }
 
-// modeRequest steps backwards when Back; the whole body is optional.
+// modeRequest steps the permission mode: Back cycles backwards, a non-empty
+// Mode jumps straight to that name and wins over Back. The body is optional.
 type modeRequest struct {
-	Back bool `json:"back,omitempty"`
+	Back bool   `json:"back,omitempty"`
+	Mode string `json:"mode,omitempty"`
 }
 
 type rewindRequest struct {
@@ -61,22 +62,20 @@ type resolveReply struct {
 	Settled bool `json:"settled"`
 }
 
-// writeCommandFailure maps one fleet command error onto its response and
-// reports whether it consumed the error: unknown sessions are 404 before any
-// dialing, wire refusals keep their codes.
-func writeCommandFailure(w http.ResponseWriter, err error) bool {
+// writeCommandFailure maps one fleet command error onto its response:
+// unknown sessions are 404 before any dialing, wire refusals keep their
+// codes, anything else answers a bare 500.
+func writeCommandFailure(w http.ResponseWriter, err error) {
 	if errors.Is(err, fleet.ErrUnknownSession) {
-		writeError(w, http.StatusNotFound, "session_not_found", "")
-		return true
+		writeError(w, http.StatusNotFound, codeSessionNotFound, "")
+		return
 	}
-	return writeControlError(w, err)
-}
-
-// newPendingID mints the correlation a submit echoes back to its caller.
-func newPendingID() string {
-	var b [8]byte
-	rand.Read(b[:]) // crypto/rand never fails; nothing sensible to answer anyway
-	return hex.EncodeToString(b[:])
+	var ce *ctl.Error
+	if errors.As(err, &ce) {
+		writeError(w, statusForControl(ce), ce.Code, ce.Message)
+		return
+	}
+	writeError(w, http.StatusInternalServerError, codeInternalError, "")
 }
 
 // handleSessionSubmit routes one prompt line exactly as typed in the session's
@@ -87,51 +86,61 @@ func (s *apiServer) handleSessionSubmit(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if strings.TrimSpace(req.Line) == "" {
-		writeError(w, http.StatusBadRequest, "invalid_request", "line must not be empty")
+		writeError(w, http.StatusBadRequest, codeInvalidRequest, "line must not be empty")
 		return
 	}
 	if len(req.PendingID) > maxPendingID {
-		writeError(w, http.StatusBadRequest, "invalid_request", "pendingId is too long")
+		writeError(w, http.StatusBadRequest, codeInvalidRequest, "pendingId is too long")
 		return
 	}
-	pendingID := cmp.Or(req.PendingID, newPendingID())
-	err := s.fleet.Submit(r.Context(), r.PathValue("id"), ctl.SubmitParams{Line: req.Line, PendingID: pendingID})
-	switch {
-	case err == nil:
-		writeJSON(w, http.StatusAccepted, submitReply{PendingID: pendingID})
-	case writeCommandFailure(w, err):
-	default:
-		writeError(w, http.StatusInternalServerError, "internal_error", "")
+	pendingID := req.PendingID
+	if pendingID == "" {
+		var b [8]byte
+		rand.Read(b[:]) // crypto/rand never fails; nothing sensible to answer anyway
+		pendingID = hex.EncodeToString(b[:])
 	}
+	err := s.fleet.SubmitTracked(r.Context(), r.PathValue("id"),
+		ctl.SubmitParams{Line: req.Line, PendingID: pendingID})
+	if err != nil {
+		writeCommandFailure(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, submitReply{PendingID: pendingID})
 }
 
 // handleSessionInterrupt runs the session's Esc body remotely.
 func (s *apiServer) handleSessionInterrupt(w http.ResponseWriter, r *http.Request) {
 	stopped, err := s.fleet.Interrupt(r.Context(), r.PathValue("id"))
-	switch {
-	case err == nil:
-		writeJSON(w, http.StatusOK, interruptReply{Stopped: stopped})
-	case writeCommandFailure(w, err):
-	default:
-		writeError(w, http.StatusInternalServerError, "internal_error", "")
+	if err != nil {
+		writeCommandFailure(w, err)
+		return
 	}
+	writeJSON(w, http.StatusOK, interruptReply{Stopped: stopped})
 }
 
-// handleSessionMode steps the permission mode like Shift+Tab and answers with
-// the mode now in effect.
+// handleSessionMode steps or sets the permission mode and answers with the
+// mode now in effect. A non-empty body mode jumps straight there, matching the
+// dropdown; an empty body cycles like Shift+Tab.
 func (s *apiServer) handleSessionMode(w http.ResponseWriter, r *http.Request) {
 	var req modeRequest
 	if !readOptionalRequest(w, r, &req) {
 		return
 	}
-	mode, err := s.fleet.ModeCycle(r.Context(), r.PathValue("id"), req.Back)
-	switch {
-	case err == nil:
-		writeJSON(w, http.StatusOK, ctl.ModeResult{Mode: mode})
-	case writeCommandFailure(w, err):
-	default:
-		writeError(w, http.StatusInternalServerError, "internal_error", "")
+	id := r.PathValue("id")
+	var (
+		mode string
+		err  error
+	)
+	if req.Mode != "" {
+		mode, err = s.fleet.ModeSet(r.Context(), id, req.Mode)
+	} else {
+		mode, err = s.fleet.ModeCycle(r.Context(), id, req.Back)
 	}
+	if err != nil {
+		writeCommandFailure(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, ctl.ModeResult{Mode: mode})
 }
 
 // handleSessionRewind forks onto an earlier transcript entry. Candidate rules
@@ -142,17 +151,15 @@ func (s *apiServer) handleSessionRewind(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if strings.TrimSpace(req.Head) == "" {
-		writeError(w, http.StatusBadRequest, "invalid_request", "head must not be empty")
+		writeError(w, http.StatusBadRequest, codeInvalidRequest, "head must not be empty")
 		return
 	}
 	head, err := s.fleet.Rewind(r.Context(), r.PathValue("id"), req.Head)
-	switch {
-	case err == nil:
-		writeJSON(w, http.StatusOK, rewindReply{Head: head})
-	case writeCommandFailure(w, err):
-	default:
-		writeError(w, http.StatusInternalServerError, "internal_error", "")
+	if err != nil {
+		writeCommandFailure(w, err)
+		return
 	}
+	writeJSON(w, http.StatusOK, rewindReply{Head: head})
 }
 
 // handleSessionResolve answers one open dialog, exactly one shape at a time.
@@ -165,18 +172,18 @@ func (s *apiServer) handleSessionResolve(w http.ResponseWriter, r *http.Request)
 	params, ok := req.params()
 	if !ok {
 		writeError(w, http.StatusBadRequest,
-			"invalid_request", "exactly one of index, indexes, text or cancel is required")
+			codeInvalidRequest, "exactly one of index, indexes, text or cancel is required")
 		return
 	}
 	err := s.fleet.Resolve(r.Context(), r.PathValue("id"), params)
+	var ce *ctl.Error
 	switch {
 	case err == nil:
 		writeJSON(w, http.StatusOK, resolveReply{Settled: false})
-	case settledDialog(err):
+	case errors.As(err, &ce) && ce.Code == ctl.CodeSettled: // already answered
 		writeJSON(w, http.StatusOK, resolveReply{Settled: true})
-	case writeCommandFailure(w, err):
 	default:
-		writeError(w, http.StatusInternalServerError, "internal_error", "")
+		writeCommandFailure(w, err)
 	}
 }
 
@@ -206,50 +213,104 @@ func (req resolveRequest) params() (ctl.ResolveParams, bool) {
 	return p, true
 }
 
-// settledDialog reports whether the refusal says the dialog already resolved.
-func settledDialog(err error) bool {
-	var ce *ctl.Error
-	return errors.As(err, &ce) && ce.Code == ctl.CodeSettled
-}
-
 // handleSessionRecall pops the newest queued prompt by row id for
 // edit-and-resubmit; no single-row delete verb exists upstream. An empty
 // result means nothing was queued.
 func (s *apiServer) handleSessionRecall(w http.ResponseWriter, r *http.Request) {
 	row, err := s.fleet.Recall(r.Context(), r.PathValue("id"))
-	switch {
-	case err == nil:
-		writeJSON(w, http.StatusOK, row)
-	case writeCommandFailure(w, err):
-	default:
-		writeError(w, http.StatusInternalServerError, "internal_error", "")
+	if err != nil {
+		writeCommandFailure(w, err)
+		return
 	}
+	writeJSON(w, http.StatusOK, row)
+}
+
+// agentsListReply answers one agents query: every sub-agent job in
+// job-number order, finished ones included.
+type agentsListReply struct {
+	Jobs []ctl.AgentJob `json:"jobs"`
+}
+
+// handleSessionAgents lists the session's sub-agent jobs, the structured read
+// the tally badge and per-job stop controls pull while any job is live. A
+// session with no sub-agent wiring keeps its coded unavailable refusal.
+func (s *apiServer) handleSessionAgents(w http.ResponseWriter, r *http.Request) {
+	res, err := s.fleet.AgentsList(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeCommandFailure(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, agentsListReply{Jobs: orEmptySlice(res.Jobs)})
+}
+
+// agentsStopRequest names one job by id, or every in-flight job with all.
+// Exactly-one is upstream's rule; the route forwards the shape unmunged.
+type agentsStopRequest struct {
+	ID  string `json:"id,omitempty"`
+	All bool   `json:"all,omitempty"`
+}
+
+// handleSessionAgentsStop cancels one sub-agent job or every in-flight one,
+// riding swarm's seat policy like every other mutation.
+func (s *apiServer) handleSessionAgentsStop(w http.ResponseWriter, r *http.Request) {
+	var req agentsStopRequest
+	if !readRequest(w, r, &req) {
+		return
+	}
+	res, err := s.fleet.AgentsStop(r.Context(), r.PathValue("id"),
+		ctl.AgentsStopParams{ID: req.ID, All: req.All})
+	if err != nil {
+		writeCommandFailure(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+// recallLinesReply answers one recall-lines query: the workspace mirror's
+// rows, newest first.
+type recallLinesReply struct {
+	Items []fleet.RecallLine `json:"items"`
+}
+
+// handleSessionRecallLines serves the session workspace's recall mirror: the
+// typed prompts submitted through swarm there, newest first, so the composer
+// search recalls across sessions. ?query narrows by case-insensitive
+// substring and ?limit caps the page.
+func (s *apiServer) handleSessionRecallLines(w http.ResponseWriter, r *http.Request) {
+	limit, ok := parseLimit(w, r)
+	if !ok {
+		return
+	}
+	rows, err := s.fleet.RecallLines(r.Context(), r.PathValue("id"),
+		r.URL.Query().Get("query"), limit)
+	if err != nil {
+		writeCommandFailure(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, recallLinesReply{Items: orEmptySlice(rows)})
 }
 
 // handleSessionCandidates serves the rewind picker feed derived from the
 // session's transcript tree, current head marked from its live snapshot.
 func (s *apiServer) handleSessionCandidates(w http.ResponseWriter, r *http.Request) {
 	res, err := s.fleet.Candidates(r.Context(), r.PathValue("id"))
-	switch {
-	case err == nil:
-		writeJSON(w, http.StatusOK, res)
-	case writeCommandFailure(w, err):
-	default:
-		writeError(w, http.StatusInternalServerError, "internal_error", "")
+	if err != nil {
+		writeCommandFailure(w, err)
+		return
 	}
+	writeJSON(w, http.StatusOK, res)
 }
 
 // handleSessionSnapshot serves the actor's reconciled state for polling
-// clients, the same shape a stream init carries.
+// clients, the same shape a stream init carries plus the seq watermark it was
+// read under: events at or below it are already covered by these fields.
 func (s *apiServer) handleSessionSnapshot(w http.ResponseWriter, r *http.Request) {
-	state, err := s.fleet.Snapshot(r.Context(), r.PathValue("id"))
-	switch {
-	case err == nil:
-		writeJSON(w, http.StatusOK, state)
-	case writeCommandFailure(w, err):
-	default:
-		writeError(w, http.StatusInternalServerError, "internal_error", "")
+	snap, err := s.fleet.Snapshot(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeCommandFailure(w, err)
+		return
 	}
+	writeJSON(w, http.StatusOK, snap)
 }
 
 // filesReply answers one @-completion query for the composer.
@@ -261,36 +322,22 @@ type filesReply struct {
 // directory; an unreadable target answers empty rather than failing.
 func (s *apiServer) handleSessionFiles(w http.ResponseWriter, r *http.Request) {
 	items, err := s.fleet.Files(r.Context(), r.PathValue("id"), r.URL.Query().Get("query"))
-	switch {
-	case err == nil:
-		writeJSON(w, http.StatusOK, filesReply{Items: items})
-	case writeCommandFailure(w, err):
-	default:
-		writeError(w, http.StatusInternalServerError, "internal_error", "")
+	if err != nil {
+		writeCommandFailure(w, err)
+		return
 	}
+	writeJSON(w, http.StatusOK, filesReply{Items: items})
 }
 
-// handleAttention serves the per-live-session digest behind the inbox rail
+// handleAttention serves the per-live-session digest behind the focus rail
 // and notification badges; no session stream is subscribed anywhere.
 func (s *apiServer) handleAttention(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, s.fleet.Attention())
 }
 
 // handleModels serves the models listing: one row per live session whose
-// current model comes from its snapshot. ?session=<id> instead discovers that
-// session's registry by opening ajent's own /model picker, answered later via
-// /resolve; no swarm-side config exists to fall back on.
+// current model comes from its snapshot. Switching goes through POST /model
+// against the same registry models.get lists.
 func (s *apiServer) handleModels(w http.ResponseWriter, r *http.Request) {
-	if id := r.URL.Query().Get("session"); id != "" {
-		row, err := s.fleet.DiscoverModels(r.Context(), id)
-		switch {
-		case err == nil:
-			writeJSON(w, http.StatusOK, []fleet.ModelRow{row})
-		case writeCommandFailure(w, err):
-		default:
-			writeError(w, http.StatusInternalServerError, "internal_error", "")
-		}
-		return
-	}
-	writeJSON(w, http.StatusOK, s.fleet.ModelRows(r.Context()))
+	writeJSON(w, http.StatusOK, orEmptySlice(s.fleet.ModelRows(r.Context())))
 }

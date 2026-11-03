@@ -3,14 +3,20 @@ package auth
 import (
 	"encoding/json"
 	"net/http"
+	"slices"
 	"strings"
+
+	"github.com/go-analyze/bulk"
 )
 
 // Middleware gates API requests. Before a password exists only the bootstrap
 // endpoint passes and everything else answers with the bootstrap-required
 // marker; afterwards a valid session cookie or bearer token is required.
-// Exempt routes still receive a principal when credentials are valid, so they
-// answer for themselves instead of being rejected here.
+// Cookie-authenticated state-changing calls must additionally pass a Fetch
+// Metadata check (crossSiteWriteBlocked). Exempt routes still receive a
+// principal when credentials are valid, so they answer for themselves instead
+// of being rejected here. exempt must be provided; callers without exemptions
+// pass a func returning false.
 func (s *Service) Middleware(exempt func(*http.Request) bool) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -25,17 +31,25 @@ func (s *Service) Middleware(exempt func(*http.Request) bool) func(http.Handler)
 
 			p, renewed, ok := s.authenticate(r)
 			if !ok {
-				if exempt != nil && exempt(r) {
+				if exempt(r) {
 					next.ServeHTTP(w, r)
 					return
 				}
 				writeGateError(w, http.StatusUnauthorized, "unauthorized")
 				return
 			}
-			if renewed {
-				http.SetCookie(w, s.SessionCookie(cookieValue(r)))
+			// Bearer callers skip the check: no ambient credential to ride.
+			if p.Via == ViaCookie && crossSiteWriteBlocked(r) {
+				writeGateError(w, http.StatusForbidden, "cross_site_blocked")
+				return
 			}
-			next.ServeHTTP(w, r.WithContext(WithPrincipal(r.Context(), p)))
+			if renewed {
+				c, err := r.Cookie(SessionCookieName) // renewed implies the cookie path
+				if err == nil {
+					http.SetCookie(w, s.SessionCookie(c.Value))
+				}
+			}
+			next.ServeHTTP(w, r.WithContext(withPrincipal(r.Context(), p)))
 		})
 	}
 }
@@ -61,17 +75,35 @@ func (s *Service) authenticate(r *http.Request) (Principal, bool, bool) {
 	return Principal{}, false, false
 }
 
-// cookieValue reads the current session token back out of the request.
-func cookieValue(r *http.Request) string {
-	c, err := r.Cookie(SessionCookieName)
-	if err != nil {
-		return ""
-	}
-	return c.Value
+// unsafeMethods are the state-changing methods a CSRF can ride; reads cannot
+// inspect cross-origin responses, so they stay open.
+var unsafeMethods = []string{
+	http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch,
 }
 
-// writeGateError answers with the standard error envelope. Kept beside the
-// middleware so gating never depends on the handler layer below it.
+// safeFetchSites are the Sec-Fetch-Site values accepted on state-changing
+// calls; same-site stays rejected since the SPA is always same-origin, so a
+// sibling subdomain has no legitimate use.
+var safeFetchSites = bulk.SliceToSet([]string{"same-origin", "none"})
+
+// crossSiteWriteBlocked reports whether Fetch Metadata marks the request as a
+// state-changing call initiated from another site. Current browsers always
+// attach Sec-Fetch-Site and page script cannot forge it, so its absence means
+// a non-browser client; blocking here closes the Lax+POST window SameSite=Lax
+// leaves open right after login.
+func crossSiteWriteBlocked(r *http.Request) bool {
+	if !slices.Contains(unsafeMethods, r.Method) {
+		return false
+	}
+	site := r.Header.Get("Sec-Fetch-Site")
+	if site == "" { // non-browser clients never send it
+		return false
+	}
+	_, safe := safeFetchSites[site]
+	return !safe
+}
+
+// writeGateError answers with the standard error envelope.
 func writeGateError(w http.ResponseWriter, status int, code string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)

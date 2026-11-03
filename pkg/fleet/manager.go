@@ -5,6 +5,7 @@
 package fleet
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"log/slog"
@@ -24,6 +25,14 @@ const (
 	pollEvery     = time.Second
 	pollErrorMax  = 30 * time.Second
 	stopActorWait = 5 * time.Second
+)
+
+// Ended-row bounds for the listing: at least maxExitedPinned ended sessions
+// stay listed, and every exit inside endedKeepWindow stays too, however many
+// launched since.
+const (
+	maxExitedPinned = 4
+	endedKeepWindow = 2 * time.Hour
 )
 
 // ErrUnknownSession reports a subscribe or command naming no tracked instance.
@@ -46,22 +55,32 @@ type Options struct {
 
 	// Child launching: AjentBin and ChildrenDir must both be set for Launch
 	// to work. ChildStore persistence enables orphan re-adoption across
-	// restarts; KillOnExit opts into terminating running children at Stop.
+	// restarts and retains external sessions in the listing; KillOnExit opts
+	// into terminating running children at Stop.
 	AjentBin    string
 	ChildrenDir string
 	ChildStore  ChildStore
 	KillOnExit  bool
 	LaunchWait  time.Duration // spawn-to-socket deadline
+	AwaitPoll   time.Duration // registry poll cadence while awaiting that socket
 	ExitGrace   time.Duration // /exit settles before SIGTERM
 	TermGrace   time.Duration // SIGTERM before SIGKILL
 
-	// NoNaming turns off auto-naming: unnamed sessions never get the one-shot
-	// labeler run over their first prompt.
+	// NoNaming turns off auto-titling: unnamed sessions never get the one-shot
+	// labeler run over their first prompt, and no display title is stored.
 	NoNaming bool
 
-	// TitleStore persists swarm-side display titles; nil disables renames and
-	// every listing falls back to agent names, paths and short ids.
+	// TitleStore persists swarm-side display titles; nil disables storing them
+	// and every listing falls back to agent names, paths and short ids.
 	TitleStore TitleStore
+
+	// SettingStore persists swarm-level settings (the titling model today);
+	// nil keeps every setting at its default and refuses writes.
+	SettingStore SettingsStore
+
+	// RecallStore persists the workspace-wide recall mirror of typed submits;
+	// nil disables recording and every recall-lines listing reads empty.
+	RecallStore RecallStore
 }
 
 // Manager tracks every live ajent instance and owns its actors' lifecycles.
@@ -73,15 +92,18 @@ type Manager struct {
 	optsOwned       func(ctl.Instance) bool
 	discover        func() ([]ctl.Instance, error)
 
-	bin         string
-	childrenDir string
-	childStore  ChildStore
-	killOnExit  bool
-	launchWait  time.Duration
-	exitGrace   time.Duration
-	termGrace   time.Duration
-	noNaming    bool
-	titleStore  TitleStore
+	bin          string
+	childrenDir  string
+	childStore   ChildStore
+	killOnExit   bool
+	launchWait   time.Duration
+	awaitPoll    time.Duration
+	exitGrace    time.Duration
+	termGrace    time.Duration
+	noNaming     bool
+	titleStore   TitleStore
+	settingStore SettingsStore
+	recallStore  RecallStore
 
 	ctx      context.Context
 	cancel   context.CancelFunc
@@ -96,9 +118,11 @@ type Manager struct {
 	nextSubID      int64 // manager-owned subscription identity
 	nudge          chan struct{}
 	children       map[int]*childProc // by pid, running and exited
-	childBySession map[string]int
+	childBySession map[string]*childProc
+	externals      map[int]ChildRecord // retained external session rows, by pid
 	named          map[string]struct{} // sessions whose auto-name already ran
 	titles         map[string]string   // cached display titles, mirrored from TitleStore
+	titleModel     string              // cached titling model, mirrored from SettingStore
 }
 
 // New builds a manager; Start begins the registry watch.
@@ -112,22 +136,28 @@ func New(opts Options) *Manager {
 		dialBackoffBase: cmpOr(opts.BackoffBase, dialBackoffBase),
 		dialBackoffMax:  cmpOr(opts.BackoffMax, dialBackoffMax),
 		optsOwned:       opts.Owned,
+		discover:        opts.Discover,
 		bin:             opts.AjentBin,
 		childrenDir:     opts.ChildrenDir,
 		childStore:      opts.ChildStore,
 		killOnExit:      opts.KillOnExit,
 		launchWait:      cmpOr(opts.LaunchWait, launchWaitDefault),
+		awaitPoll:       cmpOr(opts.AwaitPoll, awaitPollEvery),
 		exitGrace:       cmpOr(opts.ExitGrace, exitGraceDefault),
 		termGrace:       cmpOr(opts.TermGrace, termGraceDefault),
 		noNaming:        opts.NoNaming,
 		titleStore:      opts.TitleStore,
+		settingStore:    opts.SettingStore,
+		recallStore:     opts.RecallStore,
 		actors:          make(map[actorKey]*sessionActor),
 		subs:            make(map[int64]*subscription),
 		bySession:       make(map[string]map[int64]*subscription),
 		nudge:           make(chan struct{}, 1),
 		children:        make(map[int]*childProc),
-		childBySession:  make(map[string]int),
+		childBySession:  make(map[string]*childProc),
+		externals:       make(map[int]ChildRecord),
 		named:           make(map[string]struct{}),
+		titles:          make(map[string]string),
 	}
 	if m.optsOwned == nil {
 		m.optsOwned = func(ctl.Instance) bool { return false }
@@ -162,7 +192,10 @@ func (m *Manager) Start(ctx context.Context) {
 	m.ctx, m.cancel = context.WithCancel(ctx)
 	m.storeCtx = context.WithoutCancel(ctx)
 	if m.titleStore != nil {
-		m.loadTitles(ctx, m.titleStore)
+		m.loadTitles(ctx)
+	}
+	if m.settingStore != nil {
+		m.loadSettings(ctx)
 	}
 	m.adopt(ctx)
 	m.wg.Add(1)
@@ -176,9 +209,7 @@ func (m *Manager) Start(ctx context.Context) {
 // outlive it unless the operator asked for them to be taken down too.
 func (m *Manager) Stop() {
 	m.stopOnce.Do(func() {
-		if m.cancel != nil {
-			m.cancel()
-		}
+		m.cancel()
 		m.wg.Wait()
 
 		m.mu.Lock()
@@ -209,7 +240,7 @@ func (m *Manager) watch(ctx context.Context) {
 		case <-m.nudge: // a fresh child wants attaching without the wait
 		}
 		m.reconcileAdopted()
-		if err := m.diff(); err != nil { //nolint:contextcheck // actors bind their context at spawn; requests cross the mailbox, not call chains
+		if err := m.diff(); err != nil { //nolint:contextcheck // actors bind ctx at spawn, not per call
 			m.log.Warn("discovery failed", "err", err)
 			interval = min(interval*2, pollErrorMax)
 			continue
@@ -218,7 +249,8 @@ func (m *Manager) watch(ctx context.Context) {
 	}
 }
 
-// diff starts actors for new instances and stops those whose record left.
+// diff starts actors for new instances and stops those whose record left,
+// retaining first-sighted externals so their rows outlive tracking.
 func (m *Manager) diff() error {
 	live, err := m.discover()
 	if err != nil {
@@ -234,6 +266,11 @@ func (m *Manager) diff() error {
 		}) {
 			stopping = append(stopping, a)
 			delete(m.actors, key)
+			if st := a.status.Load(); st.emptyRun() {
+				// stamp beside the removal: a settle finding neither stamp nor
+				// actor would keep the empty row for good
+				m.markEmptyRunLocked(st.PID)
+			}
 		}
 	}
 	// their subscribers wait for a replacement instance to adopt them
@@ -242,6 +279,7 @@ func (m *Manager) diff() error {
 	}
 
 	var starting []ctl.Instance
+	var unrecorded []ctl.Instance
 	for _, inst := range live {
 		key := actorKey{sessionID: inst.SessionID, token: inst.Token}
 		if _, tracked := m.actors[key]; tracked {
@@ -250,6 +288,9 @@ func (m *Manager) diff() error {
 		a := newSessionActor(m, inst)
 		m.actors[key] = a
 		starting = append(starting, inst)
+		if inst.PID > 0 && inst.SessionID != "" && !m.recordedLocked(inst.PID) {
+			unrecorded = append(unrecorded, inst)
+		}
 	}
 	rebinds := m.planRebinds()
 	m.mu.Unlock()
@@ -262,7 +303,13 @@ func (m *Manager) diff() error {
 		}
 	}
 
+	for _, inst := range unrecorded {
+		m.retainExternal(inst)
+	}
+
 	for _, a := range stopping {
+		// a.inst is actor-confined; the retiring row carries its current facts
+		m.markExternalGone(a)
 		a.stop()
 		select {
 		case <-a.done:
@@ -290,7 +337,7 @@ func (m *Manager) diff() error {
 		m.wg.Add(1)
 		go func() {
 			defer m.wg.Done()
-			a.run() //nolint:contextcheck // the actor binds its context at spawn; requests cross the mailbox, not calls
+			a.run() //nolint:contextcheck // the actor binds ctx at spawn, not per call
 		}()
 		for _, sub := range adopt {
 			select { // a fresh actor drains its mailbox promptly
@@ -302,6 +349,78 @@ func (m *Manager) diff() error {
 		}
 	}
 	return nil
+}
+
+// recordedLocked reports whether a child record already covers the pid, so
+// first-sighting retention can skip it. mu must be held.
+func (m *Manager) recordedLocked(pid int) bool {
+	if _, ok := m.children[pid]; ok {
+		return true
+	}
+	_, ok := m.externals[pid]
+	return ok
+}
+
+// retainExternal persists one external instance's row at its first sighting,
+// so the listing keeps it once tracking ends or the service restarts. The
+// store dedupes by pid, so repeated discovery passes never duplicate it.
+func (m *Manager) retainExternal(inst ctl.Instance) {
+	rec := ChildRecord{
+		PID:         inst.PID,
+		SessionID:   inst.SessionID,
+		SessionName: inst.SessionName,
+		Workspace:   inst.Workspace,
+		StartedAt:   inst.Started(),
+		Origin:      SpawnedByExternal,
+	}
+	if rec.StartedAt.IsZero() {
+		rec.StartedAt = time.Now()
+	}
+	if m.childStore != nil {
+		id, _, err := m.childStore.CreateChildIfAbsent(m.storeCtx, rec)
+		if err != nil {
+			m.log.Warn("external session not persisted", "pid", rec.PID, "err", err)
+		}
+		rec.ID = id
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.recordedLocked(rec.PID) { // a pass before us, or a spawn, covered the pid
+		return
+	}
+	m.externals[rec.PID] = rec
+}
+
+// markExternalGone ends an external session's retained row once its record
+// left discovery: swarm never reaped that process, so the exit code stays
+// unset. A run the retiring actor proves empty drops instead, mirroring the
+// transcript ajent deleted at exit. A pass racing shutdown skips the marking,
+// so a restart never lists still-running externals as ended.
+func (m *Manager) markExternalGone(a *sessionActor) {
+	if m.ctx.Err() != nil {
+		return
+	}
+	st := a.status.Load()
+	m.mu.Lock()
+	rec, ok := m.externals[st.PID]
+	if !ok || !rec.ExitedAt.IsZero() {
+		m.mu.Unlock()
+		return
+	}
+	m.mu.Unlock()
+
+	if st.emptyRun() && m.dropChild(rec) {
+		return
+	}
+	rec.ExitedAt = time.Now()
+	rec.ExitNote = "ended on its own"
+	m.mu.Lock()
+	m.externals[rec.PID] = rec
+	m.mu.Unlock()
+
+	m.persistChild(rec)
+	m.log.Info("external session left the control registry", "pid", rec.PID, "session", rec.SessionID)
 }
 
 // orphanLocked detaches every subscription hosted by one actor key, so its
@@ -343,12 +462,11 @@ func (m *Manager) registerLocked(sub *subscription) {
 	set[sub.id] = sub
 }
 
-// preferActor picks who serves a session with several live instances: an
-// online actor beats a degraded one, then the oldest instance wins.
-func preferActor(a, b *sessionActor) *sessionActor {
-	rank := func(x *sessionActor) int {
-		st := x.status.Load()
-		switch st.State {
+// actorForLocked returns the actor serving a session; mu must be held. With
+// several live instances an online actor beats a degraded one.
+func (m *Manager) actorForLocked(sessionID string) *sessionActor {
+	rank := func(a *sessionActor) int {
+		switch a.status.Load().State {
 		case ChildOnline:
 			return 0
 		case ChildReconnecting:
@@ -357,10 +475,16 @@ func preferActor(a, b *sessionActor) *sessionActor {
 			return 2
 		}
 	}
-	if a == nil || rank(b) < rank(a) {
-		return b
+	var best *sessionActor
+	for key, a := range m.actors {
+		if key.sessionID != sessionID {
+			continue
+		}
+		if best == nil || rank(a) < rank(best) {
+			best = a
+		}
 	}
-	return a
+	return best
 }
 
 // Subscribe registers one viewer on a session's stream. deliver receives
@@ -378,7 +502,14 @@ func (m *Manager) Subscribe(sessionID string, deliver func([]byte), onDrop func(
 		return nil, ErrUnknownSession
 	}
 	m.nextSubID++
-	sub := newSubscription(m.nextSubID, sessionID, deliver, onDrop)
+	sub := &subscription{
+		id:        m.nextSubID,
+		sessionID: sessionID,
+		q:         make(chan []byte, subQueue),
+		closed:    make(chan struct{}),
+		deliver:   deliver,
+		onDrop:    onDrop,
+	}
 	m.registerLocked(sub)
 	sub.hostKey = a.key // the actor serving this subscription, until a rebind moves it
 	m.mu.Unlock()
@@ -395,35 +526,12 @@ func (m *Manager) Subscribe(sessionID string, deliver func([]byte), onDrop func(
 	return &Subscription{s: sub}, nil
 }
 
-// Unsubscribe ends one subscription.
+// Unsubscribe ends one subscription everywhere and closes it.
 func (m *Manager) Unsubscribe(s *Subscription) {
-	if s == nil || s.s == nil {
-		return
-	}
-	m.detachSub(s.s)
-}
-
-// Resync re-pushes the init frame for an existing subscription, so a client
-// can rebuild after losing state without resubscribing.
-func (m *Manager) Resync(s *Subscription) {
-	if s == nil || s.s == nil {
+	if s == nil {
 		return
 	}
 	sub := s.s
-	m.mu.Lock()
-	a := m.actors[sub.hostKey] // the actor serving this subscription, if any
-	m.mu.Unlock()
-	if a == nil {
-		return
-	}
-	select {
-	case a.mailbox <- msgSync{sub: sub}:
-	default:
-	}
-}
-
-// detachSub removes one subscription everywhere and closes it.
-func (m *Manager) detachSub(sub *subscription) {
 	m.mu.Lock()
 	host := m.actors[sub.hostKey]
 	m.forgetLocked(sub)
@@ -435,6 +543,22 @@ func (m *Manager) detachSub(sub *subscription) {
 		case host.mailbox <- msgDetach{sub: sub}:
 		default:
 		}
+	}
+}
+
+// Resync re-pushes the init frame for an existing subscription, so a client
+// can rebuild after losing state without resubscribing.
+func (m *Manager) Resync(s *Subscription) {
+	sub := s.s
+	m.mu.Lock()
+	a := m.actors[sub.hostKey] // the actor serving this subscription, if any
+	m.mu.Unlock()
+	if a == nil {
+		return
+	}
+	select {
+	case a.mailbox <- msgSync{sub: sub}:
+	default:
 	}
 }
 
@@ -454,17 +578,6 @@ func (m *Manager) forgetLocked(sub *subscription) {
 		}
 	}
 	sub.hostKey = actorKey{}
-}
-
-// actorForLocked returns the actor serving a session; mu must be held.
-func (m *Manager) actorForLocked(sessionID string) *sessionActor {
-	var best *sessionActor
-	for key, a := range m.actors {
-		if key.sessionID == sessionID {
-			best = preferActor(best, a)
-		}
-	}
-	return best
 }
 
 // TakeControl issues one force claim on user command for the session.
@@ -494,47 +607,93 @@ func (m *Manager) route(sessionID string) *sessionActor {
 	return m.actorForLocked(sessionID)
 }
 
-// Sessions lists one row per known session, sorted by id: live actors carry
-// their reconciled state, children add spawn facts, and children no longer
-// tracked stand alone as exited or waiting rows.
+// Sessions lists every known session, one row each: live rows first,
+// sorted by session id then pid, followed by recently ended ones most recent
+// first. Twin instances serving one session list twice, told apart by pid;
+// external sessions keep their row after they end.
 func (m *Manager) Sessions() []Status {
 	m.mu.Lock()
 	actors := bulk.MapValuesSlice(m.actors)
-	byPID := make(map[int]ChildRecord, len(m.children))
+	byPID := make(map[int]ChildRecord, len(m.children)+len(m.externals))
 	for _, cp := range m.children {
 		byPID[cp.rec.PID] = cp.rec
 	}
+	for pid, rec := range m.externals { // a pid is never recorded twice
+		if _, ok := byPID[pid]; !ok {
+			byPID[pid] = rec
+		}
+	}
 	m.mu.Unlock()
 
-	bySession := make(map[string]*Status, len(actors)+len(byPID))
+	recs := bulk.MapValuesSlice(byPID)
+	slices.SortFunc(recs, func(a, b ChildRecord) int { return b.StartedAt.Compare(a.StartedAt) })
+
+	rows := make([]*Status, 0, len(actors)+len(recs))
+	byInstancePID := make(map[int]*Status, len(actors))
+	tracked := make(map[string]struct{}, len(actors))
 	for _, a := range actors {
 		st := *a.status.Load()
 		st.SpawnedBy = SpawnedByExternal
-		if rec, ok := byPID[st.PID]; ok {
-			decorateChild(&st, rec)
+		rows = append(rows, &st)
+		if st.PID > 0 {
+			byInstancePID[st.PID] = &st
 		}
-		bySession[st.SessionID] = &st
+		tracked[st.SessionID] = struct{}{}
 	}
-	for _, rec := range byPID {
+	listed := make(map[string]struct{}, len(recs))
+	for _, rec := range recs { // newest first: the latest record describes the session
 		if rec.SessionID == "" {
 			continue // never served: the launch error told its story
 		}
-		if st, ok := bySession[rec.SessionID]; ok {
-			decorateChild(st, rec)
+		if st, ok := byInstancePID[rec.PID]; ok && st.SessionID == rec.SessionID {
+			decorateChild(st, rec) // an actor keeps only its own spawn facts
 			continue
 		}
-		st := childStatus(rec)
-		bySession[rec.SessionID] = &st
+		// a replaced record's session owns one row already: the tracked
+		// instance serving it now, or the newest untracked record before it
+		if _, ok := tracked[rec.SessionID]; ok {
+			continue
+		}
+		if _, ok := listed[rec.SessionID]; ok {
+			continue
+		}
+		row := childStatus(rec)
+		rows = append(rows, &row)
+		listed[rec.SessionID] = struct{}{}
 	}
-	out := make([]Status, 0, len(bySession))
-	for _, st := range bySession {
-		// titles fold here: refreshStatus already runs under the manager lock,
-		// so the cached titles cannot be read there without deadlocking
+
+	alive := make([]Status, 0, len(rows))
+	ended := make([]Status, 0, len(rows))
+	for _, st := range rows {
+		// titleFor takes the manager lock, so labels fold in here
 		st.Title = m.titleFor(st.SessionID)
-		out = append(out, *st)
+		if st.State == ChildExited || st.State == ChildGone {
+			ended = append(ended, *st)
+		} else {
+			alive = append(alive, *st)
+		}
 	}
-	slices.SortFunc(out, func(a, b Status) int { return strings.Compare(a.SessionID, b.SessionID) })
-	return out
+	slices.SortFunc(alive, func(a, b Status) int {
+		if c := strings.Compare(a.SessionID, b.SessionID); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.PID, b.PID) // twin instances keep a stable order
+	})
+	slices.SortFunc(ended, func(a, b Status) int {
+		if a.ExitedAt != b.ExitedAt { // most recent first
+			return cmp.Compare(b.ExitedAt, a.ExitedAt)
+		}
+		if c := strings.Compare(a.SessionID, b.SessionID); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.PID, b.PID)
+	})
+	// everything from the recent window stays listed; older exits only fill up to the pinned minimum
+	kept := min(len(ended), maxExitedPinned)
+	for kept < len(ended) && time.Since(time.UnixMilli(ended[kept].ExitedAt)) <= endedKeepWindow {
+		kept++
+	}
+	return append(alive, ended[:kept]...)
 }
 
 // MaxDigestText caps one digest reason or preview, mirroring the rewind
@@ -553,7 +712,7 @@ func digestText(s string) string {
 	return s
 }
 
-// Attention is one live session's row of the cheap inbox feed.
+// Attention is one live session's row of the cheap focus feed.
 type Attention struct {
 	SessionID        string `json:"sessionId"`
 	PID              int    `json:"pid,omitempty"`
@@ -563,7 +722,7 @@ type Attention struct {
 	Idle             bool   `json:"idle"`
 	LastTurnEnd      int64  `json:"lastTurnEnd,omitempty"` // unix milliseconds
 
-	// Digest facts behind the inbox rail's reasons and waits.
+	// Digest facts behind the focus rail's reasons and waits.
 	DialogID     uint64 `json:"dialogId,omitempty"`
 	DialogPrompt string `json:"dialogPrompt,omitempty"`
 	DialogAt     int64  `json:"dialogAt,omitempty"` // unix milliseconds
@@ -572,20 +731,28 @@ type Attention struct {
 	Activity     string `json:"activity,omitempty"`
 }
 
+// servingStatuses snapshots the listing row of every actor whose session
+// still serves; the best-effort listing feeds filter on it.
+func (m *Manager) servingStatuses() []*Status {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]*Status, 0, len(m.actors))
+	for _, a := range m.actors {
+		if st := a.status.Load(); st.serving() {
+			out = append(out, st)
+		}
+	}
+	return out
+}
+
 // Attention summarizes every live session from its actor's reconciled view,
 // one row each, sorted by session id. Exited sessions drop out; a degraded
 // connection keeps its last known facts until tracking ends.
 func (m *Manager) Attention() []Attention {
-	m.mu.Lock()
-	actors := bulk.MapValuesSlice(m.actors)
-	m.mu.Unlock()
+	statuses := m.servingStatuses()
 
-	out := make([]Attention, 0, len(actors))
-	for _, a := range actors {
-		st := a.status.Load()
-		if st.State == ChildExited || !st.served {
-			continue // never attached or already ended: nothing to attend to
-		}
+	out := make([]Attention, 0, len(statuses))
+	for _, st := range statuses {
 		out = append(out, Attention{
 			SessionID:        st.SessionID,
 			PID:              st.PID,
@@ -606,9 +773,28 @@ func (m *Manager) Attention() []Attention {
 	return out
 }
 
+// LastBusyAt reports the newest agent activity across tracked sessions: now
+// for one still working, otherwise its most recent turn end. The zero time
+// means nothing is known to have worked, so run-when-idle jobs may fire.
+func (m *Manager) LastBusyAt() time.Time {
+	var last time.Time
+	now := time.Now()
+	for _, st := range m.servingStatuses() {
+		if st.Running || st.Spinning || st.OpenInteractions > 0 {
+			return now // a turn is live or parked at a dialog right now
+		}
+		if st.LastTurnEnd > 0 {
+			if e := time.UnixMilli(st.LastTurnEnd); e.After(last) {
+				last = e
+			}
+		}
+	}
+	return last
+}
+
 // decorateChild folds a child record's spawn facts into a listing row.
 func decorateChild(st *Status, rec ChildRecord) {
-	st.SpawnedBy = SpawnedBySwarm
+	st.SpawnedBy = rec.spawnedBy()
 	st.Argv = rec.Argv
 	st.LogPath = rec.LogPath
 	st.ExitCode = rec.ExitCode
@@ -619,20 +805,18 @@ func decorateChild(st *Status, rec ChildRecord) {
 }
 
 // childStatus renders a child no actor tracks: reaped ones keep their exit
-// facts, running ones wait for a control socket to serve.
+// facts, running ones wait for a control socket to serve. Externals carry
+// their discovery facts, so an ended one reads as it served.
 func childStatus(rec ChildRecord) Status {
 	st := Status{
 		SessionID: rec.SessionID,
+		Name:      rec.SessionName,
 		Workspace: rec.Workspace,
 		PID:       rec.PID,
 		State:     ChildReconnecting,
 		Detail:    "waiting for its control socket",
-		SpawnedBy: SpawnedBySwarm,
-		Argv:      rec.Argv,
-		LogPath:   rec.LogPath,
-		ExitCode:  rec.ExitCode,
-		LogTail:   rec.LogTail,
 	}
+	decorateChild(&st, rec)
 	if !rec.ExitedAt.IsZero() {
 		st.State = ChildExited
 		st.Detail = rec.ExitNote
@@ -643,16 +827,4 @@ func childStatus(rec ChildRecord) Status {
 // Subscription is the caller's handle on one stream registration.
 type Subscription struct {
 	s *subscription
-}
-
-// newSubscription builds the fanout-side subscription record.
-func newSubscription(id int64, sessionID string, deliver func([]byte), onDrop func()) *subscription {
-	return &subscription{
-		id:        id,
-		sessionID: sessionID,
-		q:         make(chan []byte, subQueue),
-		closed:    make(chan struct{}),
-		deliver:   deliver,
-		onDrop:    onDrop,
-	}
 }

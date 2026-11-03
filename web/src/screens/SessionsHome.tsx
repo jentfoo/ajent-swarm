@@ -1,33 +1,81 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router'
 
 import { ApiError } from '../api/client'
-import { fleet, models as modelsAPI, sessions as sessionAPI } from '../api/endpoints'
-import type { LaunchRequest, SavedSession, SessionStatus } from '../api/types'
-import { ChildState } from '../api/types'
+import { sessions as sessionAPI } from '../api/endpoints'
+import { ChildState, childEnded } from '../api/types'
+import type { SessionStatus } from '../api/types'
+import { useArmedConfirm } from '../hooks/useArmedConfirm'
+import { useLaunchFacts } from '../hooks/useLaunchFacts'
+import { useLaunchForm, type LaunchTarget } from '../hooks/useLaunchForm'
+import { useResume } from '../hooks/useResume'
 import { useSwarm } from '../providers/swarm'
 import { useAuth } from '../providers/auth'
-import { displayName, tildePath } from '../session/names'
+import { AgentSettingsMenu } from '../session/AgentSettingsMenu'
+import { RenameControl } from '../session/RenameControl'
+import { displayName, shortID } from '../session/names'
+import { describeStop, instanceKey } from '../workspace/attention'
+import { ModelSelect, WorkspaceSelect } from '../ui/LaunchFormFields'
 
-// SessionsHome is the live instance grid: model, workspace and seat badges
-// beside quick actions per session, with a compact launch panel. Open walks
-// into the inbox workspace with the session selected; /s/:id stays the
-// standalone deep link.
+// SessionsHome is the live instance grid: state, workspace and seat badges
+// beside quick actions per session, with a compact launch panel. Checkboxes
+// multi-select sessions for tiling; an exited card stays listed with one-click
+// resume and every live card keeps its explicit stop.
 export default function SessionsHome() {
   const { sessions } = useSwarm()
   const auth = useAuth()
   const home = auth.home
   const [launching, setLaunching] = useState(false)
+  // selection is by row key; Open workspace tiles them directly
+  const [selected, setSelected] = useState<string[]>([])
+  const navigate = useNavigate()
+
+  // sessions listed twice carry a pid badge so the cards stay tellable apart
+  const twinIds = useMemo(() => {
+    const seen = new Set<string>()
+    const twins = new Set<string>()
+    for (const s of sessions) {
+      if (seen.has(s.sessionId)) twins.add(s.sessionId)
+      seen.add(s.sessionId)
+    }
+    return twins
+  }, [sessions])
+
+  const toggleSelected = useCallback((key: string) => {
+    setSelected((sel) => (sel.includes(key) ? sel.filter((k) => k !== key) : [...sel, key]))
+  }, [])
+
+  // With a selection the workspace opens tile mode seeded with exactly those
+  // sessions; without one it lands in the focused workspace as usual. Twin
+  // rows repeat their session id so both tile.
+  const openWorkspace = () => {
+    if (selected.length > 0) {
+      const idsOf = new Map(sessions.map((s) => [instanceKey(s.sessionId, s.pid), s.sessionId]))
+      const ids = selected
+        .map((k) => idsOf.get(k))
+        .filter((id): id is string => id !== undefined)
+        .map(encodeURIComponent)
+      navigate(`/tile?open=${ids.join(',')}`)
+      setSelected([])
+      return
+    }
+    navigate('/focused')
+  }
 
   return (
     <>
       <div className="session-header">
         <h1 style={{ margin: 0, fontSize: 'inherit' }}>Sessions</h1>
         <span className="spacer" style={{ flex: 1 }} />
-        <Link to="/inbox">
-          <button type="button">Open workspace</button>
-        </Link>
+        {selected.length > 0 && (
+          <button type="button" className="accent" onClick={() => setSelected([])}>
+            Clear selection
+          </button>
+        )}
+        <button type="button" onClick={openWorkspace}>
+          Open workspace
+        </button>
         <button type="button" onClick={() => setLaunching((v) => !v)}>
           {launching ? 'Close' : 'Launch session'}
         </button>
@@ -40,7 +88,14 @@ export default function SessionsHome() {
       ) : (
         <div className="grid">
           {sessions.map((s) => (
-            <SessionCard key={s.sessionId} status={s} home={home} />
+            <SessionCard
+              key={instanceKey(s.sessionId, s.pid)}
+              status={s}
+              home={home}
+              twin={twinIds.has(s.sessionId)}
+              selected={selected.includes(instanceKey(s.sessionId, s.pid))}
+              onSelect={() => toggleSelected(instanceKey(s.sessionId, s.pid))}
+            />
           ))}
         </div>
       )}
@@ -48,18 +103,38 @@ export default function SessionsHome() {
   )
 }
 
-function SessionCard({ status: s, home }: { status: SessionStatus; home?: string }) {
-  const stateClass =
-    s.state === ChildState.Online
-      ? 'ok'
-      : s.state === ChildState.Exited || s.state === ChildState.Gone
-        ? 'danger'
-        : 'warn'
+// SessionCard is one grid tile: label with a rename control, badges and the
+// quick actions. Renaming writes swarm's stored display title only.
+function SessionCard({
+  status: s,
+  home,
+  twin,
+  selected,
+  onSelect,
+}: {
+  status: SessionStatus
+  home?: string
+  twin: boolean // another live row serves the same session id
+  selected: boolean
+  onSelect: () => void
+}) {
+  const stateClass = s.state === ChildState.Online ? 'ok' : childEnded(s.state) ? 'danger' : 'warn'
   const label = displayName(s, home)
+  const ended = childEnded(s.state)
+  const detail = cardDetail(s)
+  // known facts only: no placeholder when the model or workspace is missing
+  const tail = s.workspace?.split('/').filter(Boolean).pop()
+  const facts = [s.model, tail].filter(Boolean).join(' · ')
 
   return (
-    <div className="card">
-      <div>
+    <div className={`card session-card ${ended ? 'ended' : ''}`}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4em' }}>
+        <input
+          type="checkbox"
+          aria-label={`Select ${label}${twin ? ` (pid ${s.pid ?? 0})` : ''} for tiling`}
+          checked={selected}
+          onChange={onSelect}
+        />
         {s.name ? (
           <>
             <Link to={`/s/${encodeURIComponent(s.sessionId)}`}>{label}</Link>{' '}
@@ -70,16 +145,17 @@ function SessionCard({ status: s, home }: { status: SessionStatus; home?: string
             {label}
           </Link>
         )}
-      </div>
+        <RenameControl sessionId={s.sessionId} label={label} />
+      </div>{' '}
       <div className="chips">
         <span className={`badge ${stateClass}`}>{s.state}</span>
+        {twin && <span className="badge">pid {s.pid ?? 0}</span>}
         {s.spawnedBy === 'swarm' && <span className="badge accent">swarm</span>}
-        {s.seatHeld ? (
+        {/* a held seat means a takeover is needed; the free default stays quiet */}
+        {s.seatHeld && (
           <span className={s.seatOurs ? 'badge accent' : 'badge warn'}>
             seat: {s.seatHolder || 'held'}
           </span>
-        ) : (
-          <span className="badge">seat free</span>
         )}
         {s.openInteractions > 0 && (
           <span className="badge danger">{s.openInteractions} need input</span>
@@ -90,34 +166,56 @@ function SessionCard({ status: s, home }: { status: SessionStatus; home?: string
           <span className="badge">idle</span>
         ) : null}
       </div>
-      <p className="muted" style={{ margin: '0.2em 0' }}>
-        {s.model || 'model unknown'}
-        {s.workspace ? ` · ${shortPath(s.workspace)}` : ''}
-      </p>
-      <ActionsBar sessionId={s.sessionId} spawnedBy={s.spawnedBy} state={s.state} />
+      {facts && (
+        <p className="muted" style={{ margin: '0.2em 0' }}>
+          {facts}
+        </p>
+      )}
+      {/* exits are never mysterious: the detail line and last-stop reason sit here */}
+      {detail && (
+        <p className="muted card-detail" style={{ margin: '0.2em 0' }}>
+          {detail}
+        </p>
+      )}
+      <ActionsBar status={s} />
     </div>
   )
 }
 
-function ActionsBar({
-  sessionId,
-  spawnedBy,
-  state,
-}: {
-  sessionId: string
-  spawnedBy: 'swarm' | 'external'
-  state: string
-}) {
+// cardDetail picks the card's story line: the exit note once ended, else the
+// last turn's end in the shared rail vocabulary.
+function cardDetail(s: SessionStatus): string {
+  if (childEnded(s.state)) return s.detail ?? ''
+  if (s.lastStopErr) return `last turn failed: ${s.lastStopErr}`
+  return s.lastStop ? describeStop(s.lastStop, undefined) : ''
+}
+
+// ActionsBar holds the quick actions: open, agent settings and stop for live
+// cards, resume for ended ones. The settings ☰ edits this card's session, so
+// no separate picker is needed anywhere.
+function ActionsBar({ status: s }: { status: SessionStatus }) {
+  const ended = childEnded(s.state)
   return (
-    <div style={{ display: 'flex', gap: '0.5em', marginTop: '0.4em' }}>
-      <Link to={`/inbox?session=${encodeURIComponent(sessionId)}`}>
+    <div style={{ display: 'flex', gap: '0.5em', marginTop: '0.4em', flexWrap: 'wrap' }}>
+      <Link to={`/focused?session=${encodeURIComponent(s.sessionId)}`}>
         <button type="button">Open</button>
       </Link>
-      {spawnedBy === 'swarm' && state !== ChildState.Exited && <StopButton sessionId={sessionId} />}
+      {ended ? (
+        <ResumeButton status={s} />
+      ) : (
+        <>
+          <StopButton sessionId={s.sessionId} />
+          <AgentSettingsMenu sessionId={s.sessionId} />
+        </>
+      )}
     </div>
   )
 }
 
+// StopButton is the explicit exit control on every live card, armed before
+// it fires: the first click asks "Stop?", a second within the window stops.
+// The stop endpoint escalates on its own: /exit first, then SIGTERM and
+// SIGKILL for swarm children; external sessions end through /exit alone.
 function StopButton({ sessionId }: { sessionId: string }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -134,10 +232,40 @@ function StopButton({ sessionId }: { sessionId: string }) {
     }
   }
 
+  const confirm = useArmedConfirm(() => void stop(), { disabled: busy })
+
   return (
     <>
-      <button type="button" onClick={() => void stop()} disabled={busy}>
-        Stop
+      <button
+        type="button"
+        className={`danger${confirm.armed ? ' armed' : ''}`}
+        onClick={confirm.onClick}
+        onBlur={confirm.onBlur}
+        disabled={busy}
+      >
+        {confirm.armed ? 'Stop?' : 'Stop'}
+      </button>
+      {error && <span className="error-text">{error}</span>}
+    </>
+  )
+}
+
+// ResumeButton relaunches an exited swarm child by its session id through the
+// shared resume path, the same headless `--resume id` launch uses.
+function ResumeButton({ status: s }: { status: SessionStatus }) {
+  const { resume, resumingId, error } = useResume()
+
+  if (!s.workspace) return null // resume needs the working directory back
+
+  return (
+    <>
+      <button
+        type="button"
+        className="primary"
+        disabled={resumingId !== null}
+        onClick={() => void resume(s.workspace!, s.sessionId)}
+      >
+        Resume
       </button>
       {error && <span className="error-text">{error}</span>}
     </>
@@ -146,107 +274,31 @@ function StopButton({ sessionId }: { sessionId: string }) {
 
 function LaunchPanel({ home }: { home?: string }) {
   const navigate = useNavigate()
-  const { sessions } = useSwarm()
-
-  // Workspaces come from every session we have seen, live or saved, most
-  // recently used first; the custom entry reveals a free-text input.
-  const [saved, setSaved] = useState<SavedSession[]>([])
-  const [models, setModels] = useState<string[]>([])
-  useEffect(() => {
-    let alive = true
-    fleet
-      .saved()
-      .then((rows) => alive && setSaved(rows))
-      .catch(() => {})
-    return () => {
-      alive = false
-    }
-  }, [])
-  useEffect(() => {
-    let alive = true
-    modelsAPI
-      .list()
-      .then((rows) => {
-        if (!alive) return
-        setModels([...new Set(rows.map((r) => r.current.key))].sort())
-      })
-      .catch(() => {})
-    return () => {
-      alive = false
-    }
-  }, [])
-  const workspaceOptions = useMemo(() => {
-    const seen: string[] = []
-    for (const s of [...sessions, ...saved]) {
-      if (s.workspace && !seen.includes(s.workspace)) seen.push(s.workspace)
-    }
-    return seen
-  }, [sessions, saved])
-
-  const [workspaceChoice, setWorkspaceChoice] = useState('') // '' = custom
-  const [customWorkspace, setCustomWorkspace] = useState('')
-  const workspace = workspaceChoice === '' ? customWorkspace : workspaceChoice
+  // One launch-facts source: workspaces from live and saved sessions, the
+  // deduped model listing and the saved rows the resume target matches against.
+  const { saved, models, workspaceOptions } = useLaunchFacts()
+  const form = useLaunchForm()
 
   // No mode picker: empty target launches new; a saved-session id resumes it;
   // anything else is a create-or-resume session name.
   const [target, setTarget] = useState('')
-  const launchRequest = useCallback((): LaunchRequest | string => {
-    if (workspace.trim() === '') return 'Pick the working directory to start under.'
+  const launchTarget = useCallback((): LaunchTarget => {
     const t = target.trim()
-    if (t === '') return { workspace: workspace.trim(), mode: 'new' }
+    if (t === '') return { mode: 'new' }
     const savedHit = saved.find((row) => row.id === t)
-    if (savedHit !== undefined) {
-      return { workspace: workspace.trim(), mode: 'resume', target: savedHit.target }
-    }
-    return { workspace: workspace.trim(), mode: 'session', target: t }
-  }, [workspace, target, saved])
-
-  const [model, setModel] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
+    if (savedHit !== undefined) return { mode: 'resume', target: savedHit.target }
+    return { mode: 'session', target: t }
+  }, [target, saved])
 
   const submit = async (ev: FormEvent) => {
     ev.preventDefault()
-    if (busy) return
-    const req = launchRequest()
-    if (typeof req === 'string') {
-      setError(req)
-      return
-    }
-    setBusy(true)
-    setError('')
-    try {
-      const res = await fleet.launch({ ...req, model: model.trim() === '' ? undefined : model })
-      navigate(`/s/${encodeURIComponent(res.sessionId)}`)
-    } catch (err) {
-      setBusy(false)
-      setError(err instanceof ApiError ? err.message : 'Launch failed.')
-    }
+    const id = await form.launch(launchTarget())
+    if (id !== null) navigate(`/s/${encodeURIComponent(id)}`)
   }
 
   return (
     <form className="card" onSubmit={submit} style={{ marginBottom: '1em' }}>
-      <label>
-        Working directory
-        <select value={workspaceChoice} onChange={(ev) => setWorkspaceChoice(ev.target.value)}>
-          <option value="">Custom path…</option>
-          {workspaceOptions.map((w) => (
-            <option key={w} value={w}>
-              {tildePath(w, home)}
-            </option>
-          ))}
-        </select>
-      </label>
-      {workspaceChoice === '' && (
-        <label>
-          Directory path
-          <input
-            placeholder="/home/you/project"
-            value={customWorkspace}
-            onChange={(ev) => setCustomWorkspace(ev.target.value)}
-          />
-        </label>
-      )}
+      <WorkspaceSelect form={form} workspaceOptions={workspaceOptions} home={home} />
       <div style={{ display: 'flex', gap: '0.5em', flexWrap: 'wrap' }}>
         <label>
           Session id or name (optional)
@@ -256,31 +308,12 @@ function LaunchPanel({ home }: { home?: string }) {
             onChange={(ev) => setTarget(ev.target.value)}
           />
         </label>
-        <label>
-          Model
-          <select value={model} onChange={(ev) => setModel(ev.target.value)}>
-            <option value="">ajent default</option>
-            {models.map((m) => (
-              <option key={m} value={m}>
-                {m}
-              </option>
-            ))}
-          </select>
-        </label>
+        <ModelSelect form={form} models={models} />
       </div>
-      {error && <p className="error-text">{error}</p>}
-      <button className="primary" type="submit" disabled={busy}>
+      {form.error && <p className="error-text">{form.error}</p>}
+      <button className="primary" type="submit" disabled={form.busy}>
         Launch
       </button>
     </form>
   )
-}
-
-function shortID(id: string): string {
-  return id.length <= 12 ? id : id.slice(0, 8) + '…'
-}
-
-function shortPath(p: string): string {
-  const parts = p.split('/').filter(Boolean)
-  return parts.length === 0 ? p : parts[parts.length - 1]
 }

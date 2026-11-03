@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -12,6 +12,7 @@ import { WorkspaceProvider } from '../providers/workspace'
 // Responsive smoke over the mobile launcher at its breakpoint: discovery rows,
 // section links, and the launch form's workspace reveal. The backend round
 // trip runs against fetch mocks shaped exactly like the Go handlers answer.
+// Pull-to-refresh re-reads both listings in place, past the touch threshold.
 
 const LIVE = '01LIVESESSION000000'
 const ENDED = '01ENDEDSESSION00000'
@@ -57,6 +58,8 @@ describe('MobileHome', () => {
         return Response.json({ username: 'you', via: 'cookie', home: '/home/you' })
       if (path === '/api/sessions') return Response.json(liveRow())
       if (path === '/api/attention') return Response.json([])
+      if (path === '/api/models/options') return Response.json([])
+      if (path === '/api/saved-sessions') return Response.json([])
       throw new Error(`unexpected fetch ${String(url)}`)
     })
     return impl
@@ -98,6 +101,14 @@ describe('MobileHome', () => {
     expect(screen.getByText('ended')).toBeInTheDocument()
   })
 
+  it('places the launch section above the session list', async () => {
+    renderHome()
+
+    const launch = await screen.findByRole('button', { name: 'Launch…' })
+    const list = screen.getByLabelText('Live sessions')
+    expect(launch.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
   it('shows launcher sections for jobs and settings', async () => {
     renderHome()
 
@@ -116,6 +127,7 @@ describe('MobileHome', () => {
         return Response.json({ username: 'you', via: 'cookie', home: '/home/you' })
       if (path === '/api/sessions') return Response.json(liveRow())
       if (path === '/api/attention') return Response.json([])
+      if (path === '/api/models/options') return Response.json([])
       if (path === '/api/saved-sessions') {
         return Response.json([{ id: ENDED, target: ENDED, workspace: '/home/you/old' }])
       }
@@ -149,6 +161,7 @@ describe('MobileHome', () => {
       }
       if (path === '/api/sessions') return Response.json(liveRow())
       if (path === '/api/attention') return Response.json([])
+      if (path === '/api/models/options') return Response.json([])
       if (path === '/api/saved-sessions') {
         return Response.json([{ id: ENDED, target: ENDED, workspace: '/home/you/old' }])
       }
@@ -171,5 +184,69 @@ describe('MobileHome', () => {
       )
       expect(launches).toHaveLength(1)
     })
+  })
+
+  it('refreshes both listings on pull down', async () => {
+    // the pull's saved re-read holds until released, so the refreshing state
+    // is observable rather than a transient flash
+    let savedCalls = 0
+    let sessionCalls = 0
+    let release!: () => void
+    const gate = new Promise<void>((r) => {
+      release = r
+    })
+    fetcher.mockImplementation(async (url: string | URL, init?: RequestInit) => {
+      const path = String(url).split('?')[0]
+      if (path === '/api/sessions' && init?.method === 'POST') {
+        return Response.json({ sessionId: '01RESUMED000000000', pid: 42 })
+      }
+      if (path === '/api/me')
+        return Response.json({ username: 'you', via: 'cookie', home: '/home/you' })
+      if (path === '/api/sessions') {
+        sessionCalls++
+        return Response.json(liveRow())
+      }
+      if (path === '/api/attention') return Response.json([])
+      if (path === '/api/models/options') return Response.json([])
+      if (path === '/api/saved-sessions') {
+        savedCalls++
+        return savedCalls > 1 ? gate.then(() => Response.json([])) : Response.json([])
+      }
+      throw new Error(`unexpected fetch ${String(url)}`)
+    })
+
+    renderHome()
+    await screen.findByText('fix login flow')
+    expect(savedCalls).toBe(1) // the launcher's own mount read
+    const sessionsBefore = sessionCalls
+
+    const home = document.querySelector('.mobile-home') as HTMLElement
+    fireEvent.touchStart(home, { touches: [{ clientY: 400 }] })
+    fireEvent.touchMove(home, { touches: [{ clientY: 480 }] })
+    fireEvent.touchEnd(home, { touches: [], changedTouches: [{ clientY: 480 }] })
+
+    // both listings re-read immediately rather than waiting out a cadence
+    await vi.waitFor(() => expect(savedCalls).toBe(2))
+    expect(sessionCalls).toBeGreaterThan(sessionsBefore)
+    expect(screen.getByText('Refreshing…')).toBeInTheDocument()
+
+    act(() => release())
+    await waitFor(() => expect(screen.queryByText('Refreshing…')).not.toBeInTheDocument())
+  })
+
+  it('keeps short pulls from refreshing', async () => {
+    renderHome()
+    await screen.findByText('fix login flow')
+
+    const savedCalls = () =>
+      fetcher.mock.calls.filter(([u]) => String(u).endsWith('/api/saved-sessions')).length
+    const before = savedCalls()
+
+    const home = document.querySelector('.mobile-home') as HTMLElement
+    fireEvent.touchStart(home, { touches: [{ clientY: 400 }] })
+    fireEvent.touchMove(home, { touches: [{ clientY: 430 }] })
+    fireEvent.touchEnd(home, { touches: [], changedTouches: [{ clientY: 430 }] })
+
+    expect(savedCalls()).toBe(before)
   })
 })

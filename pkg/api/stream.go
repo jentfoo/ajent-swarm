@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-analyze/bulk"
 	"github.com/gorilla/websocket"
 
 	"github.com/jentfoo/ajent-swarm/pkg/fleet"
@@ -58,13 +59,13 @@ type streamConn struct {
 
 // handleStream upgrades and serves /api/stream until either side drops.
 func (s *apiServer) handleStream(w http.ResponseWriter, r *http.Request) {
-	ws, err := upgrader.Upgrade(w, r, nil)
+	wsc, err := upgrader.Upgrade(w, r, nil)
 	if err != nil { // the upgrade already answered
 		return
 	}
 	sc := &streamConn{
 		srv:  s,
-		ws:   ws,
+		ws:   wsc,
 		send: make(chan []byte, sendQueueSize),
 		done: make(chan struct{}),
 		subs: make(map[string]*fleet.Subscription),
@@ -162,7 +163,7 @@ func (sc *streamConn) unsubscribe(sessionID string) {
 	sub := sc.subs[sessionID]
 	delete(sc.subs, sessionID)
 	sc.mu.Unlock()
-	sc.srv.fleet.Unsubscribe(sub) // nil-safe: sync-style resubscribe paths may race
+	sc.srv.fleet.Unsubscribe(sub) // nil when the client unsubscribes an unknown session
 }
 
 // sync re-pushes one subscription's init so a client can rebuild in place.
@@ -194,10 +195,7 @@ func (sc *streamConn) pushError(code, message, sessionID string) {
 func (sc *streamConn) teardown() {
 	sc.fail()
 	sc.mu.Lock()
-	subs := make([]*fleet.Subscription, 0, len(sc.subs))
-	for _, sub := range sc.subs {
-		subs = append(subs, sub)
-	}
+	subs := bulk.MapValuesSlice(sc.subs)
 	sc.subs = make(map[string]*fleet.Subscription)
 	sc.mu.Unlock()
 	for _, sub := range subs {
@@ -212,6 +210,7 @@ func (sc *streamConn) writePump() {
 		ticker.Stop()
 		sc.fail()
 	}()
+	heartbeat, _ := json.Marshal(fleet.HeartbeatFrame{Type: fleet.FrameHeartbeat}) // constant frame
 	for {
 		select {
 		case <-sc.done:
@@ -222,7 +221,6 @@ func (sc *streamConn) writePump() {
 				return
 			}
 		case <-ticker.C:
-			heartbeat, _ := json.Marshal(fleet.HeartbeatFrame{Type: fleet.FrameHeartbeat})
 			_ = sc.ws.SetWriteDeadline(time.Now().Add(wsWriteWait))
 			if err := sc.ws.WriteMessage(websocket.TextMessage, heartbeat); err != nil {
 				return

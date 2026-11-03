@@ -2,6 +2,7 @@
 // granted, rising needs-input attention becomes one notification per item,
 // never re-announced until the item settles and rises again. Returning to the
 // tab dismisses everything, so the workspace is the single source.
+import { shortID } from '../session/names'
 import type { AttentionItem } from '../workspace/attention'
 
 export type NotificationPermission = 'default' | 'granted' | 'denied' | 'unsupported'
@@ -33,8 +34,7 @@ export function createNotificationBridge(options: BridgeOptions = {}): Notificat
   const announced = new Set<string>()
   const raised: DisposableNotification[] = []
 
-  const supported = (): boolean =>
-    typeof window !== 'undefined' && 'Notification' in window && Notification !== undefined
+  const supported = (): boolean => 'Notification' in window && Notification !== undefined
 
   return {
     permission(): NotificationPermission {
@@ -61,7 +61,7 @@ export function createNotificationBridge(options: BridgeOptions = {}): Notificat
         if (announced.has(key)) continue
         announced.add(key)
         try {
-          raised.push(notify(`${sessionLabel(item)} needs input`, item.reason))
+          raised.push(notify(`${shortID(item.sessionId)} needs input`, item.reason))
         } catch {
           announced.delete(key) // construction can fail; allow a retry
         }
@@ -79,8 +79,4 @@ export function createNotificationBridge(options: BridgeOptions = {}): Notificat
       }
     },
   }
-}
-
-function sessionLabel(item: AttentionItem): string {
-  return item.sessionId.length <= 10 ? item.sessionId : `${item.sessionId.slice(0, 8)}…`
 }

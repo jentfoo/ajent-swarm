@@ -31,20 +31,16 @@ type attachmentReply struct {
 // The body is multipart/form-data with a single "file" field; bytes are kept
 // verbatim under <state>/attachments/<session id>/.
 func (s *apiServer) handleSessionAttachment(w http.ResponseWriter, r *http.Request) {
-	if s.attachmentsDir == "" {
-		writeError(w, http.StatusServiceUnavailable, "unavailable", "attachments are not configured")
-		return
-	}
 	sessionID := sanitizeAttachmentName(r.PathValue("id"))
 	if sessionID == "" {
-		writeError(w, http.StatusBadRequest, "invalid_request", "session id must not be empty")
+		writeError(w, http.StatusBadRequest, codeInvalidRequest, "session id must not be empty")
 		return
 	}
 
 	r.Body = http.MaxBytesReader(w, r.Body, maxAttachmentBytes)
 	file, header, err := r.FormFile("file")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_request",
+		writeError(w, http.StatusBadRequest, codeInvalidRequest,
 			"expected multipart/form-data with a file field: "+err.Error())
 		return
 	}
@@ -52,21 +48,21 @@ func (s *apiServer) handleSessionAttachment(w http.ResponseWriter, r *http.Reque
 
 	dir := filepath.Join(s.attachmentsDir, sessionID)
 	if err = os.MkdirAll(dir, 0o700); err != nil {
-		writeError(w, http.StatusInternalServerError, "internal_error", "")
+		writeError(w, http.StatusInternalServerError, codeInternalError, "")
 		return
 	}
 
 	path := filepath.Join(dir, attachmentName(time.Now(), header.Filename))
 	out, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal_error", "")
+		writeError(w, http.StatusInternalServerError, codeInternalError, "")
 		return
 	}
 	_, copyErr := io.Copy(out, file) // a partial upload must not linger as usable
 	closeErr := out.Close()
 	if copyErr != nil || closeErr != nil {
 		_ = os.Remove(path)
-		writeError(w, http.StatusInternalServerError, "internal_error", "")
+		writeError(w, http.StatusInternalServerError, codeInternalError, "")
 		return
 	}
 

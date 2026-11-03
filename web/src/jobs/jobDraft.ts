@@ -2,13 +2,41 @@
 // obvious mistakes surface before a save round trip; the server re-checks
 // everything on save and its errors stay authoritative.
 
-import type { Job, LaunchMode, MissPolicy, OverlapPolicy, ScheduleKind } from '../api/types'
-import { intervalToSeconds, splitInterval } from './schedule'
-import type { IntervalUnit } from './schedule'
+import type {
+  Job,
+  LaunchMode,
+  MissPolicy,
+  OverlapPolicy,
+  ScheduleKind,
+  TriggerOn,
+} from '../api/types'
+import { intervalToSeconds, parseWeekdays, splitInterval, weekdayTokens } from './schedule'
+import type { IntervalUnit, WeekdayToken } from './schedule'
 
 export const maxNameLen = 200 // mirrors sched's bound
-export const maxPrefixLen = 2000 // mirrors sched's bound
+export const maxSessionNameLen = 64 // mirrors ajent's session name bound
+export const maxTriggerLen = 2000 // mirrors sched's bound
+export const maxToolsLen = 2000 // mirrors sched's bound on the joined list
 const maxIntervalSeconds = 366 * 24 * 3600 // one leap year of seconds
+
+// Length bounds are server-side Go string lengths, so they count UTF-8 bytes.
+const textEncoder = new TextEncoder()
+const textDecoder = new TextDecoder()
+
+// byteLength reports a string's UTF-8 size, the unit the server's bounds use.
+function byteLength(s: string): number {
+  return textEncoder.encode(s).length
+}
+
+// Run-when-idle delay options: how long a held fire may wait before it skips.
+// Zero means never skipped. The labels double as the dropdown's entries.
+export const idleDelayOptions = [
+  { value: 0, label: 'Never skipped' },
+  { value: 600, label: '10 minutes' },
+  { value: 1800, label: '30 minutes' },
+  { value: 3600, label: '1 hour' },
+  { value: 7200, label: '2 hours' },
+] as const
 
 // JobDraft is the form-shaped job: every field editable as its natural input
 // type, with the interval split into value and unit for the picker.
@@ -21,16 +49,23 @@ export interface JobDraft {
   intervalUnit: IntervalUnit
   dailyTime: string // HH:MM wall clock in tz
   tz: string // IANA name; empty means server local
+  weekdays: WeekdayToken[] // chosen days; recurring jobs only, empty means every day
   spawnMode: LaunchMode
   sessionTarget: string
   model: string
   permission: string
-  commandPrefix: string
+  customTools: boolean // on replaces the launched session's default set
+  tools: string[] // enabled names; only meaningful while customTools holds
+  commandPrefix: string // legacy stored rows round-trip untouched; no editor owns it
   prompt: string
   onMissed: MissPolicy
   overlap: OverlapPolicy
   timeoutMinutes: number
   keepAlive: boolean
+  runWhenIdle: boolean
+  idleMaxDelaySeconds: number // zero waits forever
+  triggerCommand: string
+  triggerOn: TriggerOn
   enabled: boolean
 }
 
@@ -47,16 +82,23 @@ export function defaultDraft(): JobDraft {
     intervalUnit: 'minutes',
     dailyTime: '09:00',
     tz: '',
+    weekdays: [],
     spawnMode: 'new',
     sessionTarget: '',
     model: '',
     permission: '',
+    customTools: false,
+    tools: [],
     commandPrefix: '',
     prompt: '',
     onMissed: 'skip',
     overlap: 'run',
     timeoutMinutes: 0,
     keepAlive: false,
+    runWhenIdle: false,
+    idleMaxDelaySeconds: 3600,
+    triggerCommand: '',
+    triggerOn: 'success',
     enabled: true,
   }
 }
@@ -74,18 +116,55 @@ export function draftFromJob(job: Job): JobDraft {
     intervalUnit: interval.unit,
     dailyTime: job.dailyTime ?? '',
     tz: job.tz ?? '',
+    weekdays: parseWeekdays(job.weekdays),
     spawnMode: job.spawnMode,
     sessionTarget: job.sessionTarget ?? '',
     model: job.model ?? '',
     permission: job.permission ?? '',
+    customTools: job.toolsCustom ?? false,
+    tools: parseToolList(job.tools),
     commandPrefix: job.commandPrefix ?? '',
     prompt: job.prompt ?? '',
     onMissed: job.onMissed,
     overlap: job.overlap,
     timeoutMinutes: job.timeoutMinutes ?? 0,
     keepAlive: job.keepAlive,
+    runWhenIdle: job.runWhenIdle ?? false,
+    idleMaxDelaySeconds: job.idleMaxDelaySeconds ?? 3600,
+    triggerCommand: job.triggerCommand ?? '',
+    triggerOn: job.triggerOn ?? 'success',
     enabled: job.enabled,
   }
+}
+
+// duplicateDraft seeds a Duplicate action from a stored row: "Copy of …"
+// name clipped to the server's byte bound, enabled forced off so the copy
+// never fires unreviewed, and a one-shot slot cleared since it is usually
+// past by duplication time. Everything else copies verbatim.
+export function duplicateDraft(job: Job): JobDraft {
+  const draft = draftFromJob(job)
+  if (job.scheduleKind === 'once') draft.onceAt = ''
+  // encodeInto stops on a code-point boundary, so the clip mirrors the
+  // server's UTF-8 byte bound; lone surrogates read back as U+FFFD.
+  const buf = new Uint8Array(maxNameLen)
+  const { written } = textEncoder.encodeInto(`Copy of ${draft.name}`, buf)
+  draft.name = textDecoder.decode(buf.subarray(0, written))
+  draft.enabled = false
+  return draft
+}
+
+// parseToolList reads the stored comma list onto names, dropping empties and
+// duplicates so a hand-edited row still opens; order follows the stored tokens.
+function parseToolList(raw: string | undefined): string[] {
+  if (!raw) return []
+  return [
+    ...new Set(
+      raw
+        .split(',')
+        .map((t) => t.trim())
+        .filter((t) => t !== ''),
+    ),
+  ]
 }
 
 // toPayload builds the request body a save or preview sends. Recurring jobs
@@ -101,6 +180,10 @@ export function toPayload(draft: JobDraft, id?: number): Partial<Job> {
     sessionTarget: draft.sessionTarget.trim(),
     model: draft.model.trim(),
     permission: draft.permission,
+    toolsCustom: draft.customTools,
+    // the server clears the stored list when custom is off; sending the empty
+    // string keeps every client's payload describing the same row
+    tools: draft.customTools ? draft.tools.join(',') : '',
     commandPrefix: draft.commandPrefix,
     prompt: draft.prompt,
     enabled: draft.enabled,
@@ -108,6 +191,10 @@ export function toPayload(draft: JobDraft, id?: number): Partial<Job> {
     overlap: draft.overlap,
     timeoutMinutes: Math.round(draft.timeoutMinutes) || 0,
     keepAlive: draft.keepAlive,
+    runWhenIdle: draft.runWhenIdle,
+    idleMaxDelaySeconds: Math.max(0, Math.round(draft.idleMaxDelaySeconds)),
+    triggerCommand: draft.triggerCommand,
+    triggerOn: draft.triggerOn,
   }
   switch (draft.scheduleKind) {
     case 'once': {
@@ -118,10 +205,17 @@ export function toPayload(draft: JobDraft, id?: number): Partial<Job> {
     case 'interval':
       payload.intervalSeconds = intervalToSeconds(draft.intervalValue, draft.intervalUnit)
       break
-    case 'daily':
+    case 'daily': {
       payload.dailyTime = draft.dailyTime.trim()
       payload.tz = draft.tz.trim()
       break
+    }
+  }
+  // weekday restrictions apply to every recurring cadence: daily slots skip
+  // unchosen days and an interval runs only on them, till canceled
+  if (draft.scheduleKind !== 'once') {
+    const chosen = new Set(draft.weekdays)
+    payload.weekdays = weekdayTokens.filter((t) => chosen.has(t)).join(',')
   }
   if (id !== undefined) payload.id = id
   return payload
@@ -133,7 +227,7 @@ export function validateDraft(draft: JobDraft): DraftErrors {
   const errors: DraftErrors = {}
 
   if (draft.name.trim() === '') errors.name = 'Name is required.'
-  else if (draft.name.trim().length > maxNameLen)
+  else if (byteLength(draft.name.trim()) > maxNameLen)
     errors.name = `Name must be at most ${maxNameLen} characters.`
   if (draft.workspace.trim() === '') errors.workspace = 'Workspace is required.'
 
@@ -142,11 +236,16 @@ export function validateDraft(draft: JobDraft): DraftErrors {
       if (draft.sessionTarget.trim() === '')
         errors.sessionTarget = 'Resume needs a session id or name.'
       break
-    case 'session':
-      if (!validSessionName(draft.sessionTarget.trim()))
+    case 'session': {
+      // ajent's ValidateName owns this field, so its tighter byte bound applies
+      const target = draft.sessionTarget.trim()
+      if (byteLength(target) > maxSessionNameLen)
+        errors.sessionTarget = `Session name must be at most ${maxSessionNameLen} characters.`
+      else if (!validSessionName(target))
         errors.sessionTarget =
           'Names use letters, digits, -, _, . and /; they cannot start with a dash.'
       break
+    }
   }
 
   switch (draft.scheduleKind) {
@@ -165,15 +264,20 @@ export function validateDraft(draft: JobDraft): DraftErrors {
   }
 
   if (draft.timeoutMinutes < 0) errors.timeoutMinutes = 'Timeout cannot be negative.'
-  if (draft.commandPrefix.length > maxPrefixLen)
-    errors.commandPrefix = `Command prefix must be at most ${maxPrefixLen} characters.`
+  if (draft.idleMaxDelaySeconds < 0) errors.idle = 'Idle delay cannot be negative.'
+  // the server trims before checking, so the bound applies to the trimmed value
+  if (byteLength(draft.triggerCommand.trim()) > maxTriggerLen)
+    errors.triggerCommand = `Trigger command must be at most ${maxTriggerLen} characters.`
+  // the joined form is what the server stores, so it bounds the same way
+  if (draft.customTools && byteLength(draft.tools.join(',')) > maxToolsLen)
+    errors.tools = `Tool list must be at most ${maxToolsLen} characters.`
   return errors
 }
 
 // validSessionName mirrors ajent's session.ValidateName charset: letters,
 // digits, dash, underscore, dot and slash; no leading dash; bounded length.
 export function validSessionName(name: string): boolean {
-  if (name === '' || name.length > maxNameLen || name.startsWith('-')) return false
+  if (name === '' || byteLength(name) > maxSessionNameLen || name.startsWith('-')) return false
   for (const r of name) {
     const ok =
       (r >= 'a' && r <= 'z') ||

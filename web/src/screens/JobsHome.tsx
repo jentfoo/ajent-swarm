@@ -1,16 +1,19 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 
 import { ApiError } from '../api/client'
-import { fleet, jobsApi, models as modelsApi, runsApi } from '../api/endpoints'
-import type { Job, Run, SavedSession } from '../api/types'
+import { jobsApi, runsApi, tools as toolsApi } from '../api/endpoints'
+import type { Job, Run, ToolState } from '../api/types'
+import { useLaunchFacts } from '../hooks/useLaunchFacts'
 import { usePoll } from '../hooks/usePoll'
 import { useAuth } from '../providers/auth'
-import { useSwarm } from '../providers/swarm'
 import { tildePath } from '../session/names'
 import { JobEditor } from '../jobs/JobEditor'
+import { QueueComposer } from '../jobs/QueueComposer'
+import { duplicateDraft } from '../jobs/jobDraft'
+import type { JobDraft } from '../jobs/jobDraft'
 import { JobTabs } from '../jobs/JobTabs'
-import { formatSlot, runStatusClass, scheduleSummary } from '../jobs/schedule'
+import { formatSlot, runStatusClass, scheduleSummary, sortJobsForDisplay } from '../jobs/schedule'
 
 const pollJobsMs = 10_000
 // A page deep enough that every job's latest run is on it for most installs.
@@ -23,33 +26,74 @@ const lastRunPage = 200
 export default function JobsHome() {
   const { jobId } = useParams()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
 
   const [jobs, setJobs] = useState<Job[] | null>(null)
   const [lastRuns, setLastRuns] = useState<Map<number, Run>>(new Map())
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
 
-  // Editing state derives from the route: /jobs/new or /jobs/<id>.
-  const editingId = useMemo(() => {
-    if (jobId === undefined) return undefined
-    return jobId === 'new' ? ('new' as const) : Number(jobId)
-  }, [jobId])
+  // Toggles in flight hold their rows out of poll results, so a poll that read
+  // pre-toggle state cannot flip the checkbox back mid-request. Counted per
+  // row, since a second click may overlap the first.
+  const pendingToggles = useRef(new Map<number, number>())
+  // Monotonic load token, so only the newest load's response applies.
+  const loadToken = useRef(0)
+
+  // Editing state derives from the route: /jobs/new, /jobs/queue or /jobs/<id>.
+  // The fixed routes ride the :jobId param the same way 'new' always has, so
+  // both AuthGate trees serve them without extra registrations.
+  const editingId =
+    jobId === undefined || jobId === 'new' || jobId === 'queue' ? jobId : Number(jobId)
   const editing =
     typeof editingId === 'number' && !Number.isNaN(editingId)
       ? jobs?.find((j) => j.id === editingId)
       : undefined
 
+  // A duplicate link (/jobs/new?from=<id>) seeds the create form from a loaded
+  // row: the editor fixes its draft at mount, so seeding waits for the jobs
+  // load. A stale id opens plain.
+  const wantsSeed = editingId === 'new' && searchParams.get('from') !== null
+  const seed = useMemo(() => {
+    if (!wantsSeed || jobs === null) return undefined
+    const from = Number(searchParams.get('from'))
+    const source = Number.isInteger(from) ? jobs.find((j) => j.id === from) : undefined
+    return source === undefined ? undefined : duplicateDraft(source)
+  }, [wantsSeed, searchParams, jobs])
+
+  // The editor fixes its draft at mount, so its key covers every draft source:
+  // the edited job id, or the duplicate seed's from param. A direct route swap
+  // (/jobs/5 -> /jobs/7, or one seed for another) then remounts the form with
+  // the new target's values instead of saving one row onto another. Normal
+  // in-app navigation closes through /jobs, which unmounts.
+  const editorKey = editingId === 'new' ? `new?from=${searchParams.get('from') ?? ''}` : editingId
+
+  // Rows render soonest next fire first, display only: jobs keeps its stored
+  // order for the toggle holds and editor lookups above.
+  const sortedJobs = useMemo(() => (jobs ? sortJobsForDisplay(jobs) : []), [jobs])
+
   const load = useCallback(async () => {
+    const token = ++loadToken.current
     try {
       // The newest-first history page doubles as every job's last-run status.
       const [rows, history] = await Promise.all([
         jobsApi.list(),
         runsApi.list(undefined, lastRunPage),
       ])
-      setJobs(rows)
-      setLastRuns(new Map(history.filter((r) => r.jobId !== undefined).map((r) => [r.jobId!, r])))
+      if (token !== loadToken.current) return // a newer load superseded this one
+      setJobs((current) => {
+        const held = new Map(
+          (current ?? [])
+            .filter((j) => (pendingToggles.current.get(j.id) ?? 0) > 0)
+            .map((j) => [j.id, j]),
+        )
+        if (held.size === 0) return rows
+        return rows.map((j) => held.get(j.id) ?? j)
+      })
+      setLastRuns(latestRunByJob(history))
       setError('')
     } catch (err) {
+      if (token !== loadToken.current) return
       setError(err instanceof ApiError ? err.message : 'Loading jobs failed.')
     }
   }, [])
@@ -68,18 +112,37 @@ export default function JobsHome() {
     [closeEditor, load],
   )
 
+  const onQueued = useCallback(
+    async (job: Job) => {
+      setNotice(`Queued “${job.name}”.`)
+      await closeEditor()
+      void load()
+    },
+    [closeEditor, load],
+  )
+
   // toggle flips the row optimistically and reverts when the backend refuses.
+  // After the request settles a fresh load re-syncs the row with server truth
+  // (a toggle moves nextRunAt too). The row stays shielded from polls until
+  // every overlapping toggle settles. Overlapping flips may end one step off,
+  // so the next poll converges on the stored row.
   const toggle = async (job: Job) => {
+    pendingToggles.current.set(job.id, (pendingToggles.current.get(job.id) ?? 0) + 1)
     setJobs((rows) =>
       (rows ?? []).map((j) => (j.id === job.id ? { ...j, enabled: !j.enabled } : j)),
     )
     try {
       await jobsApi.update(job.id, { ...job, enabled: !job.enabled })
+      await load()
     } catch (err) {
       setJobs((rows) =>
         (rows ?? []).map((j) => (j.id === job.id ? { ...j, enabled: job.enabled } : j)),
       )
       setError(err instanceof ApiError ? err.message : 'Updating the job failed.')
+    } finally {
+      const left = (pendingToggles.current.get(job.id) ?? 1) - 1
+      if (left <= 0) pendingToggles.current.delete(job.id)
+      else pendingToggles.current.set(job.id, left)
     }
   }
 
@@ -101,11 +164,16 @@ export default function JobsHome() {
         <h1 style={{ margin: 0, fontSize: 'inherit' }}>Scheduled jobs</h1>
         <span className="spacer" style={{ flex: 1 }} />
         {editingId === undefined && (
-          <Link to="/jobs/new">
-            <button type="button" className="primary">
-              New job
-            </button>
-          </Link>
+          <>
+            <Link to="/jobs/queue">
+              <button type="button">Queue</button>
+            </Link>
+            <Link to="/jobs/new">
+              <button type="button" className="primary">
+                New job
+              </button>
+            </Link>
+          </>
         )}
       </div>
 
@@ -123,7 +191,10 @@ export default function JobsHome() {
       {jobs === null && error === '' ? (
         <p className="muted">Loading jobs…</p>
       ) : jobs !== null && jobs.length === 0 && editingId === undefined ? (
-        <p className="muted">No scheduled jobs yet. Create one to launch ajent on a schedule.</p>
+        <p className="muted">
+          No scheduled jobs yet. Create one to launch ajent on a schedule, or queue a single prompt
+          for the next idle moment.
+        </p>
       ) : (
         jobs !== null &&
         jobs.length > 0 && (
@@ -138,7 +209,7 @@ export default function JobsHome() {
               </tr>
             </thead>
             <tbody>
-              {jobs.map((job) => (
+              {sortedJobs.map((job) => (
                 <JobRow
                   key={job.id}
                   job={job}
@@ -158,67 +229,99 @@ export default function JobsHome() {
         <p className="error-text" role="alert">
           That job no longer exists.
         </p>
-      ) : typeof editingId === 'number' && jobs === null ? (
+      ) : jobs === null && (typeof editingId === 'number' || wantsSeed) ? (
         <p className="muted">Loading job…</p>
+      ) : editingId === 'queue' ? (
+        <QueueWithFacts onClose={closeEditor} onQueued={onQueued} />
       ) : editingId !== undefined ? (
-        <EditorWithFacts job={editing} onClose={closeEditor} onSaved={onSaved} />
+        <EditorWithFacts
+          key={editorKey}
+          job={editing}
+          seed={seed}
+          onClose={closeEditor}
+          onSaved={onSaved}
+        />
       ) : null}
     </div>
   )
 }
 
-// EditorWithFacts gathers the picker facts the editor suggests from: known
-// workspaces across live and saved sessions, model keys from live ones.
-function EditorWithFacts({
-  job,
-  onClose,
-  onSaved,
-}: {
-  job?: Job
-  onClose: () => void
-  onSaved: (job: Job | undefined) => Promise<void>
-}) {
-  const { sessions } = useSwarm()
-  const [savedRows, setSavedRows] = useState<SavedSession[]>([])
-  const [models, setModels] = useState<string[]>([])
+// latestRunByJob reduces a runs page to each job's newest run for the Last
+// run badge. The page can hold several runs of one job, and ids increase,
+// so the highest id per job is its latest regardless of row order.
+function latestRunByJob(runs: Run[]): Map<number, Run> {
+  const latest = new Map<number, Run>()
+  for (const r of runs) {
+    if (r.jobId === undefined) continue
+    const seen = latest.get(r.jobId)
+    if (seen === undefined || r.id > seen.id) latest.set(r.jobId, r)
+  }
+  return latest
+}
 
-  // Suggestion sources load once; the live listing joins at render time.
-  useEffect(() => {
-    let alive = true
-    fleet
-      .saved()
-      .then((rows) => alive && setSavedRows(rows))
-      .catch(() => {}) // best effort
-    return () => {
-      alive = false
-    }
-  }, [])
+// useJobFacts gathers the picker facts the job forms suggest from: known
+// workspaces across live and saved sessions via the shared launch-facts hook,
+// model keys and tool rows from live ones.
+function useJobFacts() {
+  const { models, workspaceOptions } = useLaunchFacts()
+  const [toolOptions, setToolOptions] = useState<ToolState[]>([])
 
   useEffect(() => {
     let alive = true
-    modelsApi
-      .list()
-      .then((rows) => alive && setModels([...new Set(rows.map((r) => r.current.key))].sort()))
+    toolsApi
+      .options()
+      .then((rows) => alive && setToolOptions(rows))
       .catch(() => {})
     return () => {
       alive = false
     }
   }, [])
 
-  const workspaces = useMemo(() => {
-    const seen: string[] = []
-    for (const s of [...sessions, ...savedRows]) {
-      if (s.workspace && !seen.includes(s.workspace)) seen.push(s.workspace)
-    }
-    return seen
-  }, [sessions, savedRows])
+  return { models: models.map((m) => m.key), workspaceOptions, toolOptions }
+}
 
+function EditorWithFacts({
+  job,
+  seed,
+  onClose,
+  onSaved,
+}: {
+  job?: Job
+  seed?: JobDraft
+  onClose: () => void
+  onSaved: (job: Job | undefined) => Promise<void>
+}) {
+  const facts = useJobFacts()
+
+  // The editor suggests model keys through its free-text datalist; browsers
+  // only offer plain options there, so grouping stays in the select pickers.
   return (
     <JobEditor
       job={job}
-      workspaces={workspaces}
-      models={models}
+      seed={seed}
+      workspaces={facts.workspaceOptions}
+      models={facts.models}
+      toolOptions={facts.toolOptions}
       onSaved={onSaved}
+      onCancel={onClose}
+    />
+  )
+}
+
+function QueueWithFacts({
+  onClose,
+  onQueued,
+}: {
+  onClose: () => void
+  onQueued: (job: Job) => Promise<void>
+}) {
+  const facts = useJobFacts()
+  return (
+    <QueueComposer
+      workspaces={facts.workspaceOptions}
+      models={facts.models}
+      toolOptions={facts.toolOptions}
+      onQueued={onQueued}
       onCancel={onClose}
     />
   )
@@ -242,11 +345,21 @@ function JobRow({
         <Link to={`/jobs/${job.id}`}>{job.name}</Link>
         <div className="muted small-note">{tildePath(job.workspace, auth.home)}</div>
         {job.prompt && (
-          <div className="muted small-note run-prompt-cell">{job.prompt.slice(0, 80)}</div>
+          <div className="muted small-note run-prompt-cell" title={job.prompt}>
+            {job.prompt.slice(0, 80)}
+          </div>
         )}
       </td>
-      <td>{scheduleSummary(job)}</td>
-      <td>{job.enabled && job.nextRunAt ? formatSlot(job.nextRunAt, job.tz) : '—'}</td>
+      <td>{job.queued ? <span className="badge accent">queued</span> : scheduleSummary(job)}</td>
+      <td>
+        {job.queued
+          ? job.nextRunAt
+            ? 'when idle'
+            : '—'
+          : job.enabled && job.nextRunAt
+            ? formatSlot(job.nextRunAt, job.tz)
+            : '—'}
+      </td>
       <td>
         {lastRun === undefined ? (
           '—'
@@ -254,7 +367,9 @@ function JobRow({
           <>
             <span className={runStatusClass(lastRun.status)}>{lastRun.status}</span>
             {lastRun.error && (
-              <div className="muted small-note run-error-excerpt">{lastRun.error}</div>
+              <div className="muted small-note run-error-excerpt" title={lastRun.error}>
+                {lastRun.error}
+              </div>
             )}
           </>
         )}
@@ -265,13 +380,20 @@ function JobRow({
             type="checkbox"
             checked={job.enabled}
             onChange={onToggle} // optimistic; JobsHome reverts on refusal
-            aria-label={`Enable ${job.name}`}
+            aria-label={`${job.enabled ? 'Disable' : 'Enable'} ${job.name}`}
           />
           enabled
-        </label>{' '}
-        <button type="button" onClick={onFire}>
-          Run now
-        </button>
+        </label>
+        <div className="job-row-actions">
+          <Link to={`/jobs/new?from=${job.id}`}>
+            <button type="button" aria-label={`Copy ${job.name}`}>
+              Copy
+            </button>
+          </Link>
+          <button type="button" title="Run now" aria-label={`Run ${job.name} now`} onClick={onFire}>
+            ▶
+          </button>
+        </div>
       </td>
     </tr>
   )

@@ -1,19 +1,17 @@
 package api
 
 import (
-	"errors"
 	"net/http"
 	"strconv"
 
-	"github.com/jentfoo/ajent-swarm/pkg/fleet"
 	"github.com/jentfoo/ajent/pkg/ctl"
 )
 
-// defaultPageLimit matches the fleet package's init tail sizing.
+// defaultPageLimit matches the web client's page size.
 const defaultPageLimit = 200
 
 // handleSessionList serves the fleet listing: one row per tracked instance.
-func (s *apiServer) handleSessionList(w http.ResponseWriter, r *http.Request) {
+func (s *apiServer) handleSessionList(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, s.fleet.Sessions())
 }
 
@@ -25,14 +23,11 @@ func (s *apiServer) handleSessionEntries(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	entries, cursor, err := s.fleet.Entries(r.Context(), r.PathValue("id"), r.URL.Query().Get("before"), limit)
-	switch {
-	case errors.Is(err, fleet.ErrUnknownSession):
-		writeError(w, http.StatusNotFound, "session_not_found", "")
-	case err != nil:
-		writeError(w, http.StatusInternalServerError, "internal_error", "reading entries failed")
-	default:
-		writeJSON(w, http.StatusOK, entriesPage{Entries: entries, Cursor: cursor})
+	if err != nil {
+		writeCommandFailure(w, err)
+		return
 	}
+	writeJSON(w, http.StatusOK, entriesPage{Entries: entries, Cursor: cursor})
 }
 
 // entriesPage is one page of committed history plus the cursor to continue.
@@ -50,7 +45,7 @@ func parseLimit(w http.ResponseWriter, r *http.Request) (int, bool) {
 	}
 	parsed, err := strconv.Atoi(raw)
 	if err != nil || parsed < 1 {
-		writeError(w, http.StatusBadRequest, "invalid_request", "limit must be a positive integer")
+		writeError(w, http.StatusBadRequest, codeInvalidRequest, "limit must be a positive integer")
 		return 0, false
 	}
 	return parsed, true
@@ -61,13 +56,9 @@ func parseLimit(w http.ResponseWriter, r *http.Request) (int, bool) {
 func (s *apiServer) handleTakeControl(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	err := s.fleet.TakeControl(r.Context(), id)
-	switch {
-	case err == nil:
-		w.WriteHeader(http.StatusNoContent)
-	case errors.Is(err, fleet.ErrUnknownSession):
-		writeError(w, http.StatusNotFound, "session_not_found", "")
-	case writeControlError(w, err):
-	default:
-		writeError(w, http.StatusInternalServerError, "internal_error", "")
+	if err != nil {
+		writeCommandFailure(w, err)
+		return
 	}
+	w.WriteHeader(http.StatusNoContent)
 }

@@ -71,20 +71,19 @@ func (s *Store) migrate() error {
 	if err != nil {
 		return fmt.Errorf("read applied migrations: %w", err)
 	}
+	defer func() { _ = rows.Close() }()
+
 	applied := make(map[int]struct{})
 	for rows.Next() {
 		var version int
 		if err = rows.Scan(&version); err != nil {
-			_ = rows.Close()
 			return fmt.Errorf("scan schema_migrations: %w", err)
 		}
 		applied[version] = struct{}{}
 	}
 	if err = rows.Err(); err != nil {
-		_ = rows.Close()
 		return fmt.Errorf("read applied migrations: %w", err)
 	}
-	_ = rows.Close()
 
 	for _, m := range readMigrations() {
 		if _, ok := applied[m.version]; ok {

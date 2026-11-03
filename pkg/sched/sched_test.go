@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -25,22 +27,35 @@ type fakeRunner struct {
 	mu        sync.Mutex
 	launches  []fleet.LaunchRequest
 	submits   []ctl.SubmitParams
+	toolsSets [][]string // names per ToolsSet call, in order
+	ops       []string   // verb log across calls: "tools", "submit"
 	stopped   []string
-	subscribe int // subscribe calls the runner served
+	titles    map[string]string // last title written per session id
+	subscribe int               // subscribe calls the runner served
 
 	launchErr   error         // Launch fails with this when set
 	sessionID   string        // session id Launch returns
 	submitFailN int           // the first N submits fail as unavailable
+	toolsSetErr error         // ToolsSet fails with this when set
+	titleErr    error         // SetTitle fails with this when set
 	blockLaunch chan struct{} // set: Launch blocks until closed, per call
 	deliver     func([]byte)  // deliverer of the latest subscription
 	onDrop      func()
+	busyAt      time.Time // what LastBusyAt reports; zero means quiet
+}
+
+// LastBusyAt answers with the scripted activity moment.
+func (f *fakeRunner) LastBusyAt() time.Time {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.busyAt
 }
 
 func newFakeRunner() *fakeRunner {
 	return &fakeRunner{sessionID: "01RUNFAKESESSION00"}
 }
 
-func (f *fakeRunner) Launch(_ context.Context, req fleet.LaunchRequest) (fleet.LaunchResult, error) {
+func (f *fakeRunner) Launch(ctx context.Context, req fleet.LaunchRequest) (fleet.LaunchResult, error) {
 	f.mu.Lock()
 	f.launches = append(f.launches, req)
 	gate := f.blockLaunch
@@ -49,7 +64,7 @@ func (f *fakeRunner) Launch(_ context.Context, req fleet.LaunchRequest) (fleet.L
 	if gate != nil {
 		select {
 		case <-gate:
-		case <-time.After(5 * time.Second):
+		case <-ctx.Done(): // cleanup closed the gate or canceled the run
 		}
 	}
 	if f.launchErr != nil {
@@ -67,8 +82,31 @@ func (f *fakeRunner) Submit(_ context.Context, _ string, params ctl.SubmitParams
 		return ctl.Errf(ctl.CodeUnavailable, "session is still starting")
 	}
 	f.submits = append(f.submits, params)
+	f.ops = append(f.ops, "submit")
 	f.deliverToWatcher()
 	return nil
+}
+
+// ToolsSet records the requested set; toolsSetErr scripts a refusal.
+func (f *fakeRunner) ToolsSet(_ context.Context, _ string,
+	names []string) (ctl.ToolsSetResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.toolsSets = append(f.toolsSets, slices.Clone(names))
+	f.ops = append(f.ops, "tools")
+	return ctl.ToolsSetResult{}, f.toolsSetErr
+}
+
+// SetTitle records the last title written per session; titleErr scripts a
+// failed write.
+func (f *fakeRunner) SetTitle(_ context.Context, sessionID, title string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.titles == nil {
+		f.titles = make(map[string]string)
+	}
+	f.titles[sessionID] = title
+	return f.titleErr
 }
 
 // deliverToWatcher plays the landing sequence a real ajent emits after a
@@ -80,11 +118,8 @@ func (f *fakeRunner) deliverToWatcher() {
 	}
 	pid := f.submits[len(f.submits)-1].PendingID
 	go func() {
-		deliver(mustFrame(ctl.EventEntryAppend, ctl.EntryData{
-			Entry: ctl.Entry{ID: "e-" + pid, Type: "message",
-				Data: json.RawMessage(`{"queueIds":["` + pid + `"]}`)},
-		}))
-		deliver(mustFrame(ctl.EventIdle, ctl.IdleData{Idle: true}))
+		deliver(landingFrame(pid))
+		deliver(idleFrame())
 	}()
 }
 
@@ -116,23 +151,11 @@ func (f *fakeRunner) replay(pid string) {
 	f.mu.Lock()
 	deliver := f.deliver
 	f.mu.Unlock()
-	deliver(mustFrame(ctl.EventEntryAppend, ctl.EntryData{
-		Entry: ctl.Entry{ID: "e-" + pid, Type: "message",
-			Data: json.RawMessage(`{"queueIds":["` + pid + `"]}`)},
-	}))
-	deliver(mustFrame(ctl.EventIdle, ctl.IdleData{Idle: true}))
+	deliver(landingFrame(pid))
+	deliver(idleFrame())
 }
 
 func (f *fakeRunner) Unsubscribe(*fleet.Subscription) {}
-
-// mustFrame encodes one event as the stream frame the manager forwards.
-func mustFrame(name string, data any) []byte {
-	return mustJSON(fleet.EventFrame{
-		Type:      fleet.FrameEvent,
-		SessionID: "01RUNFAKESESSION00",
-		Event:     ctl.NewEvent(name, 1, data),
-	})
-}
 
 // mustJSON encodes v; only unreachable types fail.
 func mustJSON(v any) []byte {
@@ -144,7 +167,12 @@ func mustJSON(v any) []byte {
 }
 
 // noRefireWindow is how long double-fire assertions watch for a stray run.
-const noRefireWindow = 300 * time.Millisecond
+const noRefireWindow = 60 * time.Millisecond
+
+// settleWindow bounds load-sensitive waits: every condition here arrives via
+// an event-driven pipeline with its own retries, so the ceiling only needs
+// headroom for slow scheduling and sqlite writes on a starved machine.
+const settleWindow = 15 * time.Second
 
 // testHarness wires one scheduler over a temp store with tight timings.
 type testHarness struct {
@@ -213,6 +241,21 @@ func (h *testHarness) addJob(name string, mutate func(*store.Job)) int64 {
 	return id
 }
 
+// addQueuedJob inserts one queued one-shot due at once, the exact row shape
+// the queue endpoint stores, and returns its id.
+func (h *testHarness) addQueuedJob(name, prompt string) int64 {
+	h.t.Helper()
+	return h.addJob(name, func(j *store.Job) {
+		j.Queued = true
+		j.ScheduleKind = store.ScheduleOnce
+		j.Prompt = prompt
+		j.KeepAlive = true
+		j.RunWhenIdle = true
+		slot := time.Now().Add(10 * time.Millisecond)
+		j.NextRunAt = &slot
+	})
+}
+
 // runRows lists the runs recorded so far for one job.
 func (h *testHarness) runRows(jobID int64) []store.Run {
 	h.t.Helper()
@@ -233,7 +276,7 @@ func (h *testHarness) waitForRun(jobID int64, status string) store.Run {
 			}
 		}
 		return false
-	}, 3*time.Second, 10*time.Millisecond)
+	}, settleWindow, 10*time.Millisecond)
 	return hit
 }
 
@@ -243,6 +286,14 @@ func (h *testHarness) jobByID(id int64) store.Job {
 	j, err := h.store.JobByID(h.t.Context(), id)
 	require.NoError(h.t, err)
 	return j
+}
+
+// submittedPrompt reads back the first prompt line the runner received.
+func (h *testHarness) submittedPrompt() string {
+	h.t.Helper()
+	h.runner.mu.Lock()
+	defer h.runner.mu.Unlock()
+	return h.runner.submits[0].Line
 }
 
 func testLogger() *slog.Logger { return slog.New(slog.DiscardHandler) }
@@ -258,263 +309,511 @@ func (h *testHarness) requireNoRefire(jobID int64) {
 		return err == nil && len(rows) > 1
 	}, noRefireWindow, 20*time.Millisecond)
 }
+func TestScheduler(t *testing.T) {
+	t.Run("fires_interval_job_once", func(t *testing.T) {
+		h := newHarness(t, nil)
+		h.start(t.Context())
 
-func TestSchedulerFiresIntervalJobOnce(t *testing.T) {
-	t.Parallel()
-	h := newHarness(t, nil)
-	h.start(t.Context())
+		id := h.addJob("cadence", func(j *store.Job) {
+			j.IntervalSeconds = 3600 // no second slot may race the claim check
+			slot := time.Now().Add(10 * time.Millisecond)
+			j.NextRunAt = &slot
+		})
 
-	id := h.addJob("cadence", func(j *store.Job) {
-		j.IntervalSeconds = 3600 // no second slot may race the claim check
+		run := h.waitForRun(id, store.RunOK)
+
+		// the schedule advanced far ahead: replaying the tick never double-fires
+		h.requireNoRefire(id)
+		assert.Len(t, h.runRows(id), 1)
+
+		j := h.jobByID(id)
+		require.NotNil(t, j.NextRunAt)
+		assert.True(t, j.NextRunAt.After(run.StartedAt))
+	})
+
+	t.Run("survives_restart_without_double_firing", func(t *testing.T) {
+		h := newHarness(t, nil)
+		ctx := t.Context()
+
+		id := h.addJob("restart", func(j *store.Job) {
+			j.IntervalSeconds = 3600 // no further slot may interfere with the claim check
+			slot := time.Now().Add(10 * time.Millisecond)
+			j.NextRunAt = &slot
+		})
+		h.sched.Start(ctx)
+		h.waitForRun(id, store.RunOK)
+		h.sched.Stop()
+
+		// a fresh scheduler over the same store does not refire the advanced slot
+		again := New(h.sched.opts)
+		again.Start(ctx)
+		t.Cleanup(again.Stop)
+		h.requireNoRefire(id)
+		assert.Len(t, h.runRows(id), 1)
+	})
+
+	t.Run("missed_policy_skips", func(t *testing.T) {
+		h := newHarness(t, func(o *Options) { o.MissedGrace = time.Second })
+		h.start(t.Context())
+
+		id := h.addJob("missed", func(j *store.Job) {
+			slot := time.Now().Add(-5 * time.Second) // far past the tiny grace
+			j.NextRunAt = &slot
+		})
+
+		run := h.waitForRun(id, store.RunSkipped)
+		assert.Contains(t, run.Error, "missed")
+
+		// the schedule advanced to a future slot instead of firing late
+		j := h.jobByID(id)
+		require.NotNil(t, j.NextRunAt)
+		assert.True(t, j.NextRunAt.After(run.StartedAt))
+	})
+
+	t.Run("missed_policy_fires_late", func(t *testing.T) {
+		h := newHarness(t, func(o *Options) { o.MissedGrace = time.Second })
+		h.start(t.Context())
+
+		id := h.addJob("late", func(j *store.Job) {
+			slot := time.Now().Add(-5 * time.Second)
+			j.NextRunAt = &slot
+			j.OnMissed = store.MissFireLate
+		})
+
+		run := h.waitForRun(id, store.RunOK) // fired once late instead of skipping
+
+		// and the schedule advanced past the late fire instead of re-firing
+		next := h.jobByID(id).NextRunAt
+		require.NotNil(t, next)
+		assert.True(t, next.After(run.StartedAt))
+	})
+
+	t.Run("once_job_fires_and_clears", func(t *testing.T) {
+		// slots persist as whole unix seconds, so the future fire below can
+		// truncate to the current second and read nearly a second late; the wide
+		// grace keeps that from racing while the late one-shot still clears it
+		h := newHarness(t, func(o *Options) { o.MissedGrace = 5 * time.Second })
+		h.start(t.Context())
+
 		slot := time.Now().Add(10 * time.Millisecond)
-		j.NextRunAt = &slot
+		id := h.addJob("oneshot", func(j *store.Job) {
+			j.ScheduleKind = store.ScheduleOnce
+			j.NextRunAt = &slot
+		})
+
+		run := h.waitForRun(id, store.RunOK)
+		assert.Nil(h.t, h.jobByID(id).NextRunAt) // nothing left to fire
+
+		h.requireNoRefire(id)
+		assert.Equal(t, run.ID, h.runRows(id)[0].ID)
+
+		// a one-shot past its grace is skipped, never fired
+		late := time.Now().Add(-10 * time.Second)
+		id2 := h.addJob("oneshot-late", func(j *store.Job) {
+			j.ScheduleKind = store.ScheduleOnce
+			j.NextRunAt = &late
+		})
+		skipped := h.waitForRun(id2, store.RunSkipped)
+		assert.Contains(t, skipped.Error, "one-shot missed")
 	})
 
-	run := h.waitForRun(id, store.RunOK)
+	t.Run("global_run_limit", func(t *testing.T) {
+		gate := make(chan struct{})
+		h := newHarness(t, func(o *Options) { o.MaxConcurrent = 1 })
+		h.runner.blockLaunch = gate
+		h.start(t.Context())
+		t.Cleanup(func() { close(gate) }) // after start: closes before Stop unwinds
 
-	// the schedule advanced far ahead: replaying the tick never double-fires
-	h.requireNoRefire(id)
-	assert.Len(t, h.runRows(id), 1)
+		// the first due job occupies the single live slot
+		first := h.addJob("holder", func(j *store.Job) {
+			slot := time.Now().Add(10 * time.Millisecond)
+			j.NextRunAt = &slot
+		})
+		h.waitForRun(first, store.RunRunning)
 
-	j := h.jobByID(id)
-	require.NotNil(t, j.NextRunAt)
-	assert.True(t, j.NextRunAt.After(run.StartedAt))
-}
+		// a second job due in the same window records why it could not run
+		second := h.addJob("capped", func(j *store.Job) {
+			slot := time.Now().Add(10 * time.Millisecond)
+			j.NextRunAt = &slot
+		})
+		run := h.waitForRun(second, store.RunSkipped)
+		assert.Contains(t, run.Error, "global run limit")
+	})
 
-func TestSchedulerSurvivesRestartWithoutDoubleFiring(t *testing.T) {
-	t.Parallel()
-	h := newHarness(t, nil)
-	ctx := t.Context()
+	t.Run("manual_fire_disabled_job", func(t *testing.T) {
+		h := newHarness(t, nil)
+		h.start(t.Context())
 
-	id := h.addJob("restart", func(j *store.Job) {
-		j.IntervalSeconds = 3600 // no further slot may interfere with the claim check
+		id := h.addJob("manual", func(j *store.Job) {
+			j.Enabled = false
+			j.Prompt = "run the nightly sweep"
+		})
+
+		run, err := h.sched.FireNow(h.t.Context(), id)
+		require.NoError(t, err)
+		assert.Equal(t, store.TriggerManual, run.Trigger)
+
+		got := h.waitForRun(id, store.RunOK)
+		assert.Equal(t, "01RUNFAKESESSION00", got.SessionID)
+
+		// a manual fire leaves the schedule alone
+		j := h.jobByID(id)
+		assert.False(t, j.Enabled)
+		assert.Nil(h.t, j.NextRunAt)
+
+		// the prompt went out with the run's own pendingId, and the session was
+		// torn down because the job keeps nothing alive. Stop trails the terminal
+		// row finish persists, so poll until it lands
+		prompt := h.submittedPrompt()
+		assert.Equal(t, "run the nightly sweep", prompt)
+		require.Eventually(t, func() bool {
+			h.runner.mu.Lock()
+			stopped := slices.Contains(h.runner.stopped, "01RUNFAKESESSION00")
+			h.runner.mu.Unlock()
+			return stopped
+		}, settleWindow, 10*time.Millisecond)
+	})
+
+	t.Run("manual_fire_refuses_when_overlapping", func(t *testing.T) {
+		gate := make(chan struct{})
+		h := newHarness(t, nil)
+		h.runner.blockLaunch = gate
+		h.start(t.Context())
+		t.Cleanup(func() { close(gate) }) // after start: closes before Stop unwinds
+
+		id := h.addJob("busy", func(j *store.Job) {
+			slot := time.Now().Add(10 * time.Millisecond)
+			j.NextRunAt = &slot
+			j.Overlap = store.OverlapSkipIfRunning
+		})
+		h.waitForRun(id, store.RunRunning)
+
+		_, err := h.sched.FireNow(h.t.Context(), id)
+		require.ErrorIs(t, err, store.ErrLiveRun)
+	})
+
+	t.Run("launch_failure_records_reason", func(t *testing.T) {
+		h := newHarness(t, nil)
+		h.runner.launchErr = errors.New("spawn ajent: binary missing")
+		h.start(t.Context())
+
+		id := h.addJob("broken", func(j *store.Job) {
+			slot := time.Now().Add(10 * time.Millisecond)
+			j.NextRunAt = &slot
+		})
+
+		run := h.waitForRun(id, store.RunFailed)
+		assert.Contains(t, run.Error, "binary missing")
+		assert.Empty(t, run.SessionID)
+
+		// the job keeps its cadence: a next slot was scheduled past the failure
+		next := h.jobByID(id).NextRunAt
+		require.NotNil(t, next)
+		assert.True(t, next.After(run.StartedAt))
+	})
+
+	t.Run("nudge_fires_enabled_job_promptly", func(t *testing.T) {
+		h := newHarness(t, nil)
+		id := h.addJob("nudged", func(j *store.Job) {
+			j.IntervalSeconds = 3600 // no cadence refire may race the row count
+			slot := time.Now().Add(10 * time.Millisecond)
+			j.NextRunAt = &slot
+		})
+		h.start(t.Context())
+
+		h.waitForRun(id, store.RunOK)
+
+		// re-enabling with a fresh slot lands without waiting out the tick. The
+		// slot sits just in the past on purpose: slots persist as whole unix
+		// seconds, so a future millisecond slot can truncate nearly a full second
+		// away and turn this into a boundary-timing test.
+		slot := time.Now().Add(-10 * time.Millisecond)
+		j := h.jobByID(id)
+		j.NextRunAt = &slot
+		require.NoError(h.t, h.store.UpdateJob(h.t.Context(), j))
+		h.sched.Nudge()
+
+		// a nudged edit lands within a tick or two; the generous ceiling matches
+		// maxTick, since a loaded machine can starve the trigger loop longer than
+		// any tighter bound would honestly allow
+		require.Eventually(t, func() bool { return len(h.runRows(id)) == 2 },
+			10*time.Second, 10*time.Millisecond)
+	})
+
+	t.Run("run_when_idle_waits_quiet", func(t *testing.T) {
+		h := newHarness(t, nil)
+		// the fleet is busy right now: nothing may fire while the window holds
+		h.runner.mu.Lock()
+		h.runner.busyAt = time.Now()
+		h.runner.mu.Unlock()
+
 		slot := time.Now().Add(10 * time.Millisecond)
-		j.NextRunAt = &slot
-	})
-	h.sched.Start(ctx)
-	h.waitForRun(id, store.RunOK)
-	h.sched.Stop()
+		id := h.addJob("idle-wait", func(j *store.Job) {
+			j.IntervalSeconds = 3600 // no second slot may interfere
+			j.NextRunAt = &slot
+			j.RunWhenIdle = true
+		})
+		h.start(t.Context())
 
-	// a fresh scheduler over the same store does not refire the advanced slot
-	again := New(h.sched.opts)
-	again.Start(ctx)
-	t.Cleanup(again.Stop)
-	h.requireNoRefire(id)
-	assert.Len(t, h.runRows(id), 1)
-}
+		require.Never(h.t, func() bool { return len(h.runRows(id)) > 0 },
+			noRefireWindow, 20*time.Millisecond) // stays due without a run row
 
-func TestSchedulerMissedPolicySkip(t *testing.T) {
-	t.Parallel()
-	h := newHarness(t, func(o *Options) { o.MissedGrace = time.Second })
-	h.start(t.Context())
+		// once ten quiet minutes pass, the held fire lands with no reason recorded
+		h.runner.mu.Lock()
+		h.runner.busyAt = time.Now().Add(-11 * time.Minute)
+		h.runner.mu.Unlock()
+		run := h.waitForRun(id, store.RunOK)
+		assert.Empty(t, run.Error)
 
-	id := h.addJob("missed", func(j *store.Job) {
-		slot := time.Now().Add(-5 * time.Second) // far past the tiny grace
-		j.NextRunAt = &slot
+		// and the schedule advanced past the late slot: no missed-policy skip ran
+		require.NotNil(t, h.jobByID(id).NextRunAt)
 	})
 
-	run := h.waitForRun(id, store.RunSkipped)
-	assert.Contains(t, run.Error, "missed")
+	t.Run("idle_past_delay_cap_skips", func(t *testing.T) {
+		h := newHarness(t, nil)
+		h.runner.mu.Lock()
+		h.runner.busyAt = time.Now() // busy for the whole test
+		h.runner.mu.Unlock()
 
-	// the schedule advanced to a future slot instead of firing late
-	j := h.jobByID(id)
-	require.NotNil(t, j.NextRunAt)
-	assert.True(t, j.NextRunAt.After(run.StartedAt))
-}
+		slot := time.Now().Add(-2 * time.Hour) // held far past a 1h cap already
+		id := h.addJob("idle-cap", func(j *store.Job) {
+			j.IntervalSeconds = 3600
+			j.NextRunAt = &slot
+			j.RunWhenIdle = true
+			j.IdleMaxDelaySeconds = 3600
+		})
+		h.start(t.Context())
 
-func TestSchedulerMissedPolicyFireLate(t *testing.T) {
-	t.Parallel()
-	h := newHarness(t, func(o *Options) { o.MissedGrace = time.Second })
-	h.start(t.Context())
+		run := h.waitForRun(id, store.RunSkipped)
+		assert.Contains(t, run.Error, "still busy")
+		assert.Empty(t, run.SessionID)
 
-	id := h.addJob("late", func(j *store.Job) {
-		slot := time.Now().Add(-5 * time.Second)
-		j.NextRunAt = &slot
-		j.OnMissed = store.MissFireLate
+		// the schedule advanced: the next slot will try again instead of re-deciding
+		require.NotNil(t, h.jobByID(id).NextRunAt)
 	})
 
-	run := h.waitForRun(id, store.RunOK) // fired once late instead of skipping
+	t.Run("idle_without_cap_never_skips", func(t *testing.T) {
+		h := newHarness(t, nil)
+		h.runner.mu.Lock()
+		h.runner.busyAt = time.Now().Add(-2 * time.Hour) // idle already: fires at once
+		h.runner.mu.Unlock()
 
-	// and the schedule advanced past the late fire instead of re-firing
-	next := h.jobByID(id).NextRunAt
-	require.NotNil(t, next)
-	assert.True(t, next.After(run.StartedAt))
-}
-
-func TestSchedulerOnceJobFiresAndClears(t *testing.T) {
-	t.Parallel()
-	h := newHarness(t, func(o *Options) { o.MissedGrace = time.Second })
-	h.start(t.Context())
-
-	slot := time.Now().Add(10 * time.Millisecond)
-	id := h.addJob("oneshot", func(j *store.Job) {
-		j.ScheduleKind = store.ScheduleOnce
-		j.NextRunAt = &slot
-	})
-
-	run := h.waitForRun(id, store.RunOK)
-	assert.Nil(h.t, h.jobByID(id).NextRunAt) // nothing left to fire
-
-	h.requireNoRefire(id)
-	assert.Equal(t, run.ID, h.runRows(id)[0].ID)
-
-	// a one-shot past its grace is skipped, never fired
-	late := time.Now().Add(-10 * time.Second)
-	id2 := h.addJob("oneshot-late", func(j *store.Job) {
-		j.ScheduleKind = store.ScheduleOnce
-		j.NextRunAt = &late
-	})
-	skipped := h.waitForRun(id2, store.RunSkipped)
-	assert.Contains(t, skipped.Error, "one-shot missed")
-}
-
-func TestSchedulerOverlapSkipsWhilePreviousRuns(t *testing.T) {
-	t.Parallel()
-	gate := make(chan struct{})
-	h := newHarness(t, nil)
-	h.runner.blockLaunch = gate
-	h.start(t.Context())
-
-	id := h.addJob("overlap", func(j *store.Job) {
 		slot := time.Now().Add(10 * time.Millisecond)
-		j.NextRunAt = &slot
-		j.Overlap = store.OverlapSkipIfRunning
+		id := h.addJob("idle-forever", func(j *store.Job) {
+			j.IntervalSeconds = 3600
+			j.NextRunAt = &slot
+			j.RunWhenIdle = true // zero cap waits, but idle now means fire now
+		})
+		h.start(t.Context())
+		h.waitForRun(id, store.RunOK)
 	})
 
-	// the first fire launches and parks inside Launch; later slots skip
-	h.waitForRun(id, store.RunRunning)
-	require.Eventually(t, func() bool { // while the launch is still parked
-		for _, r := range h.runRows(id) {
-			if r.Status == store.RunSkipped && r.Error == "skipped: previous run is still active" {
-				return true
+	t.Run("idle_hold_never_spins", func(t *testing.T) {
+		h := newHarness(t, func(o *Options) { o.Tick = 50 * time.Millisecond })
+
+		slot := time.Now().Add(-time.Minute) // due now, held by a busy fleet
+		id := h.addJob("held", func(j *store.Job) {
+			j.IntervalSeconds = 3600
+			j.NextRunAt = &slot
+			j.RunWhenIdle = true
+		})
+		h.runner.mu.Lock()
+		h.runner.busyAt = time.Now()
+		h.runner.mu.Unlock()
+
+		// without the hold floor the past slot collapses the wait to zero and the
+		// loop spins two queries per round for the whole idle window
+		assert.Positive(t, h.sched.nextWait(true))
+		assert.LessOrEqual(t, h.sched.nextWait(true), 50*time.Millisecond)
+
+		// no held job: a past slot still means due now, exactly as before
+		assert.Zero(t, h.sched.nextWait(false))
+
+		// and once the fleet quiets the wait runs out and the fire lands
+		h.runner.mu.Lock()
+		h.runner.busyAt = time.Now().Add(-11 * time.Minute)
+		h.runner.mu.Unlock()
+		h.start(t.Context())
+		h.waitForRun(id, store.RunOK)
+	})
+
+	t.Run("startup_sweeps_abandoned_queued", func(t *testing.T) {
+		h := newHarness(t, nil)
+
+		mkQueued := func(name string, slot *time.Time) int64 {
+			return h.addJob(name, func(j *store.Job) {
+				j.Queued = true
+				j.ScheduleKind = store.ScheduleOnce
+				j.KeepAlive = true
+				j.RunWhenIdle = true
+				j.Prompt = name + " prompt"
+				j.NextRunAt = slot
+			})
+		}
+		future := time.Now().Add(time.Hour)     // beyond the loop's reach: no fire races
+		abandoned := mkQueued("abandoned", nil) // crash shape: slot claimed, run gone
+		waiting := mkQueued("waiting", &future)
+
+		// the realistic crash leaves a live run behind; the interrupted sweep
+		// settles it before the queued sweep decides
+		crashed := mkQueued("crashed", nil)
+		jobID := crashed
+		_, err := h.store.BeginManualRun(h.t.Context(), jobID, false, 4, store.Run{
+			JobID: &jobID, Prompt: "crashed prompt", Trigger: store.TriggerSchedule,
+			Status: store.RunRunning, StartedAt: time.Now()})
+		require.NoError(t, err)
+
+		h.start(t.Context())
+
+		for _, gone := range []int64{abandoned, crashed} {
+			require.Eventually(t, func() bool {
+				_, err := h.store.JobByID(h.t.Context(), gone)
+				return errors.Is(err, store.ErrNotFound)
+			}, settleWindow, 10*time.Millisecond)
+		}
+		_, err = h.store.JobByID(h.t.Context(), waiting)
+		require.NoError(t, err) // a waiting row keeps its slot and survives
+
+		rows, err := h.store.Runs(h.t.Context(), 0, 100)
+		require.NoError(t, err)
+		var settled *store.Run
+		for i := range rows {
+			if rows[i].Prompt == "crashed prompt" {
+				settled = &rows[i]
 			}
 		}
-		return false
-	}, 3*time.Second, 10*time.Millisecond)
-
-	close(gate) // let the parked launch proceed once a skip has been recorded
-	h.waitForRun(id, store.RunOK)
-}
-
-func TestSchedulerGlobalRunLimit(t *testing.T) {
-	t.Parallel()
-	gate := make(chan struct{})
-	h := newHarness(t, func(o *Options) { o.MaxConcurrent = 1 })
-	h.runner.blockLaunch = gate
-	defer close(gate)
-	h.start(t.Context())
-
-	// the first due job occupies the single live slot
-	first := h.addJob("holder", func(j *store.Job) {
-		slot := time.Now().Add(10 * time.Millisecond)
-		j.NextRunAt = &slot
-	})
-	h.waitForRun(first, store.RunRunning)
-
-	// a second job due in the same window records why it could not run
-	second := h.addJob("capped", func(j *store.Job) {
-		slot := time.Now().Add(10 * time.Millisecond)
-		j.NextRunAt = &slot
-	})
-	run := h.waitForRun(second, store.RunSkipped)
-	assert.Contains(t, run.Error, "global run limit")
-}
-
-func TestSchedulerManualFireWorksForDisabledJobs(t *testing.T) {
-	t.Parallel()
-	h := newHarness(t, nil)
-	h.start(t.Context())
-
-	id := h.addJob("manual", func(j *store.Job) {
-		j.Enabled = false
-		j.Prompt = "run the nightly sweep"
+		require.NotNil(t, settled)
+		assert.Equal(t, store.RunFailed, settled.Status)
+		assert.Nil(t, settled.JobID) // unlinked, history reads as an ad-hoc run
 	})
 
-	run, err := h.sched.FireNow(h.t.Context(), id)
-	require.NoError(t, err)
-	assert.Equal(t, store.TriggerManual, run.Trigger)
+	t.Run("trigger_command_gate", func(t *testing.T) {
+		t.Run("success_gate_runs_on_zero", func(t *testing.T) {
+			h := newHarness(t, nil)
+			slot := time.Now().Add(10 * time.Millisecond)
+			id := h.addJob("gate-ok", func(j *store.Job) {
+				j.NextRunAt = &slot
+				j.Prompt = "do the thing"
+				j.TriggerCommand = "echo deployed"
+			})
+			h.start(t.Context())
 
-	got := h.waitForRun(id, store.RunOK)
-	assert.Equal(t, "01RUNFAKESESSION00", got.SessionID)
+			run := h.waitForRun(id, store.RunOK)
+			prompt := h.submittedPrompt()
 
-	// a manual fire leaves the schedule alone
-	j := h.jobByID(id)
-	assert.False(t, j.Enabled)
-	assert.Nil(h.t, j.NextRunAt)
+			assert.Contains(t, prompt, "Pre-run command `echo deployed` succeeded")
+			assert.True(t, strings.HasSuffix(prompt, "do the thing"))
+			assert.Empty(t, run.Error)
+		})
 
-	h.runner.mu.Lock()
-	subs := len(h.runner.submits)
-	prompt := ""
-	if subs > 0 {
-		prompt = h.runner.submits[0].Line
-	}
-	stopped := slices.Clone(h.runner.stopped)
-	h.runner.mu.Unlock()
+		t.Run("success_gate_skips_on_error", func(t *testing.T) {
+			h := newHarness(t, nil)
+			slot := time.Now().Add(10 * time.Millisecond)
+			id := h.addJob("gate-fail", func(j *store.Job) {
+				j.NextRunAt = &slot
+				j.Prompt = "do the thing"
+				j.TriggerCommand = "exit 3"
+			})
+			h.start(t.Context())
 
-	// the prompt went out with the run's own pendingId, and the session was
-	// torn down because the job keeps nothing alive
-	require.NotZero(t, subs)
-	assert.Equal(t, "run the nightly sweep", prompt)
-	assert.Contains(t, stopped, "01RUNFAKESESSION00")
-}
+			run := h.waitForRun(id, store.RunSkipped)
+			assert.Contains(t, run.Error, "exited 3")
+			assert.Empty(t, run.SessionID)
+		})
 
-func TestSchedulerManualFireRefusesWhenOverlapping(t *testing.T) {
-	t.Parallel()
-	gate := make(chan struct{})
-	h := newHarness(t, nil)
-	h.runner.blockLaunch = gate
-	defer close(gate)
-	h.start(t.Context())
+		t.Run("error_gate_runs_on_failure", func(t *testing.T) {
+			h := newHarness(t, nil)
+			slot := time.Now().Add(10 * time.Millisecond)
+			id := h.addJob("gate-on-error", func(j *store.Job) {
+				j.NextRunAt = &slot
+				j.Prompt = "do the thing"
+				j.TriggerCommand = "exit 7"
+				j.TriggerOn = store.TriggerOnError
+			})
+			h.start(t.Context())
+			h.waitForRun(id, store.RunOK)
+		})
 
-	id := h.addJob("busy", func(j *store.Job) {
-		slot := time.Now().Add(10 * time.Millisecond)
-		j.NextRunAt = &slot
-		j.Overlap = store.OverlapSkipIfRunning
+		t.Run("error_gate_skips_on_success", func(t *testing.T) {
+			h := newHarness(t, nil)
+			slot := time.Now().Add(10 * time.Millisecond)
+			id := h.addJob("gate-on-success-veto", func(j *store.Job) {
+				j.NextRunAt = &slot
+				j.Prompt = "do the thing"
+				j.TriggerCommand = "true"
+				j.TriggerOn = store.TriggerOnError
+			})
+			h.start(t.Context())
+			run := h.waitForRun(id, store.RunSkipped)
+			assert.Contains(t, run.Error, "exited 0")
+		})
+
+		t.Run("gate_output_prepends_prompt", func(t *testing.T) {
+			h := newHarness(t, nil)
+			slot := time.Now().Add(10 * time.Millisecond)
+			id := h.addJob("gate-output", func(j *store.Job) {
+				j.NextRunAt = &slot
+				j.Prompt = "summarize the changes"
+				j.TriggerCommand = "printf 'line one\\nline two'"
+			})
+			h.start(t.Context())
+			h.waitForRun(id, store.RunOK)
+			prompt := h.submittedPrompt()
+
+			assert.Contains(t, prompt, "line one\nline two")
+			assert.True(t, strings.HasSuffix(prompt, "summarize the changes"))
+		})
+
+		t.Run("launcher_job_skips_without_prompt", func(t *testing.T) {
+			h := newHarness(t, nil)
+			slot := time.Now().Add(10 * time.Millisecond)
+			id := h.addJob("gate-launcher", func(j *store.Job) {
+				j.NextRunAt = &slot
+				j.Prompt = ""
+				j.TriggerCommand = "exit 1"
+			})
+			h.start(t.Context())
+			run := h.waitForRun(id, store.RunSkipped)
+			assert.Empty(t, run.SessionID)
+		})
+
+		t.Run("gate_runs_in_job_workspace", func(t *testing.T) {
+			h := newHarness(t, nil)
+			ws := t.TempDir()
+			slot := time.Now().Add(10 * time.Millisecond)
+			id := h.addJob("gate-workspace", func(j *store.Job) {
+				j.NextRunAt = &slot
+				j.Prompt = "do the thing"
+				j.Workspace = ws
+				j.TriggerCommand = "pwd"
+			})
+			h.start(t.Context())
+			run := h.waitForRun(id, store.RunOK)
+			prompt := h.submittedPrompt()
+
+			assert.Empty(t, run.Error)
+			assert.Contains(t, prompt, "Pre-run command `pwd` succeeded")
+			assert.Contains(t, prompt, ws)
+		})
+
+		t.Run("empty_workspace_inherits_cwd", func(t *testing.T) {
+			h := newHarness(t, nil)
+			slot := time.Now().Add(10 * time.Millisecond)
+			id := h.addJob("gate-inherit", func(j *store.Job) {
+				j.NextRunAt = &slot
+				j.Prompt = "do the thing"
+				j.Workspace = "" // an optional/legacy field must not break firing
+				j.TriggerCommand = "pwd"
+			})
+			h.start(t.Context())
+			run := h.waitForRun(id, store.RunOK)
+			prompt := h.submittedPrompt()
+
+			wd, err := os.Getwd() // the gate ran from swarm's own working directory
+			require.NoError(t, err)
+			assert.Empty(t, run.Error)
+			assert.Contains(t, prompt, "Pre-run command `pwd` succeeded")
+			assert.Contains(t, prompt, wd)
+		})
 	})
-	h.waitForRun(id, store.RunRunning)
-
-	_, err := h.sched.FireNow(h.t.Context(), id)
-	require.ErrorIs(t, err, store.ErrLiveRun)
-}
-
-func TestSchedulerLaunchFailureRecordsReason(t *testing.T) {
-	t.Parallel()
-	h := newHarness(t, nil)
-	h.runner.launchErr = errors.New("spawn ajent: binary missing")
-	h.start(t.Context())
-
-	id := h.addJob("broken", func(j *store.Job) {
-		slot := time.Now().Add(10 * time.Millisecond)
-		j.NextRunAt = &slot
-	})
-
-	run := h.waitForRun(id, store.RunFailed)
-	assert.Contains(t, run.Error, "binary missing")
-	assert.Empty(t, run.SessionID)
-
-	// the job keeps its cadence: the next slot still fires after the failure
-	require.Eventually(t, func() bool { return len(h.runRows(id)) == 2 },
-		3*time.Second, 10*time.Millisecond)
-}
-
-func TestSchedulerNudgeFiresEnabledJobPromptly(t *testing.T) {
-	t.Parallel()
-	h := newHarness(t, nil)
-	id := h.addJob("nudged", func(j *store.Job) {
-		slot := time.Now().Add(10 * time.Millisecond)
-		j.NextRunAt = &slot
-	})
-	h.start(t.Context())
-
-	h.waitForRun(id, store.RunOK)
-
-	// re-enabling with a fresh slot lands without waiting out the tick
-	slot := time.Now().Add(time.Millisecond)
-	j := h.jobByID(id)
-	j.NextRunAt = &slot
-	require.NoError(h.t, h.store.UpdateJob(h.t.Context(), j))
-	h.sched.Nudge()
-
-	require.Eventually(t, func() bool { return len(h.runRows(id)) == 2 },
-		time.Second, 10*time.Millisecond)
 }

@@ -62,10 +62,14 @@ func (m *Manager) SavedSessions() ([]SavedSession, error) {
 	out := make([]SavedSession, 0, len(rows))
 	for _, row := range rows {
 		_, isLive := live[row.ID]
+		target := row.ID // resume handle: the name, else the id
+		if row.Name != "" {
+			target = row.Name
+		}
 		out = append(out, SavedSession{
 			ID:        row.ID,
 			Name:      row.Name,
-			Target:    savedTarget(row),
+			Target:    target,
 			Workspace: row.Workspace,
 			Model:     row.Model,
 			StartedMs: unixMilli(row.Started),
@@ -126,8 +130,8 @@ func (m *Manager) savedRow(target string) (session.Listed, error) {
 	return session.Listed{}, fmt.Errorf("%w: %s", ErrUnknownSaved, target)
 }
 
-// errNoSavedMatch marks the miss findSavedRow resolves ambiguity errors
-// around.
+// errNoSavedMatch reports a target that matched no row; findSavedRow uses it
+// to tell misses apart from ambiguity and store errors.
 var errNoSavedMatch = errors.New("no saved session matches")
 
 func findSavedRow(rows []session.Listed, target string) (session.Listed, error) {
@@ -147,7 +151,7 @@ func findSavedRow(rows []session.Listed, target string) (session.Listed, error) 
 	case 1:
 		return named[0], nil
 	case 0:
-		return session.Listed{}, fmt.Errorf("%w: %s", errNoSavedMatch, target)
+		return session.Listed{}, errNoSavedMatch
 	default:
 		paths := make([]string, 0, len(named))
 		for _, r := range named {
@@ -156,15 +160,6 @@ func findSavedRow(rows []session.Listed, target string) (session.Listed, error) 
 		return session.Listed{}, fmt.Errorf("%w: %q names %d sessions: %s",
 			ErrAmbiguousSaved, target, len(named), strings.Join(paths, ", "))
 	}
-}
-
-// savedTarget derives the resume handle for a listing row: its name, else
-// its id.
-func savedTarget(row session.Listed) string {
-	if row.Name != "" {
-		return row.Name
-	}
-	return row.ID
 }
 
 // recordedTip derives a recorded transcript's tip at read time: among the
@@ -213,24 +208,9 @@ func pageBranch(branch []session.Entry, before string, limit int) ([]ctl.Entry, 
 		}
 		end = idx
 	}
-	limit = min(max(limit, 1), pageMaxEntries)
-
-	out := make([]ctl.Entry, 0, min(end, limit))
-	used := 0
-	i := end - 1
-	for ; i >= 0; i-- {
-		if len(out) > 0 && (len(out) >= limit || used >= initMaxBytes) {
-			break
-		}
-		out = append(out, wireEntry(branch[i]))
-		used += len(branch[i].Data) + 128
-	}
-	slices.Reverse(out)
-	cursor := ""
-	if i >= 0 && len(out) > 0 {
-		cursor = out[0].ID
-	}
-	return out, cursor
+	return tailEntries(branch, end, min(max(limit, 1), pageMaxEntries),
+		func(e session.Entry) int { return len(e.Data) + 128 },
+		wireEntry)
 }
 
 // unixMilli renders a listing timestamp; zero stays zero.

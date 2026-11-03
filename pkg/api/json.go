@@ -4,15 +4,21 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"net"
 	"net/http"
-	"strings"
-
-	"github.com/jentfoo/ajent-swarm/pkg/auth"
 )
 
 // maxBodyBytes bounds every request body; the API carries small JSON only.
 const maxBodyBytes = 1 << 20
+
+// Wire codes shared across handlers; clients branch on codes, not prose.
+const (
+	codeInternalError   = "internal_error"
+	codeInvalidRequest  = "invalid_request"
+	codeNotFound        = "not_found"
+	codeConflict        = "conflict"
+	codeJobNotFound     = "job_not_found"
+	codeSessionNotFound = "session_not_found"
+)
 
 // errorBody is the one error envelope every failure uses, so clients branch
 // on codes instead of parsing prose.
@@ -21,8 +27,7 @@ type errorBody struct {
 	Message string `json:"message,omitempty"`
 }
 
-// writeJSON encodes v as a JSON response body. Encode failures after the
-// status line are unrecoverable by design; only unreachable types hit them.
+// writeJSON encodes v as a JSON response body.
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -32,6 +37,15 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 // writeError answers with the standard envelope.
 func writeError(w http.ResponseWriter, status int, code, message string) {
 	writeJSON(w, status, errorBody{Error: code, Message: message})
+}
+
+// orEmptySlice replaces a typed nil slice with an empty one so list replies
+// encode as [] rather than null.
+func orEmptySlice[T any](rows []T) []T {
+	if rows == nil {
+		return []T{}
+	}
+	return rows
 }
 
 // readRequest decodes a strict JSON body into dst. Unknown fields and
@@ -67,34 +81,4 @@ func decodeBody(w http.ResponseWriter, r *http.Request, dst any, require bool) b
 		return false
 	}
 	return true
-}
-
-// principalOrUnauthorized returns the request's principal or answers 401 itself.
-func principalOrUnauthorized(w http.ResponseWriter, r *http.Request) (auth.Principal, bool) {
-	p, ok := auth.PrincipalFrom(r.Context())
-	if !ok {
-		writeError(w, http.StatusUnauthorized, "unauthorized", "")
-	}
-	return p, ok
-}
-
-// isLoopback reports whether the request arrived from a loopback peer.
-func isLoopback(r *http.Request) bool {
-	host := r.RemoteAddr
-	if h, _, err := net.SplitHostPort(host); err == nil {
-		host = h
-	}
-	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
-}
-
-// secureCookie marks a cookie Secure when the request arrived over TLS or
-// through a reverse proxy that terminated it, so remote logins keep the
-// credential off plaintext hops. Direct HTTP stays without the flag: an
-// unencrypted origin cannot honor it anyway.
-func secureCookie(r *http.Request, c *http.Cookie) *http.Cookie {
-	if r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
-		c.Secure = true
-	}
-	return c
 }

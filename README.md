@@ -7,7 +7,7 @@ Central controller for managing multiple [ajent](https://github.com/jentfoo/ajen
 
 ## Status
 
-Phases 02 through 07 are implemented: flags, SQLite state store, unix-user
+Phases 02 through 11 are implemented: flags, SQLite state store, unix-user
 auth with bcrypt passwords, daemon modes, and the fleet (a registry watch
 spawning one actor per live ajent instance, seat ownership, watermark
 reconciliation, and a multiplexed `/api/stream` WebSocket that fans reconciled
@@ -20,10 +20,11 @@ recalls onto live sessions. A persistent scheduler defines jobs (one-shot,
 interval or daily in any IANA zone) that launch headless runs on schedule with
 optional shell prefixes and prompts, watch them settle through the control
 socket, park at permission barriers as `awaiting_input`, and record full run
-history under bounded retention. The React frontend ships auth screens, the
-desktop and mobile shells, a sessions home, and the stateful core (a shared
-stream client with per-session reference counting plus a fixture-tested
-EventApplier) that later UI phases build on.
+history under bounded retention. The React frontend ships auth screens, a
+desktop shell with the attention inbox and tile workspaces, the scheduler UI,
+and a phone-first mobile experience (phase 11): launcher and switcher over one
+bottom sheet, touch-sized dialogs, a keyboard-aware composer, swarm-stored
+session titles, and remote access behind TLS or a reverse proxy.
 
 ## Requirements
 
@@ -57,6 +58,60 @@ startup re-adopts orphans from the persisted children table. Stopping a session
 control connection, falling back to SIGTERM and SIGKILL for swarm's own
 children. `--kill-children-on-shutdown` opts into taking every running child
 down when the service exits.
+
+## Remote access from a phone
+
+A phone cannot reach the host's loopback listener, so real devices ride a
+reverse proxy that terminates TLS and forwards to `127.0.0.1:8282`. The
+service itself always binds plaintext HTTP; encryption belongs at the edge:
+
+```sh
+./bin/ajent-swarm --host 127.0.0.1   # default; the proxy is the only peer
+```
+
+Logins over TLS (direct or via a proxy that sets `X-Forwarded-Proto: https`)
+mark the session cookie `Secure` automatically, so the credential never rides
+a plaintext hop. Pairing a phone is then just signing in with your unix
+username.
+
+The first password bootstrap stays loopback-restricted: open the web page once
+on the host machine and set it there, or pass `--password` at startup.
+`--allow-remote-bootstrap` lifts the restriction when you truly must set the
+first password from a remote device — prefer not to; a password typed on a
+phone crosses any network you do not control.
+
+### Caddy
+
+```
+swarm.example.com {
+    reverse_proxy 127.0.0.1:8282
+}
+```
+
+Caddy sets `X-Forwarded-Proto` and provisions certificates automatically; the
+WebSocket at `/api/stream` upgrades through it unchanged.
+
+### nginx
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name swarm.example.com;
+
+    location / {
+        proxy_pass http://127.0.0.1:8282;
+        proxy_http_version 1.1;          # required for the WebSocket upgrade
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_read_timeout 75s;          # keep the stream open past idle beats
+    }
+}
+```
+
+Without `X-Forwarded-Proto: https` the service cannot know the hop is
+encrypted and leaves the cookie unmarked, so a direct plaintext login stays
+possible but an HTTPS-proxied one always gets the flag.
 
 ## Development
 

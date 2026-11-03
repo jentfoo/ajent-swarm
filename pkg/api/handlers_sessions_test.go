@@ -28,12 +28,13 @@ import (
 )
 
 // sessionHarness serves the phase 05 endpoints over a temp ajent home whose
-// fleet discovers real stub sessions.
+// fleet discovers real stub sessions and persists titles to its own store.
 type sessionHarness struct {
 	t      *testing.T
 	server *httptest.Server
 	client *http.Client
 	mgr    *fleet.Manager
+	st     *store.Store
 }
 
 // newSessionAPI builds the harness with an authenticated client. The ajent
@@ -58,6 +59,7 @@ func newSessionAPI(t *testing.T) *sessionHarness {
 		PollInterval: 10 * time.Millisecond,
 		BackoffBase:  5 * time.Millisecond,
 		BackoffMax:   50 * time.Millisecond,
+		TitleStore:   titleStore{st: st},
 	})
 	mgr.Start(t.Context())
 	t.Cleanup(mgr.Stop)
@@ -69,7 +71,7 @@ func newSessionAPI(t *testing.T) *sessionHarness {
 	require.NoError(t, err)
 	client := &http.Client{Jar: jar}
 	bootstrapAndLogin(t, client, server.URL)
-	return &sessionHarness{t: t, server: server, client: client, mgr: mgr}
+	return &sessionHarness{t: t, server: server, client: client, mgr: mgr, st: st}
 }
 
 // newStub binds one stub session without the fleet watching it yet, so tests

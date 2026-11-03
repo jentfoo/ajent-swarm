@@ -45,6 +45,7 @@ type actorKey struct {
 type Status struct {
 	SessionID        string `json:"sessionId"`
 	Name             string `json:"name,omitempty"`
+	Title            string `json:"title,omitempty"` // stored swarm display title, preferred for labels
 	Workspace        string `json:"workspace,omitempty"`
 	Model            string `json:"model,omitempty"`
 	PID              int    `json:"pid,omitempty"`
@@ -58,6 +59,7 @@ type Status struct {
 	Spinning         bool   `json:"spinning,omitempty"`
 	OpenInteractions int    `json:"openInteractions"`
 	LastTurnEnd      int64  `json:"lastTurnEnd,omitempty"` // unix milliseconds
+	ExitedAt         int64  `json:"exitedAt,omitempty"`    // unix milliseconds, exited swarm children only
 
 	// Attention digest facts: what holds input and how the last turn ended,
 	// one line each so the desktop inbox renders reasons without subscribing.
@@ -412,6 +414,16 @@ func (a *sessionActor) handle(m actorMsg) {
 		a.handleSnapshot(msg)
 	case msgModelDiscover:
 		a.handleModelDiscover(msg)
+	case msgSnapshotModels:
+		a.handleModels(msg)
+	case msgSnapshotModelSet:
+		a.handleModelSet(msg)
+	case msgSnapshotTools:
+		a.handleToolsSet(msg)
+	case msgSnapshotSettings:
+		a.handleSettings(msg)
+	case msgSnapshotSettingSet:
+		a.handleSettingSet(msg)
 	case msgRename:
 		a.handleRename(msg)
 	case msgRewindSource:

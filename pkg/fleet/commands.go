@@ -56,10 +56,50 @@ type cmdRecall struct {
 
 type msgSnapshot struct{ reply chan snapshotReply }
 
+// Snapshot command messages for the phase-13 control methods.
+type msgSnapshotModels struct{ reply chan cmdModels }
+
+type msgSnapshotModelSet struct {
+	model string
+	reply chan cmdString
+}
+
+type msgSnapshotTools struct {
+	names []string
+	reply chan cmdTools
+}
+
+type msgSnapshotSettings struct {
+	reply chan cmdSettings[ctl.SettingsData]
+}
+
+type msgSnapshotSettingSet struct {
+	params ctl.SettingsSetParams
+	reply  chan cmdSettings[ctl.SettingsSetResult]
+}
+
 // snapshotReply carries one reconciled state beside why it is missing.
 type snapshotReply struct {
 	state ctl.State
 	err   error
+}
+
+// cmdModels carries a models.get listing beside its error.
+type cmdModels struct {
+	data ctl.ModelsData
+	err  error
+}
+
+// cmdTools carries the tool rows after a reshape beside its error.
+type cmdTools struct {
+	res ctl.ToolsSetResult
+	err error
+}
+
+// cmdSettings carries a settings.get listing or one applied row beside its error.
+type cmdSettings[T any] struct {
+	data T
+	err  error
 }
 
 // ready reports whether upstream commands can run: a live connection with a
@@ -197,6 +237,84 @@ func (a *sessionActor) handleSnapshot(msg msgSnapshot) {
 	msg.reply <- snapshotReply{state: a.view.snapshot()}
 }
 
+// --- control-method commands (phase 13 upstream surface) ---
+
+// handleModels lists the session's model registry; answers any seat.
+func (a *sessionActor) handleModels(msg msgSnapshotModels) {
+	if !a.ready() {
+		msg.reply <- cmdModels{err: notReady()}
+		return
+	}
+	cctx, cancel := a.callWait()
+	defer cancel()
+	data, err := a.conn.Models(cctx)
+	msg.reply <- cmdModels{data: data, err: err}
+}
+
+// handleModelSet switches the session-only model; refuses while unheld.
+func (a *sessionActor) handleModelSet(msg msgSnapshotModelSet) {
+	if !a.ready() {
+		msg.reply <- cmdString{err: notReady()}
+		return
+	}
+	if err := a.ensureWriteSeat(); err != nil {
+		msg.reply <- cmdString{err: err}
+		return
+	}
+	cctx, cancel := a.callWait()
+	defer cancel()
+	res, err := a.conn.ModelSet(cctx, msg.model)
+	if err != nil {
+		msg.reply <- cmdString{err: err}
+		return
+	}
+	msg.reply <- cmdString{value: res.Model.Key}
+}
+
+// handleToolsSet reshapes the enabled tool set through tools.set.
+func (a *sessionActor) handleToolsSet(msg msgSnapshotTools) {
+	if !a.ready() {
+		msg.reply <- cmdTools{err: notReady()}
+		return
+	}
+	if err := a.ensureWriteSeat(); err != nil {
+		msg.reply <- cmdTools{err: err}
+		return
+	}
+	cctx, cancel := a.callWait()
+	defer cancel()
+	res, err := a.conn.ToolsSet(cctx, msg.names)
+	msg.reply <- cmdTools{res: res, err: err}
+}
+
+// handleSettings lists the /settings rows; answers any seat.
+func (a *sessionActor) handleSettings(msg msgSnapshotSettings) {
+	if !a.ready() {
+		msg.reply <- cmdSettings[ctl.SettingsData]{err: notReady()}
+		return
+	}
+	cctx, cancel := a.callWait()
+	defer cancel()
+	data, err := a.conn.Settings(cctx)
+	msg.reply <- cmdSettings[ctl.SettingsData]{data: data, err: err}
+}
+
+// handleSettingSet applies one setting through settings.set.
+func (a *sessionActor) handleSettingSet(msg msgSnapshotSettingSet) {
+	if !a.ready() {
+		msg.reply <- cmdSettings[ctl.SettingsSetResult]{err: notReady()}
+		return
+	}
+	if err := a.ensureWriteSeat(); err != nil {
+		msg.reply <- cmdSettings[ctl.SettingsSetResult]{err: err}
+		return
+	}
+	cctx, cancel := a.callWait()
+	defer cancel()
+	res, err := a.conn.SettingsSet(cctx, msg.params)
+	msg.reply <- cmdSettings[ctl.SettingsSetResult]{data: res, err: err}
+}
+
 // mailboxCommand routes one command through the actor's mailbox under the
 // standard request budget, so a busy or wedged actor answers as a timeout.
 func mailboxCommand[T any](ctx context.Context, a *sessionActor, build func(chan T) actorMsg) (T, error) {
@@ -308,4 +426,83 @@ func (m *Manager) Snapshot(ctx context.Context, sessionID string) (ctl.State, er
 		return ctl.State{}, err
 	}
 	return res.state, res.err
+}
+
+// Models lists the session's model registry exactly as the running process
+// resolved it, with the key now in effect.
+func (m *Manager) Models(ctx context.Context, sessionID string) (ctl.ModelsData, error) {
+	a := m.route(sessionID)
+	if a == nil {
+		return ctl.ModelsData{}, ErrUnknownSession
+	}
+	res, err := mailboxCommand(ctx, a, func(reply chan cmdModels) actorMsg {
+		return msgSnapshotModels{reply: reply}
+	})
+	if err != nil {
+		return ctl.ModelsData{}, err
+	}
+	return res.data, res.err
+}
+
+// ModelSet switches the session onto one model, session-only: no config layer
+// is rewritten. The reply names the canonical key it resolved to.
+func (m *Manager) ModelSet(ctx context.Context, sessionID, model string) (string, error) {
+	a := m.route(sessionID)
+	if a == nil {
+		return "", ErrUnknownSession
+	}
+	res, err := mailboxCommand(ctx, a, func(reply chan cmdString) actorMsg {
+		return msgSnapshotModelSet{model: model, reply: reply}
+	})
+	if err != nil {
+		return "", err
+	}
+	return res.value, res.err
+}
+
+// ToolsSet reshapes the enabled tool set through ajent's own apply and answers
+// the full-replacement rows after it.
+func (m *Manager) ToolsSet(ctx context.Context, sessionID string, names []string) (ctl.ToolsSetResult, error) {
+	a := m.route(sessionID)
+	if a == nil {
+		return ctl.ToolsSetResult{}, ErrUnknownSession
+	}
+	res, err := mailboxCommand(ctx, a, func(reply chan cmdTools) actorMsg {
+		return msgSnapshotTools{names: names, reply: reply}
+	})
+	if err != nil {
+		return ctl.ToolsSetResult{}, err
+	}
+	return res.res, res.err
+}
+
+// Settings lists the /settings rows with values, sources and editability.
+func (m *Manager) Settings(ctx context.Context, sessionID string) (ctl.SettingsData, error) {
+	a := m.route(sessionID)
+	if a == nil {
+		return ctl.SettingsData{}, ErrUnknownSession
+	}
+	res, err := mailboxCommand(ctx, a, func(reply chan cmdSettings[ctl.SettingsData]) actorMsg {
+		return msgSnapshotSettings{reply: reply}
+	})
+	if err != nil {
+		return ctl.SettingsData{}, err
+	}
+	return res.data, res.err
+}
+
+// SettingSet applies one setting as a session override with its live effects,
+// optionally persisting to a config layer. The reply is the row after.
+func (m *Manager) SettingSet(ctx context.Context, sessionID string, params ctl.SettingsSetParams) (ctl.SettingsSetResult, error) {
+	a := m.route(sessionID)
+	if a == nil {
+		return ctl.SettingsSetResult{}, ErrUnknownSession
+	}
+	res, err := mailboxCommand(ctx, a, func(reply chan cmdSettings[ctl.SettingsSetResult]) actorMsg {
+		return msgSnapshotSettingSet{params: params, reply: reply}
+	})
+	if err != nil {
+		return ctl.SettingsSetResult{}, err
+	}
+	return res.data, res.err
 }

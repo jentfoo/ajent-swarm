@@ -175,6 +175,7 @@ export type ServerFrame = InitFrame | EventFrame | ChildFrame | ErrorFrame | Hea
 export interface SessionStatus {
   sessionId: string
   name?: string
+  title?: string // stored swarm display title, preferred for labels
   workspace?: string
   model?: string
   pid?: number
@@ -187,6 +188,7 @@ export interface SessionStatus {
   idle: boolean
   openInteractions: number
   lastTurnEnd?: number // unix milliseconds
+  exitedAt?: number // unix milliseconds, exited swarm children only
   spawnedBy: 'swarm' | 'external'
   argv?: string
   logPath?: string
@@ -398,6 +400,36 @@ export interface LaunchRequest {
   model?: string
   permission?: string
   commandPrefix?: string
+}
+
+// ModelListing is GET /api/sessions/{id}/models, the models.get registry with
+// its active key; a controller picks without riding a picker.
+export interface ModelListing {
+  active: string
+  models: ModelState[]
+}
+
+export interface ToolSetReply {
+  rows: ToolState[] // full replacement after the reshape
+}
+
+// SettingRow is one /settings row: label, dotted key, resolved value with its
+// source layer, and whether it can change right now.
+export interface SettingRow {
+  label: string
+  key?: string
+  value?: unknown
+  source?: string // default | user | project | local | session | active
+  editable: boolean
+  reason?: string
+}
+
+export interface SettingsRowsReply {
+  rows: SettingRow[]
+}
+
+export interface SettingSetReply {
+  row: SettingRow // the row after the change, menus re-render from it
 }
 
 export interface LaunchResult {

@@ -9,6 +9,7 @@ import type {
   LaunchRequest,
   LaunchResult,
   MeReply,
+  ModelListing,
   ModelRow,
   ModeReply,
   RecallRow,
@@ -21,7 +22,10 @@ import type {
   SavedSession,
   SchedulePreview,
   SessionStatus,
+  SettingSetReply,
+  SettingsRowsReply,
   SubmitReply,
+  ToolSetReply,
 } from './types'
 
 // Auth endpoints. Bootstrap answers 409 once a password already exists.
@@ -90,6 +94,21 @@ export const sessions = {
     form.append('file', file)
     return postForm<AttachmentReply>(withID(id, '/attachments'), form)
   },
+
+  // models.get and model.set without riding a picker dialog.
+  models: (id: string, signal?: AbortSignal) =>
+    get<ModelListing>(withID(id, '/models'), { signal }),
+  setModel: (id: string, model: string) => post<{ model: string }>(withID(id, '/model'), { model }),
+
+  // tools.set reshapes the enabled set; settings.get/set read and write rows.
+  setTools: (id: string, names: string[]) => post<ToolSetReply>(withID(id, '/tools'), { names }),
+  settings: (id: string, signal?: AbortSignal) =>
+    get<SettingsRowsReply>(withID(id, '/settings'), { signal }),
+  setSetting: (id: string, key: string, value: unknown, persist?: 'user' | 'project') =>
+    post<SettingSetReply>(withID(id, '/setting'), { key, value, persist }),
+
+  // swarm-side display titles; empty clears, ajent's own names stay untouched.
+  setTitle: (id: string, title: string) => post<void>(withID(id, '/title'), { title }),
 }
 
 // Scheduled jobs and their run history. preview evaluates one draft schedule

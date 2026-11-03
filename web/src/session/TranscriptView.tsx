@@ -12,6 +12,10 @@ import { deriveBlocks } from '../state/derive'
 // disengages autoscroll and shows the jump pill.
 const stickGap = 60
 
+// pullDownPx is how far a downward drag may rubber-band at the very top of the
+// history before the mobile pull-to-latest gesture fires.
+const pullDownPx = 64
+
 // TranscriptView renders the committed chain as a virtualized block list keyed
 // by entry id, with prints and diffs as transient cards beneath it and the
 // pinned live stream at the bottom. Stick-to-bottom autoscroll disengages on
@@ -19,9 +23,11 @@ const stickGap = 60
 export function TranscriptView({
   state,
   loadOlder,
+  pullDownToLatest = false, // mobile: rubber-band at the top jumps to latest
 }: {
   state: AppliedSessionState
   loadOlder: () => Promise<boolean>
+  pullDownToLatest?: boolean
 }) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
@@ -103,6 +109,38 @@ export function TranscriptView({
     const el = scrollRef.current
     if (el) el.scrollTop = el.scrollHeight // the observer settles measurement
   }, [])
+
+  // Pull-to-latest: while already at the top of history, dragging further down
+  // is dead overscroll — exactly where a gesture cannot fight scrolling. The
+  // drag distance rides touchmove so it works through the rubber band.
+  useEffect(() => {
+    if (!pullDownToLatest) return
+    const el = scrollRef.current
+    if (!el) return
+    let startY: number | null = null
+    const begin = (ev: TouchEvent) => {
+      startY = ev.touches[0]?.clientY ?? null
+    }
+    const move = (ev: TouchEvent) => {
+      if (startY === null || el.scrollTop > 0) return
+      const dy = (ev.touches[0]?.clientY ?? 0) - startY
+      if (dy >= pullDownPx) {
+        startY = null
+        jumpToLatest()
+      }
+    }
+    const end = () => {
+      startY = null
+    }
+    el.addEventListener('touchstart', begin, { passive: true })
+    el.addEventListener('touchmove', move, { passive: true })
+    el.addEventListener('touchend', end, { passive: true })
+    return () => {
+      el.removeEventListener('touchstart', begin)
+      el.removeEventListener('touchmove', move)
+      el.removeEventListener('touchend', end)
+    }
+  }, [pullDownToLatest, jumpToLatest])
 
   return (
     <div className="transcript-wrap" aria-label="Transcript">

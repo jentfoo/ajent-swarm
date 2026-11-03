@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strings"
 
 	"github.com/jentfoo/ajent-swarm/pkg/auth"
 )
@@ -85,4 +86,15 @@ func isLoopback(r *http.Request) bool {
 	}
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
+}
+
+// secureCookie marks a cookie Secure when the request arrived over TLS or
+// through a reverse proxy that terminated it, so remote logins keep the
+// credential off plaintext hops. Direct HTTP stays without the flag: an
+// unencrypted origin cannot honor it anyway.
+func secureCookie(r *http.Request, c *http.Cookie) *http.Cookie {
+	if r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
+		c.Secure = true
+	}
+	return c
 }

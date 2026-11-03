@@ -30,7 +30,7 @@ func (s *apiServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal_error", "login failed")
 		return
 	}
-	http.SetCookie(w, s.auth.SessionCookie(token))
+	http.SetCookie(w, secureCookie(r, s.auth.SessionCookie(token)))
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -39,7 +39,7 @@ func (s *apiServer) handleLogout(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie(auth.SessionCookieName); err == nil && c.Value != "" {
 		_ = s.auth.Logout(r.Context(), c.Value)
 	}
-	http.SetCookie(w, s.auth.ClearSessionCookie())
+	http.SetCookie(w, secureCookie(r, s.auth.ClearSessionCookie()))
 	w.WriteHeader(http.StatusNoContent)
 }
 

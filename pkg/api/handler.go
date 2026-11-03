@@ -45,6 +45,12 @@ var apiMethods = map[string]string{
 	"/api/sessions/{id}/snapshot":      http.MethodGet,
 	"/api/sessions/{id}/files":         http.MethodGet,
 	"/api/sessions/{id}/attachments":   http.MethodPost,
+	"/api/sessions/{id}/models":        http.MethodGet,
+	"/api/sessions/{id}/model":         http.MethodPost,
+	"/api/sessions/{id}/tools":         http.MethodPost,
+	"/api/sessions/{id}/settings":      http.MethodGet,
+	"/api/sessions/{id}/setting":       http.MethodPost,
+	"/api/sessions/{id}/title":         http.MethodPost,
 	"/api/attention":                   http.MethodGet,
 	"/api/models":                      http.MethodGet,
 	"/api/saved-sessions":              http.MethodGet,
@@ -113,6 +119,12 @@ func Handler(cfg Config) http.Handler {
 	apiMux.HandleFunc("GET /api/sessions/{id}/snapshot", srv.handleSessionSnapshot)
 	apiMux.HandleFunc("GET /api/sessions/{id}/files", srv.handleSessionFiles)
 	apiMux.HandleFunc("POST /api/sessions/{id}/attachments", srv.handleSessionAttachment)
+	apiMux.HandleFunc("GET /api/sessions/{id}/models", srv.handleSessionModels)
+	apiMux.HandleFunc("POST /api/sessions/{id}/model", srv.handleSessionModelSet)
+	apiMux.HandleFunc("POST /api/sessions/{id}/tools", srv.handleSessionTools)
+	apiMux.HandleFunc("GET /api/sessions/{id}/settings", srv.handleSessionSettings)
+	apiMux.HandleFunc("POST /api/sessions/{id}/setting", srv.handleSessionSettingSet)
+	apiMux.HandleFunc("POST /api/sessions/{id}/title", srv.handleSessionTitle)
 	apiMux.HandleFunc("GET /api/attention", srv.handleAttention)
 	apiMux.HandleFunc("GET /api/models", srv.handleModels)
 	apiMux.HandleFunc("GET /api/saved-sessions", srv.handleSavedSessions)

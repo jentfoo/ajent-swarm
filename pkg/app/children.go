@@ -56,3 +56,14 @@ func (a childStore) Children(ctx context.Context) ([]fleet.ChildRecord, error) {
 	}
 	return out, nil
 }
+
+// titleStore adapts the SQLite store to fleet's TitleStore interface.
+type titleStore struct{ st *store.Store }
+
+func (a titleStore) SetSessionTitle(ctx context.Context, sessionID, title string) error {
+	return a.st.SetSessionTitle(ctx, sessionID, title)
+}
+
+func (a titleStore) SessionTitles(ctx context.Context) (map[string]string, error) {
+	return a.st.SessionTitles(ctx)
+}

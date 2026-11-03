@@ -25,6 +25,9 @@ interface SwarmContextValue {
   density: Density
   setTheme: (theme: Theme) => void
   setDensity: (density: Density) => void
+  // refreshSessions forces the discovery poll; label edits use it so rows
+  // re-render without waiting out the cadence.
+  refreshSessions: () => Promise<void>
 }
 
 const SwarmContext = createContext<SwarmContextValue | null>(null)
@@ -102,6 +105,10 @@ export function SwarmProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     document.documentElement.dataset.theme = theme
     writeStored('swarm.theme', theme)
+    // installed web app chrome follows the in-app setting, not just prefers-
+    // color-scheme, so add-to-home-screen keeps one consistent surface
+    const meta = document.querySelector('meta[data-theme-color]')
+    meta?.setAttribute('content', theme === 'dark' ? '#101216' : '#f6f7f9')
   }, [theme])
   useEffect(() => {
     document.documentElement.dataset.density = density
@@ -119,8 +126,9 @@ export function SwarmProvider({ children }: { children: ReactNode }) {
       density,
       setTheme: (t) => setThemeState(t),
       setDensity: (d) => setDensityState(d),
+      refreshSessions: refreshSessions,
     }),
-    [stream, store, sessions, attention, connection, theme, density],
+    [stream, store, sessions, attention, connection, theme, density, refreshSessions],
   )
 
   return <SwarmContext.Provider value={value}>{children}</SwarmContext.Provider>

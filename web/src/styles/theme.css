@@ -1301,3 +1301,390 @@ label {
     overflow-y: auto;
   }
 }
+
+/* --- phase 11: mobile experience ---
+   One session at a time under the breakpoint: launcher and switcher rows,
+   bottom sheets with drag handles, touch-sized dialogs, keyboard-aware
+   composer spacing and pushed full-screen panels. */
+
+.mobile-topbar {
+  padding-right: calc(var(--unit) * 4);
+}
+.mobile-content {
+  padding: calc(var(--unit) * 3);
+  max-width: none;
+}
+
+/* launcher and switcher rows: large targets with status beside the label */
+.switcher-rows {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--unit) * 2);
+}
+.switch-row {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--unit) * 1);
+  padding: calc(var(--unit) * 3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation; /* no double-tap zoom lag on rows */
+}
+.switch-row.pressed {
+  background: var(--surface-2);
+}
+.switch-top {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--unit) * 2);
+}
+.switch-name {
+  font-weight: 550;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.switch-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 24px;
+}
+.switch-reason {
+  font-size: var(--fs-small);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobile-home section {
+  margin-bottom: calc(var(--unit) * 5);
+}
+.mobile-home h2 {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--unit) * 3);
+  font-size: var(--fs-body);
+  margin: 0 0 calc(var(--unit) * 2);
+}
+.mobile-links {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--unit) * 2);
+}
+.mobile-links a {
+  display: flex;
+  flex-direction: column;
+  padding: calc(var(--unit) * 3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  min-height: 44px; /* touch target floor */
+}
+.mobile-links a .muted {
+  font-size: var(--fs-small);
+}
+
+.launch-form label,
+.session-picker {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--unit) * 1);
+  margin-bottom: calc(var(--unit) * 3);
+}
+.saved-resume {
+  margin-top: calc(var(--unit) * 4);
+  border-top: 1px solid var(--border);
+  padding-top: calc(var(--unit) * 3);
+}
+.saved-resume h3 {
+  font-size: var(--fs-small);
+  margin: 0 0 calc(var(--unit) * 2);
+}
+.saved-row {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--unit) * 1);
+  text-align: left;
+  width: 100%;
+  margin-bottom: calc(var(--unit) * 2);
+}
+.saved-meta {
+  font-size: var(--fs-small);
+}
+
+/* bottom sheet with drag handle */
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+  z-index: 30;
+}
+.bottom-sheet {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  max-height: 82vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius) var(--radius) 0 0;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.bottom-sheet.dragging {
+  transition: none;
+}
+.sheet-handle {
+  display: flex;
+  justify-content: center;
+  padding: calc(var(--unit) * 3) 0; /* generous grab target */
+  touch-action: none;
+  cursor: grab;
+}
+.sheet-grip {
+  width: 44px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--border);
+}
+.bottom-sheet > .switcher-rows,
+.bottom-sheet > * {
+  min-height: 0;
+}
+.switcher-rows,
+.rewind-list {
+  overflow-y: auto;
+  padding: 0 calc(var(--unit) * 3) calc(var(--unit) * 4);
+}
+
+/* mobile session screen: compact sticky header, strip above the composer */
+.mobile-session {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.mobile-session-header {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: calc(var(--unit) * 2);
+  padding: calc(var(--unit) * 2) calc(var(--unit) * 3);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.mobile-session-header .back-link {
+  font-size: 1.2em;
+  min-width: 32px;
+  min-height: 44px; /* touch target */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.seat-claim {
+  white-space: normal;
+  text-align: left;
+}
+
+.model-chip-wrap {
+  position: relative;
+  display: inline-flex;
+}
+.model-menu-list {
+  position: absolute;
+  top: calc(100% + var(--unit) * 1);
+  left: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--unit) * 1);
+  max-height: 50vh;
+  overflow-y: auto;
+}
+.model-menu-list button {
+  text-align: left;
+}
+
+.spinner {
+  margin-left: calc(var(--unit) * 1.5);
+  display: inline-block;
+}
+
+/* status strip: side rails collapsed into one slim line */
+.status-strip {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--unit) * 2);
+  padding: calc(var(--unit) * 1) calc(var(--unit) * 3);
+  border-top: 1px solid var(--border);
+  font-size: var(--fs-small);
+  overflow-x: auto;
+  white-space: nowrap;
+}
+.strip-segment {
+  flex-shrink: 0;
+}
+.activity-dots {
+  display: inline-flex;
+  gap: calc(var(--unit) * 1);
+  align-items: center;
+  flex-shrink: 0;
+}
+.activity-dots .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+/* touch dialogs: full-width stacked cards, big answer buttons */
+.dialog-dock.touch {
+  padding: calc(var(--unit) * 2) calc(var(--unit) * 3);
+}
+.dialog-card.touch .dialog-choice {
+  display: block;
+  width: 100%;
+  min-height: 44px; /* against the one-line compact row on purpose */
+  margin-bottom: calc(var(--unit) * 2);
+  text-align: center;
+}
+.dialog-card.secret-screen {
+  border-color: var(--warn);
+}
+.secret-row {
+  display: flex;
+  gap: calc(var(--unit) * 2);
+  margin-bottom: calc(var(--unit) * 3);
+}
+.secret-row input {
+  flex: 1;
+}
+
+/* pushed full-screen panels (tools, rewind) */
+.pushed-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 25;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.pushed-header {
+  position: sticky;
+  top: 0;
+  display: flex;
+  align-items: center;
+  gap: calc(var(--unit) * 3);
+  padding: calc(var(--unit) * 2) calc(var(--unit) * 3);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.pushed-header h2 {
+  font-size: var(--fs-body);
+  margin: 0;
+  flex: 1;
+}
+.tools-hint,
+.rewind-list {
+  padding-left: calc(var(--unit) * 3);
+  padding-right: calc(var(--unit) * 3);
+}
+.tool-rows {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--unit) * 2);
+  padding: 0 calc(var(--unit) * 3) calc(var(--unit) * 4);
+}
+.tool-row {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--unit) * 2);
+  min-height: 44px;
+  padding: calc(var(--unit) * 1) calc(var(--unit) * 2);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.tool-row.disabled {
+  opacity: 0.6;
+}
+.tool-source {
+  margin-left: auto;
+  font-size: var(--fs-small);
+}
+.rewind-list .rewind-row {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--unit) * 1);
+  text-align: left;
+  width: 100%;
+  cursor: pointer;
+}
+.rewind-list .rewind-row.head {
+  opacity: 0.6;
+}
+.rewind-text {
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+
+/* full-screen settings */
+.mobile-settings h2,
+.mobile-settings h3 {
+  font-size: var(--fs-body);
+}
+.appearance-row {
+  margin-bottom: calc(var(--unit) * 4);
+}
+.setting-row {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--unit) * 3);
+  min-height: 44px;
+  padding: calc(var(--unit) * 1) 0;
+  border-bottom: 1px solid var(--border);
+}
+.setting-row:last-child {
+  border-bottom: none;
+}
+.setting-row.text input {
+  flex: 1;
+}
+.setting-label {
+  font-weight: 550;
+}
+.segmented {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.segmented button {
+  min-height: 36px;
+  padding: 0 calc(var(--unit) * 4);
+  background: transparent;
+}
+.segmented button.active {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+/* mobile session screen owns its scrolling under the sticky header */
+@media (max-width: 48rem) {
+  .mobile-session .transcript-wrap {
+    flex: 1;
+    min-height: 0;
+  }
+}

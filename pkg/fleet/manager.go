@@ -58,6 +58,10 @@ type Options struct {
 	// NoNaming turns off auto-naming: unnamed sessions never get the one-shot
 	// labeler run over their first prompt.
 	NoNaming bool
+
+	// TitleStore persists swarm-side display titles; nil disables renames and
+	// every listing falls back to agent names, paths and short ids.
+	TitleStore TitleStore
 }
 
 // Manager tracks every live ajent instance and owns its actors' lifecycles.
@@ -77,6 +81,7 @@ type Manager struct {
 	exitGrace   time.Duration
 	termGrace   time.Duration
 	noNaming    bool
+	titleStore  TitleStore
 
 	ctx      context.Context
 	cancel   context.CancelFunc
@@ -93,6 +98,7 @@ type Manager struct {
 	children       map[int]*childProc // by pid, running and exited
 	childBySession map[string]int
 	named          map[string]struct{} // sessions whose auto-name already ran
+	titles         map[string]string   // cached display titles, mirrored from TitleStore
 }
 
 // New builds a manager; Start begins the registry watch.
@@ -114,6 +120,7 @@ func New(opts Options) *Manager {
 		exitGrace:       cmpOr(opts.ExitGrace, exitGraceDefault),
 		termGrace:       cmpOr(opts.TermGrace, termGraceDefault),
 		noNaming:        opts.NoNaming,
+		titleStore:      opts.TitleStore,
 		actors:          make(map[actorKey]*sessionActor),
 		subs:            make(map[int64]*subscription),
 		bySession:       make(map[string]map[int64]*subscription),
@@ -154,6 +161,9 @@ func (m *Manager) ownedInstance(inst ctl.Instance) bool {
 func (m *Manager) Start(ctx context.Context) {
 	m.ctx, m.cancel = context.WithCancel(ctx)
 	m.storeCtx = context.WithoutCancel(ctx)
+	if m.titleStore != nil {
+		m.loadTitles(ctx, m.titleStore)
+	}
 	m.adopt(ctx)
 	m.wg.Add(1)
 	go func() {
@@ -518,6 +528,9 @@ func (m *Manager) Sessions() []Status {
 	}
 	out := make([]Status, 0, len(bySession))
 	for _, st := range bySession {
+		// titles fold here: refreshStatus already runs under the manager lock,
+		// so the cached titles cannot be read there without deadlocking
+		st.Title = m.titleFor(st.SessionID)
 		out = append(out, *st)
 	}
 	slices.SortFunc(out, func(a, b Status) int { return strings.Compare(a.SessionID, b.SessionID) })
@@ -600,6 +613,9 @@ func decorateChild(st *Status, rec ChildRecord) {
 	st.LogPath = rec.LogPath
 	st.ExitCode = rec.ExitCode
 	st.LogTail = rec.LogTail
+	if !rec.ExitedAt.IsZero() {
+		st.ExitedAt = rec.ExitedAt.UnixMilli()
+	}
 }
 
 // childStatus renders a child no actor tracks: reaped ones keep their exit

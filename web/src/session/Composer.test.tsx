@@ -62,6 +62,32 @@ describe('Composer @-completion', () => {
     expect((box as HTMLTextAreaElement).value).toBe('look at @src/main.go ')
   })
 
+  it('accepts a suggestion on tap, directories keeping their separator', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string | URL) => {
+        if (String(url).includes('/files')) {
+          return Response.json({ items: [{ path: 'src/main.go' }, { path: 'src/', dir: true }] })
+        }
+        return Response.json({})
+      }),
+    )
+    const onSubmit = vi.fn()
+    render(Harness({ onSubmit }))
+
+    const box = screen.getByLabelText('Prompt') as HTMLTextAreaElement
+    await user.type(box, 'check @s')
+    const menu = await screen.findByRole('listbox', { name: 'Path suggestions' })
+
+    // a tap list above the keyboard: the directory suggestion completes with
+    // its separator so the next query continues from it
+    const options = menu.querySelectorAll<HTMLButtonElement>('[role="option"]')
+    expect(options).toHaveLength(2)
+    await user.click(options[1]!)
+    expect(box.value).toBe('check @src/')
+  })
+
   it('sends on Enter while no menu is open', async () => {
     const user = userEvent.setup()
     vi.stubGlobal(
@@ -193,5 +219,50 @@ describe('Composer attachments', () => {
     await waitFor(() =>
       expect(onChange).toHaveBeenCalledWith('@/home/you/.ajent/swarm/attachments/x.png'),
     )
+  })
+
+  it('inlines a small text file as a fenced block without uploading', async () => {
+    const user = userEvent.setup()
+    const fetchSpy = vi.fn(okSubmit())
+    vi.stubGlobal('fetch', fetchSpy)
+    const onChange = vi.fn()
+    render(Harness({ value: '', onChange }))
+
+    const file = new File(['const one = 1\n'], 'notes.txt', { type: 'text/plain' })
+    await user.upload(screen.getByTestId('attach-input'), file)
+
+    // no upload call happened; the body landed in the draft fenced
+    await waitFor(() => {
+      expect(onChange).toHaveBeenCalled()
+      const draft = String(onChange.mock.calls[0]![0])
+      expect(draft).toContain('`notes.txt`:')
+      expect(draft).toContain('```\nconst one = 1\n```')
+    })
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('falls back to uploading an oversize text file', async () => {
+    const user = userEvent.setup()
+    const uploads: FormData[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string | URL, init?: RequestInit) => {
+        if (init?.body instanceof FormData) {
+          uploads.push(init.body)
+          return Response.json({ path: '/state/big.log' })
+        }
+        return Response.json({})
+      }),
+    )
+    const onChange = vi.fn()
+    render(Harness({ value: '', onChange }))
+
+    // 65KB of text exceeds the inline cap and rides @path instead
+    const big = 'x'.repeat((64 << 10) + 1)
+    const file = new File([big], 'big.txt', { type: 'text/plain' })
+    await user.upload(screen.getByTestId('attach-input'), file)
+
+    await waitFor(() => expect(uploads).toHaveLength(1))
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith('@/state/big.log'))
   })
 })

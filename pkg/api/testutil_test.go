@@ -105,6 +105,17 @@ func callJSON[T any](t *testing.T, client *http.Client, baseURL, method, path st
 	return resp.StatusCode, out
 }
 
+// titleStore adapts the SQLite store to fleet's TitleStore interface.
+type titleStore struct{ st *store.Store }
+
+func (a titleStore) SetSessionTitle(ctx context.Context, sessionID, title string) error {
+	return a.st.SetSessionTitle(ctx, sessionID, title)
+}
+
+func (a titleStore) SessionTitles(ctx context.Context) (map[string]string, error) {
+	return a.st.SessionTitles(ctx)
+}
+
 // bootstrapAndLogin brings a fresh service past bootstrap and signs in.
 func bootstrapAndLogin(t *testing.T, client *http.Client, baseURL string) {
 	t.Helper()

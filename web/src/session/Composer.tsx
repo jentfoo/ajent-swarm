@@ -8,6 +8,21 @@ import { atTokenBefore } from './atCompletion'
 
 const maxRows = 12
 
+// inlineFileCapBytes bounds a text attachment's inlined body; anything larger
+// uploads and rides an @path reference instead.
+const inlineFileCapBytes = 64 << 10
+
+// textAccept lists the file picker's types: images ride the @path flow, text
+// files inline into the draft as fenced blocks.
+const textAccept = 'image/*,text/*,.json,.toml,.yaml,.yml,.md,.txt'
+
+// isTextFile reports whether a picked file should inline as text rather than
+// upload. The type check comes first; extensions cover servers that skip it.
+function isTextFile(file: File): boolean {
+  if (file.type.startsWith('text/') || file.type === 'application/json') return true
+  return /\.(txt|md|json|toml|ya?ml|log|conf|cfg)$/.test(file.name)
+}
+
 // ComposerProps keeps the submit flow beside SessionView: it mints the
 // pendingId, applies optimistic rows and clears the draft only on acceptance.
 export interface ComposerProps {
@@ -147,8 +162,10 @@ export function Composer({
     void send()
   }
 
-  // Attachments ride the workaround: bytes land under swarm's state dir and
-  // the draft gains an @<abs path> reference for vision models to inject.
+  // Attachments ride the workaround: images upload under swarm's state dir
+  // and the draft gains an @<abs path> reference for vision models to inject.
+  // Small text files inline as fenced blocks instead, so context sees them
+  // without a round trip; oversize or unreadable ones fall back to uploading.
   const attach = useCallback(
     async (files: FileList | null) => {
       if (!files || files.length === 0) return
@@ -157,12 +174,16 @@ export function Composer({
       try {
         const refs: string[] = []
         for (const file of Array.from(files)) {
+          if (isTextFile(file) && file.size <= inlineFileCapBytes) {
+            refs.push(await readInline(file))
+            continue
+          }
           const res = await sessionAPI.attach(sessionId, file)
           refs.push(`@${res.path}`)
         }
-        onChange(value === '' ? refs.join('\n') : `${value}\n${refs.join('\n')}`)
+        onChange(value === '' ? refs.join('\n\n') : `${value}\n\n${refs.join('\n\n')}`)
       } catch (err) {
-        setError(err instanceof ApiError ? err.message : 'Attach failed.')
+        setError(err instanceof Error ? err.message : 'Attach failed.')
       } finally {
         setUploading(false)
         if (fileRef.current) fileRef.current.value = ''
@@ -214,7 +235,7 @@ export function Composer({
         <input
           ref={fileRef}
           type="file"
-          accept="image/*"
+          accept={textAccept}
           multiple
           hidden
           data-testid="attach-input"
@@ -224,8 +245,10 @@ export function Composer({
           type="button"
           disabled={disabled || uploading}
           onClick={() => fileRef.current?.click()}
+          aria-label="Attach files"
+          title="Attach images or text files"
         >
-          {uploading ? 'Attaching…' : '+ image'}
+          {uploading ? 'Attaching…' : '📎'}
         </button>
         <button className="primary" type="submit" disabled={disabled || value.trim() === ''}>
           Send
@@ -239,4 +262,12 @@ function newPendingID(): string {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID()
   // Very old engines: a random hex correlation is still unique enough here.
   return `p${Math.random().toString(16).slice(2)}${Date.now().toString(16)}`
+}
+
+// readInline renders one small text file as a fenced block with the filename
+// prefixed above it; binary-looking bytes upload instead of landing garbage.
+async function readInline(file: File): Promise<string> {
+  const text = await file.text()
+  if (text.includes('\u0000')) throw new Error(`${file.name} is not readable text`)
+  return `\`${file.name}\`:\n\`\`\`\n${text.replace(/\n$/, '')}\n\`\`\``
 }

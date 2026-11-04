@@ -1805,6 +1805,13 @@ label {
   display: block;
   padding: calc(var(--unit) * 1) 0;
 }
+/* provider label heading a grouped model menu renders before its items */
+.menu .menu-heading {
+  display: block;
+  padding: calc(var(--unit) * 1.5) calc(var(--unit) * 2);
+  color: var(--muted);
+  font-size: var(--fs-small);
+}
 .tool-row {
   display: flex;
   align-items: center;

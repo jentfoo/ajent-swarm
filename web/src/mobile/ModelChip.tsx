@@ -2,12 +2,15 @@ import { useEffect, useRef, useState } from 'react'
 
 import { ApiError } from '../api/client'
 import { sessions as sessionAPI } from '../api/endpoints'
-import type { CtlState } from '../api/types'
+import type { CtlState, ModelState } from '../api/types'
+import { ModelMenuItems } from '../ui/ModelMenuItems'
 import { Spinner } from '../session/Spinner'
 
 // ModelChip is the compact header model control: the short label plus a
 // spinner while working. The menu lists models.get's registry directly and
-// switches through model.set — no picker dialog to ride or cancel.
+// switches through model.set — no picker dialog to ride or cancel. Items
+// render through the shared grouped ModelMenuItems, the same layout the
+// desktop header menu uses.
 export function ModelChip({
   sessionId,
   snap,
@@ -22,7 +25,7 @@ export function ModelChip({
   // when it belongs here keeps another session's registry from flashing in
   const [fetched, setFetched] = useState<{
     forSession: string
-    keys: string[]
+    models: ModelState[]
     active: string
   } | null>(null)
   const [busy, setBusy] = useState(false) // a model.set is in flight
@@ -50,7 +53,7 @@ export function ModelChip({
         if (alive) {
           setFetched({
             forSession,
-            keys: listing.models.map((m) => m.key),
+            models: listing.models ?? [],
             active: listing.active || snap.model.key,
           })
         }
@@ -91,15 +94,12 @@ export function ModelChip({
       </button>
       {open && listed && (
         <div className="menu card model-menu-list" role="menu">
-          {fetched.keys.length === 0 && <span className="muted menu-empty">No models listed.</span>}
-          {fetched.keys.map((key) => (
-            <button key={key} type="button" role="menuitem" onClick={() => void pick(key)}>
-              {key}
-              {(key === fetched.active || key === snap.model.key) && (
-                <span className="badge ok">current</span>
-              )}
-            </button>
-          ))}
+          <ModelMenuItems
+            models={fetched.models}
+            active={fetched.active}
+            currentKey={snap.model.key}
+            onPick={(key) => void pick(key)}
+          />
         </div>
       )}
     </span>

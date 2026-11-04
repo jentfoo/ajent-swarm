@@ -5,6 +5,7 @@ import { ApiError } from '../api/client'
 import { sessions as sessionAPI } from '../api/endpoints'
 import type { CtlState, ModelState } from '../api/types'
 import { MenuPopover } from '../ui/MenuPopover'
+import { ModelMenuItems } from '../ui/ModelMenuItems'
 import { shortID } from './names'
 import { AgentSettingsMenu } from './AgentSettingsMenu'
 import { ToolsPanel } from './ToolsPanel'
@@ -143,8 +144,10 @@ export function ModeMenu({
 
 // ModelMenu lists models.get's registry exactly as the running process
 // resolved it and switches through model.set — no picker dialog to ride or
-// cancel, and no user-config persist side effect. Refusals for unknown or
-// ambiguous names surface as toasts with upstream's message.
+// cancel, and no user-config persist side effect. Items render through the
+// shared grouped ModelMenuItems, the same layout the mobile chip uses.
+// Refusals for unknown or ambiguous names surface as toasts with upstream's
+// message.
 function ModelMenu({
   sessionId,
   snap,
@@ -215,21 +218,12 @@ function ModelMenu({
           className="menu card"
           onClose={() => setOpen(false)}
         >
-          {listing.length === 0 && <span className="muted menu-empty">No models listed.</span>}
-          {listing.map((m) => (
-            <button
-              key={m.key}
-              type="button"
-              role="menuitem"
-              title={`${m.key}${m.window > 0 ? ` · ${m.window.toLocaleString()} token window` : ''}`}
-              onClick={() => void pick(m.key)}
-            >
-              {m.short || m.key}
-              {(active === m.key || snap.model.key === m.key) && (
-                <span className="badge ok">current</span>
-              )}
-            </button>
-          ))}
+          <ModelMenuItems
+            models={listing}
+            active={active}
+            currentKey={snap.model.key}
+            onPick={(key) => void pick(key)}
+          />
         </MenuPopover>
       )}
     </div>

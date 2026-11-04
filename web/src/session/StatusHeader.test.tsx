@@ -116,6 +116,97 @@ describe('ModeMenu', () => {
   })
 })
 
+describe('ModelMenu', () => {
+  // two providers plus a bare key: the grouped layout the shared items render
+  const listing = {
+    active: 'anthropic/haiku',
+    models: [
+      { key: 'anthropic/sonnet', short: 'sonnet', window: 200_000 },
+      { key: 'anthropic/haiku', short: 'haiku', window: 200_000 },
+      { key: 'openai/gpt-5', short: 'gpt-5', window: 0 },
+      { key: 'local-tuned', short: '', window: 0 },
+    ],
+  }
+
+  function renderHeader() {
+    return render(
+      <StatusHeader
+        sessionId="01S"
+        onToast={vi.fn()}
+        snap={snapFor({
+          model: {
+            key: 'anthropic/haiku',
+            short: '',
+            window: 0,
+            caps: { reasoning: false, images: false, parallelToolCalls: false },
+          },
+        })}
+      />,
+    )
+  }
+
+  async function openModelMenu(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(screen.getByTitle('Switch model'))
+  }
+
+  it('shows provider headings and short labels', async () => {
+    const user = userEvent.setup()
+    fetchMock.mockImplementation(async (url: string | URL | Request) => {
+      if (String(url).endsWith('/models')) return Response.json(listing)
+      return Response.json({ rows: [] })
+    })
+    renderHeader()
+
+    await openModelMenu(user)
+    const groups = await screen.findAllByRole('group')
+    expect(groups.map((g) => g.getAttribute('aria-label'))).toEqual(['anthropic', 'openai'])
+    const items = screen.getAllByRole('menuitem')
+    expect(items.map((el) => el.textContent?.replace(/\s*current$/, ''))).toEqual([
+      'sonnet',
+      'haiku',
+      'gpt-5',
+      'local-tuned',
+    ])
+  })
+
+  it('badges the active key exactly once', async () => {
+    const user = userEvent.setup()
+    fetchMock.mockImplementation(async (url: string | URL | Request) => {
+      if (String(url).endsWith('/models')) return Response.json(listing)
+      return Response.json({ rows: [] })
+    })
+    renderHeader()
+
+    await openModelMenu(user)
+    const items = await screen.findAllByRole('menuitem')
+    const marked = items.filter((el) => el.textContent?.includes('current'))
+    expect(marked).toHaveLength(1)
+    expect(marked[0]!.textContent?.replace(/\s*current$/, '')).toBe('haiku')
+  })
+
+  it('switches through model.set with the full key', async () => {
+    const user = userEvent.setup()
+    fetchMock.mockImplementation(async (url: string | URL | Request) => {
+      if (String(url).endsWith('/models')) return Response.json(listing)
+      if (String(url).endsWith('/model')) return Response.json({ model: 'openai/gpt-5' })
+      return Response.json({ rows: [] })
+    })
+    renderHeader()
+
+    await openModelMenu(user)
+    await user.click(await screen.findByRole('menuitem', { name: 'gpt-5' }))
+
+    await waitFor(() => {
+      const calls = fetchMock.mock.calls.filter(([u]) => String(u).endsWith('/model'))
+      expect(calls).toHaveLength(1)
+      const [url, init] = calls[0]!
+      expect(String(url)).toContain('/api/sessions/01S/model')
+      expect(JSON.parse(String(init?.body))).toEqual({ model: 'openai/gpt-5' })
+    })
+    expect(screen.queryByRole('menuitem')).not.toBeInTheDocument()
+  })
+})
+
 describe('StatusHeader identity', () => {
   it('shows the stored title beside the short session id', () => {
     render(

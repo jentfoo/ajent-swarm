@@ -564,7 +564,7 @@ describe('MobileSessionScreen', () => {
     await user.click(screen.getByRole('button', { name: 'Open tools panel' }))
     expect(await screen.findByRole('dialog', { name: 'Tools' })).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /sonnet/ }))
-    expect(await screen.findByText('anthropic/claude-sonnet')).toBeInTheDocument()
+    expect(await screen.findByRole('menuitem', { name: /sonnet/ })).toBeInTheDocument()
 
     // the swap presents the other session fresh: sheet and menu closed, and a
     // draft typed for the first session is not sitting in the composer
@@ -574,7 +574,7 @@ describe('MobileSessionScreen', () => {
     })
     expect(await screen.findByLabelText('Prompt')).toHaveValue('')
     expect(screen.queryByRole('dialog', { name: 'Tools' })).not.toBeInTheDocument()
-    expect(screen.queryByText('anthropic/claude-sonnet')).not.toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: /sonnet/ })).not.toBeInTheDocument()
 
     // returning restores that session's draft from the store, not a blank
     await user.click(screen.getByRole('button', { name: 'go view' }))

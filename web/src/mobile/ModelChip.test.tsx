@@ -5,8 +5,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ModelChip } from './ModelChip'
 import type { CtlState } from '../api/types'
 
-// The compact header model control: models.get fills the menu, model.set
-// switches without a picker, and refusals surface as toasts.
+// The compact header model control: models.get fills the menu through the
+// shared grouped items, model.set switches without a picker, refusals surface
+// as toasts, and the listing only ever renders for its own session.
 
 const snap = { model: { key: 'anthropic/claude-sonnet', short: 'sonnet' } } as CtlState
 
@@ -23,7 +24,7 @@ describe('ModelChip', () => {
     vi.unstubAllGlobals()
   })
 
-  it('lists the registry and marks the active model', async () => {
+  it('lists the registry grouped and marks the active model', async () => {
     const user = userEvent.setup()
     stubFetch((url) => {
       if (url === '/api/sessions/01S/models') {
@@ -32,6 +33,7 @@ describe('ModelChip', () => {
           models: [
             { key: 'anthropic/claude-sonnet', short: 'sonnet' },
             { key: 'anthropic/claude-haiku', short: 'haiku' },
+            { key: 'local-tuned', short: '' },
           ],
         })
       }
@@ -42,9 +44,13 @@ describe('ModelChip', () => {
     await user.click(screen.getByRole('button', { name: /sonnet/ }))
 
     const items = await screen.findAllByRole('menuitem')
-    expect(items).toHaveLength(2)
-    expect(screen.getByText('anthropic/claude-sonnet')).toBeInTheDocument()
-    expect(screen.getByText('current')).toBeInTheDocument()
+    expect(items.map((el) => el.textContent?.replace(/\s*current$/, ''))).toEqual([
+      'sonnet',
+      'haiku',
+      'local-tuned',
+    ])
+    expect(screen.getByRole('group', { name: 'anthropic' })).toBeInTheDocument()
+    expect(items.filter((el) => el.textContent?.includes('current'))).toHaveLength(1)
   })
 
   it('switches through model.set and closes the menu', async () => {
@@ -135,6 +141,49 @@ describe('ModelChip', () => {
 
     // the stale cycle reopens nothing and reports nothing
     expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+    expect(onToast).not.toHaveBeenCalled()
+  })
+
+  it('hides a listing that belongs to another session', async () => {
+    const user = userEvent.setup()
+    stubFetch((url) => {
+      if (url === '/api/sessions/01S/models') {
+        return Response.json({ active: 'other', models: [{ key: 'x', short: '' }] })
+      }
+      throw new Error(`unexpected fetch ${url}`)
+    })
+
+    const view = render(<ModelChip sessionId="01S" snap={snap} onToast={() => {}} />)
+    await user.click(screen.getByRole('button', { name: /sonnet/ }))
+    expect(await screen.findByRole('menuitem', { name: 'x' })).toBeInTheDocument()
+
+    // the host reuses this chip for another session: 01S's registry must go
+    view.rerender(<ModelChip sessionId="02S" snap={snap} onToast={() => {}} />)
+    expect(screen.queryByRole('menuitem')).not.toBeInTheDocument()
+  })
+
+  it('drops a listing that lands after a session swap', async () => {
+    const user = userEvent.setup()
+    const onToast = vi.fn()
+    const resolvers: ((res: Response) => void)[] = []
+    const spy = vi.fn(
+      () =>
+        new Promise<Response>((res) => {
+          resolvers.push(res)
+        }),
+    )
+    vi.stubGlobal('fetch', spy)
+
+    const view = render(<ModelChip sessionId="01S" snap={snap} onToast={onToast} />)
+    await user.click(screen.getByRole('button', { name: /sonnet/ })) // open; listing flies
+    view.rerender(<ModelChip sessionId="02S" snap={snap} onToast={onToast} />)
+
+    await act(async () => {
+      resolvers[0]!(Response.json({ active: 'x', models: [{ key: 'x' }] }))
+    })
+
+    // 01S's late reply belongs to a session no longer mounted here
+    expect(screen.queryByRole('menuitem')).not.toBeInTheDocument()
     expect(onToast).not.toHaveBeenCalled()
   })
 })

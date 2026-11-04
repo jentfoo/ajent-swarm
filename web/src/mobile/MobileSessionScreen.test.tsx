@@ -232,8 +232,7 @@ describe('MobileSessionScreen', () => {
       })
     })
 
-    // the resting dim glyph answers "is it working" with nothing else to
-    // report; the old strip returned null here instead
+    // the resting dim glyph answers "is it working" with nothing else to report
     expect(await screen.findByLabelText('idle')).toBeInTheDocument()
     expect(document.querySelector('.status-bar')).toBeInTheDocument()
     expect(document.querySelector('.status-strip')).not.toBeInTheDocument()
@@ -259,8 +258,7 @@ describe('MobileSessionScreen', () => {
     })
 
     expect(await screen.findByText('reading files')).toBeInTheDocument()
-    // the bar's glyph flips to the waiting color while the turn runs, not the
-    // idle dim the old strip's null left the phone with
+    // the glyph never rests dim while the turn runs
     const bar = document.querySelector('.status-bar')!
     expect(bar.querySelector('.spinner.wait')).toBeInTheDocument()
     expect(bar.querySelector('.spinner.idle')).not.toBeInTheDocument()

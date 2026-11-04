@@ -1757,6 +1757,17 @@ label {
   .mobile-session .status-bar {
     padding: calc(var(--unit) * 2) calc(var(--unit) * 3);
   }
+  /* queue chips wrap instead of clipping, and the edit button gets the 44px
+     touch target floor */
+  .mobile-session .queue-chip {
+    display: inline-flex;
+    align-items: center;
+    flex-wrap: wrap;
+    overflow-wrap: anywhere;
+  }
+  .mobile-session .queue-chip button {
+    min-height: 44px;
+  }
 }
 
 /* --- phase 14: status bar, tools panel, settings hamburger, barrier rows --- */

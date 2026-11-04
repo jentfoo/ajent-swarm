@@ -6,6 +6,8 @@ import { sessions as sessionAPI } from '../api/endpoints'
 import { ApiError } from '../api/client'
 import { Composer } from '../session/Composer'
 import { placedAboveNotice, useComposerDraft } from '../session/useComposerDraft'
+import { Notices } from '../session/Notices'
+import { QueuedPrompts } from '../session/QueuedPrompts'
 import { ModeMenu } from '../session/StatusHeader'
 import { StatusBar } from '../session/StatusBar'
 import { TranscriptView } from '../session/TranscriptView'
@@ -32,9 +34,10 @@ interface Toast {
 }
 
 // MobileSessionScreen drives one session on a phone. The component tree stays
-// shared with desktop (TranscriptView, Composer, StatusBar); only the chrome
-// forks: a sticky compact header collapsing to model plus spinner and dialogs
-// as stacked full-width cards above the composer.
+// shared with desktop (TranscriptView, notices, dialogs, queue chips, Composer,
+// StatusBar); only the chrome forks: a sticky compact header collapsing to
+// model plus spinner and dialogs as stacked full-width cards above the
+// composer.
 //
 // The content keys on sessionId, so the route reusing this screen for another
 // session presents it as a remount: that session's own draft restores from the
@@ -71,6 +74,26 @@ function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElemen
     setToasts((ts) => [...ts.slice(-4), { id, text, level }])
     setTimeout(() => setToasts((ts) => ts.filter((t) => t.id !== id)), 6_000)
   }, [])
+
+  // placedAbove surfaces a prefill that merged above an existing draft, so the
+  // arrival is noticed instead of reading as one's own text moving down.
+  const placedAbove = useCallback(
+    (text: string) => {
+      if (prefill(text)) pushToast(placedAboveNotice, 'info')
+    },
+    [prefill, pushToast],
+  )
+
+  // Editing a queued prompt pops it back into the composer through recall;
+  // failures surface through the toast stack like every other refusal.
+  const recallToEdit = useCallback(async () => {
+    try {
+      const row = await sessionAPI.recall(sessionId)
+      if (row.text) placedAbove(row.text)
+    } catch (err) {
+      pushToast(err instanceof ApiError ? err.message : 'Recall failed.', 'error')
+    }
+  }, [sessionId, pushToast, placedAbove])
 
   const interrupt = useCallback(async () => {
     setStopBusy(true)
@@ -174,6 +197,7 @@ function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElemen
         onThinkingToggle={(open) => dispatch({ type: 'liveThinkingToggled', open })}
       />
 
+      <Notices notices={state.notices} />
       <TouchDialogDock
         sessionId={sessionId}
         dialogs={dialogs}
@@ -182,6 +206,12 @@ function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElemen
           dispatch({ type: 'dialogAnswered', dialogId })
           acknowledgeDialog(sessionId, dialogId)
         }}
+      />
+      <QueuedPrompts
+        queuedRows={snap.queuedRows ?? []}
+        pendings={state.pendings}
+        droppedRows={state.droppedRows}
+        onEdit={() => void recallToEdit()}
       />
       <Composer
         sessionId={sessionId}
@@ -213,11 +243,9 @@ function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElemen
         sessionId={sessionId}
         open={showRewind}
         onClose={() => setShowRewind(false)}
-        // a rewound prompt lands above the draft to edit; announce a merge so
-        // it is noticed on the small screen instead of reading as one's own
-        onPrefill={(text) => {
-          if (prefill(text)) pushToast(placedAboveNotice, 'info')
-        }}
+        // a rewound prompt lands above the draft to edit, announced like every
+        // other prefill that merges above existing text
+        onPrefill={placedAbove}
         onToast={pushToast}
       />
 

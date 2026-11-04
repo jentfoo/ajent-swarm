@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { useParams } from 'react-router'
 
 import { ApiError } from '../api/client'
@@ -9,12 +9,13 @@ import { useWorkspace } from '../providers/workspace'
 import { Composer } from '../session/Composer'
 import { placedAboveNotice, useComposerDraft } from '../session/useComposerDraft'
 import { DialogDock } from '../session/DialogDock'
+import { Notices } from '../session/Notices'
 import { QueuedPrompts } from '../session/QueuedPrompts'
 import { StatusBar } from '../session/StatusBar'
 import { StatusHeader } from '../session/StatusHeader'
 import { TranscriptView } from '../session/TranscriptView'
 import { RewindDialog } from '../session/RewindDialog'
-import type { AppliedSessionState, NoticeView } from '../state/eventApplier'
+import type { AppliedSessionState } from '../state/eventApplier'
 
 interface Toast {
   id: number
@@ -128,7 +129,7 @@ function SessionSurface({
         onThinkingToggle={(open) => dispatch({ type: 'liveThinkingToggled', open })}
       />
 
-      {state.notices.length > 0 && <Notices notices={state.notices} />}
+      <Notices notices={state.notices} />
       <DialogDock
         sessionId={sessionId}
         dialogs={dialogs}
@@ -212,33 +213,6 @@ function SeatBadge({ sessionId, state }: { sessionId: string; state: AppliedSess
     >
       {`take control: ${seat.holder || 'held'}`}
     </button>
-  )
-}
-
-// noticeTtlMs bounds how long a streamed notice stays visible: upstream's
-// keyed lines replace each other but nothing ever clears them, so without an
-// expiry "Sub-agent sub-6 completed" parks under the composer forever.
-const noticeTtlMs = 8_000
-
-function Notices({ notices }: { notices: NoticeView[] }) {
-  const [now, setNow] = useState(() => Date.now())
-  // a slow tick re-renders so expired lines leave without a new event arriving;
-  // the interval only runs while fresh lines exist
-  useEffect(() => {
-    if (notices.length === 0) return
-    const timer = setInterval(() => setNow(Date.now()), 1_000)
-    return () => clearInterval(timer)
-  }, [notices.length])
-  const fresh = notices.filter((n) => now - n.at < noticeTtlMs)
-  if (fresh.length === 0) return null
-  return (
-    <div aria-label="Notices">
-      {fresh.slice(-3).map((n, i) => (
-        <div key={`${i}-${n.key}`} className={`block-notice ${n.level}`}>
-          {n.text}
-        </div>
-      ))}
-    </div>
   )
 }
 

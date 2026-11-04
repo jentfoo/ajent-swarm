@@ -21,7 +21,7 @@ const VIEW = '01MOBILEVIEW00000'
 const OTHER = '01MOBILEVIEW00001'
 
 class FetchRouter {
-  handler = vi.fn((url: string | URL, _init?: RequestInit): Response => {
+  handler = vi.fn((url: string | URL, _init?: RequestInit): Response | Promise<Response> => {
     const key = String(url)
       .replace(/^https?:\/\/[^/]+/, '')
       .split('?')[0]
@@ -30,12 +30,16 @@ class FetchRouter {
     return respond()
   })
 
-  private routes = new Map<string, () => Response>()
+  private routes = new Map<string, () => Response | Promise<Response>>()
 
-  on(url: string, respond: () => Response): this {
+  on(url: string, respond: () => Response | Promise<Response>): this {
     this.routes.set(url, respond)
     return this
   }
+}
+
+function wireEvent(name: string, seq: number, data?: unknown) {
+  return { type: 'event', sessionId: VIEW, event: { event: name, seq, data } }
 }
 
 function snapshotFor(sessionId: string, overrides: Record<string, unknown> = {}) {
@@ -410,6 +414,144 @@ describe('MobileSessionScreen', () => {
       expect(screen.getByLabelText('Prompt')).toHaveValue('first prompt text\nmy draft'),
     )
     expect(await screen.findByText('Placed above your existing draft.')).toBeInTheDocument()
+  })
+
+  it('tracks a submitted prompt through pending, refused and accepted', async () => {
+    // the first reply is held back, so the optimistic row is asserted mid-send
+    let release: (() => void) | undefined
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    fetcher.on(`/api/sessions/${VIEW}/submit`, () =>
+      held.then(() =>
+        Response.json({ error: 'busy', message: 'the prompt queue is full' }, { status: 429 }),
+      ),
+    )
+    renderScreen()
+    const ws = await openSocket()
+    act(() => {
+      ws.message({ type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
+    })
+    await screen.findByRole('button', { name: /sonnet/ })
+
+    const user = userEvent.setup()
+    const prompt = screen.getByLabelText('Prompt')
+    await user.type(prompt, 'first prompt{Enter}')
+
+    // the optimistic chip paints with its sending badge while the reply is out
+    const chips = document.querySelector('.chips') as HTMLElement
+    expect(chips).toHaveTextContent('first prompt')
+    expect(screen.getByText('sending…')).toBeInTheDocument()
+
+    // the refusal flips the row instead of vanishing it, draft intact
+    release!()
+    expect(await screen.findByText('refused')).toBeInTheDocument()
+    expect(screen.getByText(/prompt queue is full/)).toBeInTheDocument()
+    expect(prompt).toHaveValue('first prompt')
+
+    // a resend the wire accepts resolves the optimistic chip and the composer
+    fetcher.on(`/api/sessions/${VIEW}/submit`, () =>
+      Response.json({ pendingId: 'p-accepted' }, { status: 202 }),
+    )
+    await user.type(prompt, '{Enter}')
+    const submitCalls = fetcher.handler.mock.calls.filter(([u]) => String(u).endsWith('/submit'))
+    await vi.waitFor(() => expect(submitCalls).toHaveLength(2))
+    const accepted = JSON.parse(String(submitCalls[1]![1]?.body)).pendingId as string
+    act(() => {
+      ws.message(wireEvent('queued', 1, { rows: [{ id: accepted, text: 'first prompt' }] }))
+    })
+
+    await vi.waitFor(() => expect(screen.queryByText('sending…')).not.toBeInTheDocument())
+    expect(prompt).toHaveValue('')
+    expect(chips).toHaveTextContent('first prompt')
+  })
+
+  it('renders queue rows with edit only on the newest and recalls to the draft', async () => {
+    fetcher.on(`/api/sessions/${VIEW}/recall`, () =>
+      Response.json({ id: 'q1', text: 'recalled prompt' }),
+    )
+    renderScreen()
+    const ws = await openSocket()
+    act(() => {
+      ws.message({
+        type: 'init',
+        sessionId: VIEW,
+        state: snapshotFor(VIEW, {
+          queued: 2,
+          queuedRows: [
+            { id: 'q0', text: 'older row' },
+            { id: 'q1', text: 'recalled prompt' },
+          ],
+        }),
+        entries: [],
+      })
+    })
+
+    // the wire's recall pops the newest row, so only that chip offers edit
+    const edits = await screen.findAllByRole('button', { name: /edit/ })
+    expect(edits).toHaveLength(1)
+    expect(edits[0]!.closest('.queue-chip')).toHaveTextContent('recalled prompt')
+    expect(screen.getByText('older row')).toBeInTheDocument()
+
+    const user = userEvent.setup()
+    await user.type(screen.getByLabelText('Prompt'), 'my draft')
+    await user.click(edits[0]!)
+    await vi.waitFor(() => {
+      const recallCalls = fetcher.handler.mock.calls.filter(([u]) => String(u).endsWith('/recall'))
+      expect(recallCalls).toHaveLength(1)
+    })
+
+    // the popped row merges above the draft, announced like every prefill
+    expect(await screen.findByLabelText('Prompt')).toHaveValue('recalled prompt\nmy draft')
+    expect(await screen.findByText('Placed above your existing draft.')).toBeInTheDocument()
+  })
+
+  it('shows notices above the dialog dock and expires them after their TTL', async () => {
+    renderScreen()
+    const ws = await openSocket()
+    act(() => {
+      ws.message({
+        type: 'init',
+        sessionId: VIEW,
+        state: snapshotFor(VIEW, {
+          interactions: [
+            { id: 42, kind: 'pick', prompt: 'Allow write access?', options: ['allow', 'deny'] },
+          ],
+        }),
+        entries: [],
+      })
+    })
+    expect(await screen.findByText('Allow write access?')).toBeInTheDocument()
+
+    // the notice arrives under fake timers, so its arrival stamp and the expiry
+    // tick share one clock
+    vi.useFakeTimers()
+    try {
+      act(() => {
+        ws.message(
+          wireEvent('notice', 1, {
+            text: 'Sub-agent sub-6 completed.',
+            level: 'info',
+            key: 'sub-6',
+          }),
+        )
+      })
+      expect(screen.getByText('Sub-agent sub-6 completed.')).toBeInTheDocument()
+
+      // the notice stacks above the dock, the same pre-composer order desktop
+      // uses
+      const notices = screen.getByLabelText('Notices')
+      const dock = screen.getByLabelText('Open dialogs')
+      expect(notices.compareDocumentPosition(dock) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+
+      act(() => {
+        vi.advanceTimersByTime(9_000)
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+    expect(screen.queryByLabelText('Notices')).not.toBeInTheDocument()
+    expect(screen.getByText('Allow write access?')).toBeInTheDocument()
   })
 
   it('opens the switcher from a dominant horizontal edge swipe', async () => {

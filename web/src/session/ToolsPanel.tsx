@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 
 import { ApiError } from '../api/client'
 import { sessions as sessionAPI } from '../api/endpoints'
 import type { CtlState, ToolState } from '../api/types'
+import { MenuPopover } from '../ui/MenuPopover'
 
 // ToolsPanel is the desktop /tools surface: a popover beside the mode menu
 // fed by the snapshot tools rows that stream end to end. Toggles go through
@@ -20,16 +21,7 @@ export function ToolsPanel({
   onToast: (text: string, level?: 'info' | 'error') => void
 }) {
   const [open, setOpen] = useState(false)
-  const panelRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    const onDocClick = (ev: MouseEvent) => {
-      if (panelRef.current && !panelRef.current.contains(ev.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', onDocClick)
-    return () => document.removeEventListener('mousedown', onDocClick)
-  }, [open])
+  const chipRef = useRef<HTMLButtonElement>(null)
 
   const rows = snap.tools ?? []
   // Widening only: before the run's first dispatched prompt any reshaping
@@ -50,8 +42,9 @@ export function ToolsPanel({
   }
 
   return (
-    <div ref={panelRef} className="tools-menu">
+    <div className="tools-menu">
       <button
+        ref={chipRef}
         type="button"
         className="badge tools-chip"
         title="Toggle tools"
@@ -60,7 +53,13 @@ export function ToolsPanel({
         /tools
       </button>
       {open && (
-        <div className="menu card" role="dialog" aria-label="Tools">
+        <MenuPopover
+          anchorRef={chipRef}
+          role="dialog"
+          aria-label="Tools"
+          className="menu card"
+          onClose={() => setOpen(false)}
+        >
           {rows.length === 0 && <span className="muted menu-empty">No toggleable tools.</span>}
           {rows.map((row) => {
             const locked = widenOnly && row.enabled
@@ -86,7 +85,7 @@ export function ToolsPanel({
               </label>
             )
           })}
-        </div>
+        </MenuPopover>
       )}
     </div>
   )

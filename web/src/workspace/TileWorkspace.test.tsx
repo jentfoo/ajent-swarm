@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -286,6 +286,23 @@ describe('TileWorkspace', () => {
     await user.click(screen.getByLabelText('Close left'))
     await screen.findByText('No panes open.')
     await expect(screen.findByText('No panes open.')).resolves.toBeInTheDocument()
+  })
+
+  it('opens the + picker into a body-level menu past pane clipping', async () => {
+    renderTile()
+    // the tab strips render alongside each pane's add-session picker trigger
+    await screen.findAllByText('right')
+
+    const user = userEvent.setup()
+    await user.click(screen.getAllByLabelText('Add a session to this pane')[0])
+
+    // jsdom has no layout, so placement is the claim under test: the menu
+    // portals out of .tile-pane, where overflow:hidden used to cut it off
+    const menus = document.querySelectorAll('.tile-menu')
+    expect(menus).toHaveLength(1)
+    const menu = menus[0]
+    expect(menu.parentElement).toBe(document.body)
+    expect(within(menu as HTMLElement).getByRole('menuitem', { name: 'left' })).toBeInTheDocument()
   })
 
   it('presents an activated tab fresh instead of reusing the last view', async () => {

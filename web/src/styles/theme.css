@@ -555,13 +555,10 @@ label {
 .meter.danger > div {
   background: var(--danger);
 }
-.model-menu {
-  position: relative;
-}
+/* MenuPopover portals .menu layers into body and fixes them in place; these
+   rules only size and stack them. */
 .menu {
-  position: absolute;
-  top: calc(100% + var(--unit) * 1);
-  left: 0;
+  position: fixed;
   z-index: 20;
   display: flex;
   flex-direction: column;
@@ -984,32 +981,28 @@ label {
   background: var(--surface-2);
   border-bottom: 1px solid var(--border);
   min-height: 28px;
-  overflow-x: visible; /* the add menu may hang below the strip */
+  overflow-x: visible; /* overflowing tabs paint instead of scrolling */
 }
 .tile-add {
   margin-left: auto;
-  position: relative;
+  display: inline-flex;
 }
-.tile-add summary {
-  list-style: none;
-  cursor: pointer;
+.tile-add button {
+  background: none;
+  border: none;
   padding: 0 calc(var(--unit) * 2);
   border-radius: var(--radius);
   color: var(--muted);
   user-select: none;
 }
-.tile-add summary::-webkit-details-marker {
-  display: none;
-}
-.tile-add[open] summary,
-.tile-add summary:hover {
+.tile-add button:hover,
+.tile-add button[aria-expanded='true'] {
   background: var(--surface);
   color: var(--text);
 }
+/* positioned by MenuPopover; a pane's overflow must never clip it */
 .tile-menu {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 2px);
+  position: fixed;
   min-width: 14rem;
   max-height: 18rem;
   overflow-y: auto;
@@ -1787,10 +1780,7 @@ label {
   font-size: var(--fs-small);
 }
 
-/* tools panel popover anchors beside its trigger chip */
-.tools-menu {
-  position: relative;
-}
+/* tools panel popover, positioned by MenuPopover beside its trigger chip */
 .menu .menu-empty {
   display: block;
   padding: calc(var(--unit) * 1) 0;

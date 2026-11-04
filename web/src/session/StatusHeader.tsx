@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import type * as React from 'react'
 
 import { ApiError } from '../api/client'
 import { sessions as sessionAPI } from '../api/endpoints'
 import type { CtlState, ModelState } from '../api/types'
+import { MenuPopover } from '../ui/MenuPopover'
 import { AgentSettingsMenu } from './AgentSettingsMenu'
 import { ToolsPanel } from './ToolsPanel'
 
@@ -90,16 +91,7 @@ export function ModeMenu({
 }) {
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
-  const menuRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    const onDocClick = (ev: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(ev.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', onDocClick)
-    return () => document.removeEventListener('mousedown', onDocClick)
-  }, [open])
+  const chipRef = useRef<HTMLButtonElement>(null)
 
   const pick = useCallback(
     async (next: string) => {
@@ -123,8 +115,9 @@ export function ModeMenu({
 
   if (mode === '') return null // no gate exists on this session
   return (
-    <div ref={menuRef} className="model-menu">
+    <div className="model-menu">
       <button
+        ref={chipRef}
         type="button"
         className="badge mode-chip"
         disabled={busy}
@@ -134,14 +127,19 @@ export function ModeMenu({
         mode: {mode}
       </button>
       {open && (
-        <div className="menu card" role="menu">
+        <MenuPopover
+          anchorRef={chipRef}
+          role="menu"
+          className="menu card"
+          onClose={() => setOpen(false)}
+        >
           {permissionModes.map((m) => (
             <button key={m} type="button" role="menuitem" onClick={() => void pick(m)}>
               {m}
               {m === mode && <span className="badge ok">current</span>}
             </button>
           ))}
-        </div>
+        </MenuPopover>
       )}
     </div>
   )
@@ -164,16 +162,7 @@ function ModelMenu({
   const [listing, setListing] = useState<ModelState[]>([])
   const [active, setActive] = useState('')
   const [busy, setBusy] = useState(false)
-  const menuRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    const onDocClick = (ev: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(ev.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', onDocClick)
-    return () => document.removeEventListener('mousedown', onDocClick)
-  }, [open])
+  const chipRef = useRef<HTMLButtonElement>(null)
 
   const openMenu = useCallback(async () => {
     if (open) {
@@ -212,8 +201,9 @@ function ModelMenu({
 
   const label = snap.model.short || snap.model.key || 'model'
   return (
-    <div ref={menuRef} className="model-menu">
+    <div className="model-menu">
       <button
+        ref={chipRef}
         type="button"
         className="badge accent model-chip"
         disabled={busy}
@@ -223,7 +213,12 @@ function ModelMenu({
         {label}
       </button>
       {open && (
-        <div className="menu card" role="menu">
+        <MenuPopover
+          anchorRef={chipRef}
+          role="menu"
+          className="menu card"
+          onClose={() => setOpen(false)}
+        >
           {listing.length === 0 && <span className="muted menu-empty">No models listed.</span>}
           {listing.map((m) => (
             <button
@@ -239,7 +234,7 @@ function ModelMenu({
               )}
             </button>
           ))}
-        </div>
+        </MenuPopover>
       )}
     </div>
   )

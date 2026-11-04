@@ -8,6 +8,7 @@ import { useWorkspace } from '../providers/workspace'
 import { reachableSession } from '../shell/AppShell'
 import SessionView from '../screens/SessionView'
 import { displayName } from '../session/names'
+import { MenuPopover } from '../ui/MenuPopover'
 import { useWorkspaceKeys } from './keys'
 import type { Direction } from './keys'
 import { ShortcutOverlay } from './ShortcutOverlay'
@@ -512,7 +513,8 @@ function PaneView({
 
 // SessionPicker is the tab strip's + affordance: every known session opens as
 // a tab here (a second button splits it into its own pane), so several
-// sessions stream side by side without touching the keyboard.
+// sessions stream side by side without touching the keyboard. The menu portals
+// through MenuPopover, so a short pane's overflow clipping cannot cut it off.
 function SessionPicker({
   nameFor,
   onOpen,
@@ -521,7 +523,8 @@ function SessionPicker({
   onOpen: (sessionId: string, split?: boolean) => void
 }) {
   const { sessions } = useSwarm()
-  const ref = useRef<HTMLDetailsElement>(null)
+  const [open, setOpen] = useState(false)
+  const addRef = useRef<HTMLButtonElement>(null)
   // Connected or active first, then the rest; each keeps its listing order.
   const ordered = useMemo(() => {
     const live = sessions.filter(reachableSession)
@@ -529,45 +532,58 @@ function SessionPicker({
     return [...live, ...rest]
   }, [sessions])
 
-  const close = () => {
-    if (ref.current?.open) ref.current.open = false
-  }
+  const empty = ordered.length === 0
   const pick = (sessionId: string, split?: boolean) => {
-    close()
+    setOpen(false)
     onOpen(sessionId, split)
   }
 
   return (
-    <details className="tile-add" ref={ref} title="Open a session in this pane">
-      <summary aria-label="Add a session to this pane">+</summary>
-      {ordered.length === 0 ? (
-        <div className="tile-menu muted">No sessions known.</div>
-      ) : (
-        <div className="tile-menu" role="menu">
-          {ordered.map((s) => (
-            <div key={s.sessionId} className="tile-menu-row">
-              <button
-                type="button"
-                role="menuitem"
-                title={nameFor(s.sessionId)}
-                onClick={() => pick(s.sessionId)}
-              >
-                {nameFor(s.sessionId)}
-              </button>
-              <button
-                type="button"
-                className="tile-menu-split"
-                aria-label={`Split pane with ${nameFor(s.sessionId)}`}
-                title="Open in a new split beside this pane"
-                onClick={() => pick(s.sessionId, true)}
-              >
-                ⊞
-              </button>
-            </div>
-          ))}
-        </div>
+    <span className="tile-add">
+      <button
+        type="button"
+        ref={addRef}
+        aria-label="Add a session to this pane"
+        title="Open a session in this pane"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+      >
+        +
+      </button>
+      {open && (
+        <MenuPopover
+          anchorRef={addRef}
+          align="right"
+          className={empty ? 'tile-menu muted' : 'tile-menu'}
+          role={empty ? undefined : 'menu'}
+          onClose={() => setOpen(false)}
+        >
+          {empty
+            ? 'No sessions known.'
+            : ordered.map((s) => (
+                <div key={s.sessionId} className="tile-menu-row">
+                  <button
+                    type="button"
+                    role="menuitem"
+                    title={nameFor(s.sessionId)}
+                    onClick={() => pick(s.sessionId)}
+                  >
+                    {nameFor(s.sessionId)}
+                  </button>
+                  <button
+                    type="button"
+                    className="tile-menu-split"
+                    aria-label={`Split pane with ${nameFor(s.sessionId)}`}
+                    title="Open in a new split beside this pane"
+                    onClick={() => pick(s.sessionId, true)}
+                  >
+                    ⊞
+                  </button>
+                </div>
+              ))}
+        </MenuPopover>
       )}
-    </details>
+    </span>
   )
 }
 

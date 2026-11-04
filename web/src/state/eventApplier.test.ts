@@ -572,13 +572,13 @@ describe('applierReducer snapshot ordering', () => {
       ev('turn.start', 5, { model: 'm' }),
       ev('tool.output', 6, { id: 'c1', delta: 'partial out' }),
     )
-    // The read predates the turn; it must not seal its freshly streamed card.
+    // The read predates the turn; it must not retire its freshly streamed card.
     s = apply(s, { type: 'snapshot', state: snap({ seq: 4, running: false }) })
-    expect(s.live?.tools[0]?.closed).toBeUndefined()
+    expect(s.live?.tools[0]?.outputs).toEqual(['partial out'])
 
-    // A read at least as fresh as the stream seals what no event closed.
+    // A read at least as fresh as the stream retires what no event closed.
     s = apply(s, { type: 'snapshot', state: snap({ seq: 7, running: false }) })
-    expect(s.live?.tools[0]?.closed).toBe(true)
+    expect(s.live).toBeNull()
   })
 })
 
@@ -698,7 +698,7 @@ describe('applierReducer tool card state', () => {
     expect(s.live?.tools[0]?.result?.fault).toBeUndefined()
   })
 
-  it('resnapshot closes cards stranded by a lost carrier', () => {
+  it('resnapshot retires stranded buffers once idle', () => {
     let s = apply(
       initialSessionState(),
       ev('turn.start', 1, { model: 'm' }),
@@ -708,17 +708,35 @@ describe('applierReducer tool card state', () => {
 
     // the carrier entry and turn.end never arrived; the snapshot says idle
     s = apply(s, { type: 'snapshot', state: snap({ running: false }) })
-    expect(s.live?.tools[0]?.closed).toBe(true)
-  })
+    expect(s.live).toBeNull()
 
-  it('resnapshot drops a stranded card with nothing painted', () => {
-    let s = apply(
+    // a stranded card with nothing painted retires the same way, and
+    // committed history tells what happened
+    let bare = apply(
       initialSessionState(),
       ev('turn.start', 1, { model: 'm' }),
       ev('tool.start', 2, { id: 'c1', name: 'bash', input: '{}' }),
     )
-    s = apply(s, { type: 'snapshot', state: snap({ running: false }) })
-    expect(s.live).toBeNull() // nothing painted: the committed history will tell it
+    bare = apply(bare, { type: 'snapshot', state: snap({ running: false }) })
+    expect(bare.live).toBeNull()
+  })
+
+  it('resnapshot clears sealed thinking residue once idle', () => {
+    let s = apply(
+      initialSessionState(),
+      ev('turn.start', 1, { model: 'm' }),
+      ev('thinking.delta', 2, { delta: 'hmm' }),
+      ev('text.delta', 3, { delta: 'partial' }),
+      // turn.end seals the buffer and painted content stays for the handoff
+      ev('turn.end', 4, { stop: 'end_turn' }),
+    )
+    expect(s.live?.thinking).toBe('hmm')
+    expect(s.live?.text).toBe('partial')
+
+    // the commit never drained here, but the not-running snapshot retires the
+    // residue outright: committed entries own the content from that point
+    s = apply(s, { type: 'snapshot', state: snap({ seq: 5, running: false }) })
+    expect(s.live).toBeNull()
   })
 
   it('resnapshot leaves a live turn alone while one is running', () => {

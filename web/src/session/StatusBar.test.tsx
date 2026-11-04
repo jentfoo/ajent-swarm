@@ -113,6 +113,23 @@ describe('StatusBar segments', () => {
     expect(bar.firstElementChild?.className).toBe('spinner tool')
   })
 
+  it('rests idle on snapshot facts despite stale live residue', () => {
+    // a sealed buffer can still paint; only the snapshot reports activity
+    const residue: LiveTurn = {
+      model: 'sonnet',
+      thinking: 'leftover thinking',
+      thinkingOpen: false,
+      text: '',
+      textOpen: false,
+      tools: [],
+    }
+    const settled = render(
+      <StatusBar snap={snapFor({ running: false, spinning: false })} live={residue} />,
+    )
+    const bar = settled.container.querySelector('.status-bar')!
+    expect(bar.firstElementChild?.className).toBe('spinner idle')
+  })
+
   it('colors the context meter at the compact threshold', () => {
     expect(contextLevel(0, 200_000, 150_000)).toBe('')
     expect(contextLevel(100_000, 200_000, 150_000)).toBe('')

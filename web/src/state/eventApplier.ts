@@ -717,8 +717,8 @@ function applyToolEvent(next: AppliedSessionState, ev: WireEvent): AppliedSessio
 // them. The reply's stamp names the watermark the actor had applied when it
 // read: at or above ours, its event-covered fields land wholesale since they
 // fold every event this client has seen; below, events already moved past the
-// read and only those facts merge, so a late response can never empty a dialog
-// or queue the live stream just announced.
+// read and only those facts merge, so a late response can never empty a dialog,
+// drop the live turn's buffer, or queue rows the stream just announced.
 function applyResnapshot(state: AppliedSessionState, snap: CtlState): AppliedSessionState {
   const fresh = snap.seq === undefined || snap.seq >= state.seq
   const next = cloneShallow(state)
@@ -743,11 +743,13 @@ function applyResnapshot(state: AppliedSessionState, snap: CtlState): AppliedSes
   next.pendings = reconcilePendings(next.pendings, rows, new Set())
 
   // Lost-carrier reconciliation: when the snapshot reports no turn in flight,
-  // any card still running missed its close (a dropped result, a carrier
-  // entry lost to decode failure, a missed turn.end). Force-close them here
-  // so no card can sit at "running" forever.
+  // any leftover buffer missed its close (dropped result, lost carrier entry,
+  // a missed turn.end). The commit handoff drains first: this fires ~100 ms
+  // after turn.end and the poll is the backstop, so what remains is residue.
+  // Drop it outright instead of sealing. Committed entries own the content
+  // from here, and kept residue would pin its panel forever.
   if (!snap.running && next.live !== null) {
-    next.live = closeLiveTurn(next.live)
+    next.live = null
   }
   return next
 }

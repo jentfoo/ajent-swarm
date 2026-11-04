@@ -11,15 +11,16 @@ const frameMs = 90
 
 export type SpinState = 'idle' | 'wait' | 'stream' | 'tool'
 
-// spinnerState maps the session's facts onto the glyph's color state: a
-// running tool wins, then model output arriving, then a turn in flight with
-// nothing streaming back yet, and idle at rest.
+// spinnerState maps the session's facts onto the glyph's color state. The
+// reconciled snapshot owns activity: not running or spinning is idle no matter
+// what a stale live buffer paints, and while working the buffer only refines
+// the color (tool first, then streamed output, then wait).
 export function spinnerState(snap: CtlState, live?: LiveTurn | null): SpinState {
+  if (!snap.running && !snap.spinning) return 'idle'
   const toolRunning = (live?.tools ?? []).some((t) => t.result === undefined && !t.closed)
   if (toolRunning) return 'tool'
   if (live && (live.thinking !== '' || live.text !== '')) return 'stream'
-  if (snap.running || snap.spinning) return 'wait'
-  return 'idle'
+  return 'wait'
 }
 
 // Spinner is the working glyph: first element of the status line on both

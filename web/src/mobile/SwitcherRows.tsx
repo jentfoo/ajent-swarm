@@ -15,8 +15,9 @@ import type { SwitcherRow } from './switcher'
 // rail's headings (Needs input, Working, Recent): status and needs-input
 // badges beside each label, a check-off on actionable attention states (never
 // on neutral waiting or ended rows), a trailing actions area mirroring the
-// desktop card bar minus Open, and long-press rename editing the stored swarm
-// title rather than ajent's own session names.
+// desktop card bar minus Open plus an explicit Rename, and long-press rename
+// opening the same editor. Both rename paths edit the stored swarm title
+// rather than ajent's own session names.
 export function SwitcherRows({
   rows,
   onOpen,
@@ -24,7 +25,9 @@ export function SwitcherRows({
   rows: SwitcherRow[]
   onOpen: (row: SwitcherRow) => void
 }) {
-  const [renamingId, setRenamingId] = useState<string | null>(null)
+  // the row itself, not its id, so a listing refresh can never crash the
+  // editor with a lookup miss
+  const [renaming, setRenaming] = useState<SwitcherRow | null>(null)
   const [settingsId, setSettingsId] = useState<string | null>(null)
 
   if (rows.length === 0) {
@@ -43,19 +46,14 @@ export function SwitcherRows({
               key={row.sessionId}
               row={row}
               onOpen={onOpen}
-              onRename={() => setRenamingId(row.sessionId)}
+              onRename={() => setRenaming(row)}
               onSettings={() => setSettingsId(row.sessionId)}
             />
           ))}
         </Fragment>
       ))}
       {/* the editor rides above the rows as a modal, like every other surface */}
-      {renamingId !== null && (
-        <RenameEditor
-          row={rows.find((r) => r.sessionId === renamingId)!}
-          onDone={() => setRenamingId(null)}
-        />
-      )}
+      {renaming !== null && <RenameEditor row={renaming} onDone={() => setRenaming(null)} />}
       {/* one pushed settings screen, rebound to whichever row was tapped */}
       {settingsId !== null && (
         <SettingsSheet sessionId={settingsId} open onClose={() => setSettingsId(null)} />
@@ -118,24 +116,30 @@ function SwitchRow({
           </button>
         )}
       </span>
-      <RowActions row={row} onSettings={onSettings} />
+      <RowActions row={row} onRename={onRename} onSettings={onSettings} />
     </div>
   )
 }
 
 // RowActions is the row's trailing action area, mirroring the desktop card's
-// bar minus Open (the row itself opens): Settings and Stop for live rows,
-// Resume for ended ones with a recorded workspace. It swallows clicks and
-// pointer-downs so tapping or holding an action never reads as the row's own
-// open or long-press gestures.
-function RowActions({ row, onSettings }: { row: SwitcherRow; onSettings: () => void }) {
+// bar minus Open (the row itself opens): Rename on every row, Settings and
+// Stop for live rows, Resume for ended ones with a recorded workspace. It
+// swallows clicks and pointer-downs so tapping or holding an action never
+// reads as the row's own open or long-press gestures.
+function RowActions({
+  row,
+  onRename,
+  onSettings,
+}: {
+  row: SwitcherRow
+  onRename: () => void
+  onSettings: () => void
+}) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const { refreshSessions } = useSwarm()
   const navigate = useNavigate()
   const ended = row.status === 'ended'
-
-  if (ended && !row.workspace) return null // resume needs the working directory back
 
   const stop = async () => {
     setBusy(true)
@@ -155,7 +159,7 @@ function RowActions({ row, onSettings }: { row: SwitcherRow; onSettings: () => v
     setError('')
     try {
       const res = await fleetAPI.launch({
-        workspace: row.workspace!, // guarded above, ended rows only
+        workspace: row.workspace!, // guarded by the render below, ended rows only
         mode: 'resume',
         target: row.sessionId,
       })
@@ -172,10 +176,15 @@ function RowActions({ row, onSettings }: { row: SwitcherRow; onSettings: () => v
       onClick={(ev) => ev.stopPropagation()}
       onPointerDown={(ev) => ev.stopPropagation()}
     >
+      <button type="button" onClick={onRename}>
+        Rename
+      </button>
       {ended ? (
-        <button type="button" onClick={() => void resume()} disabled={busy}>
-          {busy ? 'Resuming…' : 'Resume'}
-        </button>
+        row.workspace && (
+          <button type="button" onClick={() => void resume()} disabled={busy}>
+            {busy ? 'Resuming…' : 'Resume'}
+          </button>
+        )
       ) : (
         <>
           <button type="button" onClick={onSettings}>

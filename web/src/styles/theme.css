@@ -1417,8 +1417,9 @@ label {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* trailing action area per row: Settings and Stop on live rows, Resume on
-   ended ones with a workspace; refusals wrap onto their own line */
+/* trailing action area per row: Rename everywhere, Settings and Stop on live
+   rows, Resume on ended ones with a workspace; refusals wrap onto their own
+   line */
 .switch-actions {
   display: flex;
   align-items: center;
@@ -1558,10 +1559,14 @@ label {
   display: flex;
   align-items: center;
   flex-wrap: wrap; /* interrupt plus settings squeeze in on narrow phones */
-  gap: calc(var(--unit) * 2);
+  gap: calc(var(--unit) * 3); /* breathing room between 44px touch targets */
   padding: calc(var(--unit) * 2) calc(var(--unit) * 3);
   background: var(--surface);
   border-bottom: 1px solid var(--border);
+}
+/* 44px touch-target floor for the header buttons, matching the back link */
+.mobile-session-header button {
+  min-height: 44px;
 }
 .mobile-session-header .back-link {
   font-size: 1.2em;
@@ -1570,6 +1575,16 @@ label {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+}
+/* first-run note for the edge-swipe gesture; hint-shaped rather than
+   button-shaped, wrapping onto its own line under the controls */
+.mobile-session-header .edge-swipe-hint {
+  flex-basis: 100%;
+  padding: 0;
+  background: none;
+  border: none;
+  font-size: var(--fs-small);
+  text-align: left;
 }
 .seat-claim {
   white-space: normal;

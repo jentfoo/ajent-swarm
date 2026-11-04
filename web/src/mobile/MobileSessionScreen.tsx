@@ -21,6 +21,7 @@ import { SettingsSheet } from './SettingsSheet'
 import { SwitcherRows } from './SwitcherRows'
 import { ToolsSheet } from './ToolsSheet'
 import { TouchDialogDock } from './TouchDialogDock'
+import { dismissSwipeHint, swipeHintSeen } from './swipeHint'
 import { useSwitcherRows } from './useSwitcherRows'
 
 // edgeSwipePx is how far right a touch starting in the left edge zone must
@@ -61,7 +62,14 @@ function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElemen
   const [showSettings, setShowSettings] = useState(false)
   const [sheetOpen, setSheetOpen] = useState(false)
   const [stopBusy, setStopBusy] = useState(false)
+  const [showSwipeHint, setShowSwipeHint] = useState(() => !swipeHintSeen())
   const keyboardInset = useKeyboardInset()
+
+  // the hint retires once, then stays retired through the persisted flag
+  const retireSwipeHint = () => {
+    setShowSwipeHint(false)
+    dismissSwipeHint()
+  }
 
   // Edge-swipe from the left reopens the switcher over any session view; the
   // touch zone is only the first 24px so transcript selection never fights it.
@@ -134,7 +142,10 @@ function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElemen
         const dx = (end?.clientX ?? 0) - start.x
         const dy = Math.abs((end?.clientY ?? 0) - start.y)
         // horizontal dominance keeps vertical scrolls from reading as swipes
-        if (dx >= edgeSwipePx && dx > dy) setSheetOpen(true)
+        if (dx >= edgeSwipePx && dx > dy) {
+          setSheetOpen(true)
+          retireSwipeHint()
+        }
       }}
       onTouchCancel={() => {
         edgeStart.current = null
@@ -174,6 +185,11 @@ function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElemen
         >
           ☰
         </button>
+        {showSwipeHint && (
+          <button type="button" className="muted edge-swipe-hint" onClick={retireSwipeHint}>
+            Tip: swipe from the left edge to switch sessions
+          </button>
+        )}
       </header>
 
       {phase === 'ended' && (

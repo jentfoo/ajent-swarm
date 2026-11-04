@@ -11,11 +11,11 @@ import { WorkspaceProvider } from '../providers/workspace'
 import { resetLedger } from '../workspace/attention'
 
 // The switcher's interactive contract at its breakpoint: rows group under
-// muted desktop-rail headings, long-press rename writes swarm storage and
-// suppresses the tap, awaiting rows never offer a check-off, live needs-input
-// rows offer one backed by the digest, and the trailing actions (Settings,
-// Stop, Resume) hit their endpoints and rebind a single settings sheet
-// without ever tripping the row's own gestures.
+// muted desktop-rail headings, rename via long-press or the explicit action
+// shares one editor that writes swarm storage and suppresses the tap,
+// awaiting rows never offer a check-off, live needs-input rows offer one
+// backed by the digest, and the trailing actions hit their endpoints and
+// rebind a single settings sheet without tripping the row's own gestures.
 
 function row(overrides: Partial<SwitcherRow> = {}): SwitcherRow {
   return {
@@ -158,6 +158,7 @@ describe('SwitcherRows', () => {
 
     // the hold opened the editor and suppressed the tap that opens the session
     const input = await screen.findByDisplayValue('project')
+    expect(screen.getByTestId('rename-01A')).toBeInTheDocument()
     expect(onOpen).not.toHaveBeenCalled()
 
     const user = userEvent.setup()
@@ -170,6 +171,19 @@ describe('SwitcherRows', () => {
       expect(titles).toHaveLength(1)
       expect(JSON.parse(String(titles[0]![1]?.body))).toEqual({ title: 'couch reading' })
     })
+  })
+
+  it('rename action opens the same editor as long-press', async () => {
+    stubFacts()
+    renderRows([row()])
+    await screen.findByText('project')
+
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Rename' }))
+
+    // the same keyed editor a long-press opens, seeded with the row's label
+    expect(await screen.findByTestId('rename-01A')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('project')).toBeInTheDocument()
   })
 
   it('never offers a check-off on waiting rows', async () => {
@@ -339,7 +353,9 @@ describe('SwitcherRows', () => {
     await screen.findByText('project')
 
     // the live row acts, the recorded ended row resumes, the workspace-less
-    // one offers nothing
+    // one offers nothing; rename needs neither seat state nor a workspace, so
+    // it lands on every row
+    expect(screen.getAllByRole('button', { name: 'Rename' })).toHaveLength(3)
     expect(screen.getAllByRole('button', { name: 'Settings' })).toHaveLength(1)
     expect(screen.getAllByRole('button', { name: 'Stop' })).toHaveLength(1)
     expect(screen.getAllByRole('button', { name: 'Resume' })).toHaveLength(1)
@@ -415,6 +431,7 @@ describe('SwitcherRows', () => {
     const user = userEvent.setup()
     await user.click(screen.getByRole('button', { name: 'Settings' }))
     await user.click(screen.getByRole('button', { name: 'Stop' }))
+    await user.click(screen.getAllByRole('button', { name: 'Rename' })[0]!)
     await user.click(screen.getByRole('button', { name: 'Resume' }))
 
     expect(onOpen).not.toHaveBeenCalled()
@@ -427,6 +444,7 @@ describe('SwitcherRows', () => {
     await screen.findByText('project')
 
     await pressLong(screen.getByRole('button', { name: 'Stop' }))
+    await pressLong(screen.getByRole('button', { name: 'Rename' }))
 
     expect(screen.queryByDisplayValue('project')).not.toBeInTheDocument()
     expect(onOpen).not.toHaveBeenCalled()

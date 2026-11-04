@@ -15,7 +15,8 @@ import { resetLedger } from '../workspace/attention'
 
 // The mobile single-session screen over the real stream client: compact
 // chrome, keyboard-aware padding against a mocked visualViewport, tools as a
-// pushed sheet, and rewind as a flat recent-prompt list.
+// pushed sheet, rewind as a flat recent-prompt list, and the first-run
+// edge-swipe hint retired by one gesture.
 
 const VIEW = '01MOBILEVIEW00000'
 const OTHER = '01MOBILEVIEW00001'
@@ -552,6 +553,81 @@ describe('MobileSessionScreen', () => {
     }
     expect(screen.queryByLabelText('Notices')).not.toBeInTheDocument()
     expect(screen.getByText('Allow write access?')).toBeInTheDocument()
+  })
+
+  it('keeps header controls labeled and enabled', async () => {
+    renderScreen()
+    const ws = await openSocket()
+    act(() => {
+      ws.message({
+        type: 'init',
+        sessionId: VIEW,
+        state: snapshotFor(VIEW, { running: true, idle: false }),
+        entries: [],
+      })
+    })
+    await screen.findByRole('button', { name: /sonnet/ })
+
+    // theme.css touch-target sizing is style-only: every header control keeps
+    // its label and enabled state
+    expect(screen.getByRole('button', { name: 'Interrupt' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Rewind' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Open tools panel' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Agent settings' })).toBeEnabled()
+    expect(screen.getByLabelText('Back to launcher')).toBeInTheDocument()
+  })
+
+  it('shows the edge swipe hint until one gesture retires it', async () => {
+    const view = renderScreen()
+    const ws = await openSocket()
+    act(() => {
+      ws.message({ type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
+    })
+    await screen.findByRole('button', { name: /sonnet/ })
+    expect(screen.getByRole('button', { name: /swipe from the left edge/ })).toBeInTheDocument()
+
+    const surface = document.querySelector('.mobile-session') as HTMLElement
+    fireEvent.touchStart(surface, {
+      touches: [{ clientX: 10, clientY: 300 }],
+      changedTouches: [{ clientX: 10, clientY: 300 }],
+    })
+    fireEvent.touchEnd(surface, { touches: [], changedTouches: [{ clientX: 80, clientY: 306 }] })
+
+    // the completed gesture retires the hint and persists the flag
+    expect(await screen.findByRole('dialog', { name: 'Session switcher' })).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /swipe from the left edge/ }),
+    ).not.toBeInTheDocument()
+    expect(localStorage.getItem('swarm.edgeSwipeHint.v1')).not.toBeNull()
+
+    // a remount reads the persisted flag, so the hint never returns
+    view.unmount()
+    renderScreen()
+    const ws2 = await openSocket()
+    act(() => {
+      ws2.message({ type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
+    })
+    await screen.findByRole('button', { name: /sonnet/ })
+    expect(
+      screen.queryByRole('button', { name: /swipe from the left edge/ }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('dismisses the edge swipe hint on tap', async () => {
+    renderScreen()
+    const ws = await openSocket()
+    act(() => {
+      ws.message({ type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
+    })
+    await screen.findByRole('button', { name: /sonnet/ })
+
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: /swipe from the left edge/ }))
+
+    expect(
+      screen.queryByRole('button', { name: /swipe from the left edge/ }),
+    ).not.toBeInTheDocument()
+    expect(localStorage.getItem('swarm.edgeSwipeHint.v1')).not.toBeNull()
   })
 
   it('opens the switcher from a dominant horizontal edge swipe', async () => {

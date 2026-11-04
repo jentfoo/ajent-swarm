@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -41,6 +41,14 @@ const run: Run = {
   error: 'submit refused: dialog holds input',
 }
 
+// A one-shot source exercises the duplicate path's fire-time clearing.
+const onceJob: Job = {
+  ...job,
+  id: 6,
+  name: 'one shot',
+  scheduleKind: 'once',
+}
+
 let jobsReply: { rows?: Job[]; status?: number }
 let jobsFetches = 0
 const fireReplies: Array<{ id: number; ok: boolean }> = []
@@ -48,6 +56,7 @@ const fireReplies: Array<{ id: number; ok: boolean }> = []
 // window is observable.
 let updateBodies: Array<Record<string, unknown>> = []
 let updateWaiters: Array<(r: Response) => void> = []
+const createBodies: Array<Record<string, unknown>> = []
 
 describe('JobsHome', () => {
   let sockets: MockWebSocket[]
@@ -59,6 +68,7 @@ describe('JobsHome', () => {
     fireReplies.length = 0
     updateBodies = []
     updateWaiters = []
+    createBodies.length = 0
     vi.stubGlobal(
       'WebSocket',
       class extends MockWebSocket {
@@ -80,6 +90,11 @@ describe('JobsHome', () => {
           return Promise.resolve(Response.json([]))
         }
         if (base === '/api/jobs/preview') return Promise.resolve(Response.json({ times: [] }))
+        if (base === '/api/jobs' && init?.method === 'POST') {
+          const body = JSON.parse(String(init.body)) as Record<string, unknown>
+          createBodies.push(body)
+          return Promise.resolve(Response.json({ ...body, id: 77 }))
+        }
         const listJobs = base === '/api/jobs' && (!init?.method || init.method === 'GET')
         if (listJobs) {
           jobsFetches++
@@ -274,5 +289,61 @@ describe('JobsHome', () => {
     const user = userEvent.setup()
     await user.click(screen.getByRole('button', { name: 'Cancel' }))
     expect(await screen.findByText('Scheduled jobs')).toBeInTheDocument()
+  })
+
+  it('duplicates a row into a seeded create', async () => {
+    const user = userEvent.setup()
+    renderJobs()
+    await screen.findByText('nightly sweep')
+
+    await user.click(screen.getByRole('button', { name: 'Duplicate nightly sweep' }))
+    expect(await screen.findByText('New job')).toBeInTheDocument()
+
+    // the source's facts ride along verbatim, with the seeded adjustments on top
+    expect(screen.getByRole('textbox', { name: /^Name/ })).toHaveValue('Copy of nightly sweep')
+    expect(screen.getByLabelText(/Workspace directory/)).toHaveValue('/repo')
+    expect(screen.getByRole('spinbutton', { name: 'Every' })).toHaveValue(30)
+    expect(screen.getByLabelText('Unit')).toHaveValue('minutes')
+    expect(screen.getByRole('textbox', { name: 'Prompt' })).toHaveValue('sweep the logs')
+    expect(screen.getByRole('checkbox', { name: 'Enabled' })).not.toBeChecked()
+
+    // saving rides the create path: a POST whose body carries no id
+    await user.click(screen.getByRole('button', { name: 'Create job' }))
+    await waitFor(() => expect(createBodies).toHaveLength(1))
+    expect(createBodies[0].id).toBeUndefined()
+    expect(createBodies[0]).toMatchObject({
+      name: 'Copy of nightly sweep',
+      enabled: false,
+      scheduleKind: 'interval',
+      intervalSeconds: 1800,
+    })
+  })
+
+  it('duplicates a one shot with an empty fire time', async () => {
+    jobsReply = { rows: [onceJob] }
+    const user = userEvent.setup()
+    renderJobs()
+    await screen.findByText('one shot')
+
+    await user.click(screen.getByRole('button', { name: 'Duplicate one shot' }))
+    expect(await screen.findByText('New job')).toBeInTheDocument()
+
+    // the stored slot is usually past, so validation demands a fresh pick
+    const fireAt = screen.getByLabelText(/Fire at/)
+    expect(fireAt).toHaveValue('')
+    expect(screen.getByText('Pick the fire time.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Create job' })).toBeDisabled()
+
+    // picking a slot clears the error and unblocks the save
+    fireEvent.change(fireAt, { target: { value: '2026-12-01T09:30' } })
+    expect(screen.queryByText('Pick the fire time.')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Create job' })).toBeEnabled()
+  })
+
+  it('opens a plain create when the duplicate source is gone', async () => {
+    renderJobs('/jobs/new?from=999')
+
+    expect(await screen.findByText('New job')).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: /^Name/ })).toHaveValue('')
   })
 })

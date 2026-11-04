@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 
 import { ApiError } from '../api/client'
 import { fleet, jobsApi, models as modelsApi, runsApi } from '../api/endpoints'
@@ -9,6 +9,8 @@ import { useAuth } from '../providers/auth'
 import { useSwarm } from '../providers/swarm'
 import { tildePath } from '../session/names'
 import { JobEditor } from '../jobs/JobEditor'
+import { duplicateDraft } from '../jobs/jobDraft'
+import type { JobDraft } from '../jobs/jobDraft'
 import { JobTabs } from '../jobs/JobTabs'
 import { formatSlot, runStatusClass, scheduleSummary } from '../jobs/schedule'
 
@@ -23,6 +25,7 @@ const lastRunPage = 200
 export default function JobsHome() {
   const { jobId } = useParams()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
 
   const [jobs, setJobs] = useState<Job[] | null>(null)
   const [lastRuns, setLastRuns] = useState<Map<number, Run>>(new Map())
@@ -45,6 +48,17 @@ export default function JobsHome() {
     typeof editingId === 'number' && !Number.isNaN(editingId)
       ? jobs?.find((j) => j.id === editingId)
       : undefined
+
+  // A duplicate link (/jobs/new?from=<id>) seeds the create form from a loaded
+  // row: the editor fixes its draft at mount, so seeding waits for the jobs
+  // load. A stale id opens plain.
+  const wantsSeed = editingId === 'new' && searchParams.get('from') !== null
+  const seed = useMemo(() => {
+    if (!wantsSeed || jobs === null) return undefined
+    const from = Number(searchParams.get('from'))
+    const source = Number.isInteger(from) ? jobs.find((j) => j.id === from) : undefined
+    return source === undefined ? undefined : duplicateDraft(source)
+  }, [wantsSeed, searchParams, jobs])
 
   const load = useCallback(async () => {
     const token = ++loadToken.current
@@ -186,10 +200,10 @@ export default function JobsHome() {
         <p className="error-text" role="alert">
           That job no longer exists.
         </p>
-      ) : typeof editingId === 'number' && jobs === null ? (
+      ) : jobs === null && (typeof editingId === 'number' || wantsSeed) ? (
         <p className="muted">Loading job…</p>
       ) : editingId !== undefined ? (
-        <EditorWithFacts job={editing} onClose={closeEditor} onSaved={onSaved} />
+        <EditorWithFacts job={editing} seed={seed} onClose={closeEditor} onSaved={onSaved} />
       ) : null}
     </div>
   )
@@ -199,10 +213,12 @@ export default function JobsHome() {
 // workspaces across live and saved sessions, model keys from live ones.
 function EditorWithFacts({
   job,
+  seed,
   onClose,
   onSaved,
 }: {
   job?: Job
+  seed?: JobDraft
   onClose: () => void
   onSaved: (job: Job | undefined) => Promise<void>
 }) {
@@ -244,6 +260,7 @@ function EditorWithFacts({
   return (
     <JobEditor
       job={job}
+      seed={seed}
       workspaces={workspaces}
       models={models}
       onSaved={onSaved}
@@ -297,6 +314,11 @@ function JobRow({
           />
           enabled
         </label>{' '}
+        <Link to={`/jobs/new?from=${job.id}`}>
+          <button type="button" aria-label={`Duplicate ${job.name}`}>
+            Duplicate
+          </button>
+        </Link>{' '}
         <button type="button" onClick={onFire}>
           Run now
         </button>

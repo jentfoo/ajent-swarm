@@ -45,18 +45,22 @@ function timezoneCandidates(): string[] {
 // workspace path.
 export function JobEditor({
   job,
+  seed,
   workspaces,
   models,
   onSaved,
   onCancel,
 }: {
   job?: Job // editing an existing row; absent creates one
+  seed?: JobDraft // pre-filled create, e.g. a duplicate of a stored row
   workspaces: string[]
   models: string[]
   onSaved: (job: Job | undefined) => void // undefined after a delete
   onCancel: () => void
 }) {
-  const [draft, setDraft] = useState<JobDraft>(() => (job ? draftFromJob(job) : defaultDraft()))
+  const [draft, setDraft] = useState<JobDraft>(
+    () => seed ?? (job ? draftFromJob(job) : defaultDraft()),
+  )
   const errors: DraftErrors = useMemo(() => validateDraft(draft), [draft])
   const [previewTimes, setPreviewTimes] = useState<string[]>([])
   const [workspaceError, setWorkspaceError] = useState('')

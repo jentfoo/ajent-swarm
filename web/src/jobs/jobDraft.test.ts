@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   defaultDraft,
   draftFromJob,
+  duplicateDraft,
   localInputToDate,
   maxNameLen,
   maxTriggerLen,
@@ -196,6 +197,35 @@ describe('draftFromJob', () => {
     expect(draft.intervalValue).toBe(30)
     expect(draft.intervalUnit).toBe('seconds')
     expect(toPayload(draft, stored.id).intervalSeconds).toBe(30)
+  })
+})
+
+describe('duplicateDraft', () => {
+  it('copies a row verbatim with the seeded adjustments', () => {
+    const draft = duplicateDraft(stored)
+    expect(draft).toEqual({ ...draftFromJob(stored), name: 'Copy of nightly', enabled: false })
+    // the copy opens ready to save under the client's own validation
+    expect(validateDraft(draft)).toEqual({})
+  })
+
+  it('clips the copied name to the server byte bound', () => {
+    const emoji = '\u{1F600}' // four UTF-8 bytes per emoji
+    const draft = duplicateDraft({ ...stored, name: emoji.repeat(80) })
+    expect(validateDraft(draft)).toEqual({})
+    // 'Copy of ' spends 8 of the 200 bytes, the rest fills with whole emojis
+    expect([...draft.name]).toHaveLength(8 + 48)
+
+    const ascii = duplicateDraft({ ...stored, name: 'y'.repeat(300) })
+    expect([...ascii.name]).toHaveLength(maxNameLen)
+  })
+
+  it('clears a one shot slot but keeps recurring fields', () => {
+    const once = duplicateDraft({ ...stored, scheduleKind: 'once' })
+    expect(once.onceAt).toBe('')
+
+    const daily = duplicateDraft(stored)
+    expect(daily.onceAt).not.toBe('') // the stored next slot still round-trips
+    expect(daily.dailyTime).toBe('09:00')
   })
 })
 

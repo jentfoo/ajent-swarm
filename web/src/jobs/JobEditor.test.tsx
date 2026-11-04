@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { JobEditor } from './JobEditor'
+import { defaultDraft } from './jobDraft'
 import type { Job } from '../api/types'
 
 // The editor is provider-free: it talks to /api/jobs/preview for its schedule
@@ -245,6 +246,35 @@ describe('JobEditor', () => {
     await user.click(screen.getByRole('button', { name: 'Save changes' }))
     await waitFor(() => expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ id: 3 })))
     expect(savedRoutes[0].body).toMatchObject({ scheduleKind: 'interval', intervalSeconds: 30 })
+  })
+
+  it('renders a seed draft as the initial create state', async () => {
+    previewReply = { times: ['2026-11-10T08:30:00Z'] }
+    renderEditor({
+      seed: {
+        ...defaultDraft(),
+        name: 'Copy of nightly',
+        workspace: '/other',
+        scheduleKind: 'daily',
+        dailyTime: '08:30',
+        tz: 'UTC',
+        enabled: false,
+      },
+    })
+
+    // create mode throughout: no editing target, so no delete button
+    expect(screen.getByRole('heading', { name: 'New job' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Create job' })).toBeInTheDocument()
+    expect(screen.queryByText('Delete…')).not.toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: /^Name/ })).toHaveValue('Copy of nightly')
+    expect(screen.getByLabelText(/Workspace directory/)).toHaveValue('/other')
+    expect(screen.getByLabelText(/At \(HH:MM\)/)).toHaveValue('08:30')
+    expect(screen.getByLabelText(/Timezone/)).toHaveValue('UTC')
+    expect(screen.getByRole('checkbox', { name: 'Enabled' })).not.toBeChecked()
+
+    // the seeded draft drives the preview like a typed one
+    await settlePreview()
+    expect(previewBodies[0]).toMatchObject({ name: 'Copy of nightly', dailyTime: '08:30' })
   })
 
   it('fills the timezone datalist without rebuilding it per keystroke', () => {

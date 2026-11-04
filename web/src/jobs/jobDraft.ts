@@ -19,6 +19,7 @@ const maxIntervalSeconds = 366 * 24 * 3600 // one leap year of seconds
 
 // Length bounds are server-side Go string lengths, so they count UTF-8 bytes.
 const textEncoder = new TextEncoder()
+const textDecoder = new TextDecoder()
 
 // byteLength reports a string's UTF-8 size, the unit the server's bounds use.
 function byteLength(s: string): number {
@@ -126,6 +127,22 @@ export function draftFromJob(job: Job): JobDraft {
     triggerOn: job.triggerOn ?? 'success',
     enabled: job.enabled,
   }
+}
+
+// duplicateDraft seeds a Duplicate action from a stored row: "Copy of …"
+// name clipped to the server's byte bound, enabled forced off so the copy
+// never fires unreviewed, and a one-shot slot cleared since it is usually
+// past by duplication time. Everything else copies verbatim.
+export function duplicateDraft(job: Job): JobDraft {
+  const draft = draftFromJob(job)
+  if (job.scheduleKind === 'once') draft.onceAt = ''
+  // encodeInto stops on a code-point boundary, so the clip mirrors the
+  // server's UTF-8 byte bound; lone surrogates read back as U+FFFD.
+  const buf = new Uint8Array(maxNameLen)
+  const { written } = textEncoder.encodeInto(`Copy of ${draft.name}`, buf)
+  draft.name = textDecoder.decode(buf.subarray(0, written))
+  draft.enabled = false
+  return draft
 }
 
 // parseWeekdays reads the stored comma list onto tokens, ignoring anything

@@ -1787,9 +1787,8 @@ label {
   font-size: var(--fs-small);
 }
 
-/* tools panel and settings menu popovers share the dropdown shape */
-.tools-menu,
-.hamburger-menu {
+/* tools panel popover anchors beside its trigger chip */
+.tools-menu {
   position: relative;
 }
 .menu .menu-empty {
@@ -1862,18 +1861,10 @@ label {
   margin: 0;
 }
 
-.hamburger-pop {
-  position: absolute;
-  right: 0;
-  top: calc(100% + var(--unit) * 2);
-  width: min(24rem, 90vw);
-  max-height: 70vh;
-  overflow: auto;
-  z-index: 30;
-  padding: calc(var(--unit) * 3);
-}
-.hamburger-pop h3 {
-  margin-bottom: calc(var(--unit) * 2);
+/* both ☰ settings menus ride a centered modal narrower than the default, so
+   the setting rows read comfortably on wide screens too */
+.modal.settings-modal {
+  width: min(28rem, 92vw);
 }
 
 /* seat badge and stop affordance */

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { deriveBlocks } from './derive'
+import type { DerivedBlock, ToolCallInfo } from './derive'
 import type { Entry } from '../api/types'
 
 // Fixtures transcribed from ajent's docs/control-api.md entry shapes; the
@@ -14,15 +15,27 @@ function blocks(entries: Entry[], hide?: Set<string>, order?: string[]) {
 const textBlock = (text: string) => ({ type: 'text', data: { text } })
 const thinkBlock = (text: string) => ({ type: 'thinking', data: { text } })
 
-function messageEntry(id: string, parentId: string | undefined, role: string, content: unknown[]) {
+function messageEntry(
+  id: string,
+  parentId: string | undefined,
+  role: string,
+  content: unknown[],
+  extra: Record<string, unknown> = {},
+) {
   const e: Entry = {
     id,
     type: 'message',
     ts: 1730000000000,
-    data: JSON.parse(JSON.stringify({ message: { role, content } })),
+    data: JSON.parse(JSON.stringify({ message: { role, content }, ...extra })),
   }
   if (parentId !== undefined) e.parentId = parentId
   return e
+}
+
+// callPartsOf flattens an assistant block's calls; text parts stay inline.
+function callPartsOf(block: DerivedBlock): ToolCallInfo[] {
+  if (block.kind !== 'assistant') return []
+  return block.parts.flatMap((p) => (p.kind === 'call' ? [p.call] : []))
 }
 
 describe('deriveBlocks user classification', () => {
@@ -83,8 +96,9 @@ describe('deriveBlocks user classification', () => {
     expect(block.kind).toBe('assistant')
     if (block.kind !== 'assistant') return
     expect(block.thinking).toEqual(['hmm'])
-    expect(block.calls).toHaveLength(1)
-    expect(block.calls[0].result).toMatchObject({
+    const calls = callPartsOf(block)
+    expect(calls).toHaveLength(1)
+    expect(calls[0]?.result).toMatchObject({
       callId: 'c1',
       text: 'file body',
       isError: true,
@@ -106,40 +120,35 @@ describe('deriveBlocks user classification', () => {
       ReturnType<typeof deriveBlocks>[number],
       { kind: 'assistant' }
     >[]
-    expect(out[0].calls[0]?.result?.text).toBe('screen body')
+    expect(callPartsOf(out[0])[0]?.result?.text).toBe('screen body')
   })
 })
 
 describe('deriveBlocks assistant shape', () => {
-  it('collects texts, thinking and calls with stop reason', () => {
-    const entry = messageEntry('01A', undefined, 'assistant', [
-      thinkBlock('reasoning'),
-      textBlock('first'),
-      { type: 'tool_call', data: { id: 'c9', name: 'edit', input: { path: '/x' } } },
-      textBlock('second'),
-    ])
-    entry.data = JSON.parse(
-      JSON.stringify({
-        message: {
-          role: 'assistant',
-          content: [
-            { type: 'thinking', data: { text: 'reasoning' } },
-            { type: 'text', data: { text: 'first' } },
-            { type: 'tool_call', data: { id: 'c9', name: 'edit', input: { path: '/x' } } },
-            { type: 'text', data: { text: 'second' } },
-          ],
-        },
-        stop: 'tool_use',
-      }),
+  it('keeps text, calls and thinking in content order', () => {
+    const entry = messageEntry(
+      '01A',
+      undefined,
+      'assistant',
+      [
+        thinkBlock('reasoning'),
+        textBlock('first'),
+        { type: 'tool_call', data: { id: 'c9', name: 'edit', input: { path: '/x' } } },
+        textBlock('second'),
+      ],
+      { stop: 'tool_use' },
     )
 
     const [block] = blocks([entry])
-    expect(block).toMatchObject({
-      kind: 'assistant',
-      texts: ['first', 'second'],
-      thinking: ['reasoning'],
-      stop: 'tool_use',
-    })
+    expect(block).toMatchObject({ kind: 'assistant', stop: 'tool_use' })
+    if (block.kind !== 'assistant') return
+    // parts preserve the wire's content order: text, call, then the closing text
+    expect(block.parts).toEqual([
+      { kind: 'text', text: 'first' },
+      { kind: 'call', call: { id: 'c9', name: 'edit', input: { path: '/x' } } },
+      { kind: 'text', text: 'second' },
+    ])
+    expect(block.thinking).toEqual(['reasoning'])
   })
 
   it('hides calls still painting live but keeps them folded for results', () => {
@@ -155,7 +164,7 @@ describe('deriveBlocks assistant shape', () => {
     expect(out[0]).toMatchObject({ kind: 'assistant' })
     if (out[0].kind !== 'assistant') return
     // only the retired call renders; the live card covers it until handoff
-    expect(out[0].calls.map((c) => c.id)).toEqual(['done1'])
+    expect(callPartsOf(out[0]).map((c) => c.id)).toEqual(['done1'])
   })
 })
 

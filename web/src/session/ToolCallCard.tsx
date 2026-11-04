@@ -17,11 +17,9 @@ export interface ToolCardView {
 
 export function ToolCallCard({
   call,
-  running,
   agents,
 }: {
   call: ToolCardView
-  running?: boolean
   // Sub-agent job rows (sub-N keys): agent_start and agent_poll cards show
   // the queued/running state of every job instead of a bare spinner.
   agents?: ActivityRow[]
@@ -37,7 +35,7 @@ export function ToolCallCard({
   let body = streamed !== '' ? streamed : (call.result?.text ?? '')
   if (failedCard && fault !== undefined) body = fault
   const closed = call.closed === true && call.result === undefined
-  const done = running ?? (call.result !== undefined || closed)
+  const done = call.result !== undefined || closed
   const label = call.name || call.progress?.path || call.id
 
   return (

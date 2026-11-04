@@ -7,7 +7,7 @@ import { SubAgentChips } from './ToolCallCard'
 import { subAgentRows } from './StatusBar'
 import { DiffCard } from './DiffCard'
 import { MarkdownBlock } from './MarkdownBlock'
-import type { AppliedSessionState } from '../state/eventApplier'
+import type { AppliedSessionState, DiffView } from '../state/eventApplier'
 import { deriveBlocks } from '../state/derive'
 
 // Bottom gap still counting as "at the latest row"; scrolling above it
@@ -19,10 +19,11 @@ const stickGap = 60
 const pullDownPx = 64
 
 // TranscriptView renders the committed chain as a virtualized block list keyed
-// by entry id, with prints and diffs as transient cards beneath it and the
-// pinned live stream at the bottom. Stick-to-bottom autoscroll disengages on
-// scroll-up; a pill jumps back to the latest. A sessionId change (swapping
-// sessions inside one hosted view) re-lands on the latest too.
+// by entry id, with each anchored diff riding its block's row, unanchored ones
+// trailing beneath, and the pinned live stream at the bottom. Stick-to-bottom
+// autoscroll disengages on scroll-up; a pill jumps back to the latest. A
+// sessionId change (swapping sessions inside one hosted view) re-lands on the
+// latest too.
 export function TranscriptView({
   sessionId = '',
   state,
@@ -65,6 +66,25 @@ export function TranscriptView({
     () => deriveBlocks(state.chain.ids, state.entries, hideLiveToolIds),
     [state.chain, state.entries, hideLiveToolIds],
   )
+
+  // Diffs anchor to the block they arrived after; a card sits inside its row
+  // wrapper so the virtualizer measures them together. Anchors that left the
+  // retained chain (rewound away, never committed) fall back below it.
+  const { diffsByAnchor, trailingDiffs } = useMemo(() => {
+    const visible = new Set(blocks.map((b) => b.id))
+    const byAnchor = new Map<string, DiffView[]>()
+    const trailing: DiffView[] = []
+    for (const d of state.diffs) {
+      if (!visible.has(d.afterId)) {
+        trailing.push(d)
+        continue
+      }
+      const anchored = byAnchor.get(d.afterId)
+      if (anchored === undefined) byAnchor.set(d.afterId, [d])
+      else anchored.push(d)
+    }
+    return { diffsByAnchor: byAnchor, trailingDiffs: trailing }
+  }, [blocks, state.diffs])
 
   // TanStack Virtual returns unstable function values by design; the compiler
   // opt-out is documented upstream and safe with our row keys.
@@ -187,32 +207,43 @@ export function TranscriptView({
         <div ref={contentRef}>
           {blocks.length > 0 && (
             <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
-              {virtualizer.getVirtualItems().map((item) => (
-                <div
-                  key={item.key}
-                  data-index={item.index}
-                  ref={virtualizer.measureElement}
-                  style={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    width: '100%',
-                    transform: `translateY(${item.start}px)`,
-                  }}
-                >
-                  <EntryBlock block={blocks[item.index]} />
-                </div>
-              ))}
+              {virtualizer.getVirtualItems().map((item) => {
+                const block = blocks[item.index]
+                return (
+                  <div
+                    key={item.key}
+                    data-index={item.index}
+                    ref={virtualizer.measureElement}
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      width: '100%',
+                      transform: `translateY(${item.start}px)`,
+                    }}
+                  >
+                    <EntryBlock block={block} />
+                    {diffsByAnchor.get(block.id)?.map((d, i) => (
+                      <DiffCard
+                        key={`${i}-${d.path}`}
+                        path={d.path}
+                        before={d.before}
+                        after={d.after}
+                      />
+                    ))}
+                  </div>
+                )
+              })}
             </div>
           )}
+          {trailingDiffs.map((d, i) => (
+            <DiffCard key={`${i}-${d.path}`} path={d.path} before={d.before} after={d.after} />
+          ))}
           {state.prints.map((p) => (
             <div key={p.id} className="entry print-card card">
               <span className="block-role">printed</span>
               <MarkdownBlock text={p.markdown} />
             </div>
-          ))}
-          {state.diffs.map((d, i) => (
-            <DiffCard key={`${i}-${d.path}`} path={d.path} before={d.before} after={d.after} />
           ))}
           {state.live && (
             <>

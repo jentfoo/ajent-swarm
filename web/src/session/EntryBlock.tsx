@@ -44,16 +44,13 @@ function EntryBlockImpl({ block }: { block: DerivedBlock }) {
               ))}
             </details>
           )}
-          {block.texts.map((text, i) => (
-            <MarkdownBlock key={i} text={text} />
-          ))}
-          {block.calls.map((call) => (
-            <ToolCallCard
-              key={call.id}
-              call={committedView(call)}
-              running={call.result === undefined}
-            />
-          ))}
+          {block.parts.map((part, i) =>
+            part.kind === 'text' ? (
+              <MarkdownBlock key={`text-${i}`} text={part.text} />
+            ) : (
+              <ToolCallCard key={part.call.id} call={committedView(part.call)} />
+            ),
+          )}
         </div>
       )
     case 'tool-results':

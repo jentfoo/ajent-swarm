@@ -27,6 +27,9 @@ export interface DiffView {
   path: string
   before: string
   after: string
+  // Last entry id on the visible chain at arrival; '' when nothing was
+  // committed yet. Rendering pins the card beneath its block.
+  afterId: string
 }
 
 export interface ToolProgressView {
@@ -473,7 +476,12 @@ function applyEvent(state: AppliedSessionState, ev: WireEvent): AppliedSessionSt
       if (!isValidId(d?.path)) return keepSeq(state, ev.seq)
       next.diffs = boundedAppend(
         next.diffs,
-        { path: d.path, before: d.before ?? '', after: d.after ?? '' },
+        {
+          path: d.path,
+          before: d.before ?? '',
+          after: d.after ?? '',
+          afterId: next.chain.ids.at(-1) ?? '',
+        },
         maxDiffs,
       )
       return next

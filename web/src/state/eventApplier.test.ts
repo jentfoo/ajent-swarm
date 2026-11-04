@@ -582,6 +582,53 @@ describe('applierReducer snapshot ordering', () => {
   })
 })
 
+describe('applierReducer diff anchoring', () => {
+  it('records the chain tail as its anchor at arrival', () => {
+    const root = messageEntry('01A', undefined, 'user', 'hello')
+    const reply = messageEntry('01B', '01A', 'assistant', 'hi there')
+    let s = apply(initialSessionState(), {
+      type: 'init',
+      frame: initFrame(snap({ head: '01B' }), [root, reply]),
+    })
+
+    s = apply(
+      s,
+      ev('diff', 5, { path: 'src/main.go', before: 'one\ntwo\n', after: 'one\nTHREE\n' }),
+    )
+    expect(s.diffs).toEqual([
+      { path: 'src/main.go', before: 'one\ntwo\n', after: 'one\nTHREE\n', afterId: '01B' },
+    ])
+  })
+
+  it('anchors nowhere before any committed entry', () => {
+    const s = apply(initialSessionState(), ev('diff', 1, { path: 'f', before: '', after: 'x' }))
+    expect(s.diffs[0]?.afterId).toBe('')
+  })
+
+  it('keeps earlier anchors still while later diffs reach the new tail', () => {
+    const root = messageEntry('01A', undefined, 'user', 'hello')
+    let s = apply(initialSessionState(), {
+      type: 'init',
+      frame: initFrame(snap({ head: '01A' }), [root]),
+    })
+
+    s = apply(s, ev('diff', 1, { path: 'a.txt', before: '', after: 'one' }))
+    const reply = messageEntry('01B', '01A', 'assistant', 'hi there')
+    s = apply(s, ev('entry.append', 2, { entry: reply }))
+    s = apply(s, ev('diff', 3, { path: 'b.txt', before: '', after: 'two' }))
+
+    expect(s.diffs.map((d) => d.afterId)).toEqual(['01A', '01B'])
+  })
+
+  it('keeps the diff list bounded at ten', () => {
+    let s = initialSessionState()
+    for (let i = 1; i <= 11; i++) s = apply(s, ev('diff', i, { path: `f${i}` }))
+    expect(s.diffs).toHaveLength(10)
+    // the oldest drops, the newest survives
+    expect(s.diffs[0]?.path).toBe('f2')
+  })
+})
+
 // assistantWith builds one committed message entry with arbitrary blocks;
 // role defaults to assistant, which is what the echo rules drain.
 function assistantWith(content: unknown[], role = 'assistant'): Entry {

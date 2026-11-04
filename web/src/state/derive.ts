@@ -35,15 +35,16 @@ export interface ToolCallInfo {
   result?: ToolResultView
 }
 
+export type AssistantPart = { kind: 'text'; text: string } | { kind: 'call'; call: ToolCallInfo }
+
 export type DerivedBlock =
   | { kind: 'prompt'; id: string; text: string; images: ImageView[] }
   | { kind: 'injected'; id: string; replayed: boolean; text: string }
   | {
       kind: 'assistant'
       id: string
-      texts: string[]
+      parts: AssistantPart[] // content-block order, edits land where they happened
       thinking: string[]
-      calls: ToolCallInfo[]
       stop?: string
     }
   | { kind: 'tool-results'; id: string; results: ToolResultView[] }
@@ -157,13 +158,12 @@ function deriveAssistant(
   hideLiveToolIds: ReadonlySet<string>,
   stop?: string,
 ): DerivedBlock {
-  const texts: string[] = []
+  const parts: AssistantPart[] = []
   const thinking: string[] = []
-  const calls: ToolCallInfo[] = []
   for (const block of blocks) {
     switch (block.type) {
       case 'text':
-        if ((block.data?.text ?? '') !== '') texts.push(block.data!.text!)
+        if ((block.data?.text ?? '') !== '') parts.push({ kind: 'text', text: block.data!.text! })
         break
       case 'thinking':
         if ((block.data?.text ?? '') !== '') thinking.push(block.data!.text!)
@@ -171,22 +171,22 @@ function deriveAssistant(
       case 'tool_call': {
         const callId = str(block.data?.id)
         if (callId === '') break
-        // One info object lands in both places, so a folded result shows on
-        // the rendered card and a hidden call still receives its result.
+        // The pending map and any rendered part share one info object, so a
+        // folded result shows on the card and a hidden call still receives it.
         const info: ToolCallInfo = {
           id: callId,
           name: str(block.data?.name),
           input: block.data?.input,
         }
         pendingCalls.set(callId, info)
-        if (!hideLiveToolIds.has(callId)) calls.push(info)
+        if (!hideLiveToolIds.has(callId)) parts.push({ kind: 'call', call: info })
         break
       }
       default:
         break
     }
   }
-  return { kind: 'assistant', id, texts, thinking, calls, stop: stop || undefined }
+  return { kind: 'assistant', id, parts, thinking, stop: stop || undefined }
 }
 
 // foldResults attaches tool results to the call headers they answer. Results

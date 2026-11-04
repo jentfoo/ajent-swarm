@@ -107,7 +107,6 @@ function LiveToolCard({
         result,
         closed: tool.closed,
       }}
-      running={tool.result === undefined && !tool.closed}
       agents={isAgentTool(tool.name) ? agents : undefined}
     />
   )

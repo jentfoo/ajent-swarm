@@ -319,6 +319,33 @@ describe('SessionView', () => {
     expect(card.querySelector('.diff-line.del')?.textContent).toBe('two')
   })
 
+  it('anchors a diff above committed messages that arrive later', async () => {
+    renderView()
+    const ws = await openSocket()
+
+    frame(ws, {
+      type: 'init',
+      sessionId: VIEW,
+      state: snapshotFor(VIEW, { head: '01D0' }),
+      entries: [messageEntry('01D0', undefined, 'user', 'edit the file')],
+    })
+    await screen.findByText('edit the file')
+
+    // the edit lands mid-turn, anchored to the chain tail at arrival
+    frame(ws, wireEvent('diff', 1, { path: 'src/main.go', before: 'one\n', after: 'two\n' }))
+    frame(
+      ws,
+      wireEvent('entry.append', 2, {
+        entry: assistantEntry('01D1', '01D0', 'all done editing'),
+      }),
+    )
+
+    // the later message stacks below the diff card in document order
+    const card = await screen.findByTestId('diff-card')
+    const later = await screen.findByText('all done editing')
+    expect(card.compareDocumentPosition(later) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
   it('renders print events as transient cards in the flow', async () => {
     renderView()
     const ws = await openSocket()

@@ -1,7 +1,7 @@
 import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { Composer } from './Composer'
 import type { ComposerProps } from './Composer'
@@ -18,16 +18,20 @@ function filesFetch(byQuery: Record<string, Suggestion[]>) {
   })
 }
 
+// component swaps the module under test; the coarse-pointer cases re-import
+// Composer with matchMedia stubbed, since the flag reads once at import.
+type HarnessOverrides = Partial<ComposerProps> & { component?: typeof Composer }
+
 // A controlled harness: SessionView owns the draft in production, so the test
 // mirrors that by feeding onChange back into value.
-function Harness(overrides: Partial<ComposerProps> = {}) {
+function Harness(overrides: HarnessOverrides = {}) {
   return <ControlledHarness {...overrides} />
 }
 
-function ControlledHarness(overrides: Partial<ComposerProps>) {
+function ControlledHarness({ component: Component = Composer, ...overrides }: HarnessOverrides) {
   const [value, setValue] = useState('')
   return (
-    <Composer
+    <Component
       sessionId="01S"
       value={value}
       onChange={setValue}
@@ -264,6 +268,96 @@ describe('Composer caret and completion keys', () => {
     // the refetched candidate replaces only the query, text after it survives
     expect(box.value).toBe('see @src/main.go ')
     expect(box.selectionStart).toBe(box.value.length)
+  })
+})
+
+describe('Composer touch keyboard', () => {
+  // The coarse-pointer flag reads once at module scope, so the touch cases
+  // re-import the module with matchMedia stubbed; every other test in this
+  // file runs on the fine-pointer default the test setup ships.
+  async function coarseComposer(): Promise<typeof Composer> {
+    vi.stubGlobal('matchMedia', (query: string) => ({ matches: query === '(pointer: coarse)' }))
+    vi.resetModules()
+    return (await import('./Composer')).Composer
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('coarse_enter_inserts_a_newline', async () => {
+    const user = userEvent.setup()
+    const fetchSpy = vi.fn(okSubmit())
+    vi.stubGlobal('fetch', fetchSpy)
+    render(Harness({ component: await coarseComposer() }))
+
+    const box = screen.getByLabelText('Prompt') as HTMLTextAreaElement
+    expect(box.placeholder).toBe('Send a prompt — Enter for newline, Send to submit')
+    await user.type(box, 'line one{Enter}line two')
+    expect(fetchSpy).not.toHaveBeenCalled()
+    expect(box.value).toBe('line one\nline two')
+
+    // the Send button stays the touch submit path
+    await user.click(screen.getByRole('button', { name: 'Send' }))
+    expect(fetchSpy).toHaveBeenCalledOnce()
+    await waitFor(() => expect(box).toHaveValue(''))
+  })
+
+  it('coarse_menu_enter_accepts_suggestion', async () => {
+    const user = userEvent.setup()
+    const fetchSpy = vi.fn(filesFetch({ ma: [{ path: 'src/main.go' }] }))
+    vi.stubGlobal('fetch', fetchSpy)
+    const onSubmit = vi.fn()
+    render(Harness({ component: await coarseComposer(), onSubmit }))
+
+    const box = screen.getByLabelText('Prompt') as HTMLTextAreaElement
+    await user.type(box, 'look at @ma')
+    await screen.findByRole('listbox', { name: 'Path suggestions' })
+    await user.type(box, '{Enter}')
+
+    // Enter accepted the highlighted path instead of sending or a newline
+    expect(onSubmit).not.toHaveBeenCalled()
+    expect(fetchSpy).toHaveBeenCalledOnce() // the files lookup only
+    expect(box.value).toBe('look at @src/main.go ')
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
+  })
+
+  it('coarse_moved_enter_accepts_not_sends', async () => {
+    const user = userEvent.setup()
+    const fetchSpy = vi.fn(
+      filesFetch({ s: [{ path: 'src/main.go' }, { path: 'src/', dir: true }] }),
+    )
+    vi.stubGlobal('fetch', fetchSpy)
+    const onSubmit = vi.fn()
+    render(Harness({ component: await coarseComposer(), onSubmit }))
+
+    const box = screen.getByLabelText('Prompt') as HTMLTextAreaElement
+    await user.type(box, 'see @s')
+    await screen.findByRole('listbox', { name: 'Path suggestions' })
+    await user.type(box, '{ArrowDown}{Enter}')
+
+    // the moved-selection complete-then-send shortcut stays desktop-only
+    expect(onSubmit).not.toHaveBeenCalled()
+    expect(fetchSpy).toHaveBeenCalledOnce()
+    expect(box.value).toBe('see @src/')
+  })
+
+  it('fine_pointer_keeps_send_and_newline', async () => {
+    const user = userEvent.setup()
+    const fetchSpy = vi.fn(okSubmit())
+    vi.stubGlobal('fetch', fetchSpy)
+    const onSubmit = vi.fn()
+    render(Harness({ onSubmit }))
+
+    const box = screen.getByLabelText('Prompt') as HTMLTextAreaElement
+    await user.type(box, 'line one{Shift>}{Enter}')
+    expect(fetchSpy).not.toHaveBeenCalled()
+    expect(box.value).toBe('line one\n')
+
+    await user.type(box, 'line two{Enter}')
+    expect(onSubmit).toHaveBeenCalledOnce()
+    expect(onSubmit.mock.calls[0]![0]).toBe('line one\nline two')
+    await waitFor(() => expect(box).toHaveValue(''))
   })
 })
 

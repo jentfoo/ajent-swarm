@@ -16,6 +16,11 @@ const inlineFileCapBytes = 64 << 10
 // files inline into the draft as fenced blocks.
 const textAccept = 'image/*,text/*,.json,.toml,.yaml,.yml,.md,.txt'
 
+// touchKeyboard marks a touch-primary device, read once at module scope so key
+// handling never re-evaluates it: a virtual keyboard has no Shift, so Enter
+// means newline and the Send button submits.
+const touchKeyboard = window.matchMedia('(pointer: coarse)').matches
+
 // isTextFile reports whether a picked file should inline as text rather than
 // upload. The type check comes first; extensions cover servers that skip it.
 function isTextFile(file: File): boolean {
@@ -36,7 +41,8 @@ export interface ComposerProps {
   onSubmitFailed: (pendingId: string) => void // a refused submit never queued
 }
 
-// Composer is the prompt line: autosize textarea, Enter sends with a
+// Composer is the prompt line: autosize textarea, Enter sends on fine
+// pointers and inserts a newline on touch ones (Send submits there), with a
 // client-minted pendingId for prompts (slash and shell lines submit as-is),
 // and attachments upload under swarm's state directory dropping an
 // @<abs path> reference, since submits are text-only.
@@ -200,11 +206,17 @@ export function Composer({
           }))
           return
         case 'Enter':
-          // Shift+Enter keeps its newline meaning while the menu is open. A
-          // moved selection completes first, then sends; an un-moved one falls
-          // through to send as typed (the TUI overlay's key rules).
+          // Shift+Enter keeps its newline meaning while the menu is open. On
+          // touch, Enter accepts the highlighted suggestion so completion
+          // keeps working without modifiers; on desktop a moved selection
+          // completes first, then sends, and an un-moved one falls through to
+          // send as typed (the TUI overlay's key rules).
           if (!ev.shiftKey && !ev.nativeEvent.isComposing) {
             ev.preventDefault()
+            if (touchKeyboard) {
+              accept(items[highlight] ?? items[0])
+              return
+            }
             if (moved) {
               void send(accept(items[highlight] ?? items[0]))
               return
@@ -220,6 +232,7 @@ export function Composer({
     }
     if (ev.key !== 'Enter' || ev.shiftKey) return
     if (ev.nativeEvent.isComposing) return // an IME mid-composition is not a send
+    if (touchKeyboard) return // Enter stays a newline; the Send button submits
     ev.preventDefault()
     void send(value)
   }
@@ -289,7 +302,11 @@ export function Composer({
           rows={1}
           value={value}
           placeholder={
-            disabled ? disabledReason : 'Send a prompt — Enter to send, Shift+Enter for newline'
+            disabled
+              ? disabledReason
+              : touchKeyboard
+                ? 'Send a prompt — Enter for newline, Send to submit'
+                : 'Send a prompt — Enter to send, Shift+Enter for newline'
           }
           aria-label="Prompt"
           disabled={disabled}

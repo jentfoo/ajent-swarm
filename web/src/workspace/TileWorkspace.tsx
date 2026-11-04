@@ -7,7 +7,7 @@ import { useAuth } from '../providers/auth'
 import { useWorkspace } from '../providers/workspace'
 import { reachableSession } from '../shell/AppShell'
 import SessionView from '../screens/SessionView'
-import { displayName } from '../session/names'
+import { displayName, shortID } from '../session/names'
 import { MenuPopover } from '../ui/MenuPopover'
 import { useWorkspaceKeys } from './keys'
 import type { Direction } from './keys'
@@ -585,8 +585,4 @@ function SessionPicker({
       )}
     </span>
   )
-}
-
-function shortID(id: string): string {
-  return id.length <= 12 ? id : id.slice(0, 8) + '…'
 }

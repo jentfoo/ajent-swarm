@@ -1,7 +1,6 @@
 package fleet
 
 import (
-	"context"
 	"os"
 	"testing"
 	"time"
@@ -13,107 +12,109 @@ import (
 	"github.com/jentfoo/ajent/pkg/ctl"
 )
 
-func TestSessionCommandsRoute(t *testing.T) {
-	m, home := newTestFleet(t, nil)
-	f := fleettest.New(t, home, fleettest.Options{SessionID: "01CMDS000000000000"})
-	f.Result(ctl.MethodInterrupt, ctl.InterruptResult{Stopped: "turn"})
-	// the view seeds from backfill at attach, so the snapshot comes first
-	f.SetSnapshot(ctl.State{Model: ctl.ModelState{Key: "p/m"}, Running: true})
-	f.WriteRegistry(t, os.Getpid(), time.Now())
-	waitForState(t, m, f.SessionID(), ChildOnline)
+func TestSessionCommands(t *testing.T) {
+	t.Run("route session commands", func(t *testing.T) {
+		m, home := newTestFleet(t, nil)
+		f := fleettest.New(t, home, fleettest.Options{SessionID: "01CMDS000000000000"})
+		f.Result(ctl.MethodInterrupt, ctl.InterruptResult{Stopped: "turn"})
+		// the view seeds from backfill at attach, so the snapshot comes first
+		f.SetSnapshot(ctl.State{Model: ctl.ModelState{Key: "p/m"}, Running: true})
+		f.WriteRegistry(t, os.Getpid(), time.Now())
+		waitForState(t, m, f.SessionID(), ChildOnline)
 
-	t.Run("unknown session is refused before dialing", func(t *testing.T) {
-		ctx := context.Background()
-		require.ErrorIs(t, m.Submit(ctx, "01NOBODY00000000", ctl.SubmitParams{Line: "hi"}), ErrUnknownSession)
-		_, err := m.Interrupt(ctx, "01NOBODY00000000")
-		require.ErrorIs(t, err, ErrUnknownSession)
-	})
+		t.Run("unknown session is refused before dialing", func(t *testing.T) {
+			ctx := t.Context()
+			require.ErrorIs(t, m.Submit(ctx, "01NOBODY00000000", ctl.SubmitParams{Line: "hi"}), ErrUnknownSession)
+			_, err := m.Interrupt(ctx, "01NOBODY00000000")
+			require.ErrorIs(t, err, ErrUnknownSession)
+		})
 
-	t.Run("first write lazily claims the seat", func(t *testing.T) {
-		require.Empty(t, f.SeatHolder()) // external sessions attach as observers
-		require.NoError(t, m.Submit(context.Background(), f.SessionID(), ctl.SubmitParams{Line: "hi"}))
-		assert.Equal(t, holderName, f.SeatHolder())
+		t.Run("first write lazily claims the seat", func(t *testing.T) {
+			require.Empty(t, f.SeatHolder()) // external sessions attach as observers
+			require.NoError(t, m.Submit(t.Context(), f.SessionID(), ctl.SubmitParams{Line: "hi"}))
+			assert.Equal(t, holderName, f.SeatHolder())
 
-		var claims int
-		for _, req := range f.Received() { // later writes skip the claim entirely
-			if req.Method == ctl.MethodAttach {
-				claims++
+			var claims int
+			for _, req := range f.Received() { // later writes skip the claim entirely
+				if req.Method == ctl.MethodAttach {
+					claims++
+				}
 			}
-		}
-		assert.Equal(t, 1, claims)
+			assert.Equal(t, 1, claims)
+		})
+
+		t.Run("interrupt carries what stopped", func(t *testing.T) {
+			stopped, err := m.Interrupt(t.Context(), f.SessionID())
+			require.NoError(t, err)
+			assert.Equal(t, "turn", stopped)
+		})
+
+		t.Run("snapshot serves the reconciled state", func(t *testing.T) {
+			st, err := m.Snapshot(t.Context(), f.SessionID())
+			require.NoError(t, err)
+			assert.Equal(t, "p/m", st.Model.Key)
+			assert.True(t, st.Running)
+		})
 	})
 
-	t.Run("interrupt carries what stopped", func(t *testing.T) {
-		stopped, err := m.Interrupt(context.Background(), f.SessionID())
+	t.Run("snapshot carries event watermark", func(t *testing.T) {
+		m, home := newTestFleet(t, nil)
+		f := fleettest.New(t, home, fleettest.Options{SessionID: "01SNAPSEQ00000000"})
+		f.SetSnapshot(ctl.State{})
+		f.WriteRegistry(t, os.Getpid(), time.Now())
+		waitForState(t, m, f.SessionID(), ChildOnline)
+
+		ctx := t.Context()
+		early, err := m.Snapshot(ctx, f.SessionID())
 		require.NoError(t, err)
-		assert.Equal(t, "turn", stopped)
-	})
+		assert.Zero(t, early.Queued) // nothing announced yet, so the stamp may sit low
 
-	t.Run("snapshot serves the reconciled state", func(t *testing.T) {
-		st, err := m.Snapshot(context.Background(), f.SessionID())
-		require.NoError(t, err)
-		assert.Equal(t, "p/m", st.Model.Key)
-		assert.True(t, st.Running)
-	})
-}
+		ev := f.Broadcast(ctl.EventQueued, ctl.QueuedData{Rows: []ctl.QueueRow{{ID: "c1", Text: "queued"}}})
+		require.Eventually(t, func() bool { // the actor applies upstream events asynchronously
+			snap, err := m.Snapshot(ctx, f.SessionID())
+			return err == nil && snap.Queued == 1
+		}, 2*time.Second, testPoll)
 
-func TestSnapshotCarriesEventWatermark(t *testing.T) {
-	m, home := newTestFleet(t, nil)
-	f := fleettest.New(t, home, fleettest.Options{SessionID: "01SNAPSEQ00000000"})
-	f.SetSnapshot(ctl.State{})
-	f.WriteRegistry(t, os.Getpid(), time.Now())
-	waitForState(t, m, f.SessionID(), ChildOnline)
-
-	ctx := context.Background()
-	early, err := m.Snapshot(ctx, f.SessionID())
-	require.NoError(t, err)
-	assert.Zero(t, early.Queued) // nothing announced yet, so the stamp may sit low
-
-	ev := f.Broadcast(ctl.EventQueued, ctl.QueuedData{Rows: []ctl.QueueRow{{ID: "c1", Text: "queued"}}})
-	require.Eventually(t, func() bool { // the actor applies upstream events asynchronously
 		snap, err := m.Snapshot(ctx, f.SessionID())
-		return err == nil && snap.Queued == 1
-	}, 2*time.Second, testPoll)
+		require.NoError(t, err)
+		// The read serializes beside event application on the actor goroutine, so
+		// its stamp covers exactly the events the fields folded in.
+		assert.Equal(t, ev.Seq, snap.Seq)
+		assert.Greater(t, snap.Seq, early.Seq)
+	})
 
-	snap, err := m.Snapshot(ctx, f.SessionID())
-	require.NoError(t, err)
-	// The read serializes beside event application on the actor goroutine, so
-	// its stamp covers exactly the events the fields folded in.
-	assert.Equal(t, ev.Seq, snap.Seq)
-	assert.Greater(t, snap.Seq, early.Seq)
-}
+	t.Run("surface refusals", func(t *testing.T) {
+		m, home := newTestFleet(t, nil)
+		f := fleettest.New(t, home, fleettest.Options{SessionID: "01CMDREJECT00000", Refuses: true})
+		f.WriteRegistry(t, os.Getpid(), time.Now())
+		waitForState(t, m, f.SessionID(), ChildOnline)
 
-func TestSessionCommandsSurfaceRefusals(t *testing.T) {
-	m, home := newTestFleet(t, nil)
-	f := fleettest.New(t, home, fleettest.Options{SessionID: "01CMDREJECT00000", Refuses: true})
-	f.WriteRegistry(t, os.Getpid(), time.Now())
-	waitForState(t, m, f.SessionID(), ChildOnline)
+		// a displaced seat is never taken by force from a command path
+		err := m.Submit(t.Context(), f.SessionID(), ctl.SubmitParams{Line: "hi"})
+		require.Error(t, err)
+		var wire *ctl.Error
+		require.ErrorAs(t, err, &wire)
+		assert.Equal(t, ctl.CodeSeatHeld, wire.Code)
 
-	// a displaced seat is never taken by force from a command path
-	err := m.Submit(context.Background(), f.SessionID(), ctl.SubmitParams{Line: "hi"})
-	require.Error(t, err)
-	var wire *ctl.Error
-	require.ErrorAs(t, err, &wire)
-	assert.Equal(t, ctl.CodeSeatHeld, wire.Code)
+		_, err = m.Interrupt(t.Context(), f.SessionID())
+		require.ErrorAs(t, err, &wire)
+		assert.Equal(t, ctl.CodeSeatHeld, wire.Code)
+	})
 
-	_, err = m.Interrupt(context.Background(), f.SessionID())
-	require.ErrorAs(t, err, &wire)
-	assert.Equal(t, ctl.CodeSeatHeld, wire.Code)
-}
+	t.Run("scripted refusals", func(t *testing.T) {
+		m, home := newTestFleet(t, nil)
+		f := fleettest.New(t, home, fleettest.Options{SessionID: "01CMDBUSY00000000"})
+		f.Refuse(ctl.MethodSubmit, ctl.CodeBusy, "prompt queue is full")
+		f.WriteRegistry(t, os.Getpid(), time.Now())
+		waitForState(t, m, f.SessionID(), ChildOnline)
 
-func TestSessionCommandsScriptedRefusals(t *testing.T) {
-	m, home := newTestFleet(t, nil)
-	f := fleettest.New(t, home, fleettest.Options{SessionID: "01CMDBUSY00000000"})
-	f.Refuse(ctl.MethodSubmit, ctl.CodeBusy, "prompt queue is full")
-	f.WriteRegistry(t, os.Getpid(), time.Now())
-	waitForState(t, m, f.SessionID(), ChildOnline)
+		err := m.Submit(t.Context(), f.SessionID(), ctl.SubmitParams{Line: "hi"})
+		require.Error(t, err)
+		var wire *ctl.Error
+		require.ErrorAs(t, err, &wire)
+		assert.Equal(t, ctl.CodeBusy, wire.Code) // retryable once the queue drains
 
-	err := m.Submit(context.Background(), f.SessionID(), ctl.SubmitParams{Line: "hi"})
-	require.Error(t, err)
-	var wire *ctl.Error
-	require.ErrorAs(t, err, &wire)
-	assert.Equal(t, ctl.CodeBusy, wire.Code) // retryable once the queue drains
-
-	// the seat claim did land: only the submit itself was refused
-	assert.Equal(t, holderName, f.SeatHolder())
+		// the seat claim did land: only the submit itself was refused
+		assert.Equal(t, holderName, f.SeatHolder())
+	})
 }

@@ -9,10 +9,10 @@ beforeEach(() => {
 })
 
 describe('layout profile', () => {
-  it('defaults to the inbox with empty per-mode state', () => {
+  it('defaults to the focused mode with empty per-mode state', () => {
     const profile = loadProfile()
-    expect(profile.mode).toBe('inbox')
-    expect(profile.inbox.selectedSessionId).toBeUndefined()
+    expect(profile.mode).toBe('focused')
+    expect(profile.focused.selectedSessionId).toBeUndefined()
     expect(profile.tile.tree).toBeNull()
   })
 
@@ -46,7 +46,7 @@ describe('layout profile', () => {
 
   it('repairs corrupt storage instead of failing the load', () => {
     localStorage.setItem('swarm.workspace.v1', '{not json')
-    expect(loadProfile().mode).toBe('inbox')
+    expect(loadProfile().mode).toBe('focused')
 
     localStorage.setItem(
       'swarm.workspace.v1',

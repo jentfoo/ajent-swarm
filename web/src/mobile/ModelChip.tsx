@@ -87,7 +87,7 @@ export function ModelChip({
         onClick={() => setOpen((v) => !v)}
       >
         {snap.model.short || snap.model.key || 'model'}
-        {working && <Spinner state={working ? 'wait' : 'idle'} />}
+        {working && <Spinner state="wait" />}
       </button>
       {open && listed && (
         <div className="menu card model-menu-list" role="menu">

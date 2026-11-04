@@ -1,7 +1,6 @@
 package app
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -19,14 +18,13 @@ func writeScript(t *testing.T, dir, name, body string) string {
 	return path
 }
 
-func TestLocateAjent(t *testing.T) {
+func TestBinary(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell scripts are unix only")
 	}
 	t.Parallel()
 
 	dir := t.TempDir()
-	ctx := context.Background()
 
 	tests := []struct {
 		name    string
@@ -68,7 +66,7 @@ func TestLocateAjent(t *testing.T) {
 			if bin == "" {
 				bin = writeScript(t, dir, "ajent-"+tt.name, tt.body)
 			}
-			path, version, err := locateAjent(ctx, bin)
+			path, version, err := locateAjent(t.Context(), bin)
 			if tt.wantErr != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.wantErr)
@@ -77,25 +75,6 @@ func TestLocateAjent(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, bin, path)
 			assert.Equal(t, tt.wantVer, version)
-		})
-	}
-}
-
-func TestParseVersionLine(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name string
-		out  string
-		want string
-	}{
-		{name: "standard line", out: "ajent version v1.2.3\n", want: "v1.2.3"},
-		{name: "no trailing newline", out: "ajent version dev", want: "dev"},
-		{name: "empty output", out: "", want: ""},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, parseVersionLine(tt.out))
 		})
 	}
 }

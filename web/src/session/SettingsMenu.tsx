@@ -10,7 +10,7 @@ import type { ModelState, SettingRow } from '../api/types'
 // a settings row on desktop or mobile.
 const hiddenSettingKeys = new Set(['tools.enabled', 'permissions.mode'])
 
-export function visibleSettingRows(rows: SettingRow[]): SettingRow[] {
+function visibleSettingRows(rows: SettingRow[]): SettingRow[] {
   return rows.filter((row) => !hiddenSettingKeys.has(row.key ?? ''))
 }
 

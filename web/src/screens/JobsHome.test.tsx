@@ -319,7 +319,7 @@ describe('JobsHome', () => {
     renderJobs()
     await screen.findByText('nightly sweep')
 
-    await user.click(screen.getByRole('button', { name: 'Duplicate nightly sweep' }))
+    await user.click(screen.getByRole('button', { name: 'Copy nightly sweep' }))
     expect(await screen.findByText('New job')).toBeInTheDocument()
 
     // the source's facts ride along verbatim, with the seeded adjustments on top
@@ -348,7 +348,7 @@ describe('JobsHome', () => {
     renderJobs()
     await screen.findByText('one shot')
 
-    await user.click(screen.getByRole('button', { name: 'Duplicate one shot' }))
+    await user.click(screen.getByRole('button', { name: 'Copy one shot' }))
     expect(await screen.findByText('New job')).toBeInTheDocument()
 
     // the stored slot is usually past, so validation demands a fresh pick

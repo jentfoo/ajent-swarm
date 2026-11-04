@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/jentfoo/ajent-swarm/pkg/auth"
-	"github.com/jentfoo/ajent-swarm/pkg/store"
 )
 
 // tokenBody is the API shape of one API token: no hash ever leaves.
@@ -14,14 +13,6 @@ type tokenBody struct {
 	Name      string `json:"name"`
 	CreatedAt string `json:"createdAt"` // RFC 3339, empty when unset
 	LastUsed  string `json:"lastUsed"`  // RFC 3339, empty when never used
-}
-
-func toTokenBody(tok store.APIToken) tokenBody {
-	return tokenBody{
-		Name:      tok.Name,
-		CreatedAt: rfcTime(tok.CreatedAt),
-		LastUsed:  rfcTime(tok.LastUsed),
-	}
 }
 
 // rfcTime renders stored timestamps; the zero time stays empty.
@@ -41,7 +32,7 @@ func (s *apiServer) handleTokenList(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]tokenBody, len(toks))
 	for i, tok := range toks {
-		out[i] = toTokenBody(tok)
+		out[i] = tokenBody{Name: tok.Name, CreatedAt: rfcTime(tok.CreatedAt), LastUsed: rfcTime(tok.LastUsed)}
 	}
 	writeJSON(w, http.StatusOK, out)
 }

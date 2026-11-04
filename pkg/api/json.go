@@ -4,11 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"net"
 	"net/http"
-	"strings"
-
-	"github.com/jentfoo/ajent-swarm/pkg/auth"
 )
 
 // maxBodyBytes bounds every request body; the API carries small JSON only.
@@ -76,34 +72,4 @@ func decodeBody(w http.ResponseWriter, r *http.Request, dst any, require bool) b
 		return false
 	}
 	return true
-}
-
-// principalOrUnauthorized returns the request's principal or answers 401 itself.
-func principalOrUnauthorized(w http.ResponseWriter, r *http.Request) (auth.Principal, bool) {
-	p, ok := auth.PrincipalFrom(r.Context())
-	if !ok {
-		writeError(w, http.StatusUnauthorized, "unauthorized", "")
-	}
-	return p, ok
-}
-
-// isLoopback reports whether the request arrived from a loopback peer.
-func isLoopback(r *http.Request) bool {
-	host := r.RemoteAddr
-	if h, _, err := net.SplitHostPort(host); err == nil {
-		host = h
-	}
-	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
-}
-
-// secureCookie marks a cookie Secure when the request arrived over TLS or
-// through a reverse proxy that terminated it, so remote logins keep the
-// credential off plaintext hops. Direct HTTP stays without the flag: an
-// unencrypted origin cannot honor it anyway.
-func secureCookie(r *http.Request, c *http.Cookie) *http.Cookie {
-	if r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
-		c.Secure = true
-	}
-	return c
 }

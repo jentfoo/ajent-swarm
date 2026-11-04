@@ -30,10 +30,10 @@ const maxTitleRunes = 120
 // loadTitles reads every stored title into the manager's cache on start.
 // Failures log once and leave the cache empty: labels fall back to names and
 // paths until a rename writes through.
-func (m *Manager) loadTitles(ctx context.Context, store TitleStore) {
+func (m *Manager) loadTitles(ctx context.Context) {
 	wctx, cancel := context.WithTimeout(ctx, titleWriteWait)
 	defer cancel()
-	titles, err := store.SessionTitles(wctx)
+	titles, err := m.titleStore.SessionTitles(wctx)
 	if err != nil {
 		m.log.Warn("reading session titles failed", "err", err)
 		return
@@ -67,9 +67,6 @@ func (m *Manager) SetTitle(ctx context.Context, sessionID, title string) error {
 		return err
 	}
 	m.mu.Lock()
-	if m.titles == nil {
-		m.titles = make(map[string]string)
-	}
 	if title == "" {
 		delete(m.titles, sessionID)
 	} else {

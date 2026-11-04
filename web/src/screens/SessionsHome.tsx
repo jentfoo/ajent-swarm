@@ -10,7 +10,7 @@ import { useSwarm } from '../providers/swarm'
 import { useAuth } from '../providers/auth'
 import { AgentSettingsMenu } from '../session/AgentSettingsMenu'
 import { RenameControl } from '../session/RenameControl'
-import { displayName, tildePath } from '../session/names'
+import { displayName, shortID, tildePath } from '../session/names'
 
 // SessionsHome is the live instance grid: state, workspace and seat badges
 // beside quick actions per session, with a compact launch panel. Checkboxes
@@ -30,14 +30,14 @@ export default function SessionsHome() {
   }, [])
 
   // With a selection the workspace opens tile mode seeded with exactly those
-  // sessions; without one it lands in the inbox as usual.
+  // sessions; without one it lands in the focused workspace as usual.
   const openWorkspace = () => {
     if (selected.length > 0) {
       navigate(`/tile?open=${selected.map(encodeURIComponent).join(',')}`)
       setSelected([])
       return
     }
-    navigate('/inbox')
+    navigate('/focused')
   }
 
   return (
@@ -170,7 +170,7 @@ function ActionsBar({ status: s }: { status: SessionStatus }) {
   const ended = s.state === ChildState.Exited || s.state === ChildState.Gone
   return (
     <div style={{ display: 'flex', gap: '0.5em', marginTop: '0.4em', flexWrap: 'wrap' }}>
-      <Link to={`/inbox?session=${encodeURIComponent(s.sessionId)}`}>
+      <Link to={`/focused?session=${encodeURIComponent(s.sessionId)}`}>
         <button type="button">Open</button>
       </Link>
       {ended ? (
@@ -374,10 +374,6 @@ function LaunchPanel({ home }: { home?: string }) {
       </button>
     </form>
   )
-}
-
-function shortID(id: string): string {
-  return id.length <= 12 ? id : id.slice(0, 8) + '…'
 }
 
 function shortPath(p: string): string {

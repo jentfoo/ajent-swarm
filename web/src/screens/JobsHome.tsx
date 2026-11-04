@@ -40,10 +40,8 @@ export default function JobsHome() {
   const loadToken = useRef(0)
 
   // Editing state derives from the route: /jobs/new or /jobs/<id>.
-  const editingId = useMemo(() => {
-    if (jobId === undefined) return undefined
-    return jobId === 'new' ? ('new' as const) : Number(jobId)
-  }, [jobId])
+  const editingId =
+    jobId === undefined ? undefined : jobId === 'new' ? ('new' as const) : Number(jobId)
   const editing =
     typeof editingId === 'number' && !Number.isNaN(editingId)
       ? jobs?.find((j) => j.id === editingId)
@@ -333,8 +331,8 @@ function JobRow({
           enabled
         </label>{' '}
         <Link to={`/jobs/new?from=${job.id}`}>
-          <button type="button" aria-label={`Duplicate ${job.name}`}>
-            Duplicate
+          <button type="button" aria-label={`Copy ${job.name}`}>
+            Copy
           </button>
         </Link>{' '}
         <button type="button" title="Run now" aria-label={`Run ${job.name} now`} onClick={onFire}>

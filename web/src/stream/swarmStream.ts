@@ -19,7 +19,7 @@ export type SessionPhase = 'connecting' | 'live' | 'resyncing' | 'ended' | 'lost
 // SocketLike is the slice of WebSocket the client drives; tests inject a mock.
 // The handler signatures mirror lib.dom's own so a real WebSocket satisfies
 // it structurally without casts.
-export interface SocketLike {
+interface SocketLike {
   send(data: string): void
   close(): void
   onopen: ((this: WebSocket, ev: Event) => unknown) | null
@@ -28,7 +28,7 @@ export interface SocketLike {
   onerror: ((this: WebSocket, ev: Event) => unknown) | null
 }
 
-export interface SwarmStreamOptions {
+interface SwarmStreamOptions {
   url?: string // default: ws(s)://<location.host>/api/stream
   socketFactory?: (url: string) => SocketLike // injectable for tests
   backoffBaseMs?: number
@@ -87,9 +87,7 @@ export class SwarmStream {
     this.backoffMaxMs = opts.backoffMaxMs ?? 8_000
     this.jitter = opts.jitter ?? true
     this.staleAfterMs = opts.staleAfterMs ?? defaultStaleAfterMs
-    if (typeof document !== 'undefined') {
-      document.addEventListener('visibilitychange', this.handleVisibility)
-    }
+    document.addEventListener('visibilitychange', this.handleVisibility)
   }
 
   // --- public surface ---
@@ -198,9 +196,7 @@ export class SwarmStream {
   // destroy tears the client down permanently; used by tests.
   destroy(): void {
     this.destroyed = true
-    if (typeof document !== 'undefined') {
-      document.removeEventListener('visibilitychange', this.handleVisibility)
-    }
+    document.removeEventListener('visibilitychange', this.handleVisibility)
     this.disconnect()
   }
 
@@ -406,7 +402,6 @@ export class SwarmStream {
 }
 
 function defaultStreamURL(): string {
-  if (typeof location === 'undefined') return '/api/stream'
   const proto = location.protocol === 'https:' ? 'wss' : 'ws'
   return `${proto}://${location.host}/api/stream`
 }

@@ -13,7 +13,7 @@ import (
 const defaultPageLimit = 200
 
 // handleSessionList serves the fleet listing: one row per tracked instance.
-func (s *apiServer) handleSessionList(w http.ResponseWriter, r *http.Request) {
+func (s *apiServer) handleSessionList(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, s.fleet.Sessions())
 }
 
@@ -64,9 +64,7 @@ func (s *apiServer) handleTakeControl(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case err == nil:
 		w.WriteHeader(http.StatusNoContent)
-	case errors.Is(err, fleet.ErrUnknownSession):
-		writeError(w, http.StatusNotFound, "session_not_found", "")
-	case writeControlError(w, err):
+	case writeCommandFailure(w, err):
 	default:
 		writeError(w, http.StatusInternalServerError, "internal_error", "")
 	}

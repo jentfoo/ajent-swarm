@@ -88,11 +88,10 @@ func New(opts Options) *Scheduler {
 	return s
 }
 
-// Start sweeps interrupted runs and begins the trigger loop until Stop.
+// Start sweeps interrupted runs and begins the trigger loop until Stop. It
+// must precede concurrent Stop calls.
 func (s *Scheduler) Start(ctx context.Context) {
-	if s.cancel != nil { // retire the placeholder contexts New installed
-		s.cancel()
-	}
+	s.cancel()                                // retire the placeholder contexts New installed
 	bookkeeping := context.WithoutCancel(ctx) // run records outlive every caller
 	s.baseCtx, s.cancel = context.WithCancel(ctx)
 	s.ctx = bookkeeping
@@ -104,7 +103,7 @@ func (s *Scheduler) Start(ctx context.Context) {
 	}
 
 	s.wg.Add(1)
-	go func() {
+	go func() { //nolint:contextcheck // loop binds ctx at Start; bookkeeping detaches
 		defer s.wg.Done()
 		s.loop()
 	}()
@@ -114,9 +113,7 @@ func (s *Scheduler) Start(ctx context.Context) {
 // they are: the next Start marks them failed with the interrupted reason.
 func (s *Scheduler) Stop() {
 	s.stopOnce.Do(func() {
-		if s.cancel != nil {
-			s.cancel()
-		}
+		s.cancel()
 		s.wg.Wait()
 	})
 }
@@ -312,7 +309,7 @@ func (s *Scheduler) FireNow(ctx context.Context, jobID int64) (store.Run, error)
 
 	s.log.Info("manual fire", "job", j.Name)
 	s.wg.Add(1)
-	go s.execute(run, j)
+	go s.execute(run, j) //nolint:contextcheck // runs outlive the request ctx; execute binds its own contexts
 	return run, nil
 }
 
@@ -338,14 +335,22 @@ func (s *Scheduler) CreateJob(ctx context.Context, j store.Job) (int64, error) {
 	return id, nil
 }
 
-// UpdateJob writes one job's fields.
+// UpdateJob writes one job's fields and wakes the trigger loop.
 func (s *Scheduler) UpdateJob(ctx context.Context, j store.Job) error {
-	return s.store.UpdateJob(ctx, j)
+	if err := s.store.UpdateJob(ctx, j); err != nil {
+		return err
+	}
+	s.Nudge()
+	return nil
 }
 
-// DeleteJob removes one job and unlinks its runs.
+// DeleteJob removes one job, unlinks its runs and wakes the trigger loop.
 func (s *Scheduler) DeleteJob(ctx context.Context, id int64) error {
-	return s.store.DeleteJob(ctx, id)
+	if err := s.store.DeleteJob(ctx, id); err != nil {
+		return err
+	}
+	s.Nudge()
+	return nil
 }
 
 // Runs lists run history newest first, optionally one job's only.

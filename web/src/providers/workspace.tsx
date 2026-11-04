@@ -7,6 +7,7 @@ import type { NotificationBridge } from './notifications'
 import { useLayoutProfile } from '../workspace/layoutProfile'
 import type { LayoutProfile, TileLayout, WorkspaceMode } from '../workspace/layoutProfile'
 import {
+  acknowledgeItem,
   ackDialog,
   ackTurn,
   deriveItem,
@@ -19,7 +20,7 @@ import type { AttentionItem } from '../workspace/attention'
 interface WorkspaceContextValue {
   profile: LayoutProfile
   setMode: (mode: WorkspaceMode) => void
-  selectInboxSession: (sessionId: string | undefined) => void
+  selectFocusedSession: (sessionId: string | undefined) => void
   setTileLayout: (tile: TileLayout) => void
 
   // One derived attention model, consumed by both modes and the badge.
@@ -43,11 +44,11 @@ const WorkspaceContext = createContext<WorkspaceContextValue | null>(null)
 
 // WorkspaceProvider carries the layout profile (mode plus each mode's state,
 // persisted per browser) and the one derived attention model every surface
-// consumes: the inbox rail, tile badges, the title bar count and the desktop
+// consumes: the focus rail, tile badges, the title bar count and the desktop
 // notification bridge.
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const { attention } = useSwarm()
-  const { profile, setMode, selectInboxSession, setTileLayout } = useLayoutProfile()
+  const { profile, setMode, selectFocusedSession, setTileLayout } = useLayoutProfile()
   const [bridge] = useState(() => createNotificationBridge())
   const [permission, setPermission] = useState(bridge.permission())
   const [ledgerVersion, setLedgerVersion] = useState(ledgerVersionNow)
@@ -72,20 +73,6 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     },
     [attention],
   )
-
-  const acknowledgeTurn = useCallback((sessionId: string, turnEnd: number) => {
-    ackTurn(sessionId, turnEnd)
-  }, [])
-
-  const acknowledgeItem = useCallback((item: AttentionItem) => {
-    if (item.kind === 'needs-input' && item.dialogId !== undefined) {
-      ackDialog(item.sessionId, item.pid, item.dialogId)
-      return
-    }
-    if (item.kind === 'needs-review' && item.turnEnd !== undefined) {
-      ackTurn(item.sessionId, item.turnEnd)
-    }
-  }, [])
 
   const requestNotifications = useCallback(() => {
     void bridge
@@ -115,7 +102,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     () => ({
       profile,
       setMode,
-      selectInboxSession,
+      selectFocusedSession,
       setTileLayout,
       needs: ranked.needs,
       awaiting: ranked.awaiting,
@@ -123,7 +110,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       needsInputCount: ranked.needsInputCount,
       itemFor,
       acknowledgeDialog,
-      acknowledgeTurn,
+      acknowledgeTurn: ackTurn,
       acknowledgeItem,
       notificationPermission: () => permission,
       requestNotifications,
@@ -131,13 +118,11 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     [
       profile,
       setMode,
-      selectInboxSession,
+      selectFocusedSession,
       setTileLayout,
       ranked,
       itemFor,
       acknowledgeDialog,
-      acknowledgeTurn,
-      acknowledgeItem,
       permission,
       requestNotifications,
     ],

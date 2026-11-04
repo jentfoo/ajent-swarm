@@ -18,41 +18,169 @@ import (
 	"github.com/jentfoo/ajent/pkg/session"
 )
 
-// The namer runs a one-shot ajent exec and stores the answer as swarm's own
-// display title: no upstream submit may ever touch ajent session names.
+func TestNamer(t *testing.T) {
+	t.Run("sanitize session title", func(t *testing.T) {
+		cases := []struct {
+			name string
+			in   string
+			want string
+		}{
+			{"plain one line", "Fix the login flow", "Fix the login flow"},
+			{"padded spaces collapse", "  padded   spaces  collapse ", "padded spaces collapse"},
+			{"first line wins", "first line only\nsecond line dropped", "first line only"},
+			{"blank output", "\n", ""},
+			{"empty output", "", ""},
+			{"tool call then title",
+				"<tool_call>\n{\"name\": \"agent_start\"}\n</tool_call>\nFix the login flow", "Fix the login flow"},
+			{"interleaved tags skip to last",
+				"first try\n<arg_key>\nsecond try\n</tool_call>\nreal title", "real title"},
+			{"markup only", "<tool_call>\n{\"name\": \"read\"}\n</tool_call>\n", ""},
+			{"blank lines after tag skipped", "</tool_call>\n\n   \nFix the login flow", "Fix the login flow"},
+			{"indented closing tag", "\t </tool_call>  \nFix the login flow", "Fix the login flow"},
+			{"brackets with spaces are content", "<invoke some tool>", "<invoke some tool>"},
+			{"markup inside prose kept", "Fix <div> layout now", "Fix <div> layout now"},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				assert.Equal(t, tc.want, sanitizeSessionTitle(tc.in))
+			})
+		}
+	})
 
-func TestSanitizeSessionTitle(t *testing.T) {
-	t.Parallel()
+	t.Run("titles from first prompt", func(t *testing.T) {
+		store := newTitleMemStore()
+		owned := func(inst ctl.Instance) bool { return inst.SessionID == "01AUTOTITLE0000000" }
+		bin, _ := fakeNamerBin(t)
+		m, home := newTestFleetWithTitlesAndBin(t, store, bin, owned)
 
-	cases := []struct {
-		name string
-		in   string
-		want string
-	}{
-		{"plain one line", "Fix the login flow", "Fix the login flow"},
-		{"padded spaces collapse", "  padded   spaces  collapse ", "padded spaces collapse"},
-		{"first line wins", "first line only\nsecond line dropped", "first line only"},
-		{"blank output", "\n", ""},
-		{"empty output", "", ""},
-		{"tool call then title",
-			"<tool_call>\n{\"name\": \"agent_start\"}\n</tool_call>\nFix the login flow", "Fix the login flow"},
-		{"interleaved tags skip to last",
-			"first try\n<arg_key>\nsecond try\n</tool_call>\nreal title", "real title"},
-		{"markup only", "<tool_call>\n{\"name\": \"read\"}\n</tool_call>\n", ""},
-		{"blank lines after tag skipped", "</tool_call>\n\n   \nFix the login flow", "Fix the login flow"},
-		{"indented closing tag", "\t </tool_call>  \nFix the login flow", "Fix the login flow"},
-		{"brackets with spaces are content", "<invoke some tool>", "<invoke some tool>"},
-		{"markup inside prose kept", "Fix <div> layout now", "Fix <div> layout now"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, sanitizeSessionTitle(tc.in))
+		f := fleettest.New(t, home, fleettest.Options{SessionID: "01AUTOTITLE0000000"})
+		first := session.Entry{
+			ID:   "01PROMPTENTRY00000000",
+			Type: session.TypeMessage,
+			Data: mustJSON(session.MessageData{
+				Message: llm.Text(llm.RoleUser, "fix the login flow"),
+			}),
+		}
+		f.WriteTranscript(t, first)
+		f.WriteRegistry(t, os.Getpid(), time.Now())
+
+		waitForState(t, m, f.SessionID(), ChildOnline)
+
+		// the labeler runs once over the first typed prompt recovered from the
+		// transcript at attach and writes through swarm's own title store
+		require.Eventually(t, func() bool {
+			return store.snapshot()[f.SessionID()] == "Fix login flow"
+		}, 2*time.Second, testPoll)
+
+		// every surface sees the title; ajent's own session name stays clean
+		rows := m.Sessions()
+		require.Len(t, rows, 1)
+		assert.Equal(t, "Fix login flow", rows[0].Title)
+		assert.Empty(t, rows[0].Name)
+
+		for _, req := range f.Received() {
+			if req.Method == ctl.MethodSubmit {
+				t.Fatalf("namer submitted %q upstream; titles must never touch ajent names",
+					string(req.Params))
+			}
+		}
+	})
+
+	t.Run("adopted session auto titles", func(t *testing.T) {
+		t.Run("names from backfill", func(t *testing.T) {
+			store := newTitleMemStore()
+			bin, runs := fakeNamerBin(t)
+			m, home := newTestFleetWithTitlesAndBin(t, store, bin, nil)
+
+			f := fleettest.New(t, home, fleettest.Options{SessionID: "01ADOPTNAME000000001"})
+			f.WriteTranscript(t, adoptedTranscript(true)...)
+			f.WriteRegistry(t, os.Getpid(), time.Now())
+
+			waitForState(t, m, f.SessionID(), ChildOnline)
+			require.Eventually(t, func() bool {
+				return store.snapshot()[f.SessionID()] == "Fix login flow"
+			}, 2*time.Second, testPoll)
+
+			rows := m.Sessions()
+			require.Len(t, rows, 1)
+			assert.Equal(t, "Fix login flow", rows[0].Title)
+			assert.Equal(t, 1, runs())
+
+			// a reconnect re-prepares through the same backfill without renaming
+			dials := f.DialCount()
+			f.DropConns()
+			require.Eventually(t, func() bool { return f.DialCount() > dials }, 2*time.Second, testPoll)
+			waitForState(t, m, f.SessionID(), ChildOnline)
+			assert.Equal(t, 1, runs())
+
+			for _, req := range f.Received() {
+				if req.Method == ctl.MethodSubmit {
+					t.Fatalf("namer submitted %q upstream; titles must never touch ajent names",
+						string(req.Params))
+				}
+			}
 		})
-	}
+
+		t.Run("stored title skips run", func(t *testing.T) {
+			store := newTitleMemStore()
+			bin, runs := fakeNamerBin(t)
+			m, home := newTestFleetWithTitlesAndBin(t, store, bin, nil)
+
+			f := fleettest.New(t, home, fleettest.Options{SessionID: "01ADOPTNAMED000000001"})
+			f.WriteTranscript(t, adoptedTranscript(true)...)
+			require.NoError(t, m.SetTitle(t.Context(), f.SessionID(), "human rename"))
+			f.WriteRegistry(t, os.Getpid(), time.Now())
+
+			waitForState(t, m, f.SessionID(), ChildOnline)
+
+			rows := m.Sessions()
+			require.Len(t, rows, 1)
+			assert.Equal(t, "human rename", rows[0].Title) // the stored title wins
+			require.Never(t, func() bool { return runs() > 0 }, 60*time.Millisecond, testPoll)
+		})
+
+		t.Run("no prompt waits for append", func(t *testing.T) {
+			store := newTitleMemStore()
+			bin, runs := fakeNamerBin(t)
+			m, home := newTestFleetWithTitlesAndBin(t, store, bin, nil)
+
+			f := fleettest.New(t, home, fleettest.Options{SessionID: "01ADOPTQUIET000000001"})
+			entries := adoptedTranscript(false)
+			f.WriteTranscript(t, entries...)
+			f.WriteRegistry(t, os.Getpid(), time.Now())
+
+			waitForState(t, m, f.SessionID(), ChildOnline)
+			require.Never(t, func() bool { return runs() > 0 }, 60*time.Millisecond, testPoll)
+
+			// the first typed prompt still names it through the live event path
+			f.Broadcast(ctl.EventEntryAppend, ctl.EntryData{Entry: wireEntry(fleettest.Entry{
+				ID:       "01ADOPTMSG0000000002",
+				ParentID: entries[0].ID,
+				Type:     session.TypeMessage,
+				Data: mustJSON(session.MessageData{
+					Message: llm.Text(llm.RoleUser, "fix the login flow"),
+				}),
+			})})
+
+			require.Eventually(t, func() bool {
+				return store.snapshot()[f.SessionID()] == "Fix login flow"
+			}, 2*time.Second, testPoll)
+			assert.Equal(t, 1, runs())
+		})
+	})
+
+	t.Run("skipped without bin", func(t *testing.T) {
+		store := newTitleMemStore()
+		m, home := newTestFleetWithTitles(t, store)
+
+		f := fleettest.New(t, home, fleettest.Options{SessionID: "01NOBINNAME000000"})
+		f.WriteRegistry(t, os.Getpid(), time.Now())
+		waitForState(t, m, f.SessionID(), ChildOnline)
+
+		assert.Empty(t, store.snapshot()) // no configured binary, nothing to run
+	})
 }
 
-// fakeNamerBin writes an executable labeler stub that prints a fixed title;
-// the returned counter reports how many times it executed.
 func fakeNamerBin(t *testing.T) (string, func() int) {
 	t.Helper()
 	dir := t.TempDir()
@@ -69,51 +197,6 @@ func fakeNamerBin(t *testing.T) (string, func() int) {
 	}
 }
 
-func TestNamerTitlesFromFirstPrompt(t *testing.T) {
-	store := newTitleMemStore()
-	owned := func(inst ctl.Instance) bool { return inst.SessionID == "01AUTOTITLE0000000" }
-	bin, _ := fakeNamerBin(t)
-	m, home := newTestFleetWithTitlesAndBin(t, store, bin, owned)
-
-	f := fleettest.New(t, home, fleettest.Options{SessionID: "01AUTOTITLE0000000"})
-	first := session.Entry{
-		ID:   "01PROMPTENTRY00000000",
-		Type: session.TypeMessage,
-		Data: mustJSON(session.MessageData{
-			Message: llm.Text(llm.RoleUser, "fix the login flow"),
-		}),
-	}
-	f.WriteTranscript(t, first)
-	f.WriteRegistry(t, os.Getpid(), time.Now())
-
-	waitForState(t, m, f.SessionID(), ChildOnline)
-
-	// the labeler runs once over the first typed prompt recovered from the
-	// transcript at attach and writes through swarm's own title store
-	require.Eventually(t, func() bool {
-		return store.snapshot()[f.SessionID()] == "Fix login flow"
-	}, 2*time.Second, testPoll)
-
-	// every surface sees the title; ajent's own session name stays clean
-	rows := m.Sessions()
-	require.Len(t, rows, 1)
-	assert.Equal(t, "Fix login flow", rows[0].Title)
-	assert.Empty(t, rows[0].Name)
-
-	for _, req := range f.Received() {
-		if req.Method == ctl.MethodSubmit {
-			t.Fatalf("namer submitted %q upstream; titles must never touch ajent names",
-				string(req.Params))
-		}
-	}
-}
-
-// Adopted sessions auto-title from backfill: a first prompt committed before
-// swarm attached never announces as entry.append, so prepare schedules the
-// labeler off the recovered view. Reconnects stay cheap no-ops.
-
-// adoptedTranscript builds the committed branch of a session that predates
-// swarm: one root entry plus, when prompted, its first typed user prompt.
 func adoptedTranscript(prompt bool) []fleettest.Entry {
 	root := fleettest.Entry{
 		ID:   "01ADOPTROOT0000000001",
@@ -134,102 +217,6 @@ func adoptedTranscript(prompt bool) []fleettest.Entry {
 	return out
 }
 
-func TestAdoptedSessionAutoTitles(t *testing.T) {
-	t.Run("names from backfill", func(t *testing.T) {
-		store := newTitleMemStore()
-		bin, runs := fakeNamerBin(t)
-		m, home := newTestFleetWithTitlesAndBin(t, store, bin, nil)
-
-		f := fleettest.New(t, home, fleettest.Options{SessionID: "01ADOPTNAME000000001"})
-		f.WriteTranscript(t, adoptedTranscript(true)...)
-		f.WriteRegistry(t, os.Getpid(), time.Now())
-
-		waitForState(t, m, f.SessionID(), ChildOnline)
-		require.Eventually(t, func() bool {
-			return store.snapshot()[f.SessionID()] == "Fix login flow"
-		}, 2*time.Second, testPoll)
-
-		rows := m.Sessions()
-		require.Len(t, rows, 1)
-		assert.Equal(t, "Fix login flow", rows[0].Title)
-		assert.Equal(t, 1, runs())
-
-		// a reconnect re-prepares through the same backfill without renaming
-		dials := f.DialCount()
-		f.DropConns()
-		require.Eventually(t, func() bool { return f.DialCount() > dials }, 2*time.Second, testPoll)
-		waitForState(t, m, f.SessionID(), ChildOnline)
-		assert.Equal(t, 1, runs())
-
-		for _, req := range f.Received() {
-			if req.Method == ctl.MethodSubmit {
-				t.Fatalf("namer submitted %q upstream; titles must never touch ajent names",
-					string(req.Params))
-			}
-		}
-	})
-
-	t.Run("stored title skips run", func(t *testing.T) {
-		store := newTitleMemStore()
-		bin, runs := fakeNamerBin(t)
-		m, home := newTestFleetWithTitlesAndBin(t, store, bin, nil)
-
-		f := fleettest.New(t, home, fleettest.Options{SessionID: "01ADOPTNAMED000000001"})
-		f.WriteTranscript(t, adoptedTranscript(true)...)
-		require.NoError(t, m.SetTitle(t.Context(), f.SessionID(), "human rename"))
-		f.WriteRegistry(t, os.Getpid(), time.Now())
-
-		waitForState(t, m, f.SessionID(), ChildOnline)
-
-		rows := m.Sessions()
-		require.Len(t, rows, 1)
-		assert.Equal(t, "human rename", rows[0].Title) // the stored title wins
-		require.Never(t, func() bool { return runs() > 0 }, 250*time.Millisecond, testPoll)
-	})
-
-	t.Run("no prompt waits for append", func(t *testing.T) {
-		store := newTitleMemStore()
-		bin, runs := fakeNamerBin(t)
-		m, home := newTestFleetWithTitlesAndBin(t, store, bin, nil)
-
-		f := fleettest.New(t, home, fleettest.Options{SessionID: "01ADOPTQUIET000000001"})
-		entries := adoptedTranscript(false)
-		f.WriteTranscript(t, entries...)
-		f.WriteRegistry(t, os.Getpid(), time.Now())
-
-		waitForState(t, m, f.SessionID(), ChildOnline)
-		require.Never(t, func() bool { return runs() > 0 }, 250*time.Millisecond, testPoll)
-
-		// the first typed prompt still names it through the live event path
-		f.Broadcast(ctl.EventEntryAppend, ctl.EntryData{Entry: wireEntry(fleettest.Entry{
-			ID:       "01ADOPTMSG0000000002",
-			ParentID: entries[0].ID,
-			Type:     session.TypeMessage,
-			Data: mustJSON(session.MessageData{
-				Message: llm.Text(llm.RoleUser, "fix the login flow"),
-			}),
-		})})
-
-		require.Eventually(t, func() bool {
-			return store.snapshot()[f.SessionID()] == "Fix login flow"
-		}, 2*time.Second, testPoll)
-		assert.Equal(t, 1, runs())
-	})
-}
-
-func TestNamerSkippedWithoutBin(t *testing.T) {
-	store := newTitleMemStore()
-	m, home := newTestFleetWithTitles(t, store)
-
-	f := fleettest.New(t, home, fleettest.Options{SessionID: "01NOBINNAME000000"})
-	f.WriteRegistry(t, os.Getpid(), time.Now())
-	waitForState(t, m, f.SessionID(), ChildOnline)
-
-	assert.Empty(t, store.snapshot()) // no configured binary, nothing to run
-}
-
-// newTestFleetWithTitlesAndBin starts a fast manager with titles and the
-// one-shot labeler's binary configured.
 func newTestFleetWithTitlesAndBin(t *testing.T, store TitleStore, bin string, owned func(ctl.Instance) bool) (*Manager, string) {
 	t.Helper()
 	home := testutil.IsolateHome(t)
@@ -242,7 +229,7 @@ func newTestFleetWithTitlesAndBin(t *testing.T, store TitleStore, bin string, ow
 		Owned:        owned,
 		TitleStore:   store,
 	})
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	m.Start(ctx)
 	t.Cleanup(func() {
 		cancel()

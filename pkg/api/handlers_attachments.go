@@ -31,10 +31,6 @@ type attachmentReply struct {
 // The body is multipart/form-data with a single "file" field; bytes are kept
 // verbatim under <state>/attachments/<session id>/.
 func (s *apiServer) handleSessionAttachment(w http.ResponseWriter, r *http.Request) {
-	if s.attachmentsDir == "" {
-		writeError(w, http.StatusServiceUnavailable, "unavailable", "attachments are not configured")
-		return
-	}
 	sessionID := sanitizeAttachmentName(r.PathValue("id"))
 	if sessionID == "" {
 		writeError(w, http.StatusBadRequest, "invalid_request", "session id must not be empty")

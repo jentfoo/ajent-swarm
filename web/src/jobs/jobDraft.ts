@@ -10,7 +10,7 @@ import type {
   ScheduleKind,
   TriggerOn,
 } from '../api/types'
-import { intervalToSeconds, splitInterval, weekdayTokens } from './schedule'
+import { intervalToSeconds, parseWeekdays, splitInterval, weekdayTokens } from './schedule'
 import type { IntervalUnit, WeekdayToken } from './schedule'
 
 export const maxNameLen = 200 // mirrors sched's bound
@@ -150,19 +150,6 @@ export function duplicateDraft(job: Job): JobDraft {
   draft.name = textDecoder.decode(buf.subarray(0, written))
   draft.enabled = false
   return draft
-}
-
-// parseWeekdays reads the stored comma list onto tokens, ignoring anything
-// unknown so a hand-edited row still opens.
-function parseWeekdays(raw: string | undefined): WeekdayToken[] {
-  if (!raw) return []
-  const set = new Set(
-    raw
-      .split(',')
-      .map((t) => t.trim().toLowerCase())
-      .filter((t) => (weekdayTokens as readonly string[]).includes(t)),
-  )
-  return weekdayTokens.filter((t) => set.has(t))
 }
 
 // parseToolList reads the stored comma list onto names, dropping empties and

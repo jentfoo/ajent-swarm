@@ -33,7 +33,7 @@ func Handler() http.Handler {
 		}
 
 		name := strings.TrimPrefix(path.Clean("/"+r.URL.Path), "/")
-		if name == "" || name == "." {
+		if name == "" {
 			name = indexHTML
 		}
 		f, err := sub.Open(name)

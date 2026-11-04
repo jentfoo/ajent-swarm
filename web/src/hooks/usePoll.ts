@@ -15,7 +15,7 @@ export function usePoll(fn: () => void, intervalMs: number, backgroundMs?: numbe
     let timer: ReturnType<typeof setInterval> | null = null
 
     const tick = () => {
-      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+      if (document.visibilityState === 'visible') {
         ref.current()
         return
       }

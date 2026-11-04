@@ -32,115 +32,104 @@ func acquireEventually(t *testing.T, dir string) *instanceLock {
 	return lock
 }
 
-func TestAcquireInstanceLock(t *testing.T) {
-	t.Parallel()
+func TestInstance(t *testing.T) {
+	// not parallel: the state dir case isolates AJENT_HOME via t.Setenv
 
-	dir := t.TempDir()
-	pidPath := filepath.Join(dir, pidFileName)
-	require.NoError(t, os.WriteFile(pidPath, []byte("4242\n"), 0o600))
+	t.Run("lock refuses second holder", func(t *testing.T) {
+		dir := t.TempDir()
+		pidPath := filepath.Join(dir, pidFileName)
+		require.NoError(t, os.WriteFile(pidPath, []byte("4242\n"), 0o600))
 
-	lock := acquireEventually(t, dir)
+		lock := acquireEventually(t, dir)
 
-	_, err := acquireInstanceLock(dir) // our own held lock: refusal is immediate
-	require.ErrorIs(t, err, errLocked)
-	assert.Contains(t, err.Error(), "another ajent-swarm instance holds")
-	assert.Contains(t, err.Error(), "(pid 4242)", "the holder is named from the pid file")
+		_, err := acquireInstanceLock(dir) // our own held lock: refusal is immediate
+		require.ErrorIs(t, err, errLocked)
+		assert.Contains(t, err.Error(), "another ajent-swarm instance holds")
+		assert.Contains(t, err.Error(), "(pid 4242)")
 
-	// release frees the directory for the next process
-	require.NoError(t, lock.Close())
-	lock2 := acquireEventually(t, dir)
-	t.Cleanup(func() { _ = lock2.Close() })
-}
+		// release frees the directory for the next process
+		require.NoError(t, lock.Close())
+		lock2 := acquireEventually(t, dir)
+		t.Cleanup(func() { _ = lock2.Close() })
+	})
 
-func TestAcquireInstanceLockWithoutPidfile(t *testing.T) {
-	t.Parallel()
+	t.Run("lock without pidfile names the directory", func(t *testing.T) {
+		dir := t.TempDir()
+		lock := acquireEventually(t, dir)
+		t.Cleanup(func() { _ = lock.Close() })
 
-	dir := t.TempDir()
-	lock := acquireEventually(t, dir)
-	t.Cleanup(func() { _ = lock.Close() })
+		_, err := acquireInstanceLock(dir)
+		require.ErrorIs(t, err, errLocked)
+		assert.Contains(t, err.Error(), dir)
+	})
 
-	_, err := acquireInstanceLock(dir)
-	require.ErrorIs(t, err, errLocked)
-	assert.Contains(t, err.Error(), dir, "the state directory is named even without a pid")
-}
+	t.Run("lock missing directory", func(t *testing.T) {
+		_, err := acquireInstanceLock(filepath.Join(t.TempDir(), "absent"))
+		require.Error(t, err)
+		assert.NotErrorIs(t, err, errLocked)
+	})
 
-func TestAcquireInstanceLockMissingDir(t *testing.T) {
-	t.Parallel()
+	t.Run("write pidfile", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), pidFileName)
+		require.NoError(t, os.WriteFile(path, []byte("99999\n"), 0o600))
 
-	_, err := acquireInstanceLock(filepath.Join(t.TempDir(), "absent"))
-	require.Error(t, err)
-	assert.NotErrorIs(t, err, errLocked)
-}
+		require.NoError(t, writePidfile(path))
 
-func TestWritePidfile(t *testing.T) {
-	t.Parallel()
+		data, err := os.ReadFile(path)
+		require.NoError(t, err)
+		assert.Equal(t, os.Getpid(), mustAtoi(t, string(data)))
+	})
 
-	path := filepath.Join(t.TempDir(), pidFileName)
-	require.NoError(t, os.WriteFile(path, []byte("99999\n"), 0o600))
+	t.Run("remove pidfile", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), pidFileName)
+		removePidfile(path) // already gone is fine
 
-	require.NoError(t, writePidfile(path))
+		require.NoError(t, writePidfile(path))
+		removePidfile(path)
 
-	data, err := os.ReadFile(path)
-	require.NoError(t, err)
-	assert.Equal(t, os.Getpid(), mustAtoi(t, string(data)))
-}
+		_, err := os.Stat(path)
+		assert.True(t, os.IsNotExist(err))
+	})
 
-func TestRemovePidfile(t *testing.T) {
-	t.Parallel()
+	t.Run("state dir defaults under ajent home", func(t *testing.T) {
+		home := testutil.IsolateHome(t)
 
-	path := filepath.Join(t.TempDir(), pidFileName)
-	removePidfile(path) // already gone is fine
+		dir, warn, err := ensureStateDir("")
+		require.NoError(t, err)
+		assert.Empty(t, warn)
+		assert.Equal(t, filepath.Join(home, swarmDirName), dir)
 
-	require.NoError(t, writePidfile(path))
-	removePidfile(path)
+		fi, err := os.Stat(dir)
+		require.NoError(t, err)
+		assert.Zero(t, fi.Mode().Perm()&0o077)
+	})
 
-	_, err := os.Stat(path)
-	assert.True(t, os.IsNotExist(err), "pid file removed")
-}
+	t.Run("state dir custom", func(t *testing.T) {
+		custom := filepath.Join(t.TempDir(), "elsewhere", "swarm")
+		dir, warn, err := ensureStateDir(custom)
+		require.NoError(t, err)
+		assert.Equal(t, custom, dir)
+		assert.Empty(t, warn)
 
-func TestEnsureStateDirDefaultUnderAjentHome(t *testing.T) {
-	// t.Setenv forbids parallel
-	home := testutil.IsolateHome(t)
+		fi, err := os.Stat(dir)
+		require.NoError(t, err)
+		assert.Zero(t, fi.Mode().Perm()&0o077)
+	})
 
-	dir, warn, err := ensureStateDir("")
-	require.NoError(t, err)
-	assert.Empty(t, warn)
-	assert.Equal(t, filepath.Join(home, swarmDirName), dir)
+	t.Run("state dir tightens loose permissions", func(t *testing.T) {
+		custom := filepath.Join(t.TempDir(), "loose")
+		require.NoError(t, os.MkdirAll(custom, 0o755))
 
-	fi, err := os.Stat(dir)
-	require.NoError(t, err)
-	assert.Zero(t, fi.Mode().Perm()&0o077, "owner-only permissions")
-}
+		dir, warn, err := ensureStateDir(custom)
+		require.NoError(t, err)
+		assert.Equal(t, custom, dir)
+		assert.Contains(t, warn, "group or world accessible")
+		assert.Contains(t, warn, "tightened to 0700")
 
-func TestEnsureStateDirCustom(t *testing.T) {
-	t.Parallel()
-
-	custom := filepath.Join(t.TempDir(), "elsewhere", "swarm")
-	dir, warn, err := ensureStateDir(custom)
-	require.NoError(t, err)
-	assert.Equal(t, custom, dir)
-	assert.Empty(t, warn)
-
-	fi, err := os.Stat(dir)
-	require.NoError(t, err)
-	assert.Zero(t, fi.Mode().Perm()&0o077, "owner-only permissions")
-}
-
-func TestEnsureStateDirTightensCustom(t *testing.T) {
-	t.Parallel()
-
-	custom := filepath.Join(t.TempDir(), "loose")
-	require.NoError(t, os.MkdirAll(custom, 0o755))
-
-	dir, warn, err := ensureStateDir(custom)
-	require.NoError(t, err)
-	assert.Equal(t, custom, dir)
-	assert.Contains(t, warn, "group or world accessible")
-	assert.Contains(t, warn, "tightened to 0700")
-
-	fi, err := os.Stat(dir)
-	require.NoError(t, err)
-	assert.Zero(t, fi.Mode().Perm()&0o077, "permissions tightened")
+		fi, err := os.Stat(dir)
+		require.NoError(t, err)
+		assert.Zero(t, fi.Mode().Perm()&0o077)
+	})
 }
 
 // mustAtoi parses a pid file's decimal content.

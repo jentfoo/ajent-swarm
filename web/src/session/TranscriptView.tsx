@@ -25,19 +25,18 @@ const pullDownPx = 64
 // sessionId change (swapping sessions inside one hosted view) re-lands on the
 // latest too.
 export function TranscriptView({
-  sessionId = '',
+  sessionId,
   state,
   loadOlder,
   pullDownToLatest = false, // mobile: rubber-band at the top jumps to latest
   onThinkingToggle,
 }: {
-  sessionId?: string
+  sessionId: string
   state: AppliedSessionState
   loadOlder: () => Promise<boolean>
   pullDownToLatest?: boolean
-  // Threaded to the live thinking panel so user toggles reach the applier;
-  // surfaces that cannot dispatch keep the defaults instead.
-  onThinkingToggle?: (open: boolean) => void
+  // Threaded to the live thinking panel so user toggles reach the applier.
+  onThinkingToggle: (open: boolean) => void
 }) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)

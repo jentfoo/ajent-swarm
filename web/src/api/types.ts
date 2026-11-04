@@ -203,7 +203,7 @@ export interface SessionStatus {
 }
 
 // AttentionRow is one live session's row of GET /api/attention. The digest
-// facts (dialog, last stop, activity) carry the inbox rail's one-line reasons.
+// facts (dialog, last stop, activity) carry the focus rail's one-line reasons.
 export interface AttentionRow {
   sessionId: string
   pid?: number

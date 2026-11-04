@@ -25,8 +25,7 @@ const (
 	termGraceDefault  = 5 * time.Second  // SIGTERM before SIGKILL
 	killGrace         = 3 * time.Second
 
-	awaitPollEvery = 250 * time.Millisecond // registry poll while awaiting the child
-	stopPollEvery  = 25 * time.Millisecond
+	stopPollEvery = 25 * time.Millisecond
 
 	stopLine  = "/exit"
 	logSuffix = ".log"
@@ -34,6 +33,10 @@ const (
 
 	tailLimit = 8 << 10 // failure hints kept in the child record
 )
+
+// awaitPollEvery polls the registry while awaiting a launched child; a var so
+// tests can shrink it below the production cadence.
+var awaitPollEvery = 250 * time.Millisecond
 
 // childProc tracks one ajent process swarm spawned: its record, its command
 // while it runs, and an exit channel closed once the process is reaped and
@@ -234,7 +237,7 @@ func (m *Manager) awaitSocket(ctx context.Context, cp *childProc) (string, error
 func (m *Manager) finishLaunch(cp *childProc, sessionID string) {
 	m.mu.Lock()
 	cp.rec.SessionID = sessionID
-	m.childBySession[sessionID] = cp.rec.PID
+	m.childBySession[sessionID] = cp
 	old := cp.rec.LogPath
 	m.mu.Unlock()
 
@@ -286,12 +289,9 @@ func (m *Manager) publishChildEvent(sessionID string, frame ChildFrame) {
 // launched, unless the job sets KeepAlive. A session ends when someone asks.
 func (m *Manager) StopSession(ctx context.Context, sessionID string) error {
 	a := m.route(sessionID)
-	var cp *childProc
 	pid := 0
 	m.mu.Lock()
-	if p, ok := m.childBySession[sessionID]; ok {
-		cp = m.children[p]
-	}
+	cp := m.childBySession[sessionID]
 	alreadyExited := cp != nil && !cp.rec.ExitedAt.IsZero()
 	if cp != nil {
 		pid = cp.rec.PID
@@ -383,7 +383,7 @@ func (m *Manager) awaitEnded(a *sessionActor, cp *childProc, pid int, within tim
 // markStopped records the exit of an adopted child, whose process swarm
 // cannot wait on itself. Spawned children record their own exit in reapChild.
 func (m *Manager) markStopped(cp *childProc) {
-	if cp == nil || !cp.adopted {
+	if !cp.adopted {
 		return
 	}
 	m.mu.Lock()
@@ -429,7 +429,7 @@ func (m *Manager) adopt(ctx context.Context) {
 		m.mu.Lock()
 		m.children[rec.PID] = cp
 		if rec.SessionID != "" {
-			m.childBySession[rec.SessionID] = rec.PID
+			m.childBySession[rec.SessionID] = cp
 		}
 		m.mu.Unlock()
 	}
@@ -440,20 +440,13 @@ func (m *Manager) adopt(ctx context.Context) {
 // the registry watch, whose cadence keeps this cheap.
 func (m *Manager) reconcileAdopted() {
 	m.mu.Lock()
-	var candidates []*childProc
-	for _, cp := range m.children {
-		if cp.adopted && !reaped(cp) && cp.rec.ExitedAt.IsZero() {
-			candidates = append(candidates, cp)
-		}
-	}
+	candidates := bulk.SliceFilter(func(cp *childProc) bool {
+		return cp.adopted && !reaped(cp) && cp.rec.ExitedAt.IsZero()
+	}, bulk.MapValuesSlice(m.children))
 	m.mu.Unlock()
 
-	var lost []*childProc // the pid probe can block, so it stays outside the lock
-	for _, cp := range candidates {
-		if pidGone(cp.rec.PID) {
-			lost = append(lost, cp)
-		}
-	}
+	// the pid probe can block, so it stays outside the lock
+	lost := bulk.SliceFilter(func(cp *childProc) bool { return pidGone(cp.rec.PID) }, candidates)
 
 	for _, cp := range lost {
 		m.mu.Lock()

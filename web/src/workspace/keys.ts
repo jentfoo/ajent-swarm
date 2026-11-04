@@ -1,9 +1,8 @@
 // Keyboard plumbing shared by both workspace modes. Plain keys drive the
-// inbox queue and pane digits, mod (Ctrl/Cmd) drives tile management, Alt
+// focus queue and pane digits, mod (Ctrl/Cmd) drives tile management, Alt
 // arrows resize. Editable targets always win: typing in the composer or a
 // dialog answer must never move the workspace.
-import { useEffect } from 'react'
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
 
 export type Direction = 'left' | 'right' | 'up' | 'down'
 
@@ -31,7 +30,7 @@ export function setShortcutOverlayOpen(open: boolean): void {
   shortcutOverlayOpen = open
 }
 
-export function isEditable(target: EventTarget | null): boolean {
+function isEditable(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false
   if (target.isContentEditable) return true
   return ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)

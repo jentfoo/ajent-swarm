@@ -752,8 +752,8 @@ label {
   padding: calc(var(--unit) * 0.5) calc(var(--unit) * 3) calc(var(--unit) * 0.5) 0;
 }
 
-/* inbox rail */
-.inbox-rail {
+/* focus rail */
+.focus-rail {
   width: 320px;
   min-width: 250px;
   border-right: 1px solid var(--border);
@@ -1887,7 +1887,7 @@ label {
   overflow: auto;
 }
 
-/* inbox rail: stored title leading line one, its workspace path a smaller
+/* focus rail: stored title leading line one, its workspace path a smaller
    sub-line below so long titles keep the whole row width */
 .rail-path {
   display: block;

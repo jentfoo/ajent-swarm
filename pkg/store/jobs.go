@@ -249,21 +249,20 @@ func (s *Store) queryJobs(ctx context.Context, q string, args ...any) ([]Job, er
 // scanJob decodes one jobs row.
 func scanJob(row interface{ Scan(...any) error }) (Job, error) {
 	var (
-		j              Job
-		nextRun        sql.NullInt64
-		enabled        int64
-		toolsCustom    int64
-		keepAlive      int64
-		runWhenIdle    int64
-		idleMaxDelay   int64
-		triggerCommand string
-		createdAt      int64
+		j            Job
+		nextRun      sql.NullInt64
+		enabled      int64
+		toolsCustom  int64
+		keepAlive    int64
+		runWhenIdle  int64
+		idleMaxDelay int64
+		createdAt    int64
 	)
 	if err := row.Scan(&j.ID, &j.Name, &j.Workspace, &j.CommandPrefix, &j.Prompt,
 		&j.SpawnMode, &j.SessionTarget, &j.Model, &j.Permission, &j.Tools,
 		&toolsCustom, &enabled, &j.ScheduleKind, &j.IntervalSeconds, &j.DailyTime,
 		&j.TZ, &j.Weekdays, &nextRun, &j.OnMissed, &j.Overlap, &j.TimeoutMinutes,
-		&keepAlive, &runWhenIdle, &idleMaxDelay, &triggerCommand, &j.TriggerOn,
+		&keepAlive, &runWhenIdle, &idleMaxDelay, &j.TriggerCommand, &j.TriggerOn,
 		&createdAt); err != nil {
 		return Job{}, fmt.Errorf("scan job: %w", err)
 	}
@@ -272,7 +271,6 @@ func scanJob(row interface{ Scan(...any) error }) (Job, error) {
 	j.KeepAlive = keepAlive != 0
 	j.RunWhenIdle = runWhenIdle != 0
 	j.IdleMaxDelaySeconds = int(idleMaxDelay)
-	j.TriggerCommand = triggerCommand
 	j.CreatedAt = fromUnixSec(createdAt)
 	if nextRun.Valid && nextRun.Int64 != 0 {
 		t := fromUnixSec(nextRun.Int64)

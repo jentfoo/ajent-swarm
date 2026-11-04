@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -104,162 +105,314 @@ func (h *testHarness) runRow(id int64) store.Run {
 	require.NoError(h.t, err)
 	return run
 }
+func TestRunner(t *testing.T) {
+	t.Run("settles on landing then idle", func(t *testing.T) {
+		h := newHarness(t, nil)
+		j := sampleJob(store.ScheduleOnce)
+		run := h.seedRun(h.addJob("watch", nil))
 
-func TestWatcherSettlesOnLandingThenIdle(t *testing.T) {
-	t.Parallel()
-	h := newHarness(t, nil)
-	j := sampleJob(store.ScheduleOnce)
-	run := h.seedRun(h.addJob("watch", nil))
-
-	status, note := h.scriptWatcher(run, j,
-		initFrame(), // pre-landing baseline
-		landingFrame(pendingID(run)),
-		idleFrame(),
-	)
-	assert.Equal(t, store.RunOK, status)
-	assert.Empty(t, note)
-}
-
-func TestWatcherRecordsAwaitingInput(t *testing.T) {
-	t.Parallel()
-
-	// a dialog that stays open parks the row for the UI to see, until its
-	// bounded timeout lands
-	h := newHarness(t, func(o *Options) { o.RunTimeoutDefault = 30 * time.Millisecond })
-	j := sampleJob(store.ScheduleOnce)
-	run := h.seedRun(h.addJob("watch-parked", nil))
-	status, _ := h.scriptWatcher(run, j,
-		initFrame(),
-		landingFrame(pendingID(run)),
-		dialogFrame(7),
-	)
-	assert.Equal(t, store.RunTimeout, status)
-	assert.Equal(t, store.RunAwaitingInput, h.runRow(run.ID).Status)
-
-	// once the human answers and idle arrives, the run still concludes ok
-	h2 := newHarness(t, nil)
-	run2 := h2.seedRun(h2.addJob("watch-settled", nil))
-	status, _ = h2.scriptWatcher(run2, j,
-		initFrame(),
-		landingFrame(pendingID(run2)),
-		dialogFrame(8),
-		settledFrame(8),
-		idleFrame(),
-	)
-	assert.Equal(t, store.RunOK, status)
-}
-
-func TestWatcherLandingViaInitEntries(t *testing.T) {
-	t.Parallel()
-	h := newHarness(t, nil)
-	j := sampleJob(store.ScheduleOnce)
-	run := h.seedRun(h.addJob("watch", nil))
-
-	// a re-subscribe greets with an init whose tail already holds the landing
-	status, _ := h.scriptWatcher(run, j,
-		initFrame(ctl.Entry{ID: "e1", Type: "message",
-			Data: json.RawMessage(`{"queueIds":["` + pendingID(run) + `"]}`)}),
-		idleFrame(),
-	)
-	assert.Equal(t, store.RunOK, status)
-}
-
-func TestWatcherFailsOnPromptDrop(t *testing.T) {
-	t.Parallel()
-	h := newHarness(t, nil)
-	j := sampleJob(store.ScheduleOnce)
-	run := h.seedRun(h.addJob("watch", nil))
-
-	status, note := h.scriptWatcher(run, j,
-		initFrame(),
-		droppedFrame(pendingID(run)),
-	)
-	assert.Equal(t, store.RunFailed, status)
-	assert.Contains(t, note, "interrupt")
-}
-
-func TestWatcherFailsOnEarlyExit(t *testing.T) {
-	t.Parallel()
-	h := newHarness(t, nil)
-	j := sampleJob(store.ScheduleOnce)
-	run := h.seedRun(h.addJob("watch", nil))
-
-	status, note := h.scriptWatcher(run, j,
-		initFrame(),
-		exitFrame("done for now"),
-	)
-	assert.Equal(t, store.RunFailed, status)
-	assert.Contains(t, note, "done for now")
-
-	// after the prompt landed, a clean exit completes the run instead
-	status, _ = h.scriptWatcher(run, j,
-		initFrame(),
-		landingFrame(pendingID(run)),
-		exitFrame("done for now"),
-	)
-	assert.Equal(t, store.RunOK, status)
-}
-
-func TestWatcherTimeoutNotes(t *testing.T) {
-	t.Parallel()
-	h := newHarness(t, func(o *Options) { o.RunTimeoutDefault = 30 * time.Millisecond })
-	j := sampleJob(store.ScheduleOnce)
-
-	t.Run("parked_at_dialog", func(t *testing.T) {
-		run := h.seedRun(h.addJob("watch-parked", nil))
 		status, note := h.scriptWatcher(run, j,
-			initFrame(),
+			initFrame(), // pre-landing baseline
 			landingFrame(pendingID(run)),
-			dialogFrame(9),
+			idleFrame(),
 		)
-		assert.Equal(t, store.RunTimeout, status)
-		assert.Contains(t, note, "parked at an open dialog")
+		assert.Equal(t, store.RunOK, status)
+		assert.Empty(t, note)
 	})
 
-	t.Run("never_accepted", func(t *testing.T) {
-		run := h.seedRun(h.addJob("watch-quiet", nil))
-		status, note := h.scriptWatcher(run, j, initFrame())
+	t.Run("records awaiting input", func(t *testing.T) {
+		// a dialog that stays open parks the row for the UI to see, until its
+		// bounded timeout lands
+		h := newHarness(t, func(o *Options) { o.RunTimeoutDefault = 30 * time.Millisecond })
+		j := sampleJob(store.ScheduleOnce)
+		run := h.seedRun(h.addJob("watch-parked", nil))
+		status, _ := h.scriptWatcher(run, j,
+			initFrame(),
+			landingFrame(pendingID(run)),
+			dialogFrame(7),
+		)
+		assert.Equal(t, store.RunTimeout, status)
+		assert.Equal(t, store.RunAwaitingInput, h.runRow(run.ID).Status)
+
+		// once the human answers and idle arrives, the run still concludes ok
+		h2 := newHarness(t, nil)
+		run2 := h2.seedRun(h2.addJob("watch-settled", nil))
+		status, _ = h2.scriptWatcher(run2, j,
+			initFrame(),
+			landingFrame(pendingID(run2)),
+			dialogFrame(8),
+			settledFrame(8),
+			idleFrame(),
+		)
+		assert.Equal(t, store.RunOK, status)
+	})
+
+	t.Run("landing via init entries", func(t *testing.T) {
+		h := newHarness(t, nil)
+		j := sampleJob(store.ScheduleOnce)
+		run := h.seedRun(h.addJob("watch", nil))
+
+		// a re-subscribe greets with an init whose tail already holds the landing
+		status, _ := h.scriptWatcher(run, j,
+			initFrame(ctl.Entry{ID: "e1", Type: "message",
+				Data: json.RawMessage(`{"queueIds":["` + pendingID(run) + `"]}`)}),
+			idleFrame(),
+		)
+		assert.Equal(t, store.RunOK, status)
+	})
+
+	t.Run("init settles a landed idle session", func(t *testing.T) {
+		h := newHarness(t, nil)
+		j := sampleJob(store.ScheduleOnce)
+		run := h.seedRun(h.addJob("watch", nil))
+
+		// the subscription attached after both facts happened: a submit whose
+		// landing and idle were applied to the view before any subscriber sat
+		// down arrives as one init carrying them together, with no event after
+		f := fleet.InitFrame{Type: fleet.FrameInit, SessionID: "01RUNFAKESESSION00",
+			State: ctl.State{Idle: true},
+			Entries: []ctl.Entry{{ID: "e1", Type: "message",
+				Data: json.RawMessage(`{"queueIds":["` + pendingID(run) + `"]}`)}}}
+		status, note := h.scriptWatcher(run, j, mustJSON(f))
+		assert.Equal(t, store.RunOK, status)
+		assert.Empty(t, note)
+	})
+
+	t.Run("fails on prompt drop", func(t *testing.T) {
+		h := newHarness(t, nil)
+		j := sampleJob(store.ScheduleOnce)
+		run := h.seedRun(h.addJob("watch", nil))
+
+		status, note := h.scriptWatcher(run, j,
+			initFrame(),
+			droppedFrame(pendingID(run)),
+		)
+		assert.Equal(t, store.RunFailed, status)
+		assert.Contains(t, note, "interrupt")
+	})
+
+	t.Run("fails on early exit", func(t *testing.T) {
+		h := newHarness(t, nil)
+		j := sampleJob(store.ScheduleOnce)
+		run := h.seedRun(h.addJob("watch", nil))
+
+		status, note := h.scriptWatcher(run, j,
+			initFrame(),
+			exitFrame("done for now"),
+		)
+		assert.Equal(t, store.RunFailed, status)
+		assert.Contains(t, note, "done for now")
+
+		// after the prompt landed, a clean exit completes the run instead
+		status, _ = h.scriptWatcher(run, j,
+			initFrame(),
+			landingFrame(pendingID(run)),
+			exitFrame("done for now"),
+		)
+		assert.Equal(t, store.RunOK, status)
+	})
+
+	t.Run("timeout notes", func(t *testing.T) {
+		h := newHarness(t, func(o *Options) { o.RunTimeoutDefault = 30 * time.Millisecond })
+		j := sampleJob(store.ScheduleOnce)
+
+		t.Run("parked_at_dialog", func(t *testing.T) {
+			run := h.seedRun(h.addJob("watch-parked", nil))
+			status, note := h.scriptWatcher(run, j,
+				initFrame(),
+				landingFrame(pendingID(run)),
+				dialogFrame(9),
+			)
+			assert.Equal(t, store.RunTimeout, status)
+			assert.Contains(t, note, "parked at an open dialog")
+		})
+
+		t.Run("never_accepted", func(t *testing.T) {
+			run := h.seedRun(h.addJob("watch-quiet", nil))
+			status, note := h.scriptWatcher(run, j, initFrame())
+			assert.Equal(t, store.RunTimeout, status)
+			assert.Contains(t, note, "never accepted")
+		})
+	})
+
+	t.Run("ignores unrelated traffic", func(t *testing.T) {
+		h := newHarness(t, func(o *Options) { o.RunTimeoutDefault = 30 * time.Millisecond })
+		j := sampleJob(store.ScheduleOnce)
+		run := h.seedRun(h.addJob("watch", nil))
+
+		// other prompts' landings and garbage frames never conclude our run
+		status, _ := h.scriptWatcher(run, j,
+			initFrame(),
+			landingFrame(pendingID(store.Run{ID: 99999})),
+			[]byte("{not json"),
+			eventFrame(ctl.EventIdle, ctl.IdleData{Idle: true}),
+		)
+		assert.Equal(t, store.RunTimeout, status) // our landing never came
+	})
+
+	t.Run("fails when submit never lands", func(t *testing.T) {
+		h := newHarness(t, func(o *Options) { o.RunTimeoutDefault = 50 * time.Millisecond })
+		j := sampleJob(store.ScheduleOnce)
+		run := h.seedRun(h.addJob("watch", nil))
+
+		// the queue holds our row uncommitted: no landing ever commits
+		queued := eventFrame(ctl.EventQueued, ctl.QueuedData{
+			Rows: []ctl.QueueRow{{ID: pendingID(run), Text: "go"}},
+		})
+		status, note := h.scriptWatcher(run, j,
+			initFrame(),
+			queued,
+		)
 		assert.Equal(t, store.RunTimeout, status)
 		assert.Contains(t, note, "never accepted")
 	})
-}
 
-func TestWatcherIgnoresUnrelatedTraffic(t *testing.T) {
-	t.Parallel()
-	h := newHarness(t, func(o *Options) { o.RunTimeoutDefault = 30 * time.Millisecond })
-	j := sampleJob(store.ScheduleOnce)
-	run := h.seedRun(h.addJob("watch", nil))
+	t.Run("applies custom tools before submit", func(t *testing.T) {
+		h := newHarness(t, nil)
+		id := h.fireWithTools("tooled", " web_search , builtin:read ")
+		h.start(t.Context())
 
-	// other prompts' landings and garbage frames never conclude our run
-	status, _ := h.scriptWatcher(run, j,
-		initFrame(),
-		landingFrame(pendingID(store.Run{ID: 99999})),
-		[]byte("{not json"),
-		eventFrame(ctl.EventIdle, ctl.IdleData{Idle: true}),
-	)
-	assert.Equal(t, store.RunTimeout, status) // our landing never came
-}
+		h.waitForRun(id, store.RunOK)
 
-func TestWatcherFailsWhenSubmitNeverLands(t *testing.T) {
-	t.Parallel()
-	h := newHarness(t, func(o *Options) { o.RunTimeoutDefault = 50 * time.Millisecond })
-	j := sampleJob(store.ScheduleOnce)
-	run := h.seedRun(h.addJob("watch", nil))
-
-	// the queue holds our row uncommitted: no landing ever commits
-	queued := eventFrame(ctl.EventQueued, ctl.QueuedData{
-		Rows: []ctl.QueueRow{{ID: pendingID(run), Text: "go"}},
+		h.runner.mu.Lock()
+		toolsSets := slices.Clone(h.runner.toolsSets)
+		ops := slices.Clone(h.runner.ops)
+		h.runner.mu.Unlock()
+		// the set applied once, parsed onto clean names, ahead of the prompt so
+		// ajent's widen-only rule never sees a dispatched turn first
+		require.Len(h.t, toolsSets, 1)
+		assert.Equal(t, []string{"builtin:read", "web_search"}, toolsSets[0])
+		assert.Equal(t, []string{"tools", "submit"}, ops)
 	})
-	status, note := h.scriptWatcher(run, j,
-		initFrame(),
-		queued,
-	)
-	assert.Equal(t, store.RunTimeout, status)
-	assert.Contains(t, note, "never accepted")
+
+	t.Run("default job never touches tools", func(t *testing.T) {
+		h := newHarness(t, nil)
+		id := h.addJob("default-tools", func(j *store.Job) {
+			j.Prompt = "run the checks"
+			slot := time.Now().Add(10 * time.Millisecond)
+			j.NextRunAt = &slot
+		})
+		h.start(t.Context())
+
+		h.waitForRun(id, store.RunOK)
+
+		h.runner.mu.Lock()
+		toolsSets := slices.Clone(h.runner.toolsSets)
+		h.runner.mu.Unlock()
+		assert.Empty(h.t, toolsSets) // session defaults stay untouched
+	})
+
+	t.Run("tools set failure fails the run", func(t *testing.T) {
+		h := newHarness(t, nil)
+		h.runner.toolsSetErr = errors.New("no tool gate on this session") // not retriable
+		id := h.fireWithTools("tooled-broken", "builtin:read")
+		h.start(t.Context())
+
+		run := h.waitForRun(id, store.RunFailed)
+		assert.Contains(t, run.Error, "no tool gate")
+
+		// the prompt never landed behind the failed reshape
+		h.runner.mu.Lock()
+		submits := slices.Clone(h.runner.submits)
+		h.runner.mu.Unlock()
+		assert.Empty(h.t, submits)
+	})
+
+	t.Run("submit retries through refusals", func(t *testing.T) {
+		h := newHarness(t, nil)
+		// a resumed session whose old dialog is still open refuses briefly
+		h.runner.submitFailN = 2
+		prevEvery := submitEvery
+		submitEvery = 5 * time.Millisecond // retry cadence out of the way
+		t.Cleanup(func() { submitEvery = prevEvery })
+		id := h.addJob("resumed", func(j *store.Job) {
+			j.Prompt = "run the checks"
+			j.IntervalSeconds = 3600 // no second slot may race the attempt count
+			slot := time.Now().Add(10 * time.Millisecond)
+			j.NextRunAt = &slot
+		})
+		h.start(t.Context())
+
+		got := h.waitForRun(id, store.RunOK)
+
+		h.runner.mu.Lock()
+		attempts := len(h.runner.submits)
+		h.runner.mu.Unlock()
+		assert.Equal(t, 3, attempts) // two refused, the third landed
+		assert.NotEmpty(t, got.SessionID)
+	})
+
+	t.Run("end to end through fleet", func(t *testing.T) {
+		// one run against a real manager and stub server, so the watcher consumes
+		// genuinely encoded frames from a live actor; not parallel, since it pins
+		// AJENT_HOME for the process-wide discovery default
+		env, _ := newE2ESched(t, nil)
+
+		// the stub cannot run prompts; once our submit lands it plays the landing
+		// sequence a real ajent would emit for that pendingId
+		env.onSubmit("say hi", func(pendingID string) {
+			env.stub.Broadcast(ctl.EventEntryAppend, ctl.EntryData{
+				Entry: ctl.Entry{ID: "e1", Type: "message",
+					Data: json.RawMessage(`{"queueIds":["` + pendingID + `"]}`)},
+			})
+			env.stub.Broadcast(ctl.EventIdle, ctl.IdleData{Idle: true})
+		})
+
+		id := env.addOnceJob(t, "say hi")
+		env.h.sched.Start(t.Context())
+		t.Cleanup(env.h.sched.Stop)
+
+		run := env.h.waitForRun(id, store.RunOK)
+		assert.Equal(t, env.stub.SessionID(), run.SessionID)
+
+		// the prompt went out with its synthetic pendingId and teardown followed;
+		// /exit trails the terminal row finish persists, so poll until it lands
+		var submits []string
+		require.Eventually(t, func() bool {
+			submits = nil
+			for _, req := range env.stub.Received() {
+				if req.Method == ctl.MethodSubmit {
+					var p ctl.SubmitParams
+					_ = json.Unmarshal(req.Params, &p)
+					submits = append(submits, p.Line+"|"+p.PendingID)
+				}
+			}
+			return len(submits) >= 2
+		}, settleWindow, 10*time.Millisecond)
+		assert.Equal(t, fmt.Sprintf("say hi|run-%d", run.ID), submits[0])
+		assert.True(t, strings.HasPrefix(submits[1], "/exit")) // swarm's stop line
+	})
+
+	t.Run("parks at dialog through fleet", func(t *testing.T) {
+		// the awaiting_input transition against a stub holding a dialog open: the
+		// row parks for the UI to see instead of failing; not parallel (AJENT_HOME)
+		env, _ := newE2ESched(t, nil)
+
+		// no landing ever commits: the permission barrier holds the editor
+		env.onSubmit("deploy", func(string) {
+			env.stub.Broadcast(ctl.EventInteractionPending,
+				ctl.InteractionPendingData{ID: 9, Kind: "confirm",
+					Prompt: "allow production deploy?", Options: []string{"yes", "no"}})
+		})
+
+		id := env.addOnceJob(t, "deploy")
+		env.h.sched.Start(t.Context())
+		t.Cleanup(env.h.sched.Stop)
+
+		runID := int64(0)
+		require.Eventually(t, func() bool {
+			for _, r := range env.h.runRows(id) {
+				if r.Status == store.RunAwaitingInput {
+					runID = r.ID
+					return true
+				}
+			}
+			return false
+		}, settleWindow, 10*time.Millisecond)
+		require.NotZero(t, runID)
+	})
 }
 
-// fireWithTools schedules one custom-tools job with a prompt; the once slot
-// lands just in the future.
 func (h *testHarness) fireWithTools(name, tools string) int64 {
 	return h.addJob(name, func(j *store.Job) {
 		j.Prompt = "run the checks"
@@ -270,86 +423,11 @@ func (h *testHarness) fireWithTools(name, tools string) int64 {
 	})
 }
 
-func TestSchedulerAppliesCustomToolsBeforeSubmit(t *testing.T) {
-	t.Parallel()
-	h := newHarness(t, nil)
-	id := h.fireWithTools("tooled", " web_search , builtin:read ")
-	h.start(t.Context())
-
-	h.waitForRun(id, store.RunOK)
-
-	h.runner.mu.Lock()
-	defer h.runner.mu.Unlock()
-	// the set applied once, parsed onto clean names, ahead of the prompt so
-	// ajent's widen-only rule never sees a dispatched turn first
-	require.Len(h.t, h.runner.toolsSets, 1)
-	assert.Equal(t, []string{"builtin:read", "web_search"}, h.runner.toolsSets[0])
-	assert.Equal(t, []string{"tools", "submit"}, h.runner.ops)
-}
-
-func TestSchedulerDefaultJobNeverTouchesTools(t *testing.T) {
-	t.Parallel()
-	h := newHarness(t, nil)
-	id := h.addJob("default-tools", func(j *store.Job) {
-		j.Prompt = "run the checks"
-		slot := time.Now().Add(10 * time.Millisecond)
-		j.NextRunAt = &slot
-	})
-	h.start(t.Context())
-
-	h.waitForRun(id, store.RunOK)
-
-	h.runner.mu.Lock()
-	defer h.runner.mu.Unlock()
-	assert.Empty(h.t, h.runner.toolsSets) // session defaults stay untouched
-}
-
-func TestSchedulerToolsSetFailureFailsTheRun(t *testing.T) {
-	t.Parallel()
-	h := newHarness(t, nil)
-	h.runner.toolsSetErr = errors.New("no tool gate on this session") // not retriable
-	id := h.fireWithTools("tooled-broken", "builtin:read")
-	h.start(t.Context())
-
-	run := h.waitForRun(id, store.RunFailed)
-	assert.Contains(t, run.Error, "no tool gate")
-
-	// the prompt never landed behind the failed reshape
-	h.runner.mu.Lock()
-	defer h.runner.mu.Unlock()
-	assert.Empty(h.t, h.runner.submits)
-}
-
-func TestSubmitRetriesThroughRefusals(t *testing.T) {
-	t.Parallel()
-	h := newHarness(t, nil)
-	// a resumed session whose old dialog is still open refuses briefly
-	h.runner.submitFailN = 2
-	id := h.addJob("resumed", func(j *store.Job) {
-		j.Prompt = "run the checks"
-		j.IntervalSeconds = 3600 // no second slot may race the attempt count
-		slot := time.Now().Add(10 * time.Millisecond)
-		j.NextRunAt = &slot
-	})
-	h.start(t.Context())
-
-	got := h.waitForRun(id, store.RunOK)
-
-	h.runner.mu.Lock()
-	attempts := len(h.runner.submits)
-	h.runner.mu.Unlock()
-	assert.Equal(t, 3, attempts) // two refused, the third landed
-	assert.NotEmpty(t, got.SessionID)
-}
-
-// e2eEnv is one scheduler wired to a real manager over a stub server.
 type e2eEnv struct {
 	stub *fleettest.Stub
 	h    *testHarness
 }
 
-// e2ePID returns a process id for the registry record that provably answers
-// no signals anymore, so /exit teardown does not wait out its grace windows.
 func e2ePID(t *testing.T) int {
 	t.Helper()
 	cmd := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^$")
@@ -357,10 +435,12 @@ func e2ePID(t *testing.T) int {
 	return cmd.Process.Pid
 }
 
-// newE2ESched points a scheduler at a live stub session through a real
-// manager; Launch stays faked since no process spawns.
 func newE2ESched(t *testing.T, mutate func(*Options)) (*e2eEnv, string) {
 	t.Helper()
+	prevGap, prevEvery := resubscribeGap, submitEvery
+	resubscribeGap = 10 * time.Millisecond // e2e retry gaps stay out of the timings
+	submitEvery = 10 * time.Millisecond
+	t.Cleanup(func() { resubscribeGap, submitEvery = prevGap, prevEvery })
 	home := testutil.IsolateHome(t)
 
 	pid := e2ePID(t)
@@ -377,30 +457,16 @@ func newE2ESched(t *testing.T, mutate func(*Options)) (*e2eEnv, string) {
 	return env, home
 }
 
-// onSubmit plays one scripted reaction to the run's prompt submit.
+// onSubmit reacts to the run's prompt submit the moment it lands; the stub
+// invokes the hook synchronously from its request loop.
 func (env *e2eEnv) onSubmit(line string, react func(pendingID string)) {
-	go func() {
-		for i := 0; i < 500; i++ { // up to ~5s, then give up quietly
-			for _, req := range env.stub.Received() {
-				if req.Method != ctl.MethodSubmit ||
-					!strings.Contains(string(req.Params), `"line":"`+line+`"`) {
-					continue
-				}
-				var p struct {
-					PendingID string `json:"pendingId"`
-				}
-				if json.Unmarshal(req.Params, &p) != nil || p.PendingID == "" {
-					continue
-				}
-				react(p.PendingID)
-				return
-			}
-			time.Sleep(10 * time.Millisecond)
+	env.stub.OnSubmit(func(p ctl.SubmitParams) {
+		if p.Line == line && p.PendingID != "" {
+			react(p.PendingID)
 		}
-	}()
+	})
 }
 
-// addOnceJob schedules exactly one fire so tests see a single run.
 func (env *e2eEnv) addOnceJob(t *testing.T, prompt string) int64 {
 	t.Helper()
 	return env.h.addJob("e2e", func(j *store.Job) {
@@ -411,81 +477,6 @@ func (env *e2eEnv) addOnceJob(t *testing.T, prompt string) int64 {
 	})
 }
 
-func TestRunEndToEndThroughFleet(t *testing.T) {
-	// one run against a real manager and stub server, so the watcher consumes
-	// genuinely encoded frames from a live actor; not parallel, since it pins
-	// AJENT_HOME for the process-wide discovery default
-	env, _ := newE2ESched(t, nil)
-
-	// the stub cannot run prompts; once our submit lands it plays the landing
-	// sequence a real ajent would emit for that pendingId
-	env.onSubmit("say hi", func(pendingID string) {
-		env.stub.Broadcast(ctl.EventEntryAppend, ctl.EntryData{
-			Entry: ctl.Entry{ID: "e1", Type: "message",
-				Data: json.RawMessage(`{"queueIds":["` + pendingID + `"]}`)},
-		})
-		env.stub.Broadcast(ctl.EventIdle, ctl.IdleData{Idle: true})
-	})
-
-	id := env.addOnceJob(t, "say hi")
-	env.h.sched.Start(t.Context())
-	t.Cleanup(env.h.sched.Stop)
-
-	run := env.h.waitForRun(id, store.RunOK)
-	assert.Equal(t, env.stub.SessionID(), run.SessionID)
-
-	// the prompt went out with its synthetic pendingId and teardown followed;
-	// /exit trails the terminal row finish persists, so poll until it lands
-	var submits []string
-	require.Eventually(t, func() bool {
-		submits = nil
-		for _, req := range env.stub.Received() {
-			if req.Method == ctl.MethodSubmit {
-				var p ctl.SubmitParams
-				_ = json.Unmarshal(req.Params, &p)
-				submits = append(submits, p.Line+"|"+p.PendingID)
-			}
-		}
-		return len(submits) >= 2
-	}, 3*time.Second, 10*time.Millisecond)
-	assert.Equal(t, fmt.Sprintf("say hi|run-%d", run.ID), submits[0])
-	assert.True(t, strings.HasPrefix(submits[1], "/exit")) // swarm's stop line
-}
-
-func TestRunParksAtDialogThroughFleet(t *testing.T) {
-	// the awaiting_input transition against a stub holding a dialog open: the
-	// row parks until its timeout lands; not parallel (AJENT_HOME pinning)
-	env, _ := newE2ESched(t, func(o *Options) { o.RunTimeoutDefault = 700 * time.Millisecond })
-
-	// no landing ever commits: the permission barrier holds the editor
-	env.onSubmit("deploy", func(string) {
-		env.stub.Broadcast(ctl.EventInteractionPending,
-			ctl.InteractionPendingData{ID: 9, Kind: "confirm",
-				Prompt: "allow production deploy?", Options: []string{"yes", "no"}})
-	})
-
-	id := env.addOnceJob(t, "deploy")
-	env.h.sched.Start(t.Context())
-	t.Cleanup(env.h.sched.Stop)
-
-	runID := int64(0)
-	require.Eventually(t, func() bool {
-		for _, r := range env.h.runRows(id) {
-			if r.Status == store.RunAwaitingInput {
-				runID = r.ID
-				return true
-			}
-		}
-		return false
-	}, 3*time.Second, 10*time.Millisecond)
-	require.NotZero(t, runID)
-
-	// the bounded timeout concludes the parked run with its reason
-	done := env.h.waitForRun(id, store.RunTimeout)
-	assert.Contains(t, done.Error, "parked at an open dialog")
-}
-
-// newE2EFleet starts a fast real manager over an empty registry.
 func newE2EFleet(t *testing.T) *fleet.Manager {
 	t.Helper()
 	mgr := fleet.New(fleet.Options{
@@ -494,13 +485,11 @@ func newE2EFleet(t *testing.T) *fleet.Manager {
 		BackoffBase:  5 * time.Millisecond,
 		BackoffMax:   50 * time.Millisecond,
 	})
-	mgr.Start(context.Background())
+	mgr.Start(t.Context())
 	t.Cleanup(mgr.Stop)
 	return mgr
 }
 
-// launchStub satisfies Runner with a real manager for everything except the
-// process spawn, which stays faked.
 type launchStub struct {
 	*fleet.Manager
 	fake *fakeRunner

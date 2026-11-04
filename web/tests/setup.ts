@@ -28,6 +28,19 @@ if (typeof window !== 'undefined') {
       return 72
     },
   })
-  // jsdom ships no implementation; the inbox cursor only keeps rows in view.
+  // jsdom ships no implementation; the queue cursor only keeps rows in view.
   Element.prototype.scrollIntoView = () => {}
+
+  // jsdom ships no matchMedia either; components must not special-case that.
+  window.matchMedia = (query: string): MediaQueryList =>
+    ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addEventListener() {},
+      removeEventListener() {},
+      addListener() {},
+      removeListener() {},
+      dispatchEvent: () => false,
+    }) as MediaQueryList
 }

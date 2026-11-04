@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-analyze/bulk"
 	"github.com/jentfoo/ajent/pkg/ctl"
 	"github.com/jentfoo/ajent/pkg/paths"
 	"github.com/jentfoo/ajent/pkg/session"
@@ -62,8 +63,9 @@ type Stub struct {
 	conns    map[*stubConn]struct{}
 	dials    int // served hellos, so tests count dials
 
-	refuseScript map[string]*ctl.Error // scripted per-method refusals
-	resultScript map[string]any        // scripted success payloads
+	refuseScript map[string]*ctl.Error  // scripted per-method refusals
+	resultScript map[string]any         // scripted success payloads
+	onSubmit     func(ctl.SubmitParams) // fires after a submit request is recorded
 	requests     []RecordedRequest
 }
 
@@ -183,8 +185,8 @@ func (f *Stub) WriteTranscript(t *testing.T, entries ...Entry) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.recordTo = path
-	for _, e := range entries { // the head is the newest entry on the branch
-		f.snap.Head = e.ID
+	if len(entries) > 0 { // the head is the newest entry on the branch
+		f.snap.Head = entries[len(entries)-1].ID
 	}
 }
 
@@ -203,10 +205,7 @@ func (f *Stub) Broadcast(name string, data any) ctl.Event {
 // DropConns severs every open connection without an exit event.
 func (f *Stub) DropConns() {
 	f.mu.Lock()
-	conns := make([]*stubConn, 0, len(f.conns))
-	for c := range f.conns {
-		conns = append(conns, c)
-	}
+	conns := bulk.MapKeysSlice(f.conns)
 	f.mu.Unlock()
 	for _, c := range conns {
 		_ = c.conn.Close()
@@ -254,6 +253,14 @@ func (f *Stub) Result(method string, result any) {
 	f.resultScript[method] = result
 }
 
+// OnSubmit registers fn to run whenever the stub serves a submit request;
+// the params are already recorded when it fires. Safe to call mid-flight.
+func (f *Stub) OnSubmit(fn func(ctl.SubmitParams)) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.onSubmit = fn
+}
+
 // Received returns every request the stub has served, oldest first.
 func (f *Stub) Received() []RecordedRequest {
 	f.mu.Lock()
@@ -273,10 +280,9 @@ func (f *Stub) acceptLoop() {
 
 // stubConn is one controller connection the stub serves.
 type stubConn struct {
-	s      *Stub
-	conn   net.Conn
-	enc    *ctl.Encoder
-	holder string // announced name once it claims the seat
+	s    *Stub
+	conn net.Conn
+	enc  *ctl.Encoder
 }
 
 func (f *Stub) serveConn(conn net.Conn) {
@@ -349,11 +355,6 @@ func (c *stubConn) handle(req ctl.Request) bool {
 			return c.reply(ctl.Reply{ID: req.ID, Seq: seq,
 				Error: ctl.Errf(ctl.CodeSeatHeld, "seat held by %s", holder)})
 		}
-		if p.Holder != "" {
-			c.holder = p.Holder
-		} else {
-			c.holder = "controller"
-		}
 		return c.reply(ctl.Reply{ID: req.ID,
 			Result: ctl.EncodeData(ctl.AttachResult{Control: true})})
 
@@ -401,16 +402,31 @@ func (c *stubConn) requireSeat(req ctl.Request) bool {
 
 // scripted answers a request whose reply the test fixed, recording it first.
 func (f *Stub) scripted(req ctl.Request) (ctl.Reply, bool) {
+	var hookSubmit ctl.SubmitParams
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	f.requests = append(f.requests, RecordedRequest{Method: req.Method, Params: req.Params})
+	hook := f.onSubmit
+	if hook != nil && req.Method == ctl.MethodSubmit {
+		_ = json.Unmarshal(req.Params, &hookSubmit)
+	}
+	var reply ctl.Reply
 	if err, ok := f.refuseScript[req.Method]; ok {
-		return ctl.Reply{ID: req.ID, Seq: f.seq, Error: err}, true
+		reply.Error = err
+	} else if res, ok := f.resultScript[req.Method]; ok {
+		reply.Result = ctl.EncodeData(res)
+	} else {
+		f.mu.Unlock()
+		if hook != nil && req.Method == ctl.MethodSubmit {
+			hook(hookSubmit)
+		}
+		return ctl.Reply{}, false
 	}
-	if res, ok := f.resultScript[req.Method]; ok {
-		return ctl.Reply{ID: req.ID, Seq: f.seq, Result: ctl.EncodeData(res)}, true
+	reply.ID, reply.Seq = req.ID, f.seq
+	f.mu.Unlock()
+	if hook != nil && req.Method == ctl.MethodSubmit {
+		hook(hookSubmit)
 	}
-	return ctl.Reply{}, false
+	return reply, true
 }
 
 // attach applies the seat rules; false refuses with seat-held.

@@ -470,20 +470,16 @@ export function JobEditor({
           )
         )}
 
-        <h3>Run when idle</h3>
+        <h3 style={{ display: 'flex', alignItems: 'center', gap: 'calc(var(--unit) * 2)' }}>
+          <label htmlFor="job-run-when-idle">Run when idle</label>
+          <input
+            type="checkbox"
+            id="job-run-when-idle"
+            checked={draft.runWhenIdle}
+            onChange={(ev) => patch({ runWhenIdle: ev.target.checked })}
+          />
+        </h3>
         <div className="form-grid">
-          <span className="check-row">
-            <input
-              type="checkbox"
-              id="job-run-when-idle"
-              checked={draft.runWhenIdle}
-              onChange={(ev) => patch({ runWhenIdle: ev.target.checked })}
-            />
-            <label htmlFor="job-run-when-idle">
-              Only start when no session has worked in the last 10 minutes
-            </label>
-          </span>
-
           {draft.runWhenIdle && (
             <label>
               If still busy, skip after waiting

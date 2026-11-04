@@ -201,7 +201,6 @@ func (s *apiServer) handleJobUpdate(w http.ResponseWriter, r *http.Request) {
 
 	switch err = s.sched.UpdateJob(r.Context(), j); {
 	case err == nil:
-		s.sched.Nudge()
 		writeJSON(w, http.StatusOK, j)
 	case errors.Is(err, store.ErrConflict):
 		writeError(w, http.StatusConflict, "conflict", err.Error())
@@ -229,7 +228,6 @@ func (s *apiServer) handleJobDelete(w http.ResponseWriter, r *http.Request) {
 	err := s.sched.DeleteJob(r.Context(), pathID(r))
 	switch {
 	case err == nil:
-		s.sched.Nudge()
 		w.WriteHeader(http.StatusNoContent)
 	case errors.Is(err, store.ErrNotFound):
 		writeError(w, http.StatusNotFound, "job_not_found", "")

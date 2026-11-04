@@ -1,17 +1,18 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent, ReactElement } from 'react'
 
-import { ApiError, post } from '../api/client'
-import type { InteractionPending } from '../api/types'
+import { ApiError } from '../api/client'
+import { sessions } from '../api/endpoints'
+import type { InteractionPending, ResolveAnswer } from '../api/types'
 import type { DialogOutcome } from '../state/eventApplier'
 
 const outcomeDismissMs = 5_000
 
 // resolveDialog posts one answer; a settled code means another surface's
 // answer already won, which stays benign wherever it lands.
-async function resolveDialog(sessionId: string, body: Record<string, unknown>): Promise<void> {
+async function resolveDialog(sessionId: string, body: ResolveAnswer): Promise<void> {
   try {
-    await post(`/api/sessions/${encodeURIComponent(sessionId)}/resolve`, body)
+    await sessions.resolve(sessionId, body)
   } catch (err) {
     if (!(err instanceof ApiError && err.code === 'settled')) throw err
   }
@@ -76,7 +77,7 @@ function TouchDialogCard({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
-  const resolve = async (body: Record<string, unknown>) => {
+  const resolve = async (body: ResolveAnswer) => {
     if (busy) return
     setBusy(true)
     setError('')
@@ -154,7 +155,7 @@ function SecretDialogScreen({
 
   // The answer's text never echoes anywhere upstream; clearing here too keeps
   // a wrong tap from resubmitting a stale value.
-  const resolve = async (body: Record<string, unknown>) => {
+  const resolve = async (body: ResolveAnswer) => {
     if (busy) return
     setBusy(true)
     setError('')

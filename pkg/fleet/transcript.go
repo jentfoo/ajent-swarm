@@ -126,8 +126,8 @@ func (m *Manager) savedRow(target string) (session.Listed, error) {
 	return session.Listed{}, fmt.Errorf("%w: %s", ErrUnknownSaved, target)
 }
 
-// errNoSavedMatch marks the miss findSavedRow resolves ambiguity errors
-// around.
+// errNoSavedMatch reports a target that matched no row; findSavedRow uses it
+// to tell misses apart from ambiguity and store errors.
 var errNoSavedMatch = errors.New("no saved session matches")
 
 func findSavedRow(rows []session.Listed, target string) (session.Listed, error) {

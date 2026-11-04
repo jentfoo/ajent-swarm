@@ -281,7 +281,7 @@ func (s *apiServer) handleSessionFiles(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleAttention serves the per-live-session digest behind the inbox rail
+// handleAttention serves the per-live-session digest behind the focus rail
 // and notification badges; no session stream is subscribed anywhere.
 func (s *apiServer) handleAttention(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, s.fleet.Attention())

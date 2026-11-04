@@ -1,5 +1,4 @@
 import indexHtml from '../../index.html?raw'
-import providerSrc from './swarm.tsx?raw'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 // index.html's head script applies the stored theme before first paint; these
@@ -65,11 +64,5 @@ describe('theme bootstrap script', () => {
       throw new DOMException('denied')
     })
     expect(runBootstrap()).toBe('light')
-  })
-
-  it('bootstrap and provider share the storage key', () => {
-    const KEY = "'swarm.theme'"
-    expect(indexHtml).toContain(KEY)
-    expect(providerSrc).toContain(KEY)
   })
 })

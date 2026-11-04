@@ -63,9 +63,9 @@ func serve(opts Options, stderr io.Writer) int {
 	}
 	defer func() { _ = lock.Close() }()
 
-	pidPath := opts.Pidfile
-	if pidPath == "" {
-		pidPath = filepath.Join(dir, pidFileName)
+	pidPath, err := resolvePidPath(dir, opts.Pidfile)
+	if err != nil {
+		return fail(err)
 	}
 	if err = writePidfile(pidPath); err != nil {
 		return fail(err)

@@ -10,7 +10,7 @@ import type { SocketState } from '../stream/swarmStream'
 
 export type Theme = 'dark' | 'light'
 
-// Discovery and digest cadences: fast enough that launches, exits and inbox
+// Discovery and digest cadences: fast enough that launches, exits and queue
 // rows read live, slow enough to stay invisible on the wire. The digest keeps
 // a slower background cadence for hidden tabs.
 const pollSessionsMs = 2_000
@@ -52,7 +52,7 @@ function writeStored(key: string, value: string) {
 
 // SwarmProvider owns app-wide state: the one multiplexed stream connection
 // and the session state store, the discovery and attention polls feeding
-// badges and the inbox, and the theme persisted in localStorage.
+// badges and the focus queue, and the theme persisted in localStorage.
 export function SwarmProvider({ children }: { children: ReactNode }) {
   // One stream per provider; StrictMode's simulated remount only disconnects
   // it, and a fresh subscribe reconnects on demand.
@@ -118,8 +118,8 @@ export function SwarmProvider({ children }: { children: ReactNode }) {
       attention,
       connection,
       theme,
-      setTheme: (t) => setThemeState(t),
-      refreshSessions: refreshSessions,
+      setTheme: setThemeState,
+      refreshSessions,
     }),
     [stream, store, sessions, attention, connection, theme, refreshSessions],
   )
@@ -128,7 +128,6 @@ export function SwarmProvider({ children }: { children: ReactNode }) {
 }
 
 function preferredTheme(): Theme {
-  if (typeof window === 'undefined' || !window.matchMedia) return 'dark'
   return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'
 }
 

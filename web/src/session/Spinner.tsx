@@ -9,7 +9,7 @@ import type { LiveTurn } from '../state/eventApplier'
 const frames = ['⠦', '⠧', '⠇', '⠏', '⠋', '⠙', '⠹', '⠸', '⠼', '⠴']
 const frameMs = 90
 
-export type SpinState = 'idle' | 'wait' | 'stream' | 'tool'
+type SpinState = 'idle' | 'wait' | 'stream' | 'tool'
 
 // spinnerState maps the session's facts onto the glyph's color state. The
 // reconciled snapshot owns activity: not running or spinning is idle no matter

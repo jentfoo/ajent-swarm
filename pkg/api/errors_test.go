@@ -30,30 +30,31 @@ func TestStatusForControl(t *testing.T) {
 		{"unknown-code", http.StatusInternalServerError},
 	}
 	for _, tc := range cases {
-		status := statusForControl(&ctl.Error{Code: tc.code})
-		assert.Equal(t, tc.want, status, "code %s", tc.code)
+		t.Run(tc.code, func(t *testing.T) {
+			status := statusForControl(&ctl.Error{Code: tc.code})
+			assert.Equal(t, tc.want, status)
+		})
 	}
 }
 
-func TestWriteControlError(t *testing.T) {
-	t.Parallel()
+func TestErrors(t *testing.T) {
+	t.Run("control error write", func(t *testing.T) {
+		t.Run("coded errors keep their code and message", func(t *testing.T) {
+			w := httptest.NewRecorder()
+			handled := writeControlError(w, ctl.Errf(ctl.CodeBusy, "queue is full"))
+			require.True(t, handled)
+			assert.Equal(t, http.StatusConflict, w.Code)
 
-	t.Run("coded errors keep their code and message", func(t *testing.T) {
-		t.Parallel()
-		w := httptest.NewRecorder()
-		handled := writeControlError(w, ctl.Errf(ctl.CodeBusy, "queue is full"))
-		require.True(t, handled)
-		assert.Equal(t, http.StatusConflict, w.Code)
+			var body errorBody
+			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+			assert.Equal(t, ctl.CodeBusy, body.Error)
+			assert.Contains(t, body.Message, "queue is full")
+		})
 
-		var body errorBody
-		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-		assert.Equal(t, ctl.CodeBusy, body.Error)
-		assert.Contains(t, body.Message, "queue is full")
-	})
-
-	t.Run("other errors pass through untouched", func(t *testing.T) {
-		w := httptest.NewRecorder()
-		handled := writeControlError(w, errors.New("transport lost"))
-		assert.False(t, handled)
+		t.Run("other errors pass through untouched", func(t *testing.T) {
+			w := httptest.NewRecorder()
+			handled := writeControlError(w, errors.New("transport lost"))
+			assert.False(t, handled)
+		})
 	})
 }

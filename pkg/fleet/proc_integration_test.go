@@ -63,7 +63,7 @@ func TestFleetLaunchIntegration(t *testing.T) {
 		ChildrenDir:  filepath.Join(home, "children"),
 		ChildStore:   env.cs,
 	})
-	env.m.Start(context.Background())
+	env.m.Start(t.Context())
 	t.Cleanup(env.m.Stop)
 
 	res, err := env.m.Launch(t.Context(), LaunchRequest{Workspace: ws, Mode: LaunchNew})
@@ -157,15 +157,15 @@ func assertSubmitRefused(t *testing.T, sessionID string, pid int) {
 
 	conn, hello, err := client.Dial(socket)
 	require.NoError(t, err)
-	defer conn.Close()
+	t.Cleanup(conn.Close)
 	assert.Equal(t, sessionID, hello.Session.ID)
 
 	events := make(chan ctl.Event, 64)
 	go conn.Serve(func(ev ctl.Event) { events <- ev })
 
 	cctx, cancel := context.WithTimeout(context.Background(), client.CallWait)
-	defer cancel()
 	err = conn.Submit(cctx, ctl.SubmitParams{Line: "hello"})
+	cancel()
 	require.Error(t, err)
 	var ce *ctl.Error
 	require.ErrorAs(t, err, &ce)

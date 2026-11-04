@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/jentfoo/ajent-swarm/pkg/fleet"
 )
@@ -36,7 +37,7 @@ func (s *apiServer) handleSettingsSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	model := strings.TrimSpace(*req.TitleModel)
-	if len([]rune(model)) > 200 {
+	if utf8.RuneCountInString(model) > 200 {
 		writeError(w, http.StatusBadRequest, "invalid_request", "titleModel is too long")
 		return
 	}

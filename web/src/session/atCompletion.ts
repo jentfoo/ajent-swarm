@@ -1,6 +1,6 @@
 // The composer's @-path completion state machine: one pure tokenizer plus the
 // keyboard rules shared by tests and the component.
-export interface AtToken {
+interface AtToken {
   start: number // index of the '@' opening the token
   query: string // text between '@' and the caret, whitespace-free
 }

@@ -1,6 +1,5 @@
 // Package store persists ajent-swarm state in SQLite under the state
-// directory: users, auth sessions and API tokens today; jobs and runs in a
-// later phase.
+// directory: users, auth sessions, API tokens, jobs and run history.
 package store
 
 import (
@@ -30,8 +29,8 @@ type Store struct {
 
 // Open opens or creates the database at path and applies pending migrations.
 func Open(path string) (*Store, error) {
-	// pragmas ride the DSN so every fresh connection inherits them; WAL is a
-	// persistent property, busy_timeout covers any external reader of the file
+	// pragmas ride the DSN so fresh connections inherit them; WAL persists in
+	// the file and busy_timeout covers external readers of it
 	dsn := "file:" + path +
 		"?_pragma=busy_timeout(5000)" +
 		"&_pragma=journal_mode(WAL)" +

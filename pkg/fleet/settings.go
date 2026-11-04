@@ -28,17 +28,13 @@ type SettingsStore interface {
 	SetSetting(ctx context.Context, key, value string) error
 }
 
-// loadSettings seeds the settings cache from the store and remembers it for
-// write-throughs. Failures log once and leave the cache empty: every consumer
-// falls back to its default until a write lands.
-func (m *Manager) loadSettings(ctx context.Context, store SettingsStore) {
-	m.mu.Lock()
-	m.settingStore = store
-	m.mu.Unlock()
-
+// loadSettings seeds the settings cache from the manager's store. Failures
+// log once and leave the cache empty: every consumer falls back to its default
+// until a write lands.
+func (m *Manager) loadSettings(ctx context.Context) {
 	wctx, cancel := context.WithTimeout(ctx, settingWriteWait)
 	defer cancel()
-	model, err := store.Setting(wctx, SettingKeyTitleModel)
+	model, err := m.settingStore.Setting(wctx, SettingKeyTitleModel)
 	if err != nil {
 		m.log.Warn("reading swarm settings failed", "err", err)
 		return

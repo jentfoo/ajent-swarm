@@ -93,7 +93,6 @@ func splitQuery(cwd, query string) (dir, base, relPrefix string) {
 	} else if typed != "" {
 		dir = filepath.Join(cwd, typed)
 	}
-	base = ""
 	if !endsSep {
 		base = strings.ToLower(filepath.Base(strings.TrimSuffix(query, "/")))
 	}

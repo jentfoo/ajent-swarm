@@ -69,7 +69,7 @@ describe('TileWorkspace', () => {
     resetLedger()
     localStorage.setItem(
       'swarm.workspace.v1',
-      JSON.stringify({ mode: 'tile', inbox: {}, tile: { tree, focusedPaneId: 'p1' } }),
+      JSON.stringify({ mode: 'tile', focused: {}, tile: { tree, focusedPaneId: 'p1' } }),
     )
     vi.stubGlobal(
       'WebSocket',
@@ -209,7 +209,7 @@ describe('TileWorkspace', () => {
   it('auto-tiles reachable sessions when no panes are open', async () => {
     localStorage.setItem(
       'swarm.workspace.v1',
-      JSON.stringify({ mode: 'tile', inbox: {}, tile: { tree: null } }),
+      JSON.stringify({ mode: 'tile', focused: {}, tile: { tree: null } }),
     )
     renderTile()
 
@@ -225,7 +225,7 @@ describe('TileWorkspace', () => {
       'swarm.workspace.v1',
       JSON.stringify({
         mode: 'tile',
-        inbox: {},
+        focused: {},
         tile: { tree: { kind: 'pane', id: 'p1', tabs: [LEFT], active: LEFT } },
       }),
     )
@@ -240,7 +240,7 @@ describe('TileWorkspace', () => {
     const THIRD = '01THIRDSESSION000001'
     localStorage.setItem(
       'swarm.workspace.v1',
-      JSON.stringify({ mode: 'tile', inbox: {}, tile: { tree: null } }),
+      JSON.stringify({ mode: 'tile', focused: {}, tile: { tree: null } }),
     )
     vi.stubGlobal(
       'fetch',
@@ -274,7 +274,7 @@ describe('TileWorkspace', () => {
   it('keeps an intentionally emptied workspace empty', async () => {
     localStorage.setItem(
       'swarm.workspace.v1',
-      JSON.stringify({ mode: 'tile', inbox: {}, tile: { tree }, focusedPaneId: 'p1' }),
+      JSON.stringify({ mode: 'tile', focused: {}, tile: { tree }, focusedPaneId: 'p1' }),
     )
     renderTile()
     await screen.findAllByText('right')
@@ -308,7 +308,11 @@ describe('TileWorkspace', () => {
   it('presents an activated tab fresh instead of reusing the last view', async () => {
     localStorage.setItem(
       'swarm.workspace.v1',
-      JSON.stringify({ mode: 'tile', inbox: {}, tile: { tree: stackedTree, focusedPaneId: 'p1' } }),
+      JSON.stringify({
+        mode: 'tile',
+        focused: {},
+        tile: { tree: stackedTree, focusedPaneId: 'p1' },
+      }),
     )
     renderTile()
     await waitFor(() => expect(sockets.length).toBeGreaterThan(0))
@@ -337,7 +341,7 @@ describe('TileWorkspace', () => {
   it('shows the empty state when no sessions are live', async () => {
     localStorage.setItem(
       'swarm.workspace.v1',
-      JSON.stringify({ mode: 'tile', inbox: {}, tile: { tree: null } }),
+      JSON.stringify({ mode: 'tile', focused: {}, tile: { tree: null } }),
     )
     vi.stubGlobal(
       'fetch',

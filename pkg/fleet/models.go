@@ -32,7 +32,7 @@ func (m *Manager) ModelRows(ctx context.Context) []ModelRow {
 	out := make([]ModelRow, 0, len(actors))
 	for _, a := range actors {
 		st := a.status.Load()
-		if st.State == ChildExited || !st.served {
+		if !st.serving() {
 			continue
 		}
 		rctx, cancel := context.WithTimeout(ctx, modelRowWait)
@@ -58,7 +58,7 @@ func (m *Manager) ModelOptions(ctx context.Context) []ctl.ModelState {
 	byKey := make(map[string]ctl.ModelState)
 	for _, a := range actors {
 		st := a.status.Load()
-		if st.State == ChildExited || !st.served {
+		if !st.serving() {
 			continue
 		}
 		rctx, cancel := context.WithTimeout(ctx, modelRowWait)

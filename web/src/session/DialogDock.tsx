@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 
-import { ApiError, post } from '../api/client'
-import type { InteractionPending } from '../api/types'
+import { ApiError } from '../api/client'
+import { sessions } from '../api/endpoints'
+import type { InteractionPending, ResolveAnswer } from '../api/types'
 import type { DialogOutcome } from '../state/eventApplier'
 
 // Resolved chips linger briefly so an answer is visible, then leave on their
@@ -123,16 +124,14 @@ function DialogCard({
 
   // Settled is benign: the first answer won, wherever it came from. Both a
   // settled:true reply and a settled wire code resolve quietly.
-  const resolve = async (body: Record<string, unknown>) => {
+  const resolve = async (body: ResolveAnswer) => {
     if (busy) return
     setBusy(true)
     setError('')
     try {
-      await post(`/api/sessions/${encodeURIComponent(sessionId)}/resolve`, body).catch(
-        (err: unknown) => {
-          if (!(err instanceof ApiError && err.code === 'settled')) throw err
-        },
-      )
+      await sessions.resolve(sessionId, body).catch((err: unknown) => {
+        if (!(err instanceof ApiError && err.code === 'settled')) throw err
+      })
       onAnsweredLocally(dialog.id)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Resolve failed.')

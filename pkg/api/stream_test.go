@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/cookiejar"
@@ -37,7 +36,7 @@ func newFleetAPI(t *testing.T) (*httptest.Server, *http.Client, string) {
 		BackoffBase:  5 * time.Millisecond,
 		BackoffMax:   50 * time.Millisecond,
 	})
-	fleetMgr.Start(context.Background())
+	fleetMgr.Start(t.Context())
 	t.Cleanup(fleetMgr.Stop)
 
 	server := httptest.NewServer(Handler(Config{Auth: svc, Fleet: fleetMgr, Log: testLogger()}))
@@ -136,211 +135,212 @@ func entryOf(id, parent string) session.Entry {
 	}
 	return session.Entry{ID: id, ParentID: parent, Type: session.TypeMessage, Data: data}
 }
-
-func TestStreamRequiresAuth(t *testing.T) {
-	server, _, _ := newFleetAPI(t)
-	// a jarless client: no cookie and no bearer token
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, server.URL+"/api/stream", nil)
-	require.NoError(t, err)
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = resp.Body.Close() })
-	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
-}
-
-func TestStreamChecksOrigin(t *testing.T) {
-	server, client, _ := newFleetAPI(t)
-	cookie := authCookie(t, client, server.URL)
-	ws, resp, err := dialStream(t, server.URL, http.Header{
-		"Cookie": []string{cookie},
-		"Origin": []string{"http://evil.example"},
-	})
-	require.Error(t, err) // the handshake itself refuses
-	assert.Nil(t, ws)
-	if resp != nil {
+func TestStream(t *testing.T) {
+	t.Run("requires auth", func(t *testing.T) {
+		server, _, _ := newFleetAPI(t)
+		// a jarless client: no cookie and no bearer token
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL+"/api/stream", nil)
+		require.NoError(t, err)
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
 		t.Cleanup(func() { _ = resp.Body.Close() })
-		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
-	}
-}
-
-func TestStreamSubscribeInitAndEvents(t *testing.T) {
-	server, client, home := newFleetAPI(t)
-
-	f := fleettest.New(t, home, fleettest.Options{SessionID: "01STREAMTEST00000", Name: "stream"})
-	first := entryOf("01STRENTRYA0000000", "")
-	second := entryOf("01STRENTRYB0000000", first.ID)
-	f.SetSnapshot(ctl.State{
-		Session: ctl.Session{ID: f.SessionID()},
-		Model:   ctl.ModelState{Key: "p/m"},
+		assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 	})
-	f.WriteTranscript(t, first, second) // the head moves to the newest entry
-	f.WriteRegistry(t, os.Getpid(), time.Now())
 
-	// wait for the actor to attach so the subscribe cannot race discovery
-	waitOnline(t, client, server.URL, f.SessionID())
-
-	cookie := authCookie(t, client, server.URL)
-	ws, _, err := dialStream(t, server.URL, http.Header{"Cookie": []string{cookie}})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = ws.Close() })
-
-	sendFrame(t, ws, fleet.ClientFrame{Type: "subscribe", SessionID: f.SessionID()})
-	var msg fleet.InitFrame
-	require.NoError(t, json.Unmarshal(readWSRaw(t, ws), &msg))
-	assert.Equal(t, fleet.FrameInit, msg.Type)
-	assert.Equal(t, f.SessionID(), msg.SessionID)
-	assert.Equal(t, "p/m", msg.State.Model.Key)
-	require.Len(t, msg.Entries, 2) // committed history backfills the init
-
-	// a live event reaches the subscriber verbatim
-	f.Broadcast(ctl.EventIdle, ctl.IdleData{Idle: true})
-	ev := expectWSFrame(t, ws, "event")
-	assert.Equal(t, ctl.EventIdle, ev.Event.Name)
-
-	// sync re-pushes the reconciled state in place
-	sendFrame(t, ws, fleet.ClientFrame{Type: "sync", SessionID: f.SessionID()})
-	expectWSFrame(t, ws, "init")
-
-	// unknown sessions answer with an error frame; the connection stays open
-	sendFrame(t, ws, fleet.ClientFrame{Type: "subscribe", SessionID: "01NOBODY00000000"})
-	errFrame := expectWSFrame(t, ws, "error")
-	assert.Equal(t, "unknown_session", errFrame.Code)
-
-	// unsubscribe stops delivery for that session only. Resubscribing doubles
-	// as the barrier proving the actor served the detach: both ride its mailbox
-	// in order, and events applied in between reach no subscriber.
-	sendFrame(t, ws, fleet.ClientFrame{Type: "unsubscribe", SessionID: f.SessionID()})
-	f.Broadcast(ctl.EventIdle, ctl.IdleData{Idle: false}) // races the detach at worst
-	sendFrame(t, ws, fleet.ClientFrame{Type: "subscribe", SessionID: f.SessionID()})
-	expectWSFrame(t, ws, "init")
-
-	// live events resume on the fresh subscription
-	f.Broadcast(ctl.EventIdle, ctl.IdleData{Idle: true})
-	ev = expectWSFrame(t, ws, "event")
-	assert.Equal(t, ctl.EventIdle, ev.Event.Name)
-}
-
-func TestStreamHeartbeatFlows(t *testing.T) {
-	server, client, _ := newFleetAPI(t)
-
-	hbPingEvery = 30 * time.Millisecond
-	t.Cleanup(func() { hbPingEvery = defaultPingEvery })
-
-	cookie := authCookie(t, client, server.URL)
-	ws, _, err := dialStream(t, server.URL, http.Header{"Cookie": []string{cookie}})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = ws.Close() })
-
-	// no subscription needed: the heartbeat is per connection
-	raw := readWSRaw(t, ws)
-	var f fleetWire
-	require.NoError(t, json.Unmarshal(raw, &f))
-	assert.Equal(t, "heartbeat", f.Type)
-}
-
-func TestStreamMultiViewerIsolation(t *testing.T) {
-	server, client, home := newFleetAPI(t)
-
-	f := fleettest.New(t, home, fleettest.Options{SessionID: "01MULTIVIEW000000"})
-	first := entryOf("01MVENTRYA0000000", "")
-	f.SetSnapshot(ctl.State{
-		Session: ctl.Session{ID: f.SessionID()},
-		Model:   ctl.ModelState{Key: "p/m"},
-	})
-	f.WriteTranscript(t, first)
-	f.WriteRegistry(t, os.Getpid(), time.Now())
-	waitOnline(t, client, server.URL, f.SessionID())
-
-	cookie := authCookie(t, client, server.URL)
-	header := http.Header{"Cookie": []string{cookie}}
-	ws1, _, err := dialStream(t, server.URL, header)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = ws1.Close() })
-	ws2, _, err := dialStream(t, server.URL, header)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = ws2.Close() })
-
-	sendFrame(t, ws1, fleet.ClientFrame{Type: "subscribe", SessionID: f.SessionID()})
-	sendFrame(t, ws2, fleet.ClientFrame{Type: "subscribe", SessionID: f.SessionID()})
-	for _, ws := range []*websocket.Conn{ws1, ws2} {
-		var init fleet.InitFrame
-		require.NoError(t, json.Unmarshal(readWSRaw(t, ws), &init))
-		assert.Equal(t, f.SessionID(), init.SessionID)
-	}
-
-	// One viewer leaves; the other keeps streaming.
-	sendFrame(t, ws1, fleet.ClientFrame{Type: "unsubscribe", SessionID: f.SessionID()})
-	f.Broadcast(ctl.EventIdle, ctl.IdleData{Idle: true})
-	ev := expectWSFrame(t, ws2, "event")
-	assert.Equal(t, ctl.EventIdle, ev.Event.Name)
-
-	// Refused subscribes name their session, so per-session viewers can route
-	// the failure instead of guessing. A racing event may still be queued in
-	// front, so drain until the error frame arrives.
-	sendFrame(t, ws1, fleet.ClientFrame{Type: "subscribe", SessionID: "01NOBODY00000000"})
-	var refused fleet.ErrorFrame
-	for range 50 {
-		var env struct {
-			Type string `json:"type"`
-			fleet.ErrorFrame
+	t.Run("checks origin", func(t *testing.T) {
+		server, client, _ := newFleetAPI(t)
+		cookie := authCookie(t, client, server.URL)
+		ws, resp, err := dialStream(t, server.URL, http.Header{
+			"Cookie": []string{cookie},
+			"Origin": []string{"http://evil.example"},
+		})
+		require.Error(t, err) // the handshake itself refuses
+		assert.Nil(t, ws)
+		if resp != nil {
+			t.Cleanup(func() { _ = resp.Body.Close() })
+			assert.Equal(t, http.StatusForbidden, resp.StatusCode)
 		}
-		require.NoError(t, json.Unmarshal(readWSRaw(t, ws1), &env))
-		if env.Type == "error" {
-			refused = env.ErrorFrame
-			break
+	})
+
+	t.Run("subscribe init and events", func(t *testing.T) {
+		server, client, home := newFleetAPI(t)
+
+		f := fleettest.New(t, home, fleettest.Options{SessionID: "01STREAMTEST00000", Name: "stream"})
+		first := entryOf("01STRENTRYA0000000", "")
+		second := entryOf("01STRENTRYB0000000", first.ID)
+		f.SetSnapshot(ctl.State{
+			Session: ctl.Session{ID: f.SessionID()},
+			Model:   ctl.ModelState{Key: "p/m"},
+		})
+		f.WriteTranscript(t, first, second) // the head moves to the newest entry
+		f.WriteRegistry(t, os.Getpid(), time.Now())
+
+		// wait for the actor to attach so the subscribe cannot race discovery
+		waitOnline(t, client, server.URL, f.SessionID())
+
+		cookie := authCookie(t, client, server.URL)
+		ws, _, err := dialStream(t, server.URL, http.Header{"Cookie": []string{cookie}})
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = ws.Close() })
+
+		sendFrame(t, ws, fleet.ClientFrame{Type: "subscribe", SessionID: f.SessionID()})
+		var msg fleet.InitFrame
+		require.NoError(t, json.Unmarshal(readWSRaw(t, ws), &msg))
+		assert.Equal(t, fleet.FrameInit, msg.Type)
+		assert.Equal(t, f.SessionID(), msg.SessionID)
+		assert.Equal(t, "p/m", msg.State.Model.Key)
+		require.Len(t, msg.Entries, 2) // committed history backfills the init
+
+		// a live event reaches the subscriber verbatim
+		f.Broadcast(ctl.EventIdle, ctl.IdleData{Idle: true})
+		ev := expectWSFrame(t, ws, "event")
+		assert.Equal(t, ctl.EventIdle, ev.Event.Name)
+
+		// sync re-pushes the reconciled state in place
+		sendFrame(t, ws, fleet.ClientFrame{Type: "sync", SessionID: f.SessionID()})
+		expectWSFrame(t, ws, "init")
+
+		// unknown sessions answer with an error frame; the connection stays open
+		sendFrame(t, ws, fleet.ClientFrame{Type: "subscribe", SessionID: "01NOBODY00000000"})
+		errFrame := expectWSFrame(t, ws, "error")
+		assert.Equal(t, "unknown_session", errFrame.Code)
+
+		// unsubscribe stops delivery for that session only. Resubscribing doubles
+		// as the barrier proving the actor served the detach: both ride its mailbox
+		// in order, and events applied in between reach no subscriber.
+		sendFrame(t, ws, fleet.ClientFrame{Type: "unsubscribe", SessionID: f.SessionID()})
+		f.Broadcast(ctl.EventIdle, ctl.IdleData{Idle: false}) // races the detach at worst
+		sendFrame(t, ws, fleet.ClientFrame{Type: "subscribe", SessionID: f.SessionID()})
+		expectWSFrame(t, ws, "init")
+
+		// live events resume on the fresh subscription
+		f.Broadcast(ctl.EventIdle, ctl.IdleData{Idle: true})
+		ev = expectWSFrame(t, ws, "event")
+		assert.Equal(t, ctl.EventIdle, ev.Event.Name)
+	})
+
+	t.Run("heartbeat flows", func(t *testing.T) {
+		server, client, _ := newFleetAPI(t)
+
+		hbPingEvery = 30 * time.Millisecond
+		t.Cleanup(func() { hbPingEvery = defaultPingEvery })
+
+		cookie := authCookie(t, client, server.URL)
+		ws, _, err := dialStream(t, server.URL, http.Header{"Cookie": []string{cookie}})
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = ws.Close() })
+
+		// no subscription needed: the heartbeat is per connection
+		raw := readWSRaw(t, ws)
+		var f fleetWire
+		require.NoError(t, json.Unmarshal(raw, &f))
+		assert.Equal(t, "heartbeat", f.Type)
+	})
+
+	t.Run("multi viewer isolation", func(t *testing.T) {
+		server, client, home := newFleetAPI(t)
+
+		f := fleettest.New(t, home, fleettest.Options{SessionID: "01MULTIVIEW000000"})
+		first := entryOf("01MVENTRYA0000000", "")
+		f.SetSnapshot(ctl.State{
+			Session: ctl.Session{ID: f.SessionID()},
+			Model:   ctl.ModelState{Key: "p/m"},
+		})
+		f.WriteTranscript(t, first)
+		f.WriteRegistry(t, os.Getpid(), time.Now())
+		waitOnline(t, client, server.URL, f.SessionID())
+
+		cookie := authCookie(t, client, server.URL)
+		header := http.Header{"Cookie": []string{cookie}}
+		ws1, _, err := dialStream(t, server.URL, header)
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = ws1.Close() })
+		ws2, _, err := dialStream(t, server.URL, header)
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = ws2.Close() })
+
+		sendFrame(t, ws1, fleet.ClientFrame{Type: "subscribe", SessionID: f.SessionID()})
+		sendFrame(t, ws2, fleet.ClientFrame{Type: "subscribe", SessionID: f.SessionID()})
+		for _, ws := range []*websocket.Conn{ws1, ws2} {
+			var init fleet.InitFrame
+			require.NoError(t, json.Unmarshal(readWSRaw(t, ws), &init))
+			assert.Equal(t, f.SessionID(), init.SessionID)
 		}
-	}
-	assert.Equal(t, "unknown_session", refused.Code)
-	assert.Equal(t, "01NOBODY00000000", refused.SessionID)
-}
 
-func TestSessionEndpointsOverFleet(t *testing.T) {
-	server, client, home := newFleetAPI(t)
+		// One viewer leaves; the other keeps streaming.
+		sendFrame(t, ws1, fleet.ClientFrame{Type: "unsubscribe", SessionID: f.SessionID()})
+		f.Broadcast(ctl.EventIdle, ctl.IdleData{Idle: true})
+		ev := expectWSFrame(t, ws2, "event")
+		assert.Equal(t, ctl.EventIdle, ev.Event.Name)
 
-	f := fleettest.New(t, home, fleettest.Options{SessionID: "01ENDPOINT00000000"})
-	first := entryOf("01EPENTRYA0000000", "")
-	second := entryOf("01EPENTRYB0000000", first.ID)
-	f.SetSnapshot(ctl.State{Session: ctl.Session{ID: f.SessionID()}, Model: ctl.ModelState{Key: "p/m"}})
-	f.WriteTranscript(t, first, second)
-	f.WriteRegistry(t, os.Getpid(), time.Now())
-
-	// the listing shows the session once its actor is online
-	waitOnline(t, client, server.URL, f.SessionID())
-
-	t.Run("entries page and cursor", func(t *testing.T) {
-		code, page := callJSON[struct {
-			Entries []json.RawMessage `json:"entries"`
-			Cursor  string            `json:"cursor"`
-		}](t, client, server.URL, http.MethodGet, "/api/sessions/"+f.SessionID()+"/entries?limit=1", nil)
-		require.Equal(t, http.StatusOK, code)
-		require.Len(t, page.Entries, 1) // the newest entry first
-		assert.Contains(t, string(page.Entries[0]), second.ID)
-		assert.NotEmpty(t, page.Cursor)
-
-		code, older := callJSON[struct {
-			Entries []json.RawMessage `json:"entries"`
-			Cursor  string            `json:"cursor"`
-		}](t, client, server.URL, http.MethodGet,
-			"/api/sessions/"+f.SessionID()+"/entries?before="+page.Cursor, nil)
-		require.Equal(t, http.StatusOK, code)
-		require.Len(t, older.Entries, 1) // the walk continues backwards
-		assert.Empty(t, older.Cursor)
+		// Refused subscribes name their session, so per-session viewers can route
+		// the failure instead of guessing. A racing event may still be queued in
+		// front, so drain until the error frame arrives.
+		sendFrame(t, ws1, fleet.ClientFrame{Type: "subscribe", SessionID: "01NOBODY00000000"})
+		var refused fleet.ErrorFrame
+		for range 50 {
+			var env struct {
+				Type string `json:"type"`
+				fleet.ErrorFrame
+			}
+			require.NoError(t, json.Unmarshal(readWSRaw(t, ws1), &env))
+			if env.Type == "error" {
+				refused = env.ErrorFrame
+				break
+			}
+		}
+		assert.Equal(t, "unknown_session", refused.Code)
+		assert.Equal(t, "01NOBODY00000000", refused.SessionID)
 	})
 
-	t.Run("unknown session is a 404", func(t *testing.T) {
-		code, _ := callJSON[struct{}](t, client, server.URL,
-			http.MethodGet, "/api/sessions/01NOBODY00000000/entries", nil)
-		assert.Equal(t, http.StatusNotFound, code)
+	t.Run("session endpoints over fleet", func(t *testing.T) {
+		server, client, home := newFleetAPI(t)
 
-		code, _ = callJSON[struct{}](t, client, server.URL,
-			http.MethodPost, "/api/sessions/01NOBODY00000000/take-control", nil)
-		assert.Equal(t, http.StatusNotFound, code)
-	})
+		f := fleettest.New(t, home, fleettest.Options{SessionID: "01ENDPOINT00000000"})
+		first := entryOf("01EPENTRYA0000000", "")
+		second := entryOf("01EPENTRYB0000000", first.ID)
+		f.SetSnapshot(ctl.State{Session: ctl.Session{ID: f.SessionID()}, Model: ctl.ModelState{Key: "p/m"}})
+		f.WriteTranscript(t, first, second)
+		f.WriteRegistry(t, os.Getpid(), time.Now())
 
-	t.Run("take control force claims", func(t *testing.T) {
-		code, _ := callJSON[struct{}](t, client, server.URL,
-			http.MethodPost, "/api/sessions/"+f.SessionID()+"/take-control", nil)
-		require.Equal(t, http.StatusNoContent, code)
-		assert.Equal(t, "swarm", f.SeatHolder())
+		// the listing shows the session once its actor is online
+		waitOnline(t, client, server.URL, f.SessionID())
+
+		t.Run("entries page and cursor", func(t *testing.T) {
+			code, page := callJSON[struct {
+				Entries []json.RawMessage `json:"entries"`
+				Cursor  string            `json:"cursor"`
+			}](t, client, server.URL, http.MethodGet, "/api/sessions/"+f.SessionID()+"/entries?limit=1", nil)
+			require.Equal(t, http.StatusOK, code)
+			require.Len(t, page.Entries, 1) // the newest entry first
+			assert.Contains(t, string(page.Entries[0]), second.ID)
+			assert.NotEmpty(t, page.Cursor)
+
+			code, older := callJSON[struct {
+				Entries []json.RawMessage `json:"entries"`
+				Cursor  string            `json:"cursor"`
+			}](t, client, server.URL, http.MethodGet,
+				"/api/sessions/"+f.SessionID()+"/entries?before="+page.Cursor, nil)
+			require.Equal(t, http.StatusOK, code)
+			require.Len(t, older.Entries, 1) // the walk continues backwards
+			assert.Empty(t, older.Cursor)
+		})
+
+		t.Run("unknown session is a 404", func(t *testing.T) {
+			code, _ := callJSON[struct{}](t, client, server.URL,
+				http.MethodGet, "/api/sessions/01NOBODY00000000/entries", nil)
+			assert.Equal(t, http.StatusNotFound, code)
+
+			code, _ = callJSON[struct{}](t, client, server.URL,
+				http.MethodPost, "/api/sessions/01NOBODY00000000/take-control", nil)
+			assert.Equal(t, http.StatusNotFound, code)
+		})
+
+		t.Run("take control force claims", func(t *testing.T) {
+			code, _ := callJSON[struct{}](t, client, server.URL,
+				http.MethodPost, "/api/sessions/"+f.SessionID()+"/take-control", nil)
+			require.Equal(t, http.StatusNoContent, code)
+			assert.Equal(t, "swarm", f.SeatHolder())
+		})
 	})
 }

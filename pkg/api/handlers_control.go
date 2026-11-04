@@ -9,9 +9,8 @@ import (
 	"github.com/jentfoo/ajent/pkg/ctl"
 )
 
-// Control-method endpoints: the phase 13 upstream surface (models, tools,
-// settings) proxied onto live sessions for the mobile chrome, plus swarm-side
-// display titles.
+// Control-method endpoints: upstream control-surface commands (models,
+// tools, settings) proxied onto live sessions, plus swarm-side display titles.
 
 // modelSetRequest is the POST /model body; a missing model is bad-request.
 type modelSetRequest struct {

@@ -33,9 +33,7 @@ func (s *apiServer) handleStop(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case err == nil:
 		w.WriteHeader(http.StatusNoContent)
-	case errors.Is(err, fleet.ErrUnknownSession):
-		writeError(w, http.StatusNotFound, "session_not_found", "")
-	case writeControlError(w, err):
+	case writeCommandFailure(w, err):
 	default:
 		writeError(w, http.StatusInternalServerError, "stop_failed", err.Error())
 	}
@@ -43,7 +41,7 @@ func (s *apiServer) handleStop(w http.ResponseWriter, r *http.Request) {
 
 // handleSavedSessions serves the resume picker listing: every saved session
 // under the ajent home, most recently used first.
-func (s *apiServer) handleSavedSessions(w http.ResponseWriter, r *http.Request) {
+func (s *apiServer) handleSavedSessions(w http.ResponseWriter, _ *http.Request) {
 	rows, err := s.fleet.SavedSessions()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "reading saved sessions failed")

@@ -1,3 +1,4 @@
+import { shortID } from './names'
 import type { DroppedQueueRow, PendingSubmit } from '../state/eventApplier'
 import type { QueueRow } from '../api/types'
 
@@ -84,8 +85,4 @@ function QueueChip({
       )}
     </span>
   )
-}
-
-function shortID(id: string): string {
-  return id.length <= 10 ? id : id.slice(0, 8) + '…'
 }

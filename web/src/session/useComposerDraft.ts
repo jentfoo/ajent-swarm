@@ -6,7 +6,7 @@ import { prependDraft, readDraft, writeDraft } from './draftStore'
 // surface it so an arrival above the draft is noticed (composer-draft-policy).
 export const placedAboveNotice = 'Placed above your existing draft.'
 
-export interface ComposerDraft {
+interface ComposerDraft {
   draft: string
   // setDraft applies one edit and writes through to storage.
   setDraft: (text: string) => void

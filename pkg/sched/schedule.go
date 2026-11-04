@@ -26,10 +26,10 @@ const (
 	maxIdleDelaySec = 30 * 24 * 3600  // a month of waiting, then skip
 )
 
-// Schedule is a job's resolved fire cadence. Kind selects among the store's
+// schedule is a job's resolved fire cadence. Kind selects among the store's
 // schedule kinds; TZ resolves as an IANA zone name, empty for server local.
 // Weekdays restricts recurring slots to chosen days, empty meaning every day.
-type Schedule struct {
+type schedule struct {
 	Kind      string // store.ScheduleOnce, ScheduleInterval or ScheduleDaily
 	Interval  time.Duration
 	DailyTime string // daily jobs: HH:MM wall clock in Loc
@@ -38,26 +38,26 @@ type Schedule struct {
 }
 
 // scheduleOf reads the cadence fields off one job row.
-func scheduleOf(j store.Job) (Schedule, error) {
-	weekdays, err := ParseWeekdays(j.Weekdays)
+func scheduleOf(j store.Job) (schedule, error) {
+	weekdays, err := parseWeekdays(j.Weekdays)
 	if err != nil {
-		return Schedule{}, err
+		return schedule{}, err
 	}
 	switch j.ScheduleKind {
 	case store.ScheduleInterval:
-		return Schedule{Kind: j.ScheduleKind,
+		return schedule{Kind: j.ScheduleKind,
 			Interval: time.Duration(j.IntervalSeconds) * time.Second, Weekdays: weekdays}, nil
 	case store.ScheduleDaily:
 		loc, err := locationOf(j.TZ)
 		if err != nil {
-			return Schedule{}, err
+			return schedule{}, err
 		}
-		return Schedule{Kind: j.ScheduleKind, DailyTime: j.DailyTime, Loc: loc,
+		return schedule{Kind: j.ScheduleKind, DailyTime: j.DailyTime, Loc: loc,
 			Weekdays: weekdays}, nil
 	case store.ScheduleOnce:
-		return Schedule{Kind: j.ScheduleKind}, nil
+		return schedule{Kind: j.ScheduleKind}, nil
 	default:
-		return Schedule{}, fmt.Errorf("unknown schedule kind %q", j.ScheduleKind)
+		return schedule{}, fmt.Errorf("unknown schedule kind %q", j.ScheduleKind)
 	}
 }
 
@@ -78,7 +78,7 @@ func locationOf(name string) (*time.Location, error) {
 // long downtime never storms; daily slots evaluate in the job's own zone per
 // fire (local-wall semantics across DST edges). A weekday restriction skips
 // slots landing on unchosen days.
-func (s Schedule) NextAfter(created time.Time, from time.Time) (time.Time, error) {
+func (s schedule) NextAfter(created time.Time, from time.Time) (time.Time, error) {
 	switch s.Kind {
 	case store.ScheduleInterval:
 		if s.Interval <= 0 {
@@ -142,19 +142,22 @@ func parseDailyTime(s string) (hour, minute int, err error) {
 	return hour, minute, nil
 }
 
-// weekdayNames maps the stored tokens onto Go weekdays; order is display order.
-var weekdayNames = []struct {
+// weekdayName pairs the stored tokens with their Go weekdays.
+type weekdayName struct {
 	token string
 	day   time.Weekday
-}{
+}
+
+// weekdayNames maps the stored tokens onto Go weekdays; order is display order.
+var weekdayNames = []weekdayName{
 	{"sun", time.Sunday}, {"mon", time.Monday}, {"tue", time.Tuesday},
 	{"wed", time.Wednesday}, {"thu", time.Thursday}, {"fri", time.Friday},
 	{"sat", time.Saturday},
 }
 
-// ParseWeekdays reads a job's weekday restriction: a comma list of sun..sat,
+// parseWeekdays reads a job's weekday restriction: a comma list of sun..sat,
 // case insensitive, each at most once. Empty or whitespace means every day.
-func ParseWeekdays(s string) ([]time.Weekday, error) {
+func parseWeekdays(s string) ([]time.Weekday, error) {
 	if strings.TrimSpace(s) == "" {
 		return nil, nil
 	}
@@ -163,17 +166,11 @@ func ParseWeekdays(s string) ([]time.Weekday, error) {
 	seen := make(map[time.Weekday]struct{}, len(parts))
 	for _, raw := range parts {
 		token := strings.ToLower(strings.TrimSpace(raw))
-		var day time.Weekday
-		found := false
-		for _, w := range weekdayNames {
-			if w.token == token {
-				day, found = w.day, true
-				break
-			}
-		}
-		if !found {
+		i := slices.IndexFunc(weekdayNames, func(w weekdayName) bool { return w.token == token })
+		if i < 0 {
 			return nil, fmt.Errorf("unknown weekday %q (use sun..sat)", raw)
 		}
+		day := weekdayNames[i].day
 		if _, dup := seen[day]; dup {
 			return nil, fmt.Errorf("weekday %q listed twice", token)
 		}
@@ -346,7 +343,7 @@ func ValidateJob(j *store.Job) error {
 
 	// Weekdays only restrict recurring kinds; a once job keeps its slot as-is.
 	if j.ScheduleKind != store.ScheduleOnce {
-		weekdays, err := ParseWeekdays(j.Weekdays)
+		weekdays, err := parseWeekdays(j.Weekdays)
 		if err != nil {
 			return err
 		}

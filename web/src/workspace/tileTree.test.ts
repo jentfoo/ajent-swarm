@@ -9,7 +9,6 @@ import {
   paneIds,
   parseTree,
   removePane,
-  serializeTree,
   setRatio,
   splitPane,
   tileFor,
@@ -169,7 +168,7 @@ describe('tile tree operations', () => {
 
   it('round-trips through JSON and rejects corrupt trees', () => {
     const tree = twoByTwo()
-    expect(parseTree(JSON.parse(JSON.stringify(serializeTree(tree))))).toEqual(tree)
+    expect(parseTree(JSON.parse(JSON.stringify(tree)))).toEqual(tree)
     expect(parseTree(null)).toBeNull()
 
     const bad: unknown[] = [

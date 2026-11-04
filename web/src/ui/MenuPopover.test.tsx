@@ -83,36 +83,8 @@ describe('MenuPopover', () => {
     expect(menu.closest('.clip')).toBeNull()
   })
 
-  it('hangs below the trigger by default', () => {
-    render(<Harness />)
-    const menu = screen.getByRole('menu')
-    expect(menu.style.left).toBe('300px')
-    expect(menu.style.top).toBe(`${baseAnchor.bottom + 4}px`) // bottom plus the anchor gap
-  })
-
-  it('flips above a bottom edge overflow', () => {
-    anchorBox = { ...baseAnchor, top: 700, bottom: 724 }
-    render(<Harness />)
-    const menu = screen.getByRole('menu')
-    // below offers 40px against the menu's 64; above offers 696
-    expect(menu.style.top).toBe(`${anchorBox.top - 4 - menuSize.height}px`)
-    expect(menu.style.left).toBe('300px')
-  })
-
-  it('clamps a left-edge trigger into view', () => {
-    anchorBox = { ...baseAnchor, left: -40, right: 20 }
-    render(<Harness />)
-    const menu = screen.getByRole('menu')
-    expect(menu.style.left).toBe('8px') // the edge margin
-    expect(menu.style.top).toBe(`${baseAnchor.bottom + 4}px`) // still below
-  })
-
-  it('right-aligns when asked', () => {
-    render(<Harness align="right" />)
-    const menu = screen.getByRole('menu')
-    // hangs left from the trigger's right edge: 360 - 200
-    expect(menu.style.left).toBe(`${baseAnchor.right - menuSize.width}px`)
-  })
+  // placement math lives in placeMenu's own describe below; the component
+  // cases here cover wiring only
 
   it('stays open for presses inside the menu', async () => {
     const user = userEvent.setup()

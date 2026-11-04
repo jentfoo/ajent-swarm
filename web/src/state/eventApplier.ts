@@ -32,7 +32,7 @@ export interface DiffView {
   afterId: string
 }
 
-export interface ToolProgressView {
+interface ToolProgressView {
   name?: string
   path?: string
   bytes?: number
@@ -74,12 +74,12 @@ export interface NoticeView {
   at: number // wall clock of arrival; rendering expires stale lines
 }
 
-export interface PrintCard {
+interface PrintCard {
   id: number
   markdown: string
 }
 
-export type PendingState = 'pending' | 'queued' | 'committed' | 'failed' | 'dropped'
+type PendingState = 'pending' | 'queued' | 'committed' | 'failed' | 'dropped'
 
 // PendingSubmit is one optimistic prompt row, resolved by queue events or the
 // committed entry's queueIds, never by text.
@@ -109,7 +109,7 @@ export interface DialogOutcome {
 
 // ChainInfo describes the visible transcript branch: ids oldest first,
 // whether the parent walk reached a transcript root, and the id to page from.
-export interface ChainInfo {
+interface ChainInfo {
   ids: string[]
   rooted: boolean // false means older history exists beyond what we hold
   oldestId: string // '' when empty; paging uses it as its before cursor
@@ -206,7 +206,7 @@ function zeroUsage() {
 
 // --- payload decoders; malformed payloads drop rather than corrupting state ---
 
-export interface MessageEntryData {
+interface MessageEntryData {
   message?: { role?: string; content?: unknown }
   stop?: string
   injected?: boolean
@@ -560,7 +560,7 @@ function applyEvent(state: AppliedSessionState, ev: WireEvent): AppliedSessionSt
       if (!own && (d.answered || d.cancelled)) {
         // Real outcome, never an error: another surface won the answer race.
         next.resolvedElsewhere = boundedAppend(
-          state.resolvedElsewhere,
+          next.resolvedElsewhere,
           {
             id: d.id,
             answered: d.answered ?? false,

@@ -204,9 +204,7 @@ describe('JobEditor', () => {
     await user.click(screen.getByRole('checkbox', { name: /Mon/ }))
     await user.click(screen.getByRole('checkbox', { name: /Fri/ }))
     // run when idle with a one-hour cap
-    await user.click(
-      screen.getByRole('checkbox', { name: /Only start when no session has worked/ }),
-    )
+    await user.click(screen.getByRole('checkbox', { name: 'Run when idle' }))
     await user.selectOptions(screen.getByLabelText(/If still busy, skip after waiting/), '3600')
 
     await user.click(screen.getByRole('button', { name: 'Create job' }))
@@ -293,7 +291,7 @@ describe('JobEditor', () => {
     expect(previewBodies[0]).toMatchObject({ name: 'Copy of nightly', dailyTime: '08:30' })
   })
 
-  it('fills the timezone datalist without rebuilding it per keystroke', () => {
+  it('prefills the timezone datalist from the stored job', () => {
     renderEditor({ job: storedJob })
 
     const options = document.querySelectorAll('#job-timezones option')

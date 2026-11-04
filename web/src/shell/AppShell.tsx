@@ -30,7 +30,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const location = useLocation()
   const navigate = useNavigate()
 
-  const switchMode = (mode: 'inbox' | 'tile') => {
+  const switchMode = (mode: 'focused' | 'tile') => {
     setMode(mode)
     if (mode === 'tile') {
       // tiling is a verb: every reachable session lands in its own pane
@@ -38,7 +38,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
       navigate(live.length > 0 ? `/tile?open=${live.join(',')}` : '/tile')
       return
     }
-    navigate('/inbox')
+    navigate('/focused')
   }
 
   const attention = () => {
@@ -49,7 +49,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
         className="attend-badge"
         title={`${needsInputCount} session(s) need input`}
         aria-label={`${needsInputCount} sessions need input`}
-        onClick={() => navigate('/inbox')}
+        onClick={() => navigate('/focused')}
       >
         {needsInputCount}
       </button>
@@ -95,11 +95,11 @@ export default function AppShell({ children }: { children: ReactNode }) {
           <div className="ws-switcher" role="group" aria-label="Workspace mode">
             <button
               type="button"
-              className={profile.mode === 'inbox' ? 'active' : ''}
-              aria-pressed={profile.mode === 'inbox'}
-              onClick={() => switchMode('inbox')}
+              className={profile.mode === 'focused' ? 'active' : ''}
+              aria-pressed={profile.mode === 'focused'}
+              onClick={() => switchMode('focused')}
             >
-              Inbox
+              Focused
             </button>
             <button
               type="button"
@@ -140,7 +140,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
       <main
         className={
           location.pathname === '/' ||
-          location.pathname === '/inbox' ||
+          location.pathname === '/focused' ||
           location.pathname === '/tile'
             ? 'content workspace-content'
             : 'content'

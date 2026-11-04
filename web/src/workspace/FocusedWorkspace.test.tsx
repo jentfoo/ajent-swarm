@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import InboxWorkspace from './InboxWorkspace'
+import FocusedWorkspace from './FocusedWorkspace'
 import { AuthProvider } from '../providers/auth'
 import { SwarmProvider } from '../providers/swarm'
 import { WorkspaceProvider } from '../providers/workspace'
@@ -93,7 +93,7 @@ function snapshotFor(sessionId: string) {
   }
 }
 
-describe('InboxWorkspace', () => {
+describe('FocusedWorkspace', () => {
   let sockets: MockWebSocket[]
   let routes: Map<string, () => Response>
   let attention: AttentionRow[]
@@ -137,14 +137,14 @@ describe('InboxWorkspace', () => {
     vi.unstubAllGlobals()
   })
 
-  function renderInbox(initialEntry = '/inbox') {
+  function renderFocused(initialEntry = '/focused') {
     return render(
       <MemoryRouter initialEntries={[initialEntry]}>
         <AuthProvider>
           <SwarmProvider>
             <WorkspaceProvider>
               <Routes>
-                <Route path="/inbox" element={<InboxWorkspace />} />
+                <Route path="/focused" element={<FocusedWorkspace />} />
                 <Route path="/tile" element={<div>tile</div>} />
               </Routes>
             </WorkspaceProvider>
@@ -155,7 +155,7 @@ describe('InboxWorkspace', () => {
   }
 
   function rail() {
-    return screen.getByLabelText('Inbox queue')
+    return screen.getByLabelText('Focus queue')
   }
 
   // Rows are role=button divs, not native buttons, so queries go through the
@@ -173,7 +173,7 @@ describe('InboxWorkspace', () => {
 
   it('renders mixed sections: dialogs by oldest wait, reviews, then working', async () => {
     attention = [...attentionRows(), waitingRow()]
-    renderInbox()
+    renderFocused()
     await openSocket()
 
     const rows = railRows().map((row) => row.textContent ?? '')
@@ -195,7 +195,7 @@ describe('InboxWorkspace', () => {
 
   it('shows empty states when nothing lives', async () => {
     attention = []
-    renderInbox()
+    renderFocused()
 
     expect(await screen.findByText('Nothing waits on you.')).toBeInTheDocument()
     expect(screen.getByText('No busy sessions.')).toBeInTheDocument()
@@ -203,7 +203,7 @@ describe('InboxWorkspace', () => {
   })
 
   it('opens the selected row in the main pane and swaps on click', async () => {
-    renderInbox()
+    renderFocused()
     await openSocket()
 
     const user = userEvent.setup()
@@ -223,7 +223,7 @@ describe('InboxWorkspace', () => {
   })
 
   it('clears a needs-input row from the keyboard', async () => {
-    renderInbox()
+    renderFocused()
     await openSocket()
 
     // no inline check-off renders; acknowledgment happens via the 'r' shortcut
@@ -240,7 +240,7 @@ describe('InboxWorkspace', () => {
   })
 
   it('drives the queue with the keyboard: j, k, Enter and r', async () => {
-    renderInbox()
+    renderFocused()
     await openSocket()
 
     const user = userEvent.setup()
@@ -257,7 +257,7 @@ describe('InboxWorkspace', () => {
   })
 
   it('mutes workspace keys while the shortcuts overlay is open', async () => {
-    renderInbox()
+    renderFocused()
     await openSocket()
 
     const user = userEvent.setup()
@@ -278,7 +278,7 @@ describe('InboxWorkspace', () => {
   })
 
   it('deep-links ?session= into a selection', async () => {
-    renderInbox(`/inbox?session=${WORKER}`)
+    renderFocused(`/focused?session=${WORKER}`)
     await openSocket()
     await waitFor(() => {
       const opens = sockets[0].sent.map((raw) => JSON.parse(raw))
@@ -289,7 +289,7 @@ describe('InboxWorkspace', () => {
   })
 
   it('presents a switched row fresh instead of reusing the last view', async () => {
-    renderInbox()
+    renderFocused()
     await openSocket()
 
     const user = userEvent.setup()

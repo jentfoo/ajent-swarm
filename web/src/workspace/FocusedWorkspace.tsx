@@ -6,31 +6,32 @@ import { useAuth } from '../providers/auth'
 import { useWorkspace } from '../providers/workspace'
 import SessionView from '../screens/SessionView'
 import { RenameControl } from '../session/RenameControl'
-import { displayName, tildePath } from '../session/names'
+import { displayName, shortID, tildePath } from '../session/names'
 import { useWorkspaceKeys } from './keys'
 import { ShortcutOverlay } from './ShortcutOverlay'
 import type { AttentionItem } from './attention'
 
-// InboxWorkspace answers "what needs me right now": a ranked rail of
+// FocusedWorkspace answers "what needs me right now": a ranked rail of
 // attention (open dialogs by oldest wait, then unreviewed completions newest
 // first, agents waiting for a prompt after those) beside exactly one
 // SessionView. The selected session persists in the layout profile; recently
 // viewed sessions stay warm in the store, so swapping rows is instant.
-export default function InboxWorkspace() {
+export default function FocusedWorkspace() {
   const { sessions } = useSwarm()
   const auth = useAuth()
-  const { needs, awaiting, working, acknowledgeItem, profile, selectInboxSession } = useWorkspace()
+  const { needs, awaiting, working, acknowledgeItem, profile, selectFocusedSession } =
+    useWorkspace()
 
   const [searchParams, setSearchParams] = useSearchParams()
-  const selected = profile.inbox.selectedSessionId
+  const selected = profile.focused.selectedSessionId
 
   // Deep links select their session once, then leave the URL clean.
   useEffect(() => {
     const linked = searchParams.get('session')
     if (linked === null) return
-    selectInboxSession(linked)
+    selectFocusedSession(linked)
     setSearchParams({}, { replace: true })
-  }, [searchParams, selectInboxSession, setSearchParams])
+  }, [searchParams, selectFocusedSession, setSearchParams])
 
   const rows = useMemo(() => [...needs, ...awaiting, ...working], [needs, awaiting, working])
   const [cursorId, setCursorId] = useState<string | null>(selected ?? rows[0]?.sessionId ?? null)
@@ -56,10 +57,10 @@ export default function InboxWorkspace() {
 
   const open = useCallback(
     (sessionId: string) => {
-      selectInboxSession(sessionId)
+      selectFocusedSession(sessionId)
       setCursorId(sessionId)
     },
-    [selectInboxSession],
+    [selectFocusedSession],
   )
 
   useWorkspaceKeys({
@@ -135,8 +136,8 @@ export default function InboxWorkspace() {
   }
 
   return (
-    <div className="workspace inbox-workspace">
-      <div className="inbox-rail" ref={railRef} aria-label="Inbox queue">
+    <div className="workspace focused-workspace">
+      <div className="focus-rail" ref={railRef} aria-label="Focus queue">
         <div className="rail-section">
           <div className="rail-section-title">
             Needs input{' '}
@@ -169,7 +170,7 @@ export default function InboxWorkspace() {
         )}
       </div>
 
-      {showShortcuts && <ShortcutOverlay mode="inbox" onClose={() => setShowShortcuts(false)} />}
+      {showShortcuts && <ShortcutOverlay mode="focused" onClose={() => setShowShortcuts(false)} />}
     </div>
   )
 }
@@ -191,8 +192,4 @@ function waited(since: number, now: number): string {
   const m = Math.floor(s / 60)
   if (m < 60) return `${m}m`
   return `${Math.floor(m / 60)}h`
-}
-
-function shortID(id: string): string {
-  return id.length <= 12 ? id : id.slice(0, 8) + '…'
 }

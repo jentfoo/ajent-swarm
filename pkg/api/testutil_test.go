@@ -38,7 +38,7 @@ func newTestFleet(t *testing.T) *fleet.Manager {
 		BackoffMax:   50 * time.Millisecond,
 		Discover:     func() ([]ctl.Instance, error) { return nil, nil },
 	})
-	mgr.Start(context.Background())
+	mgr.Start(t.Context())
 	t.Cleanup(mgr.Stop)
 	return mgr
 }

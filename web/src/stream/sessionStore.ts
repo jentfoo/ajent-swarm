@@ -4,7 +4,7 @@
 //
 // Views acquire and release sessions; a small LRU of recently viewed sessions
 // stays subscribed and warm after their last view unmounts, so switching in
-// the inbox or re-tiling is instant and a resnapshot only happens on real
+// the focus queue or re-tiling is instant and a resnapshot only happens on real
 // reconnects. Multiple views of one session share one store entry, one
 // subscription and one AppliedSessionState.
 import { applierReducer, initialSessionState } from '../state/eventApplier'
@@ -179,7 +179,7 @@ export class SessionStore {
   // response predates what the client now holds.
   private async resnapshot(sessionId: string): Promise<void> {
     if (this.disposed) return
-    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+    if (document.visibilityState === 'hidden') return
     const phase = this.stream.sessionPhase(sessionId)
     if (phase === 'ended') return
     const entry = this.entries.get(sessionId)

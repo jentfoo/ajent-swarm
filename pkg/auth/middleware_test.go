@@ -39,77 +39,77 @@ func newGate(t *testing.T) (*Service, http.Handler) {
 func TestMiddleware(t *testing.T) {
 	t.Parallel()
 
-	_, handler := newGate(t)
-
 	t.Run("pending gate marks every route", func(t *testing.T) {
-		for _, path := range []string{"/api/secret", "/api/me"} {
-			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil)
+		_, handler := newGate(t)
+
+		t.Run("bootstrap required everywhere", func(t *testing.T) {
+			for _, path := range []string{"/api/secret", "/api/me"} {
+				req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil)
+				rec := httptest.NewRecorder()
+				handler.ServeHTTP(rec, req)
+
+				assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
+				var body map[string]string
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+				assert.Equal(t, "bootstrap_required", body["error"])
+			}
+		})
+
+		t.Run("bootstrap endpoint passes while pending", func(t *testing.T) {
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, BootstrapPath, nil)
 			rec := httptest.NewRecorder()
 			handler.ServeHTTP(rec, req)
 
-			assert.Equal(t, http.StatusServiceUnavailable, rec.Code, "path %s", path)
-			var body map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
-			assert.Equal(t, "bootstrap_required", body["error"])
-		}
+			assert.Equal(t, http.StatusNoContent, rec.Code)
+		})
 	})
 
-	t.Run("bootstrap endpoint passes while pending", func(t *testing.T) {
-		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, BootstrapPath, nil)
-		rec := httptest.NewRecorder()
-		handler.ServeHTTP(rec, req)
+	t.Run("after bootstrap", func(t *testing.T) {
+		svc, handler := newGate(t)
+		ctx := t.Context()
+		require.NoError(t, svc.SetPassword(ctx, "hunter2"))
 
-		assert.Equal(t, http.StatusNoContent, rec.Code)
-	})
-}
+		t.Run("anonymous request refused", func(t *testing.T) {
+			req := httptest.NewRequestWithContext(ctx, http.MethodGet, "/api/secret", nil)
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
 
-func TestMiddlewareAfterBootstrap(t *testing.T) {
-	t.Parallel()
+			assert.Equal(t, http.StatusUnauthorized, rec.Code)
+		})
 
-	svc, handler := newGate(t)
-	ctx := t.Context()
-	require.NoError(t, svc.SetPassword(ctx, "hunter2"))
+		t.Run("exempt status route passes anonymously", func(t *testing.T) {
+			req := httptest.NewRequestWithContext(ctx, http.MethodGet, "/api/me", nil)
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
 
-	t.Run("anonymous request refused", func(t *testing.T) {
-		req := httptest.NewRequestWithContext(ctx, http.MethodGet, "/api/secret", nil)
-		rec := httptest.NewRecorder()
-		handler.ServeHTTP(rec, req)
+			assert.Equal(t, http.StatusUnauthorized, rec.Code)
+		})
 
-		assert.Equal(t, http.StatusUnauthorized, rec.Code)
-	})
+		t.Run("session cookie authenticates", func(t *testing.T) {
+			token, err := svc.Login(ctx, "jent", "hunter2")
+			require.NoError(t, err)
 
-	t.Run("exempt status route passes anonymously", func(t *testing.T) {
-		req := httptest.NewRequestWithContext(ctx, http.MethodGet, "/api/me", nil)
-		rec := httptest.NewRecorder()
-		handler.ServeHTTP(rec, req)
+			req := httptest.NewRequestWithContext(ctx, http.MethodGet, "/api/secret", nil)
+			req.AddCookie(&http.Cookie{Name: SessionCookieName, Value: token})
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
 
-		assert.Equal(t, http.StatusUnauthorized, rec.Code, "me answers for itself")
-	})
+			assert.Equal(t, http.StatusNoContent, rec.Code)
+		})
 
-	t.Run("session cookie authenticates", func(t *testing.T) {
-		token, err := svc.Login(ctx, "jent", "hunter2")
-		require.NoError(t, err)
+		t.Run("stale cookie with fresh bearer authenticates", func(t *testing.T) {
+			badCookie := &http.Cookie{Name: SessionCookieName, Value: "expired"}
+			req := httptest.NewRequestWithContext(ctx, http.MethodGet, "/api/secret", nil)
+			req.AddCookie(badCookie)
 
-		req := httptest.NewRequestWithContext(ctx, http.MethodGet, "/api/secret", nil)
-		req.AddCookie(&http.Cookie{Name: SessionCookieName, Value: token})
-		rec := httptest.NewRecorder()
-		handler.ServeHTTP(rec, req)
+			token, err := svc.CreateToken(ctx, "ci")
+			require.NoError(t, err)
+			req.Header.Set("Authorization", "Bearer "+token)
 
-		assert.Equal(t, http.StatusNoContent, rec.Code)
-	})
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
 
-	t.Run("stale cookie with fresh bearer authenticates", func(t *testing.T) {
-		badCookie := &http.Cookie{Name: SessionCookieName, Value: "expired"}
-		req := httptest.NewRequestWithContext(ctx, http.MethodGet, "/api/secret", nil)
-		req.AddCookie(badCookie)
-
-		token, err := svc.CreateToken(ctx, "ci")
-		require.NoError(t, err)
-		req.Header.Set("Authorization", "Bearer "+token)
-
-		rec := httptest.NewRecorder()
-		handler.ServeHTTP(rec, req)
-
-		assert.Equal(t, http.StatusNoContent, rec.Code)
+			assert.Equal(t, http.StatusNoContent, rec.Code)
+		})
 	})
 }

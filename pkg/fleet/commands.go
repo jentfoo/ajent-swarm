@@ -65,7 +65,7 @@ type StampedState struct {
 	Seq uint64 `json:"seq"`
 }
 
-// Snapshot command messages for the phase-13 control methods.
+// Snapshot command messages for the upstream control methods.
 type msgSnapshotModels struct{ reply chan cmdModels }
 
 type msgSnapshotModelSet struct {
@@ -255,7 +255,7 @@ func (a *sessionActor) handleSnapshot(msg msgSnapshot) {
 	msg.reply <- snapshotReply{state: StampedState{State: a.view.snapshot(), Seq: a.view.seq}}
 }
 
-// --- control-method commands (phase 13 upstream surface) ---
+// --- upstream control-method commands ---
 
 // handleModels lists the session's model registry; answers any seat.
 func (a *sessionActor) handleModels(msg msgSnapshotModels) {

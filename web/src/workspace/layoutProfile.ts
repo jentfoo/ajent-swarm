@@ -6,9 +6,9 @@ import { useCallback, useState } from 'react'
 import { parseTree } from './tileTree'
 import type { TileNode } from './tileTree'
 
-export type WorkspaceMode = 'inbox' | 'tile'
+export type WorkspaceMode = 'focused' | 'tile'
 
-export interface InboxLayout {
+interface FocusedLayout {
   selectedSessionId?: string
 }
 
@@ -19,15 +19,15 @@ export interface TileLayout {
 
 export interface LayoutProfile {
   mode: WorkspaceMode
-  inbox: InboxLayout
+  focused: FocusedLayout
   tile: TileLayout
 }
 
 const storageKey = 'swarm.workspace.v1'
 
 const defaultProfile: LayoutProfile = {
-  mode: 'inbox',
-  inbox: {},
+  mode: 'focused',
+  focused: {},
   tile: { tree: null },
 }
 
@@ -36,13 +36,13 @@ export function loadProfile(): LayoutProfile {
     const raw = localStorage.getItem(storageKey)
     if (raw === null) return { ...defaultProfile }
     const parsed = JSON.parse(raw) as Partial<LayoutProfile>
-    const mode: WorkspaceMode = parsed.mode === 'tile' ? 'tile' : 'inbox'
+    const mode: WorkspaceMode = parsed.mode === 'tile' ? 'tile' : 'focused'
     return {
       mode,
-      inbox: {
+      focused: {
         selectedSessionId:
-          typeof parsed.inbox?.selectedSessionId === 'string'
-            ? parsed.inbox.selectedSessionId
+          typeof parsed.focused?.selectedSessionId === 'string'
+            ? parsed.focused.selectedSessionId
             : undefined,
       },
       tile: {
@@ -56,7 +56,7 @@ export function loadProfile(): LayoutProfile {
   }
 }
 
-export function saveProfile(profile: LayoutProfile): void {
+function saveProfile(profile: LayoutProfile): void {
   try {
     localStorage.setItem(storageKey, JSON.stringify(profile))
   } catch {
@@ -69,7 +69,7 @@ export function saveProfile(profile: LayoutProfile): void {
 export function useLayoutProfile(): {
   profile: LayoutProfile
   setMode: (mode: WorkspaceMode) => void
-  selectInboxSession: (sessionId: string | undefined) => void
+  selectFocusedSession: (sessionId: string | undefined) => void
   setTileLayout: (tile: TileLayout) => void
 } {
   const [profile, setProfile] = useState<LayoutProfile>(loadProfile)
@@ -86,9 +86,9 @@ export function useLayoutProfile(): {
     (mode: WorkspaceMode) => update((prev) => ({ ...prev, mode })),
     [update],
   )
-  const selectInboxSession = useCallback(
+  const selectFocusedSession = useCallback(
     (sessionId: string | undefined) =>
-      update((prev) => ({ ...prev, inbox: { ...prev.inbox, selectedSessionId: sessionId } })),
+      update((prev) => ({ ...prev, focused: { ...prev.focused, selectedSessionId: sessionId } })),
     [update],
   )
   const setTileLayout = useCallback(
@@ -96,5 +96,5 @@ export function useLayoutProfile(): {
     [update],
   )
 
-  return { profile, setMode, selectInboxSession, setTileLayout }
+  return { profile, setMode, selectFocusedSession, setTileLayout }
 }

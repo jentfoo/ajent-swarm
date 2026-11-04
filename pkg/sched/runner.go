@@ -19,14 +19,20 @@ import (
 // starting and a resumed one whose old dialog is about to clear; a refusal
 // after it records the failure instead of hanging.
 const (
-	framesQueue    = 256
+	framesQueue = 256
+	maxRunError = 8 << 10 // launch failures carry log tails; keep rows bounded
+
+	triggerCommandTimeout = 5 * time.Minute  // a hung gate cannot wedge the loop
+	triggerOutputMax      = 4 << 10          // gate output prepended to the prompt
+	stopCallWait          = 30 * time.Second // teardown bound: Stop never hangs on a wedged runner
+)
+
+// Retry cadences are vars so tests can shrink them below their production
+// values while keeping the retry structure intact.
+var (
 	submitWait     = 15 * time.Second
 	submitEvery    = 500 * time.Millisecond
 	resubscribeGap = 250 * time.Millisecond
-	maxRunError    = 8 << 10 // launch failures carry log tails; keep rows bounded
-
-	triggerCommandTimeout = 5 * time.Minute // a hung gate cannot wedge the loop
-	triggerOutputMax      = 4 << 10         // gate output prepended to the prompt
 )
 
 // idleWindow is how long the fleet must have seen no agent activity before a
@@ -268,13 +274,15 @@ func (w *watchState) apply(raw []byte, persist func(status string)) outcome {
 		var f fleet.InitFrame
 		if err := json.Unmarshal(raw, &f); err == nil {
 			w.dialogs = len(f.State.Interactions)
-			if w.landed && f.State.Idle {
-				w.idle = true
-			}
-			for _, e := range f.Entries {
-				if landsEntry(e, w.pid) {
+			for _, e := range f.Entries { // fold first: a late subscriber's landing
+				if landsEntry(e, w.pid) { // lives only in the entry tail
 					w.landed = true
 				}
+			}
+			// evaluated after folding so an init carrying both the committed
+			// landing and a rest state still concludes the run
+			if w.landed && f.State.Idle {
+				w.idle = true
 			}
 		}
 
@@ -445,7 +453,9 @@ func (s *Scheduler) finish(run store.Run, j store.Job, status string, note strin
 	if !s.stopAfter(run) {
 		return
 	}
-	if err := s.runner.StopSession(s.ctx, run.SessionID); err != nil {
+	stopCtx, cancel := context.WithTimeout(s.ctx, stopCallWait)
+	defer cancel()
+	if err := s.runner.StopSession(stopCtx, run.SessionID); err != nil {
 		s.log.Warn("run session could not be stopped", "session",
 			run.SessionID, "err", err)
 	}
@@ -502,7 +512,11 @@ func gatePassed(policy string, code int, err error) (bool, string) {
 		return true, ""
 	default: // success, including stored rows from before the field existed
 		if !succeeded {
-			detail := orNone(strings.TrimSpace(clipRunes(errText(err), maxGateNote)))
+			var msg string // empty when the command failed without an error
+			if err != nil {
+				msg = err.Error()
+			}
+			detail := orNone(strings.TrimSpace(clipRunes(msg, maxGateNote)))
 			return false, fmt.Sprintf("skipped: trigger command exited %d (%s)", code, detail)
 		}
 		return true, ""
@@ -526,14 +540,6 @@ func prependGateOutput(command string, code int, out, prompt string) string {
 
 // maxGateNote bounds the exit detail inside a skip reason.
 const maxGateNote = 200
-
-// errText renders an error's message, empty when there is none.
-func errText(err error) string {
-	if err == nil {
-		return ""
-	}
-	return err.Error()
-}
 
 // clipRunes bounds s to at most n runes.
 func clipRunes(s string, n int) string {

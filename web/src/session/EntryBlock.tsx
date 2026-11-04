@@ -2,8 +2,7 @@ import * as React from 'react'
 
 import { MarkdownBlock } from './MarkdownBlock'
 import { ToolCallCard } from './ToolCallCard'
-import type { ToolCardView } from './ToolCallCard'
-import type { DerivedBlock, ImageView, ToolResultView } from '../state/derive'
+import type { DerivedBlock, ImageView } from '../state/derive'
 
 // EntryBlocks renders one committed entry's derived block. Memoized on the
 // block object itself: derivation rebuilds only when the chain changes, so a
@@ -48,7 +47,7 @@ function EntryBlockImpl({ block }: { block: DerivedBlock }) {
             part.kind === 'text' ? (
               <MarkdownBlock key={`text-${i}`} text={part.text} />
             ) : (
-              <ToolCallCard key={part.call.id} call={committedView(part.call)} />
+              <ToolCallCard key={part.call.id} call={part.call} />
             ),
           )}
         </div>
@@ -91,15 +90,6 @@ function EntryBlockImpl({ block }: { block: DerivedBlock }) {
         </div>
       )
   }
-}
-
-function committedView(call: {
-  id: string
-  name: string
-  input?: unknown
-  result?: ToolResultView
-}): ToolCardView {
-  return { id: call.id, name: call.name, input: call.input, result: call.result }
 }
 
 // ImageRow renders prompt attachments; deferred bodies (init tails) show a

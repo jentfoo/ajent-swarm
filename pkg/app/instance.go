@@ -40,9 +40,9 @@ func acquireInstanceLock(dir string) (*instanceLock, error) {
 	return &instanceLock{f: f}, nil
 }
 
-// Close releases the lock.
+// Close releases the lock; closing twice is a no-op.
 func (l *instanceLock) Close() error {
-	if l == nil || l.f == nil {
+	if l.f == nil { // already released
 		return nil
 	}
 	err := l.f.Close()

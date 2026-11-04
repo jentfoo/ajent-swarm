@@ -8,73 +8,55 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSetSessionTitle(t *testing.T) {
+func TestSessionTitles(t *testing.T) {
 	t.Parallel()
-	st := openTestStore(t)
 
-	require.NoError(t, st.SetSessionTitle(t.Context(), "01A", "fix login flow"))
+	t.Run("set and get", func(t *testing.T) {
+		st := newTestStore(t)
 
-	titles, err := st.SessionTitles(t.Context())
-	require.NoError(t, err)
-	assert.Equal(t, map[string]string{"01A": "fix login flow"}, titles)
-}
+		require.NoError(t, st.SetSessionTitle(t.Context(), "01A", "fix login flow"))
 
-func TestSetSessionTitleUpsertAndClear(t *testing.T) {
-	t.Parallel()
-	st := openTestStore(t)
-	ctx := t.Context()
+		titles, err := st.SessionTitles(t.Context())
+		require.NoError(t, err)
+		assert.Equal(t, map[string]string{"01A": "fix login flow"}, titles)
+	})
 
-	require.NoError(t, st.SetSessionTitle(ctx, "01A", "first"))
-	require.NoError(t, st.SetSessionTitle(ctx, "01A", "second"))
-	titles, err := st.SessionTitles(ctx)
-	require.NoError(t, err)
-	assert.Equal(t, map[string]string{"01A": "second"}, titles)
+	t.Run("upsert and clear", func(t *testing.T) {
+		st := newTestStore(t)
+		ctx := t.Context()
 
-	// whitespace-only clears the row instead of storing blank labels
-	require.NoError(t, st.SetSessionTitle(ctx, "01A", "   "))
-	titles, err = st.SessionTitles(ctx)
-	require.NoError(t, err)
-	assert.Empty(t, titles)
-}
+		require.NoError(t, st.SetSessionTitle(ctx, "01A", "first"))
+		require.NoError(t, st.SetSessionTitle(ctx, "01A", "second"))
+		titles, err := st.SessionTitles(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, map[string]string{"01A": "second"}, titles)
 
-func TestSetSessionTitleClipsLongInput(t *testing.T) {
-	t.Parallel()
-	st := openTestStore(t)
+		// whitespace-only clears the row instead of storing blank labels
+		require.NoError(t, st.SetSessionTitle(ctx, "01A", "   "))
+		titles, err = st.SessionTitles(ctx)
+		require.NoError(t, err)
+		assert.Empty(t, titles)
+	})
 
-	long := strings.Repeat("x", maxTitleRunes+50)
-	require.NoError(t, st.SetSessionTitle(t.Context(), "01A", long))
+	t.Run("clips long input", func(t *testing.T) {
+		st := newTestStore(t)
 
-	titles, err := st.SessionTitles(t.Context())
-	require.NoError(t, err)
-	assert.Len(t, titles["01A"], maxTitleRunes)
-}
+		long := strings.Repeat("x", maxTitleRunes+50)
+		require.NoError(t, st.SetSessionTitle(t.Context(), "01A", long))
 
-func TestSetSessionTitleRequiresID(t *testing.T) {
-	t.Parallel()
-	st := openTestStore(t)
+		titles, err := st.SessionTitles(t.Context())
+		require.NoError(t, err)
+		assert.Len(t, titles["01A"], maxTitleRunes)
+	})
 
-	err := st.SetSessionTitle(t.Context(), "  ", "title")
-	require.Error(t, err)
+	t.Run("requires id", func(t *testing.T) {
+		st := newTestStore(t)
 
-	titles, err := st.SessionTitles(t.Context())
-	require.NoError(t, err)
-	assert.Empty(t, titles)
-}
+		err := st.SetSessionTitle(t.Context(), "  ", "title")
+		require.Error(t, err)
 
-func TestSessionTitlesEmpty(t *testing.T) {
-	t.Parallel()
-	st := openTestStore(t)
-
-	titles, err := st.SessionTitles(t.Context())
-	require.NoError(t, err)
-	assert.Empty(t, titles)
-}
-
-// openTestStore opens one store over a throwaway database file.
-func openTestStore(t *testing.T) *Store {
-	t.Helper()
-	st, err := Open(t.TempDir() + "/" + FileName)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = st.Close() })
-	return st
+		titles, err := st.SessionTitles(t.Context())
+		require.NoError(t, err)
+		assert.Empty(t, titles)
+	})
 }

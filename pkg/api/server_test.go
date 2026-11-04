@@ -10,34 +10,32 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestServeShutsDownCleanly(t *testing.T) {
-	t.Parallel()
+func TestServe(t *testing.T) {
+	t.Run("shuts down cleanly", func(t *testing.T) {
+		svc := newTestService(t)
+		var lc net.ListenConfig
+		ln, err := lc.Listen(t.Context(), "tcp", "127.0.0.1:0")
+		require.NoError(t, err)
 
-	svc := newTestService(t)
-	var lc net.ListenConfig
-	ln, err := lc.Listen(context.Background(), "tcp", "127.0.0.1:0")
-	require.NoError(t, err)
+		srv := NewServer(Handler(Config{Auth: svc, Fleet: newTestFleet(t), Log: testLogger()}))
+		ctx, cancel := context.WithCancel(t.Context())
+		serveErr := make(chan error, 1)
+		go func() { serveErr <- Serve(ctx, srv, ln, testLogger()) }()
 
-	srv := NewServer(Handler(Config{Auth: svc, Fleet: newTestFleet(t), Log: testLogger()}))
-	ctx, cancel := context.WithCancel(context.Background())
-	serveErr := make(chan error, 1)
-	go func() { serveErr <- Serve(ctx, srv, ln, testLogger()) }()
+		cancel()
+		assert.NoError(t, <-serveErr)
+	})
 
-	cancel()
-	assert.NoError(t, <-serveErr)
-}
+	t.Run("reports listener failure", func(t *testing.T) {
+		var lc net.ListenConfig
+		ln, err := lc.Listen(t.Context(), "tcp", "127.0.0.1:0")
+		require.NoError(t, err)
 
-func TestServeReportsListenerFailure(t *testing.T) {
-	t.Parallel()
-
-	var lc net.ListenConfig
-	ln, err := lc.Listen(context.Background(), "tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-
-	// serving on an already-closed listener fails at once; a live listener
-	// would block here until its context cancels
-	require.NoError(t, ln.Close())
-	srv := NewServer(http.NewServeMux())
-	err = Serve(t.Context(), srv, ln, testLogger())
-	assert.Error(t, err)
+		// serving on an already-closed listener fails at once; a live listener
+		// would block here until its context cancels
+		require.NoError(t, ln.Close())
+		srv := NewServer(http.NewServeMux())
+		err = Serve(t.Context(), srv, ln, testLogger())
+		assert.Error(t, err)
+	})
 }

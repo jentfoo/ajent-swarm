@@ -5,6 +5,7 @@ package fleet
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -132,11 +133,15 @@ func newLaunchEnv(t *testing.T, killOnExit bool) *launchEnv {
 		ChildrenDir:  filepath.Join(home, "children"),
 		ChildStore:   env.cs,
 		KillOnExit:   killOnExit,
-		LaunchWait:   time.Second,
-		ExitGrace:    300 * time.Millisecond,
-		TermGrace:    300 * time.Millisecond,
+		LaunchWait:   80 * time.Millisecond,
+		ExitGrace:    40 * time.Millisecond,
+		TermGrace:    40 * time.Millisecond,
 	})
-	env.m.Start(context.Background())
+	prevAwait := awaitPollEvery
+	awaitPollEvery = 5 * time.Millisecond // registry polls stay out of launch timings
+	t.Cleanup(func() { awaitPollEvery = prevAwait })
+
+	env.m.Start(t.Context())
 	t.Cleanup(env.m.Stop)
 	return env
 }
@@ -167,172 +172,243 @@ func rowFor(rows []Status, sessionID string) (Status, bool) {
 	}
 	return Status{}, false
 }
+func TestLauncher(t *testing.T) {
+	t.Run("child exits before serving", func(t *testing.T) {
+		env := newLaunchEnv(t, false)
+		t.Setenv("STUB_CHILD_MODE", "exit")
+		ws := launchWorkspace(t, env.home)
 
-func TestLaunchChildExitsBeforeServing(t *testing.T) {
-	env := newLaunchEnv(t, false)
-	t.Setenv("STUB_CHILD_MODE", "exit")
-	ws := launchWorkspace(t, env.home)
+		res, err := env.m.Launch(t.Context(), LaunchRequest{Workspace: ws})
+		require.ErrorContains(t, err, "exited before serving")
+		require.ErrorContains(t, err, "exit status 3")
+		require.ErrorContains(t, err, "no model configured") // ajent's own hint from the log
+		assert.Empty(t, res.SessionID)
 
-	res, err := env.m.Launch(t.Context(), LaunchRequest{Workspace: ws})
-	require.ErrorContains(t, err, "exited before serving")
-	require.ErrorContains(t, err, "exit status 3")
-	require.ErrorContains(t, err, "no model configured") // ajent's own hint from the log
-	assert.Empty(t, res.SessionID)
-
-	// the log survived under its pid name, and no session entered the listing
-	logs, rerr := os.ReadDir(filepath.Join(env.home, "children"))
-	require.NoError(t, rerr)
-	require.Len(t, logs, 1)
-	assert.Empty(t, env.m.Sessions())
-}
-
-func TestLaunchAwaitDeadlineKeepsChildRunning(t *testing.T) {
-	env := newLaunchEnv(t, true) // the shutdown flag must take the stray down
-	t.Setenv("STUB_CHILD_MODE", "block")
-	ws := launchWorkspace(t, env.home)
-
-	_, err := env.m.Launch(t.Context(), LaunchRequest{Workspace: ws})
-	require.ErrorContains(t, err, "did not register")
-
-	env.m.mu.Lock()
-	var pid int
-	for _, cp := range env.m.children {
-		pid = cp.rec.PID
-	}
-	env.m.mu.Unlock()
-	require.Positive(t, pid)
-	assert.False(t, pidGone(pid)) // still running past the deadline
-
-	env.m.Stop()
-	assert.True(t, pidGone(pid))
-}
-
-func TestLaunchAdoptsRecordAndStops(t *testing.T) {
-	env := newLaunchEnv(t, false)
-	const sid = "01STUBSERVE0000001"
-	t.Setenv("STUB_CHILD_MODE", "serve")
-	setStubRecord(t, env.home, sid)
-	ws := launchWorkspace(t, env.home)
-
-	res, err := env.m.Launch(t.Context(), LaunchRequest{Workspace: ws})
-	require.NoError(t, err)
-	assert.Equal(t, sid, res.SessionID)
-	assert.Equal(t, ws, res.Workspace)
-	assert.Positive(t, res.PID)
-
-	// the log moved to a name carrying the session id
-	_, err = os.Stat(filepath.Join(env.home, "children", sid+"-"+strconv.Itoa(res.PID)+logSuffix))
-	require.NoError(t, err)
-
-	// the fleet attaches it and marks it ours
-	require.Eventually(t, func() bool {
-		st, ok := rowFor(env.m.Sessions(), sid)
-		return ok && st.SpawnedBy == SpawnedBySwarm && st.Argv != "" && st.PID == res.PID
-	}, 3*time.Second, testPoll)
-
-	// stopping ends the child and reaps it in the listing
-	require.NoError(t, env.m.StopSession(t.Context(), sid))
-	require.Eventually(t, func() bool {
-		st, ok := rowFor(env.m.Sessions(), sid)
-		return ok && st.State == ChildExited && st.ExitCode != nil
-	}, 3*time.Second, testPoll)
-
-	rec, ok := env.cs.byPID(res.PID)
-	require.True(t, ok)
-	assert.Equal(t, sid, rec.SessionID)
-	assert.False(t, rec.ExitedAt.IsZero())
-	require.NotNil(t, rec.ExitCode)
-	assert.Equal(t, -1, *rec.ExitCode) // SIGTERM ended it
-}
-
-func TestChildrenOutliveAndReadopt(t *testing.T) {
-	env := newLaunchEnv(t, false) // the default: children outlive the manager
-	const sid = "01STUBORPHAN00001"
-	t.Setenv("STUB_CHILD_MODE", "serve")
-	setStubRecord(t, env.home, sid)
-	ws := launchWorkspace(t, env.home)
-
-	res, err := env.m.Launch(t.Context(), LaunchRequest{Workspace: ws})
-	require.NoError(t, err)
-
-	env.m.Stop() // the plain shutdown never touches children
-	assert.False(t, pidGone(res.PID))
-
-	// a restarted service re-adopts the orphan through the persisted rows
-	env2 := &launchEnv{bin: env.bin, home: env.home, cs: env.cs}
-	env2.m = New(Options{
-		Log:          testLogger(),
-		PollInterval: testPoll,
-		BackoffBase:  testBackoff,
-		BackoffMax:   testBackoffHi,
-		AjentBin:     env2.bin,
-		ChildrenDir:  filepath.Join(env2.home, "children"),
-		ChildStore:   env2.cs,
-		KillOnExit:   true,
+		// the log survived under its pid name, and no session entered the listing
+		logs, rerr := os.ReadDir(filepath.Join(env.home, "children"))
+		require.NoError(t, rerr)
+		require.Len(t, logs, 1)
+		assert.Empty(t, env.m.Sessions())
 	})
-	env2.m.Start(context.Background())
-	t.Cleanup(env2.m.Stop)
 
-	require.Eventually(t, func() bool {
-		st, ok := rowFor(env2.m.Sessions(), sid)
-		return ok && st.SpawnedBy == SpawnedBySwarm && st.PID == res.PID
-	}, 3*time.Second, testPoll)
+	t.Run("await deadline keeps child running", func(t *testing.T) {
+		env := newLaunchEnv(t, true) // the shutdown flag must take the stray down
+		t.Setenv("STUB_CHILD_MODE", "block")
+		ws := launchWorkspace(t, env.home)
 
-	// the adopted child stops like any other
-	require.NoError(t, env2.m.StopSession(t.Context(), sid))
-	require.Eventually(t, func() bool { return pidGone(res.PID) }, 3*time.Second, testPoll)
-	rec, ok := env.cs.byPID(res.PID)
-	require.True(t, ok)
-	assert.Equal(t, "stopped by swarm", rec.ExitNote)
-}
+		_, err := env.m.Launch(t.Context(), LaunchRequest{Workspace: ws})
+		require.ErrorContains(t, err, "did not register")
 
-func TestSessionsSpawnedByExternal(t *testing.T) {
-	env := newLaunchEnv(t, false)
-	stub := fleettest.New(t, env.home, fleettest.Options{SessionID: "01STUBEXT00000001"})
-	stub.WriteRegistry(t, os.Getpid(), time.Now())
+		env.m.mu.Lock()
+		var pid int
+		for _, cp := range env.m.children {
+			pid = cp.rec.PID
+		}
+		env.m.mu.Unlock()
+		require.Positive(t, pid)
+		assert.False(t, pidGone(pid)) // still running past the deadline
 
-	require.Eventually(t, func() bool {
-		st, ok := rowFor(env.m.Sessions(), stub.SessionID())
-		return ok && st.SpawnedBy == SpawnedByExternal && st.State == ChildOnline
-	}, 3*time.Second, testPoll)
-}
+		env.m.Stop()
+		assert.True(t, pidGone(pid))
+	})
 
-func TestStopEscalatesToKill(t *testing.T) {
-	env := newLaunchEnv(t, false)
-	const sid = "01STUBTERM00000001"
-	t.Setenv("STUB_CHILD_MODE", "termproof") // TERM cannot stop this one
-	t.Setenv("STUB_ARMED_FILE", filepath.Join(env.home, "armed"))
-	setStubRecord(t, env.home, sid)
-	ws := launchWorkspace(t, env.home)
+	t.Run("adopts record and stops", func(t *testing.T) {
+		env := newLaunchEnv(t, false)
+		const sid = "01STUBSERVE0000001"
+		t.Setenv("STUB_CHILD_MODE", "serve")
+		setStubRecord(t, env.home, sid)
+		ws := launchWorkspace(t, env.home)
 
-	// the launch answers only because the trap armed before the record: the
-	// session never serves, so stopping it must reach the signals
-	res, err := env.m.Launch(t.Context(), LaunchRequest{Workspace: ws})
-	require.NoError(t, err)
+		res, err := env.m.Launch(t.Context(), LaunchRequest{Workspace: ws})
+		require.NoError(t, err)
+		assert.Equal(t, sid, res.SessionID)
+		assert.Equal(t, ws, res.Workspace)
+		assert.Positive(t, res.PID)
 
-	require.NoError(t, env.m.StopSession(t.Context(), sid))
-	assert.True(t, pidGone(res.PID))
+		// the log moved to a name carrying the session id
+		_, err = os.Stat(filepath.Join(env.home, "children", sid+"-"+strconv.Itoa(res.PID)+logSuffix))
+		require.NoError(t, err)
 
-	// the exit note proves the escalation: TERM was trapped, KILL landed
-	rec, ok := env.cs.byPID(res.PID)
-	require.True(t, ok)
-	require.NotNil(t, rec.ExitCode)
-	assert.Equal(t, -1, *rec.ExitCode)
-	assert.Equal(t, "signal: killed", rec.ExitNote)
-}
+		// the fleet attaches it and marks it ours
+		require.Eventually(t, func() bool {
+			st, ok := rowFor(env.m.Sessions(), sid)
+			return ok && st.SpawnedBy == SpawnedBySwarm && st.Argv != "" && st.PID == res.PID
+		}, 3*time.Second, testPoll)
 
-func TestStopUnknownSession(t *testing.T) {
-	env := newLaunchEnv(t, false)
-	err := env.m.StopSession(t.Context(), "01NOPE")
-	require.ErrorIs(t, err, ErrUnknownSession)
-}
+		// stopping ends the child and reaps it in the listing
+		require.NoError(t, env.m.StopSession(t.Context(), sid))
+		require.Eventually(t, func() bool {
+			st, ok := rowFor(env.m.Sessions(), sid)
+			return ok && st.State == ChildExited && st.ExitCode != nil
+		}, 3*time.Second, testPoll)
 
-func TestLaunchNotConfigured(t *testing.T) {
-	testutil.IsolateHome(t)
-	m := New(Options{Log: testLogger(), Discover: func() ([]ctl.Instance, error) { return nil, nil }})
-	m.Start(context.Background())
-	t.Cleanup(m.Stop)
+		rec, ok := env.cs.byPID(res.PID)
+		require.True(t, ok)
+		assert.Equal(t, sid, rec.SessionID)
+		assert.False(t, rec.ExitedAt.IsZero())
+		require.NotNil(t, rec.ExitCode)
+		assert.Equal(t, -1, *rec.ExitCode) // SIGTERM ended it
+	})
 
-	_, err := m.Launch(t.Context(), LaunchRequest{Workspace: t.TempDir()})
-	require.ErrorContains(t, err, "launching is not configured")
+	t.Run("children outlive and readopt", func(t *testing.T) {
+		env := newLaunchEnv(t, false) // the default: children outlive the manager
+		const sid = "01STUBORPHAN00001"
+		t.Setenv("STUB_CHILD_MODE", "serve")
+		setStubRecord(t, env.home, sid)
+		ws := launchWorkspace(t, env.home)
+
+		res, err := env.m.Launch(t.Context(), LaunchRequest{Workspace: ws})
+		require.NoError(t, err)
+
+		env.m.Stop() // the plain shutdown never touches children
+		assert.False(t, pidGone(res.PID))
+
+		// a restarted service re-adopts the orphan through the persisted rows
+		env2 := &launchEnv{bin: env.bin, home: env.home, cs: env.cs}
+		env2.m = New(Options{
+			Log:          testLogger(),
+			PollInterval: testPoll,
+			BackoffBase:  testBackoff,
+			BackoffMax:   testBackoffHi,
+			AjentBin:     env2.bin,
+			ChildrenDir:  filepath.Join(env2.home, "children"),
+			ChildStore:   env2.cs,
+			KillOnExit:   true,
+		})
+		env2.m.Start(t.Context())
+		t.Cleanup(env2.m.Stop)
+
+		require.Eventually(t, func() bool {
+			st, ok := rowFor(env2.m.Sessions(), sid)
+			return ok && st.SpawnedBy == SpawnedBySwarm && st.PID == res.PID
+		}, 3*time.Second, testPoll)
+
+		// the adopted child stops like any other
+		require.NoError(t, env2.m.StopSession(t.Context(), sid))
+		require.Eventually(t, func() bool { return pidGone(res.PID) }, 3*time.Second, testPoll)
+		rec, ok := env.cs.byPID(res.PID)
+		require.True(t, ok)
+		assert.Equal(t, "stopped by swarm", rec.ExitNote)
+	})
+
+	t.Run("sessions spawned by external", func(t *testing.T) {
+		env := newLaunchEnv(t, false)
+		stub := fleettest.New(t, env.home, fleettest.Options{SessionID: "01STUBEXT00000001"})
+		stub.WriteRegistry(t, os.Getpid(), time.Now())
+
+		require.Eventually(t, func() bool {
+			st, ok := rowFor(env.m.Sessions(), stub.SessionID())
+			return ok && st.SpawnedBy == SpawnedByExternal && st.State == ChildOnline
+		}, 3*time.Second, testPoll)
+	})
+
+	t.Run("stop escalates to kill", func(t *testing.T) {
+		env := newLaunchEnv(t, false)
+		const sid = "01STUBTERM00000001"
+		t.Setenv("STUB_CHILD_MODE", "termproof") // TERM cannot stop this one
+		t.Setenv("STUB_ARMED_FILE", filepath.Join(env.home, "armed"))
+		setStubRecord(t, env.home, sid)
+		ws := launchWorkspace(t, env.home)
+
+		// the launch answers only because the trap armed before the record: the
+		// session never serves, so stopping it must reach the signals
+		res, err := env.m.Launch(t.Context(), LaunchRequest{Workspace: ws})
+		require.NoError(t, err)
+
+		require.NoError(t, env.m.StopSession(t.Context(), sid))
+		assert.True(t, pidGone(res.PID))
+
+		// the exit note proves the escalation: TERM was trapped, KILL landed
+		rec, ok := env.cs.byPID(res.PID)
+		require.True(t, ok)
+		require.NotNil(t, rec.ExitCode)
+		assert.Equal(t, -1, *rec.ExitCode)
+		assert.Equal(t, "signal: killed", rec.ExitNote)
+	})
+
+	t.Run("stop unknown session", func(t *testing.T) {
+		env := newLaunchEnv(t, false)
+		err := env.m.StopSession(t.Context(), "01NOPE")
+		require.ErrorIs(t, err, ErrUnknownSession)
+	})
+
+	t.Run("launch not configured", func(t *testing.T) {
+		testutil.IsolateHome(t)
+		m := New(Options{Log: testLogger(), Discover: func() ([]ctl.Instance, error) { return nil, nil }})
+		m.Start(t.Context())
+		t.Cleanup(m.Stop)
+
+		_, err := m.Launch(t.Context(), LaunchRequest{Workspace: t.TempDir()})
+		require.ErrorContains(t, err, "launching is not configured")
+	})
+	t.Run("adopt marks dead and readopts live", func(t *testing.T) {
+		home := testutil.IsolateHome(t)
+
+		ws := launchWorkspace(t, home)
+		cs := newFakeChildStore()
+		ctx := t.Context()
+
+		// a child that died while the previous service was down
+		deadPID := deadPID(t)
+		_, err := cs.CreateChild(ctx, ChildRecord{
+			PID: deadPID, SessionID: "01ADOPTDEAD0000001", Workspace: ws,
+			Argv: "--serve", LogPath: filepath.Join(home, "children", "dead.log"),
+			StartedAt: time.Now().Add(-time.Hour),
+		})
+		require.NoError(t, err)
+
+		// a child still running: the test process stands in for it
+		liveID := "01ADOPTLIVE00000001"
+		_, err = cs.CreateChild(ctx, ChildRecord{
+			PID: os.Getpid(), SessionID: liveID, Workspace: ws,
+			Argv: "--serve --session daily", LogPath: filepath.Join(home, "children", "live.log"),
+			StartedAt: time.Now().Add(-time.Hour),
+		})
+		require.NoError(t, err)
+
+		// its registry record, pointing at a socket that never serves
+		rec, err := json.Marshal(ctl.Instance{
+			SessionID: liveID, Workspace: ws, PID: os.Getpid(),
+			Token: "adopttok", Socket: filepath.Join(home, "control", liveID, "missing.sock"),
+		})
+		require.NoError(t, err)
+		dir := filepath.Join(home, "control", liveID)
+		require.NoError(t, os.MkdirAll(dir, 0o700))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "adopttok.json"), rec, 0o600))
+
+		m := New(Options{
+			Log:          testLogger(),
+			PollInterval: testPoll,
+			BackoffBase:  testBackoff,
+			BackoffMax:   testBackoffHi,
+			AjentBin:     writeStubBin(t, home),
+			ChildrenDir:  filepath.Join(home, "children"),
+			ChildStore:   cs,
+		})
+		m.Start(t.Context())
+		t.Cleanup(m.Stop)
+
+		t.Run("dead child marked exited", func(t *testing.T) {
+			require.Eventually(t, func() bool {
+				_, ok := rowFor(m.Sessions(), "01ADOPTDEAD0000001")
+				return ok
+			}, 3*time.Second, testPoll)
+			dead, ok := rowFor(m.Sessions(), "01ADOPTDEAD0000001")
+			require.True(t, ok)
+			assert.Equal(t, ChildExited, dead.State)
+			assert.Equal(t, "not running when the service started", dead.Detail)
+			assert.Equal(t, SpawnedBySwarm, dead.SpawnedBy)
+
+			row, ok := cs.byPID(deadPID)
+			require.True(t, ok)
+			assert.Equal(t, "not running when the service started", row.ExitNote)
+		})
+
+		t.Run("live orphan readopted as owned", func(t *testing.T) {
+			require.Eventually(t, func() bool {
+				live, ok := rowFor(m.Sessions(), liveID)
+				return ok && live.SpawnedBy == SpawnedBySwarm && live.Argv == "--serve --session daily"
+			}, 3*time.Second, testPoll)
+		})
+	})
 }

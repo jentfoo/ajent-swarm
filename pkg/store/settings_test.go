@@ -1,22 +1,17 @@
 package store
 
 import (
-	"context"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// Swarm-level settings round trip through the app_settings table: set, read,
-// overwrite and clear.
-func TestSettingsRoundTrip(t *testing.T) {
+func TestSettings(t *testing.T) {
 	t.Parallel()
-	st, err := Open(filepath.Join(t.TempDir(), "swarm.db"))
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = st.Close() })
-	ctx := context.Background()
+
+	st := newTestStore(t)
+	ctx := t.Context()
 
 	value, err := st.Setting(ctx, "title_model")
 	require.NoError(t, err)

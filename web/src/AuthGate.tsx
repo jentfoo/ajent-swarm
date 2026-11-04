@@ -54,7 +54,7 @@ export default function AuthGate(): ReactElement {
           <Route path="/jobs/:jobId" element={<JobsHome />} />
           {/* desktop deep links stay reachable: the workspace modes collapse
               into the single-session phone view */}
-          <Route path="/inbox" element={<Navigate to="/" replace />} />
+          <Route path="/focused" element={<Navigate to="/" replace />} />
           <Route path="/tile" element={<Navigate to="/" replace />} />
           <Route path="/sessions" element={<Navigate to="/" replace />} />
           <Route path="*" element={<Navigate to="/" replace />} />
@@ -67,7 +67,7 @@ export default function AuthGate(): ReactElement {
     <AppShell>
       <Routes>
         <Route path="/" element={<WorkspaceRoute />} />
-        <Route path="/inbox" element={<WorkspaceRoute mode="inbox" />} />
+        <Route path="/focused" element={<WorkspaceRoute mode="focused" />} />
         <Route path="/tile" element={<WorkspaceRoute mode="tile" />} />
         <Route path="/sessions" element={<SessionsHome />} />
         <Route path="/s/:sessionId" element={<SessionView />} />

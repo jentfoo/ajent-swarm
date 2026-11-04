@@ -46,8 +46,7 @@ export function formatEvery(seconds?: number): string {
 export const weekdayTokens = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const
 export type WeekdayToken = (typeof weekdayTokens)[number]
 
-// weekdayLabels name one day each; indexed by JS Date.getDay() (sunday first).
-// weekdayLabels name one day each, indexed by token position (sunday first).
+// weekdayShort names one day each, indexed by token position (sunday first).
 export const weekdayShort = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 // parseWeekdays reads a stored comma list onto tokens, unknown entries drop.

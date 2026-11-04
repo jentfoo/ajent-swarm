@@ -22,7 +22,7 @@ func (m *Manager) ToolOptions(ctx context.Context) []ctl.ToolState {
 	byName := make(map[string]ctl.ToolState)
 	for _, a := range actors {
 		st := a.status.Load()
-		if st.State == ChildExited || !st.served {
+		if !st.serving() {
 			continue
 		}
 		rctx, cancel := context.WithTimeout(ctx, modelRowWait)

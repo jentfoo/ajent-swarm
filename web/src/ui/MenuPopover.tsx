@@ -7,7 +7,7 @@ const anchorGap = 4
 // Viewport margin a clamped menu always keeps.
 const edgeMargin = 8
 
-export interface Placement {
+interface Placement {
   left: number
   top: number
 }

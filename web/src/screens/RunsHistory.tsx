@@ -88,7 +88,7 @@ export default function RunsHistory() {
             }}
           >
             <option value="">All jobs</option>
-            {(jobs ?? []).map((j) => (
+            {jobs.map((j) => (
               <option key={j.id} value={j.id}>
                 {j.name}
               </option>

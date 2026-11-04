@@ -17,6 +17,9 @@ import (
 // refusal naming it always means this service.
 const holderName = "swarm"
 
+// errShuttingDown answers calls racing an actor's teardown.
+var errShuttingDown = errors.New("session is shutting down")
+
 // Backoff bounds for one actor's redial loop. Bounded delay, unbounded
 // attempts: the manager stops actors whose record leaves discovery.
 const (
@@ -45,7 +48,7 @@ type actorKey struct {
 type Status struct {
 	SessionID        string `json:"sessionId"`
 	Name             string `json:"name,omitempty"`
-	Title            string `json:"title,omitempty"` // stored swarm display title, preferred for labels
+	Title            string `json:"title,omitempty"` // stored display title, preferred for labels
 	Workspace        string `json:"workspace,omitempty"`
 	Model            string `json:"model,omitempty"`
 	PID              int    `json:"pid,omitempty"`
@@ -59,10 +62,10 @@ type Status struct {
 	Spinning         bool   `json:"spinning,omitempty"`
 	OpenInteractions int    `json:"openInteractions"`
 	LastTurnEnd      int64  `json:"lastTurnEnd,omitempty"` // unix milliseconds
-	ExitedAt         int64  `json:"exitedAt,omitempty"`    // unix milliseconds, exited swarm children only
+	ExitedAt         int64  `json:"exitedAt,omitempty"`    // unix ms; exited swarm children
 
 	// Attention digest facts: what holds input and how the last turn ended,
-	// one line each so the desktop inbox renders reasons without subscribing.
+	// one line each so the desktop focus queue renders reasons without subscribing.
 	DialogID     uint64 `json:"dialogId,omitempty"`     // oldest open dialog
 	DialogPrompt string `json:"dialogPrompt,omitempty"` // its prompt, one line
 	DialogAt     int64  `json:"dialogAt,omitempty"`     // when swarm first saw it, unix ms
@@ -81,6 +84,11 @@ type Status struct {
 
 	served bool // the actor attached at least once, so view facts are real
 }
+
+// serving reports whether the row carries live view facts: the actor
+// attached at least once and the session has not exited. Every best-effort
+// feed filters on it.
+func (st *Status) serving() bool { return st.served && st.State != ChildExited }
 
 // actorMsg is one mailbox message; the actor goroutine owns everything else.
 type actorMsg interface{}
@@ -136,8 +144,6 @@ type sessionActor struct {
 
 	done chan struct{}
 
-	token string // original writer token, kept for Followable
-
 	// actor-goroutine-confined state below
 	conn       *client.Conn
 	transcript string // transcript file this instance's hello named
@@ -167,7 +173,6 @@ func newSessionActor(mgr *Manager, inst ctl.Instance) *sessionActor {
 	a := &sessionActor{
 		mgr:     mgr,
 		key:     actorKey{sessionID: inst.SessionID, token: inst.Token},
-		token:   inst.Token,
 		inst:    inst,
 		log:     mgr.log.With("session", inst.Label(), "pid", inst.PID),
 		mailbox: make(chan actorMsg, mailboxDepth),
@@ -271,7 +276,7 @@ func (a *sessionActor) follow() (ctl.Instance, bool) {
 		a.log.Debug("discovery failed", "err", err)
 		return ctl.Instance{}, false
 	}
-	cands := client.Followable(live, a.key.sessionID, a.token)
+	cands := client.Followable(live, a.key.sessionID, a.key.token)
 	if len(cands) == 0 {
 		return ctl.Instance{}, false
 	}
@@ -502,8 +507,8 @@ func (a *sessionActor) buildInit() []byte {
 // handleTakeControl issues one force claim on user command; seat policy never
 // force-takes on its own, so two controllers cannot steal in a loop.
 func (a *sessionActor) handleTakeControl(msg msgTakeControl) {
-	if a.conn == nil || a.view == nil {
-		msg.reply <- ctl.Errf(ctl.CodeUnavailable, "session is not connected")
+	if !a.ready() {
+		msg.reply <- notReady()
 		return
 	}
 	cctx, cancel := context.WithTimeout(a.ctx, client.CallWait)
@@ -521,7 +526,7 @@ func (a *sessionActor) handleTakeControl(msg msgTakeControl) {
 // only when swarm does not hold it, then submit /exit. A held seat surfaces
 // as seat-held rather than displacing its holder.
 func (a *sessionActor) handleStop(msg msgStop) {
-	if a.conn == nil || a.view == nil {
+	if !a.ready() {
 		msg.reply <- errors.New("session is not connected")
 		return
 	}
@@ -642,7 +647,12 @@ func mailboxCall[T any](ctx context.Context, a *sessionActor, build func(chan T)
 		return zero, ctx.Err()
 	case <-a.done:
 		var zero T
-		return zero, errors.New("session is shutting down")
+		return zero, errShuttingDown
+	}
+	select {
+	case v := <-reply:
+		return v, nil
+	default:
 	}
 	select {
 	case v := <-reply:
@@ -650,6 +660,14 @@ func mailboxCall[T any](ctx context.Context, a *sessionActor, build func(chan T)
 	case <-ctx.Done():
 		var zero T
 		return zero, ctx.Err()
+	case <-a.done: // an exit path can orphan the queued call unreplied
+		select { // a reply sent just before shutdown still counts
+		case v := <-reply:
+			return v, nil
+		default:
+		}
+		var zero T
+		return zero, errShuttingDown
 	}
 }
 

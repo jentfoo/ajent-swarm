@@ -3,7 +3,7 @@ import { useEffect } from 'react'
 import { setShortcutOverlayOpen } from './keys'
 import type { WorkspaceMode } from './layoutProfile'
 
-const inboxBindings: [string, string][] = [
+const focusBindings: [string, string][] = [
   ['j / k', 'move through the queue'],
   ['Enter', 'open the highlighted row'],
   ['r', 'mark reviewed'],
@@ -40,7 +40,7 @@ export function ShortcutOverlay({ mode, onClose }: { mode: WorkspaceMode; onClos
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
 
-  const bindings = mode === 'tile' ? tileBindings : inboxBindings
+  const bindings = mode === 'tile' ? tileBindings : focusBindings
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div
@@ -51,7 +51,7 @@ export function ShortcutOverlay({ mode, onClose }: { mode: WorkspaceMode; onClos
       >
         <h2 style={{ marginTop: 0, fontSize: 'inherit' }}>Keyboard shortcuts</h2>
         <p className="muted" style={{ marginTop: 0 }}>
-          {mode === 'tile' ? 'Tile mode' : 'Inbox mode'} · Mod is Ctrl or ⌘
+          {mode === 'tile' ? 'Tile mode' : 'Focused mode'} · Mod is Ctrl or ⌘
         </p>
         <table className="shortcut-table">
           <tbody>

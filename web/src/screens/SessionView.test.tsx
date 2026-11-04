@@ -639,7 +639,7 @@ describe('SessionView', () => {
     )
   })
 
-  // Hosted views swap sessions by prop (inbox rail, tile tabs); the key on the
+  // Hosted views swap sessions by prop (focus rail, tile tabs); the key on the
   // content must present every swap as a remount so chrome and drafts follow
   // the session instead of bleeding across it.
   function renderHosted(id: string) {

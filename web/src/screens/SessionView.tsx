@@ -136,7 +136,7 @@ function SessionSurface({
         autoFocusDialogs={autoFocusDialogs}
         onAnsweredLocally={(dialogId) => {
           dispatch({ type: 'dialogAnswered', dialogId })
-          acknowledgeDialog(sessionId, dialogId) // acting clears the inbox row
+          acknowledgeDialog(sessionId, dialogId) // acting clears the queue row
         }}
         onOutcomeDismissed={(dialogId) => dispatch({ type: 'outcomeDismissed', dialogId })}
       />

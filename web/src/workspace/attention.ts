@@ -1,4 +1,4 @@
-// The one client-side attention model every surface consumes: the inbox rail,
+// The one client-side attention model every surface consumes: the focus rail,
 // tile tab badges, the title bar count and the desktop notification bridge.
 //
 // Three attention kinds rise from the digest plus this ledger:

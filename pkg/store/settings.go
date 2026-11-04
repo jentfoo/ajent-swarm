@@ -43,10 +43,11 @@ func (s *Store) Setting(ctx context.Context, key string) (string, error) {
 		return "", errors.New("setting key must not be empty")
 	}
 	var value string
-	switch err := s.db.QueryRowContext(ctx, `SELECT value FROM app_settings WHERE key = ?`, key).Scan(&value); {
-	case err == sql.ErrNoRows:
+	err := s.db.QueryRowContext(ctx, `SELECT value FROM app_settings WHERE key = ?`, key).Scan(&value)
+	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
-	case err != nil:
+	}
+	if err != nil {
 		return "", fmt.Errorf("read setting: %w", err)
 	}
 	return value, nil

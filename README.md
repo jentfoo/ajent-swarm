@@ -25,7 +25,7 @@ interval or daily in any IANA zone) that launch headless runs on schedule with
 optional shell prefixes and prompts, watch them settle through the control
 socket, park at permission barriers as `awaiting_input`, and record full run
 history under bounded retention. The React frontend ships auth screens, a
-desktop shell with the attention inbox and tile workspaces, the scheduler UI,
+desktop shell with the focused attention queue and tile workspaces, the scheduler UI,
 and a phone-first mobile experience (phase 11): launcher and switcher over one
 bottom sheet, touch-sized dialogs, a keyboard-aware composer, swarm-stored
 session titles, and remote access behind TLS or a reverse proxy. Phase 12

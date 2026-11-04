@@ -99,7 +99,7 @@ func TestDaemonLifecycle(t *testing.T) {
 			return false
 		}, 15*time.Second, 50*time.Millisecond)
 
-		assert.False(t, processAlive(pid), "the daemon process exited")
+		assert.False(t, processAlive(pid))
 	})
 }
 

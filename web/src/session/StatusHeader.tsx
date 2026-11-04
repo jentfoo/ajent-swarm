@@ -5,6 +5,7 @@ import { ApiError } from '../api/client'
 import { sessions as sessionAPI } from '../api/endpoints'
 import type { CtlState, ModelState } from '../api/types'
 import { MenuPopover } from '../ui/MenuPopover'
+import { shortID } from './names'
 import { AgentSettingsMenu } from './AgentSettingsMenu'
 import { ToolsPanel } from './ToolsPanel'
 
@@ -71,11 +72,6 @@ export function StatusHeader({
       <AgentSettingsMenu sessionId={sessionId} />
     </div>
   )
-}
-
-// shortID trims a session id for display beside its title.
-function shortID(id: string): string {
-  return id.length <= 12 ? id : id.slice(0, 8) + '…'
 }
 
 // ModeMenu picks the permission level straight from the fixed upstream

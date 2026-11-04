@@ -23,7 +23,6 @@ const (
 	initMaxBytes   = 2 << 20 // before base64 image bodies are deferred
 
 	pageMaxEntries = 500
-	pageDefault    = 200
 )
 
 // view is the reconciled state of one ajent instance: snapshot fields kept
@@ -282,11 +281,9 @@ func (v *view) applyStatus(ev ctl.Event) {
 
 // pendingInteraction records one open dialog; a re-announcement updates in place.
 func (v *view) pendingInteraction(d ctl.InteractionPendingData) {
-	for i := range v.interactions {
-		if v.interactions[i].ID == d.ID {
-			v.interactions[i] = d
-			return
-		}
+	if i := slices.IndexFunc(v.interactions, func(p ctl.InteractionPendingData) bool { return p.ID == d.ID }); i >= 0 {
+		v.interactions[i] = d
+		return
 	}
 	v.interactions = append(v.interactions, d)
 	v.dialogSeen[d.ID] = time.Now().UnixMilli()
@@ -322,8 +319,7 @@ func firstUserPrompt(e ctl.Entry) string {
 	if json.Unmarshal(e.Data, &md) != nil {
 		return ""
 	}
-	if md.Message.Role != llm.RoleUser || md.Injected ||
-		llm.OnlyToolResults(md.Message.Content) {
+	if !isUserPrompt(md) {
 		return ""
 	}
 	return strings.TrimSpace(llm.JoinText(md.Message.Content))
@@ -373,7 +369,7 @@ func sortedActivity(rows map[string]ctl.ActivityRow) []ctl.ActivityRow {
 		if a.Rank != b.Rank {
 			return a.Rank - b.Rank
 		}
-		return orderLess(a.Key, b.Key)
+		return strings.Compare(a.Key, b.Key)
 	})
 	return out
 }
@@ -385,21 +381,9 @@ func sortedSegments(rows map[string]ctl.Segment) []ctl.Segment {
 		if a.Order != b.Order {
 			return a.Order - b.Order
 		}
-		return orderLess(a.Key, b.Key)
+		return strings.Compare(a.Key, b.Key)
 	})
 	return out
-}
-
-// orderLess breaks ordering ties by key.
-func orderLess(a, b string) int {
-	switch {
-	case a < b:
-		return -1
-	case a > b:
-		return 1
-	default:
-		return 0
-	}
 }
 
 // appendEntry adds one committed entry, deduping by id against backfill
@@ -488,9 +472,6 @@ func (v *view) pageEntries(before string, limit int) ([]ctl.Entry, string) {
 // deferImageBodies replaces base64 image payloads with their media type so an
 // init never carries megabytes of pixels; /entries returns the full bodies.
 func deferImageBodies(e ctl.Entry) ctl.Entry {
-	if !bytes.Contains(e.Data, []byte(`"image"`)) {
-		return e
-	}
 	stripped, changed := stripImages(e.Data)
 	if !changed {
 		return e
@@ -526,9 +507,7 @@ func stripImages(raw json.RawMessage) (json.RawMessage, bool) {
 				MediaType string `json:"mediaType"`
 			}
 			if err := json.Unmarshal(obj["data"], &body); err == nil {
-				obj["data"] = mustJSON(struct {
-					MediaType string `json:"mediaType"`
-				}{body.MediaType})
+				obj["data"] = mustJSON(body)
 				changed = true
 			}
 		}

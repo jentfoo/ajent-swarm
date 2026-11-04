@@ -8,7 +8,6 @@
 // the user; nothing here ever touches the live-session list.
 
 export type SplitDirection = 'row' | 'column' // row: children side by side
-
 export interface TilePane {
   kind: 'pane'
   id: string
@@ -27,8 +26,8 @@ export interface TileSplit {
 
 export type TileNode = TilePane | TileSplit
 
-export const minRatio = 0.12
-export const maxRatio = 0.88
+const minRatio = 0.12
+const maxRatio = 0.88
 
 export function clampRatio(ratio: number): number {
   if (!Number.isFinite(ratio)) return 0.5
@@ -37,7 +36,7 @@ export function clampRatio(ratio: number): number {
 
 let idCounter = 0
 
-export function newNodeId(): string {
+function newNodeId(): string {
   idCounter += 1
   return `n${Date.now().toString(36)}${idCounter.toString(36)}`
 }
@@ -77,7 +76,7 @@ export function openTab(tree: TileNode | null, sessionId: string, paneId?: strin
 }
 
 // setActive focuses one tab in its pane.
-export function setActive(tree: TileNode, paneId: string, sessionId: string): TileNode {
+function setActive(tree: TileNode, paneId: string, sessionId: string): TileNode {
   return mapPane(tree, paneId, (pane) =>
     pane.tabs.includes(sessionId) ? { ...pane, active: sessionId } : pane,
   )
@@ -183,7 +182,7 @@ export function setRatio(tree: TileNode, splitId: string, ratio: number): TileNo
 // --- internal helpers ---
 
 // firstPane returns the leftmost pane of the tree, null when empty.
-export function firstPane(tree: TileNode): TilePane | null {
+function firstPane(tree: TileNode): TilePane | null {
   let out: TilePane | null = null
   const walk = (node: TileNode): void => {
     if (out || node.kind === 'pane') {
@@ -241,7 +240,7 @@ function chainSplits(dir: SplitDirection, nodes: TileNode[]): TileNode {
 }
 
 // findSessionPane locates the pane tabbing a session, null when nowhere open.
-export function findSessionPane(tree: TileNode | null, sessionId: string): TilePane | null {
+function findSessionPane(tree: TileNode | null, sessionId: string): TilePane | null {
   if (!tree) return null
   if (tree.kind === 'pane') return tree.tabs.includes(sessionId) ? tree : null
   return findSessionPane(tree.a, sessionId) ?? findSessionPane(tree.b, sessionId)
@@ -272,10 +271,6 @@ function replacePane(tree: TileNode, paneId: string, pane: TilePane): TileNode {
 }
 
 // --- serialization: the layout profile persists the tree as plain JSON ---
-
-export function serializeTree(tree: TileNode | null): unknown {
-  return tree
-}
 
 export function parseTree(raw: unknown): TileNode | null {
   if (raw === null || raw === undefined) return null

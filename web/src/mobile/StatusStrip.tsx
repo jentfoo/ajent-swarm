@@ -1,6 +1,6 @@
-import type { CtlState, Segment } from '../api/types'
+import type { CtlState } from '../api/types'
 import { Spinner, spinnerState } from '../session/Spinner'
-import { visibleSegments } from '../session/StatusBar'
+import { SegmentChip, visibleSegments } from '../session/StatusBar'
 import type { LiveTurn } from '../state/eventApplier'
 
 // StatusStrip is the slim strip above the composer: one data source with the
@@ -38,13 +38,5 @@ export function StatusStrip({ snap, live }: { snap: CtlState; live?: LiveTurn | 
         </span>
       )}
     </div>
-  )
-}
-
-function SegmentChip({ seg }: { seg: Segment }) {
-  return (
-    <span className={`strip-segment ${seg.order < 0 ? 'muted' : ''}`} data-segment-key={seg.key}>
-      {seg.short || seg.text}
-    </span>
   )
 }

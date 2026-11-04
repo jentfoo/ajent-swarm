@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jentfoo/ajent-swarm/pkg/auth"
@@ -65,8 +66,9 @@ type meReply struct {
 // handleMe reports the authenticated principal; unauthenticated callers get
 // 401 so the placeholder page can pick its form.
 func (s *apiServer) handleMe(w http.ResponseWriter, r *http.Request) {
-	p, ok := principalOrUnauthorized(w, r)
+	p, ok := auth.PrincipalFrom(r.Context())
 	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized", "")
 		return
 	}
 	home, err := os.UserHomeDir()
@@ -135,4 +137,25 @@ func writeRetryAfter(w http.ResponseWriter, wait time.Duration) {
 	w.Header().Set("Retry-After", strconv.Itoa(secs))
 	writeError(w, http.StatusTooManyRequests, "rate_limited",
 		"too many failed attempts; retry later")
+}
+
+// isLoopback reports whether the request arrived from a loopback peer.
+func isLoopback(r *http.Request) bool {
+	host := r.RemoteAddr
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+// secureCookie marks a cookie Secure when the request arrived over TLS or
+// through a reverse proxy that terminated it, so remote logins keep the
+// credential off plaintext hops. Direct HTTP stays without the flag: an
+// unencrypted origin cannot honor it anyway.
+func secureCookie(r *http.Request, c *http.Cookie) *http.Cookie {
+	if r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
+		c.Secure = true
+	}
+	return c
 }

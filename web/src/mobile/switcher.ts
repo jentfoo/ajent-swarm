@@ -10,7 +10,7 @@ import type { AttentionItem } from '../workspace/attention'
 // sessions and their transcripts.
 const maxExitedRows = 4
 
-export type SwitcherStatus = 'running' | 'waiting' | 'idle' | 'ended'
+type SwitcherStatus = 'running' | 'waiting' | 'idle' | 'ended'
 
 export interface SwitcherRow {
   sessionId: string

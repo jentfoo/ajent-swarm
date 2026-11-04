@@ -111,7 +111,12 @@ describe('applier at 100k entries', () => {
     const start = performance.now()
     render(
       <div style={{ height: 600, overflow: 'auto' }}>
-        <TranscriptView state={state} loadOlder={async () => false} />
+        <TranscriptView
+          sessionId={head}
+          state={state}
+          loadOlder={async () => false}
+          onThinkingToggle={() => {}}
+        />
       </div>,
     )
     const elapsed = performance.now() - start

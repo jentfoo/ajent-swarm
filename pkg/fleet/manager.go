@@ -27,8 +27,7 @@ const (
 	stopActorWait = 5 * time.Second
 )
 
-// maxExitedPinned caps how many exited swarm children stay listed, so a day
-// of launching never buries the grid in dead rows. The most recent ones win.
+// maxExitedPinned caps listed exited children so a day of launches can't bury the grid.
 const maxExitedPinned = 4
 
 // ErrUnknownSession reports a subscribe or command naming no tracked instance.
@@ -106,7 +105,7 @@ type Manager struct {
 	nextSubID      int64 // manager-owned subscription identity
 	nudge          chan struct{}
 	children       map[int]*childProc // by pid, running and exited
-	childBySession map[string]int
+	childBySession map[string]*childProc
 	named          map[string]struct{} // sessions whose auto-name already ran
 	titles         map[string]string   // cached display titles, mirrored from TitleStore
 	titleModel     string              // cached titling model, mirrored from SettingStore
@@ -139,8 +138,9 @@ func New(opts Options) *Manager {
 		bySession:       make(map[string]map[int64]*subscription),
 		nudge:           make(chan struct{}, 1),
 		children:        make(map[int]*childProc),
-		childBySession:  make(map[string]int),
+		childBySession:  make(map[string]*childProc),
 		named:           make(map[string]struct{}),
+		titles:          make(map[string]string),
 	}
 	if m.optsOwned == nil {
 		m.optsOwned = func(ctl.Instance) bool { return false }
@@ -175,10 +175,10 @@ func (m *Manager) Start(ctx context.Context) {
 	m.ctx, m.cancel = context.WithCancel(ctx)
 	m.storeCtx = context.WithoutCancel(ctx)
 	if m.titleStore != nil {
-		m.loadTitles(ctx, m.titleStore)
+		m.loadTitles(ctx)
 	}
 	if m.settingStore != nil {
-		m.loadSettings(ctx, m.settingStore)
+		m.loadSettings(ctx)
 	}
 	m.adopt(ctx)
 	m.wg.Add(1)
@@ -225,7 +225,7 @@ func (m *Manager) watch(ctx context.Context) {
 		case <-m.nudge: // a fresh child wants attaching without the wait
 		}
 		m.reconcileAdopted()
-		if err := m.diff(); err != nil { //nolint:contextcheck // actors bind their context at spawn; requests cross the mailbox, not call chains
+		if err := m.diff(); err != nil { //nolint:contextcheck // actors bind ctx at spawn, not per call
 			m.log.Warn("discovery failed", "err", err)
 			interval = min(interval*2, pollErrorMax)
 			continue
@@ -306,7 +306,7 @@ func (m *Manager) diff() error {
 		m.wg.Add(1)
 		go func() {
 			defer m.wg.Done()
-			a.run() //nolint:contextcheck // the actor binds its context at spawn; requests cross the mailbox, not calls
+			a.run() //nolint:contextcheck // the actor binds ctx at spawn, not per call
 		}()
 		for _, sub := range adopt {
 			select { // a fresh actor drains its mailbox promptly
@@ -394,7 +394,14 @@ func (m *Manager) Subscribe(sessionID string, deliver func([]byte), onDrop func(
 		return nil, ErrUnknownSession
 	}
 	m.nextSubID++
-	sub := newSubscription(m.nextSubID, sessionID, deliver, onDrop)
+	sub := &subscription{
+		id:        m.nextSubID,
+		sessionID: sessionID,
+		q:         make(chan []byte, subQueue),
+		closed:    make(chan struct{}),
+		deliver:   deliver,
+		onDrop:    onDrop,
+	}
 	m.registerLocked(sub)
 	sub.hostKey = a.key // the actor serving this subscription, until a rebind moves it
 	m.mu.Unlock()
@@ -413,7 +420,7 @@ func (m *Manager) Subscribe(sessionID string, deliver func([]byte), onDrop func(
 
 // Unsubscribe ends one subscription.
 func (m *Manager) Unsubscribe(s *Subscription) {
-	if s == nil || s.s == nil {
+	if s == nil {
 		return
 	}
 	m.detachSub(s.s)
@@ -422,7 +429,7 @@ func (m *Manager) Unsubscribe(s *Subscription) {
 // Resync re-pushes the init frame for an existing subscription, so a client
 // can rebuild after losing state without resubscribing.
 func (m *Manager) Resync(s *Subscription) {
-	if s == nil || s.s == nil {
+	if s == nil {
 		return
 	}
 	sub := s.s
@@ -548,10 +555,9 @@ func (m *Manager) Sessions() []Status {
 	alive := make([]Status, 0, len(bySession))
 	ended := make([]Status, 0, len(bySession))
 	for _, st := range bySession {
-		// titles fold here: refreshStatus already runs under the manager lock,
-		// so the cached titles cannot be read there without deadlocking
+		// titleFor takes the manager lock, so labels fold in here
 		st.Title = m.titleFor(st.SessionID)
-		if sessionEnded(st.State) {
+		if st.State == ChildExited || st.State == ChildGone {
 			ended = append(ended, *st)
 		} else {
 			alive = append(alive, *st)
@@ -570,11 +576,6 @@ func (m *Manager) Sessions() []Status {
 	return append(alive, ended...)
 }
 
-// sessionEnded reports whether a listing state means the run is over.
-func sessionEnded(state string) bool {
-	return state == ChildExited || state == ChildGone
-}
-
 // MaxDigestText caps one digest reason or preview, mirroring the rewind
 // label cap: display text, never a data channel.
 const MaxDigestText = 160
@@ -591,7 +592,7 @@ func digestText(s string) string {
 	return s
 }
 
-// Attention is one live session's row of the cheap inbox feed.
+// Attention is one live session's row of the cheap focus feed.
 type Attention struct {
 	SessionID        string `json:"sessionId"`
 	PID              int    `json:"pid,omitempty"`
@@ -601,7 +602,7 @@ type Attention struct {
 	Idle             bool   `json:"idle"`
 	LastTurnEnd      int64  `json:"lastTurnEnd,omitempty"` // unix milliseconds
 
-	// Digest facts behind the inbox rail's reasons and waits.
+	// Digest facts behind the focus rail's reasons and waits.
 	DialogID     uint64 `json:"dialogId,omitempty"`
 	DialogPrompt string `json:"dialogPrompt,omitempty"`
 	DialogAt     int64  `json:"dialogAt,omitempty"` // unix milliseconds
@@ -621,7 +622,7 @@ func (m *Manager) Attention() []Attention {
 	out := make([]Attention, 0, len(actors))
 	for _, a := range actors {
 		st := a.status.Load()
-		if st.State == ChildExited || !st.served {
+		if !st.serving() {
 			continue // never attached or already ended: nothing to attend to
 		}
 		out = append(out, Attention{
@@ -656,7 +657,7 @@ func (m *Manager) LastBusyAt() time.Time {
 	now := time.Now()
 	for _, a := range actors {
 		st := a.status.Load()
-		if st.State == ChildExited || !st.served {
+		if !st.serving() {
 			continue // ended sessions are not working on anything anymore
 		}
 		if st.Running || st.Spinning || st.OpenInteractions > 0 {
@@ -708,16 +709,4 @@ func childStatus(rec ChildRecord) Status {
 // Subscription is the caller's handle on one stream registration.
 type Subscription struct {
 	s *subscription
-}
-
-// newSubscription builds the fanout-side subscription record.
-func newSubscription(id int64, sessionID string, deliver func([]byte), onDrop func()) *subscription {
-	return &subscription{
-		id:        id,
-		sessionID: sessionID,
-		q:         make(chan []byte, subQueue),
-		closed:    make(chan struct{}),
-		deliver:   deliver,
-		onDrop:    onDrop,
-	}
 }

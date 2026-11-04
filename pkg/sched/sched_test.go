@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -254,6 +255,14 @@ func (h *testHarness) jobByID(id int64) store.Job {
 	return j
 }
 
+// submittedPrompt reads back the first prompt line the runner received.
+func (h *testHarness) submittedPrompt() string {
+	h.t.Helper()
+	h.runner.mu.Lock()
+	defer h.runner.mu.Unlock()
+	return h.runner.submits[0].Line
+}
+
 func testLogger() *slog.Logger { return slog.New(slog.DiscardHandler) }
 
 // noRefire watches one job across a quiet window and fails if a second run
@@ -453,12 +462,9 @@ func TestSchedulerManualFireWorksForDisabledJobs(t *testing.T) {
 
 	h.runner.mu.Lock()
 	subs := len(h.runner.submits)
-	prompt := ""
-	if subs > 0 {
-		prompt = h.runner.submits[0].Line
-	}
 	stopped := slices.Clone(h.runner.stopped)
 	h.runner.mu.Unlock()
+	prompt := h.submittedPrompt()
 
 	// the prompt went out with the run's own pendingId, and the session was
 	// torn down because the job keeps nothing alive
@@ -619,12 +625,7 @@ func TestSchedulerTriggerCommandGate(t *testing.T) {
 		h.start(t.Context())
 
 		run := h.waitForRun(id, store.RunOK)
-		h.runner.mu.Lock()
-		prompt := ""
-		if len(h.runner.submits) > 0 {
-			prompt = h.runner.submits[0].Line
-		}
-		h.runner.mu.Unlock()
+		prompt := h.submittedPrompt()
 
 		assert.Contains(t, prompt, "Pre-run command `echo deployed` succeeded")
 		assert.True(t, strings.HasSuffix(prompt, "do the thing"))
@@ -683,13 +684,7 @@ func TestSchedulerTriggerCommandGate(t *testing.T) {
 		})
 		h.start(t.Context())
 		h.waitForRun(id, store.RunOK)
-
-		h.runner.mu.Lock()
-		prompt := ""
-		if len(h.runner.submits) > 0 {
-			prompt = h.runner.submits[0].Line
-		}
-		h.runner.mu.Unlock()
+		prompt := h.submittedPrompt()
 
 		assert.Contains(t, prompt, "line one\nline two")
 		assert.True(t, strings.HasSuffix(prompt, "summarize the changes"))
@@ -706,5 +701,44 @@ func TestSchedulerTriggerCommandGate(t *testing.T) {
 		h.start(t.Context())
 		run := h.waitForRun(id, store.RunSkipped)
 		assert.Empty(t, run.SessionID)
+	})
+
+	t.Run("gate_runs_in_job_workspace", func(t *testing.T) {
+		h := newHarness(t, nil)
+		ws := t.TempDir()
+		slot := time.Now().Add(10 * time.Millisecond)
+		id := h.addJob("gate-workspace", func(j *store.Job) {
+			j.NextRunAt = &slot
+			j.Prompt = "do the thing"
+			j.Workspace = ws
+			j.TriggerCommand = "pwd"
+		})
+		h.start(t.Context())
+		run := h.waitForRun(id, store.RunOK)
+		prompt := h.submittedPrompt()
+
+		assert.Empty(t, run.Error)
+		assert.Contains(t, prompt, "Pre-run command `pwd` succeeded")
+		assert.Contains(t, prompt, ws)
+	})
+
+	t.Run("empty_workspace_inherits_cwd", func(t *testing.T) {
+		h := newHarness(t, nil)
+		slot := time.Now().Add(10 * time.Millisecond)
+		id := h.addJob("gate-inherit", func(j *store.Job) {
+			j.NextRunAt = &slot
+			j.Prompt = "do the thing"
+			j.Workspace = "" // an optional/legacy field must not break firing
+			j.TriggerCommand = "pwd"
+		})
+		h.start(t.Context())
+		run := h.waitForRun(id, store.RunOK)
+		prompt := h.submittedPrompt()
+
+		wd, err := os.Getwd() // the gate ran from swarm's own working directory
+		require.NoError(t, err)
+		assert.Empty(t, run.Error)
+		assert.Contains(t, prompt, "Pre-run command `pwd` succeeded")
+		assert.Contains(t, prompt, wd)
 	})
 }

@@ -60,7 +60,7 @@ func (s *Scheduler) execute(run store.Run, j store.Job) {
 
 	prompt := j.Prompt
 	if gate := strings.TrimSpace(j.TriggerCommand); gate != "" {
-		out, code, err := runTriggerCommand(ctx, gate)
+		out, code, err := runTriggerCommand(ctx, strings.TrimSpace(j.Workspace), gate)
 		passed, why := gatePassed(j.TriggerOn, code, err)
 		if !passed { // the schedule already advanced; history records the veto
 			s.finish(run, j, store.RunSkipped, why)
@@ -436,12 +436,15 @@ func (s *Scheduler) stopAfter(run store.Run) bool {
 
 // runTriggerCommand executes one gate under sh -c with a bounded wait,
 // returning its combined output and exit code; an interrupted context or a
-// timeout reports the Go error instead.
-func runTriggerCommand(ctx context.Context, command string) (string, int, error) {
+// timeout reports the Go error instead. The empty dir inherits swarm's cwd.
+func runTriggerCommand(ctx context.Context, dir, command string) (string, int, error) {
 	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), triggerCommandTimeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(rctx, "sh", "-c", command)
+	if dir != "" { // an optional/legacy empty workspace keeps the inherit
+		cmd.Dir = dir
+	}
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		code := -1

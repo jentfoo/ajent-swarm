@@ -72,12 +72,19 @@ export function ToolCallCard({
 }
 
 // SubAgentState lists each sub-agent job's own state line, so queued work is
-// visible before it starts and progress replaces a generic spinner.
+// visible before it starts and progress replaces a generic spinner. Upstream
+// rows run long (~2048 runes): CSS clamps them to one line and title keeps
+// the full text on hover.
 export function SubAgentState({ rows }: { rows: ActivityRow[] }) {
   return (
     <div className="subagent-state" aria-label="Sub-agent jobs">
       {rows.map((row) => (
-        <span key={row.key} className="badge sub-agent-chip" data-sub-key={row.key}>
+        <span
+          key={row.key}
+          className="badge sub-agent-chip"
+          data-sub-key={row.key}
+          title={row.text}
+        >
           {row.text}
         </span>
       ))}

@@ -3,20 +3,25 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { TitleModelSelect } from './TitleModelSelect'
+import type { ModelState } from '../api/types'
 
-// The swarm-level titling model picker: registry union options, the default
-// selection for an unset value, and a stored-but-missing model flagged rather
-// than silently dropped.
-const REGISTRY = [
-  { key: 'a/sonnet', short: 'sonnet', window: 0, caps: {} },
-  { key: 'a/haiku', short: 'haiku', window: 0, caps: {} },
-]
+// The swarm-level titling model picker: registry union options grouped per
+// provider, the default selection for an unset value, and a stored-but-missing
+// model flagged rather than silently dropped.
+const model = (key: string, short: string): ModelState => ({
+  key,
+  short,
+  window: 0,
+  caps: { reasoning: false, images: false, parallelToolCalls: false },
+})
+
+const REGISTRY = [model('a/sonnet', 'sonnet'), model('a/haiku', 'haiku')]
 
 afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-function mockBackend(stored: string, put?: (model: string) => Response) {
+function mockBackend(stored: string, put?: (model: string) => Response, registry = REGISTRY) {
   return vi.fn(async (url: string | URL, init?: RequestInit) => {
     const path = String(url).split('?')[0]
     if (path === '/api/settings') {
@@ -24,7 +29,7 @@ function mockBackend(stored: string, put?: (model: string) => Response) {
         return put?.(JSON.parse(String(init.body)).titleModel) ?? Response.json({})
       return Response.json({ titleModel: stored })
     }
-    if (path === '/api/models/options') return Response.json(REGISTRY)
+    if (path === '/api/models/options') return Response.json(registry)
     throw new Error(`unexpected fetch ${String(url)}`)
   })
 }
@@ -50,6 +55,40 @@ describe('TitleModelSelect', () => {
     const select = await screen.findByLabelText('Session titling model')
     expect(select).toHaveValue('a/gone')
     expect(screen.getByText('a/gone (missing)')).toBeInTheDocument()
+  })
+
+  it('groups options per provider and keeps the full key as the value', async () => {
+    // same short name under two providers plus a bare key with no slash
+    vi.stubGlobal(
+      'fetch',
+      mockBackend('z/gone', undefined, [
+        model('anthropic/sonnet', 'sonnet'),
+        model('openai/sonnet', 'sonnet'),
+        model('local-tuned', 'local-tuned'),
+      ]),
+    )
+    render(<TitleModelSelect />)
+
+    const select = await screen.findByLabelText('Session titling model')
+    expect(select).toHaveValue('z/gone')
+    const groups = [...select.querySelectorAll('optgroup')]
+    expect(groups.map((g) => g.getAttribute('label'))).toEqual(['anthropic', 'openai'])
+    // every option keeps its full key as the value, inside or outside a group
+    expect([...select.querySelectorAll('option')].map((o) => o.value)).toEqual([
+      '',
+      'anthropic/sonnet',
+      'openai/sonnet',
+      'local-tuned',
+      'z/gone',
+    ])
+    // keys without a provider prefix and the stored-but-missing model render
+    // ungrouped with their full key text
+    const topLevel = [...select.children].filter((el) => el.tagName === 'OPTION')
+    expect(topLevel.map((o) => o.textContent)).toEqual([
+      'Session model (default)',
+      'local-tuned',
+      'z/gone (missing)',
+    ])
   })
 
   it('saves the pick and switches to the default', async () => {

@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { StatusBar, contextLevel } from './StatusBar'
 import { ToolsPanel } from './ToolsPanel'
+import { SubAgentState } from './ToolCallCard'
 import type { CtlState } from '../api/types'
 import type { LiveTurn } from '../state/eventApplier'
 
@@ -117,6 +118,17 @@ describe('StatusBar segments', () => {
     expect(contextLevel(100_000, 200_000, 150_000)).toBe('')
     expect(contextLevel(110_000, 200_000, 150_000)).toBe('warn')
     expect(contextLevel(140_000, 200_000, 150_000)).toBe('danger')
+  })
+})
+
+describe('SubAgentState chips', () => {
+  it('renders a long sub- row with the full text kept on hover', () => {
+    // upstream caps one activity line near 2048 runes; the clamp is CSS-only
+    const text = `sub-1 running: ${'x'.repeat(2100)}`
+    render(<SubAgentState rows={[{ key: 'sub-1', text, rank: 0 }]} />)
+    const chip = screen.getByText(text)
+    expect(chip).toHaveClass('sub-agent-chip')
+    expect(chip).toHaveAttribute('title', text)
   })
 })
 

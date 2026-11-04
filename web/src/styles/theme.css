@@ -1778,7 +1778,12 @@ label {
   gap: calc(var(--unit) * 1);
   margin: calc(var(--unit) * 1) 0;
 }
+/* rows run long upstream (~2048 runes); clamp keeps the bar one line tall */
 .sub-agent-chip {
+  max-width: 28rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-size: var(--fs-small);
 }
 

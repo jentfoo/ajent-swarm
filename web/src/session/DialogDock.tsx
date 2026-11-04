@@ -57,7 +57,8 @@ export function DialogDock({
 // ResolvedChip self-dismisses after a few seconds and leaves on click, so an
 // answer decided elsewhere never becomes residue. The timer runs once per id:
 // the callback rides a ref, so parent re-renders from streaming or polling
-// never reset the clock.
+// never reset the clock. The line stays terse; hover keeps which dialog
+// settled and what was picked.
 function ResolvedChip({
   outcome,
   onDismiss,
@@ -74,7 +75,7 @@ function ResolvedChip({
     return () => clearTimeout(timer)
   }, [outcome.id])
 
-  const what = outcome.cancelled
+  const detail = outcome.cancelled
     ? 'cancelled'
     : outcome.indexes !== undefined && outcome.indexes.length > 0
       ? `answered: options ${outcome.indexes.map((i) => i + 1).join(', ')}`
@@ -88,10 +89,10 @@ function ResolvedChip({
       type="button"
       className="card resolved-dialog"
       role="status"
-      title="Dismiss"
+      title={`Dialog ${outcome.id} answered elsewhere — ${detail}`}
       onClick={() => onDismiss(outcome.id)}
     >
-      Dialog {outcome.id} answered elsewhere — {what}
+      {outcome.cancelled ? 'Dialog cancelled' : 'Dialog answered'}
     </button>
   )
 }

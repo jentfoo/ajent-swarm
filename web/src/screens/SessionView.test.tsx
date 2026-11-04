@@ -400,7 +400,7 @@ describe('SessionView', () => {
     )
 
     // a resolved state from the settled payload, never an error
-    expect(await screen.findByText(/answered elsewhere/)).toBeInTheDocument()
+    expect(await screen.findByText('Dialog answered')).toBeInTheDocument()
     await waitFor(() => expect(screen.queryByText('Pick one')).not.toBeInTheDocument())
   })
 

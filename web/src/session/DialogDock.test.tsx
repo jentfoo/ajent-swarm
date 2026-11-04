@@ -140,7 +140,9 @@ describe('DialogDock shape mapping', () => {
 
   it('shows outcomes answered elsewhere as resolved states', () => {
     dock([], [{ id: 9, answered: true, cancelled: false, index: 1 }])
-    expect(screen.getByText(/Dialog 9 answered elsewhere — answered: option 2/)).toBeInTheDocument()
+    const chip = screen.getByText('Dialog answered')
+    // the terse line keeps its detail one hover away: which dialog and the pick
+    expect(chip).toHaveAttribute('title', 'Dialog 9 answered elsewhere — answered: option 2')
 
     const { unmount } = render(
       <DialogDock
@@ -151,14 +153,20 @@ describe('DialogDock shape mapping', () => {
         onOutcomeDismissed={() => {}}
       />,
     )
-    expect(screen.getByText(/Dialog 10 answered elsewhere — cancelled/)).toBeInTheDocument()
+    expect(screen.getByText('Dialog cancelled')).toBeInTheDocument()
     unmount()
+  })
+
+  it('summarizes multi picks on hover', () => {
+    dock([], [{ id: 12, answered: true, cancelled: false, indexes: [0, 2] }])
+    const chip = screen.getByText('Dialog answered')
+    expect(chip).toHaveAttribute('title', 'Dialog 12 answered elsewhere — answered: options 1, 3')
   })
 
   it('dismisses an outcome on click and never re-renders it', async () => {
     const user = userEvent.setup()
     const { onOutcomeDismissed } = dock([], [{ id: 9, answered: true, cancelled: false, index: 1 }])
-    await user.click(screen.getByText(/Dialog 9 answered elsewhere/))
+    await user.click(screen.getByText('Dialog answered'))
     expect(onOutcomeDismissed).toHaveBeenCalledWith(9)
   })
 
@@ -166,7 +174,7 @@ describe('DialogDock shape mapping', () => {
     vi.useFakeTimers()
     try {
       const { onOutcomeDismissed } = dock([], [{ id: 11, cancelled: true, answered: false }])
-      expect(screen.getByText(/Dialog 11 answered elsewhere/)).toBeInTheDocument()
+      expect(screen.getByText('Dialog cancelled')).toBeInTheDocument()
 
       await act(() => vi.advanceTimersByTimeAsync(4_000))
       expect(onOutcomeDismissed).toHaveBeenCalledWith(11)

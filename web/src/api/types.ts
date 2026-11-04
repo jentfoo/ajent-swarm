@@ -194,7 +194,7 @@ export interface SessionStatus {
   lastTurnEnd?: number // unix milliseconds
   lastStop?: string // stop reason of the last finished turn
   lastStopErr?: string // transport or context failure that ended it
-  exitedAt?: number // unix milliseconds, exited swarm children only
+  exitedAt?: number // unix milliseconds, ended sessions
   spawnedBy: 'swarm' | 'external'
   argv?: string
   logPath?: string

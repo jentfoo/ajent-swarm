@@ -61,7 +61,7 @@ func TestChildren(t *testing.T) {
 		assert.Equal(t, "ajent: no model configured", rows[0].LogTail)
 	})
 
-	t.Run("insert if absent dedupes by pid", func(t *testing.T) {
+	t.Run("insert if absent dedupes", func(t *testing.T) {
 		st := newTestStore(t)
 		ctx := t.Context()
 
@@ -115,8 +115,6 @@ func TestChildren(t *testing.T) {
 	})
 }
 
-// The origin migration rebuilds the children table on an existing database:
-// legacy rows read as swarm and externals may leave argv and log_path null.
 func TestChildOriginMigration(t *testing.T) {
 	t.Parallel()
 
@@ -162,7 +160,7 @@ func TestChildOriginMigration(t *testing.T) {
 		assert.Equal(t, "/logs/77.log", rows[0].LogPath)
 	})
 
-	t.Run("external rows leave spawn facts null", func(t *testing.T) {
+	t.Run("externals leave spawn facts null", func(t *testing.T) {
 		t.Parallel()
 
 		st := newTestStore(t)

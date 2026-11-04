@@ -26,7 +26,7 @@ export interface SwitcherRow {
   reason: string // one-line digest reason when attention knows this session
   checkOff: boolean // a row that may be acknowledged; waiting rows refuse
   workspace?: string // carried from the listing, the resume target directory
-  exitedAt?: number // unix milliseconds, ended swarm children only
+  exitedAt?: number // unix milliseconds, ended sessions
 }
 
 // GroupedSwitcherRows is one rendered section: its id keys and styles the

@@ -502,7 +502,7 @@ func TestSessions(t *testing.T) {
 		assert.Empty(t, st.LogPath)
 	})
 
-	t.Run("live row ignores a stale exited record", func(t *testing.T) {
+	t.Run("live row ignores stale record", func(t *testing.T) {
 		m := New(Options{Log: testLogger()})
 		now := time.Now()
 		// an older instance's exited record beside its resumed replacement
@@ -533,9 +533,6 @@ func TestSessions(t *testing.T) {
 	})
 }
 
-// External sessions persist a children row at their first sighting, so the
-// listing keeps them once their record leaves discovery. The passes run by
-// hand against a stubbed discovery feed: the watch idles for the whole test.
 func TestExternalRetention(t *testing.T) {
 	t.Parallel()
 

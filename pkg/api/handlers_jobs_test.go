@@ -108,6 +108,12 @@ func (r *scriptRunner) StopSession(_ context.Context, sessionID string) error {
 	return nil
 }
 
+// ToolsSet answers nothing here: no API-level job test uses custom tools.
+func (r *scriptRunner) ToolsSet(_ context.Context, _ string,
+	_ []string) (ctl.ToolsSetResult, error) {
+	return ctl.ToolsSetResult{}, nil
+}
+
 func (r *scriptRunner) Subscribe(_ string, deliver func([]byte), _ func()) (*fleet.Subscription, error) {
 	r.mu.Lock()
 	r.deliver = deliver

@@ -7,8 +7,9 @@ import { defaultDraft } from './jobDraft'
 import type { Job } from '../api/types'
 
 // The editor is provider-free: it talks to /api/jobs/preview for its schedule
-// preview and workspace check, then to the jobs CRUD on save. Stubbed fetch
-// scripts those; the debounce settles against real timers.
+// preview and workspace check, then to the jobs CRUD on save. Tool options
+// arrive as a prop (EditorWithFacts loads them from /api/tools/options), but
+// the endpoint stays stubbed so the strict fetch default never trips.
 const storedJob: Job = {
   id: 3,
   name: 'nightly',
@@ -57,6 +58,15 @@ describe('JobEditor', () => {
           }
           return Promise.resolve(Response.json(previewReply))
         }
+        if (path === '/api/tools/options') {
+          return Promise.resolve(
+            Response.json([
+              { name: 'builtin:read', source: 'built-in' },
+              { name: 'builtin:web_search', source: 'built-in' },
+              { name: 'repo_search', source: 'mcp:repo' },
+            ]),
+          )
+        }
         if (path === '/api/jobs' && init?.method === 'POST') {
           const body = JSON.parse(String(init.body)) as Record<string, unknown>
           savedRoutes.push({ path, body })
@@ -78,10 +88,16 @@ describe('JobEditor', () => {
   })
 
   function renderEditor(props: Partial<Parameters<typeof JobEditor>[0]> = {}) {
+    const toolOptions: Parameters<typeof JobEditor>[0]['toolOptions'] = [
+      { name: 'builtin:read', source: 'built-in', enabled: false, readOnly: false },
+      { name: 'builtin:web_search', source: 'built-in', enabled: true, readOnly: false },
+      { name: 'repo_search', source: 'mcp:repo', enabled: true, readOnly: false },
+    ]
     return render(
       <JobEditor
         workspaces={['/repo', '/other']}
         models={['model-a']}
+        toolOptions={props.toolOptions ?? toolOptions}
         onSaved={props.onSaved ?? (() => {})}
         onCancel={props.onCancel ?? (() => {})}
         {...props}
@@ -283,5 +299,53 @@ describe('JobEditor', () => {
     const options = document.querySelectorAll('#job-timezones option')
     expect(options.length).toBeGreaterThan(0)
     expect(screen.getByLabelText(/Timezone/)).toHaveValue('UTC')
+  })
+
+  it('keeps a stored custom set checked when editing', () => {
+    renderEditor({
+      job: { ...storedJob, toolsCustom: true, tools: 'builtin:web_search,repo_search' },
+    })
+
+    expect(screen.getByRole('checkbox', { name: 'Custom tool set' })).toBeChecked()
+    // every option lists, with the stored selection checked and others not
+    expect(screen.getByRole('checkbox', { name: /builtin:read/ })).not.toBeChecked()
+    expect(screen.getByRole('checkbox', { name: /builtin:web_search/ })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: /repo_search/ })).toBeChecked()
+  })
+
+  it('hides the tool rows until the master checkbox turns on', () => {
+    renderEditor({ job: storedJob })
+
+    expect(screen.getByRole('checkbox', { name: 'Custom tool set' })).not.toBeChecked()
+    expect(screen.queryByRole('checkbox', { name: /builtin:read/ })).not.toBeInTheDocument()
+  })
+
+  it('says so when no live session could be read but keeps the stored list', () => {
+    renderEditor({
+      job: { ...storedJob, toolsCustom: true, tools: 'legacy_tool' },
+      toolOptions: [],
+    })
+
+    expect(screen.getByText(/No live session to read tool names from/)).toBeInTheDocument()
+    // the saved name still renders as a row, so the set stays editable
+    expect(screen.getByRole('checkbox', { name: /legacy_tool/ })).toBeChecked()
+  })
+
+  it('saves the joined custom list with its flag', async () => {
+    const user = userEvent.setup()
+    renderEditor()
+
+    await user.click(screen.getByRole('checkbox', { name: 'Custom tool set' }))
+    await user.click(screen.getByRole('checkbox', { name: /builtin:web_search/ }))
+    await user.click(screen.getByRole('checkbox', { name: /repo_search/ }))
+    await user.type(screen.getByRole('textbox', { name: /^Name/ }), 'tooled')
+    await user.type(screen.getByLabelText(/Workspace directory/), '/repo')
+    await user.click(screen.getByRole('button', { name: 'Create job' }))
+
+    await waitFor(() => expect(savedRoutes).toHaveLength(1))
+    expect(savedRoutes[0].body).toMatchObject({
+      toolsCustom: true,
+      tools: 'builtin:web_search,repo_search',
+    })
   })
 })

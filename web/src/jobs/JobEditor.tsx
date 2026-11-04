@@ -3,7 +3,7 @@ import type { FormEvent } from 'react'
 
 import { ApiError } from '../api/client'
 import { jobsApi } from '../api/endpoints'
-import type { Job, TriggerOn } from '../api/types'
+import type { Job, ToolState, TriggerOn } from '../api/types'
 import { defaultDraft, draftFromJob, idleDelayOptions, toPayload, validateDraft } from './jobDraft'
 import type { DraftErrors, JobDraft } from './jobDraft'
 import {
@@ -48,6 +48,7 @@ export function JobEditor({
   seed,
   workspaces,
   models,
+  toolOptions,
   onSaved,
   onCancel,
 }: {
@@ -55,6 +56,7 @@ export function JobEditor({
   seed?: JobDraft // pre-filled create, e.g. a duplicate of a stored row
   workspaces: string[]
   models: string[]
+  toolOptions: ToolState[] // live union; may be empty when nothing serves
   onSaved: (job: Job | undefined) => void // undefined after a delete
   onCancel: () => void
 }) {
@@ -95,6 +97,23 @@ export function JobEditor({
   }, [draft, job?.createdAt])
 
   const patch = (fields: Partial<JobDraft>) => setDraft((d) => ({ ...d, ...fields }))
+
+  // Tool rows to offer: the live union first, then stored names it no longer
+  // lists, so a saved custom set always stays visible and editable.
+  const toolRows = useMemo(() => {
+    const live = new Set(toolOptions.map((r) => r.name))
+    return [
+      ...toolOptions,
+      ...draft.tools.filter((name) => !live.has(name)).map((name) => ({ name, source: 'stored' })),
+    ]
+  }, [toolOptions, draft.tools])
+
+  const toggleTool = (name: string) =>
+    patch({
+      tools: draft.tools.includes(name)
+        ? draft.tools.filter((n) => n !== name)
+        : [...draft.tools, name],
+    })
 
   const save = async (ev: FormEvent) => {
     ev.preventDefault()
@@ -224,6 +243,44 @@ export function JobEditor({
               ))}
             </select>
           </label>
+
+          <div className="job-tools" role="group" aria-label="Tools">
+            <span className="check-row">
+              <input
+                type="checkbox"
+                id="job-custom-tools"
+                checked={draft.customTools}
+                onChange={(ev) => patch({ customTools: ev.target.checked })}
+              />
+              <label htmlFor="job-custom-tools">Custom tool set</label>
+            </span>
+
+            {draft.customTools && (
+              <>
+                {toolRows.map((row) => (
+                  <label key={row.name} className="tool-row">
+                    <input
+                      type="checkbox"
+                      checked={draft.tools.includes(row.name)}
+                      onChange={() => toggleTool(row.name)}
+                    />
+                    <span className="switch-name">{row.name}</span>
+                    <span className="muted tool-source">{row.source}</span>
+                  </label>
+                ))}
+                {toolOptions.length === 0 && (
+                  <p className="muted small-note">
+                    No live session to read tool names from; the saved list still applies.
+                  </p>
+                )}
+                {errors.tools && <FieldError text={errors.tools} />}
+                <p className="muted small-note">
+                  The chosen set replaces the session's defaults at launch; names this workspace
+                  does not have are ignored. An empty set runs with no tools at all.
+                </p>
+              </>
+            )}
+          </div>
         </div>
 
         <p className="muted small-note">

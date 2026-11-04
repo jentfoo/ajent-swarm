@@ -15,6 +15,7 @@ import type { IntervalUnit, WeekdayToken } from './schedule'
 
 export const maxNameLen = 200 // mirrors sched's bound
 export const maxTriggerLen = 2000 // mirrors sched's bound
+export const maxToolsLen = 2000 // mirrors sched's bound on the joined list
 const maxIntervalSeconds = 366 * 24 * 3600 // one leap year of seconds
 
 // Length bounds are server-side Go string lengths, so they count UTF-8 bytes.
@@ -52,6 +53,8 @@ export interface JobDraft {
   sessionTarget: string
   model: string
   permission: string
+  customTools: boolean // on replaces the launched session's default set
+  tools: string[] // enabled names; only meaningful while customTools holds
   commandPrefix: string // legacy stored rows round-trip untouched; no editor owns it
   prompt: string
   onMissed: MissPolicy
@@ -83,6 +86,8 @@ export function defaultDraft(): JobDraft {
     sessionTarget: '',
     model: '',
     permission: '',
+    customTools: false,
+    tools: [],
     commandPrefix: '',
     prompt: '',
     onMissed: 'skip',
@@ -115,6 +120,8 @@ export function draftFromJob(job: Job): JobDraft {
     sessionTarget: job.sessionTarget ?? '',
     model: job.model ?? '',
     permission: job.permission ?? '',
+    customTools: job.toolsCustom ?? false,
+    tools: parseToolList(job.tools),
     commandPrefix: job.commandPrefix ?? '',
     prompt: job.prompt ?? '',
     onMissed: job.onMissed,
@@ -158,6 +165,20 @@ function parseWeekdays(raw: string | undefined): WeekdayToken[] {
   return weekdayTokens.filter((t) => set.has(t))
 }
 
+// parseToolList reads the stored comma list onto names, dropping empties and
+// duplicates so a hand-edited row still opens; order follows the stored tokens.
+function parseToolList(raw: string | undefined): string[] {
+  if (!raw) return []
+  return [
+    ...new Set(
+      raw
+        .split(',')
+        .map((t) => t.trim())
+        .filter((t) => t !== ''),
+    ),
+  ]
+}
+
 // toPayload builds the request body a save or preview sends. Recurring jobs
 // never send nextRunAt, so an update recomputes their slot; editing rides
 // createdAt along for previews to anchor interval slots exactly as the saved
@@ -171,6 +192,10 @@ export function toPayload(draft: JobDraft, id?: number): Partial<Job> {
     sessionTarget: draft.sessionTarget.trim(),
     model: draft.model.trim(),
     permission: draft.permission,
+    toolsCustom: draft.customTools,
+    // the server clears the stored list when custom is off; sending the empty
+    // string keeps every client's payload describing the same row
+    tools: draft.customTools ? draft.tools.join(',') : '',
     commandPrefix: draft.commandPrefix,
     prompt: draft.prompt,
     enabled: draft.enabled,
@@ -255,6 +280,9 @@ export function validateDraft(draft: JobDraft): DraftErrors {
   // the server trims before checking, so the bound applies to the trimmed value
   if (byteLength(draft.triggerCommand.trim()) > maxTriggerLen)
     errors.triggerCommand = `Trigger command must be at most ${maxTriggerLen} characters.`
+  // the joined form is what the server stores, so it bounds the same way
+  if (draft.customTools && byteLength(draft.tools.join(',')) > maxToolsLen)
+    errors.tools = `Tool list must be at most ${maxToolsLen} characters.`
   return errors
 }
 

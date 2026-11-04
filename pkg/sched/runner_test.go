@@ -3,6 +3,7 @@ package sched
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -255,6 +256,68 @@ func TestWatcherFailsWhenSubmitNeverLands(t *testing.T) {
 	)
 	assert.Equal(t, store.RunTimeout, status)
 	assert.Contains(t, note, "never accepted")
+}
+
+// fireWithTools schedules one custom-tools job with a prompt; the once slot
+// lands just in the future.
+func (h *testHarness) fireWithTools(name, tools string) int64 {
+	return h.addJob(name, func(j *store.Job) {
+		j.Prompt = "run the checks"
+		j.ToolsCustom = true
+		j.Tools = tools
+		slot := time.Now().Add(10 * time.Millisecond)
+		j.NextRunAt = &slot
+	})
+}
+
+func TestSchedulerAppliesCustomToolsBeforeSubmit(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, nil)
+	id := h.fireWithTools("tooled", " web_search , builtin:read ")
+	h.start(t.Context())
+
+	h.waitForRun(id, store.RunOK)
+
+	h.runner.mu.Lock()
+	defer h.runner.mu.Unlock()
+	// the set applied once, parsed onto clean names, ahead of the prompt so
+	// ajent's widen-only rule never sees a dispatched turn first
+	require.Len(h.t, h.runner.toolsSets, 1)
+	assert.Equal(t, []string{"builtin:read", "web_search"}, h.runner.toolsSets[0])
+	assert.Equal(t, []string{"tools", "submit"}, h.runner.ops)
+}
+
+func TestSchedulerDefaultJobNeverTouchesTools(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, nil)
+	id := h.addJob("default-tools", func(j *store.Job) {
+		j.Prompt = "run the checks"
+		slot := time.Now().Add(10 * time.Millisecond)
+		j.NextRunAt = &slot
+	})
+	h.start(t.Context())
+
+	h.waitForRun(id, store.RunOK)
+
+	h.runner.mu.Lock()
+	defer h.runner.mu.Unlock()
+	assert.Empty(h.t, h.runner.toolsSets) // session defaults stay untouched
+}
+
+func TestSchedulerToolsSetFailureFailsTheRun(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, nil)
+	h.runner.toolsSetErr = errors.New("no tool gate on this session") // not retriable
+	id := h.fireWithTools("tooled-broken", "builtin:read")
+	h.start(t.Context())
+
+	run := h.waitForRun(id, store.RunFailed)
+	assert.Contains(t, run.Error, "no tool gate")
+
+	// the prompt never landed behind the failed reshape
+	h.runner.mu.Lock()
+	defer h.runner.mu.Unlock()
+	assert.Empty(h.t, h.runner.submits)
 }
 
 func TestSubmitRetriesThroughRefusals(t *testing.T) {

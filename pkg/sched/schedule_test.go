@@ -1,6 +1,8 @@
 package sched
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -434,6 +436,50 @@ func TestNextAfterIntervalWithWeekdays(t *testing.T) {
 	next, err = s.NextAfter(created, atZone(t, "UTC", "2025-05-03 06:00:00"))
 	require.NoError(t, err)
 	assert.Equal(t, "2025-05-09 00:00", next.Format("2006-01-02 15:04"))
+}
+
+func TestValidateJobTools(t *testing.T) {
+	t.Parallel()
+
+	t.Run("custom_off_clears_tools", func(t *testing.T) {
+		j := sampleJob(store.ScheduleInterval)
+		j.Workspace = t.TempDir()
+		j.ToolsCustom = false
+		j.Tools = "builtin:read"
+		require.NoError(t, ValidateJob(&j))
+		assert.Empty(t, j.Tools) // the stored list never outlives its flag
+	})
+
+	t.Run("custom_on_normalizes", func(t *testing.T) {
+		j := sampleJob(store.ScheduleInterval)
+		j.Workspace = t.TempDir()
+		j.ToolsCustom = true
+		j.Tools = " web_search , builtin:read,,web_search "
+		require.NoError(t, ValidateJob(&j))
+		assert.Equal(t, "builtin:read,web_search", j.Tools)
+	})
+
+	t.Run("custom_on_empty_runs_tool_less", func(t *testing.T) {
+		j := sampleJob(store.ScheduleInterval)
+		j.Workspace = t.TempDir()
+		j.ToolsCustom = true // an empty list is a valid tool-less set
+		require.NoError(t, ValidateJob(&j))
+		assert.Empty(t, j.Tools)
+	})
+
+	t.Run("oversized_list_rejected", func(t *testing.T) {
+		j := sampleJob(store.ScheduleInterval)
+		j.Workspace = t.TempDir()
+		j.ToolsCustom = true
+		names := make([]string, maxPrefixLen/10+2) // distinct names never collapse
+		for i := range names {
+			names[i] = fmt.Sprintf("tool-%04d", i)
+		}
+		j.Tools = strings.Join(names, ",")
+		err := ValidateJob(&j)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "tools")
+	})
 }
 
 func TestValidateJobTriggerFields(t *testing.T) {

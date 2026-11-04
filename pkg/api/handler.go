@@ -55,6 +55,7 @@ var apiMethods = map[string]string{
 	"/api/attention":                   http.MethodGet,
 	"/api/models":                      http.MethodGet,
 	"/api/models/options":              http.MethodGet,
+	"/api/tools/options":               http.MethodGet,
 	"/api/settings":                    "GET, PUT",
 	"/api/saved-sessions":              http.MethodGet,
 	"/api/saved-sessions/{id}/entries": http.MethodGet,
@@ -139,6 +140,7 @@ func Handler(cfg Config) http.Handler {
 	apiMux.HandleFunc("GET /api/attention", srv.handleAttention)
 	apiMux.HandleFunc("GET /api/models", srv.handleModels)
 	apiMux.HandleFunc("GET /api/models/options", srv.handleModelOptions)
+	apiMux.HandleFunc("GET /api/tools/options", srv.handleToolOptions)
 	apiMux.HandleFunc("GET /api/settings", srv.handleSettingsGet)
 	apiMux.HandleFunc("PUT /api/settings", srv.handleSettingsSet)
 	apiMux.HandleFunc("GET /api/saved-sessions", srv.handleSavedSessions)

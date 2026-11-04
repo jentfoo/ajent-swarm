@@ -89,6 +89,8 @@ describe('JobsHome', () => {
         if (base === '/api/sessions' || base === '/api/attention' || base === '/api/models') {
           return Promise.resolve(Response.json([]))
         }
+        // EditorWithFacts loads tool options beside the models listing
+        if (base === '/api/tools/options') return Promise.resolve(Response.json([]))
         if (base === '/api/jobs/preview') return Promise.resolve(Response.json({ times: [] }))
         if (base === '/api/jobs' && init?.method === 'POST') {
           const body = JSON.parse(String(init.body)) as Record<string, unknown>

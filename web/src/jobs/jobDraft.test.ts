@@ -6,6 +6,7 @@ import {
   duplicateDraft,
   localInputToDate,
   maxNameLen,
+  maxToolsLen,
   maxTriggerLen,
   toPayload,
   validateDraft,
@@ -226,6 +227,67 @@ describe('duplicateDraft', () => {
     const daily = duplicateDraft(stored)
     expect(daily.onceAt).not.toBe('') // the stored next slot still round-trips
     expect(daily.dailyTime).toBe('09:00')
+  })
+})
+
+describe('tool selection', () => {
+  it('round-trips a custom list through draft and payload', () => {
+    const job = { ...stored, toolsCustom: true, tools: 'builtin:read,builtin:web_search' }
+    const draft = draftFromJob(job)
+    expect(draft.customTools).toBe(true)
+    expect(draft.tools).toEqual(['builtin:read', 'builtin:web_search'])
+
+    const payload = toPayload(draft, job.id)
+    expect(payload.toolsCustom).toBe(true)
+    expect(payload.tools).toBe('builtin:read,builtin:web_search')
+  })
+
+  it('drops junk from a hand-edited stored list', () => {
+    const draft = draftFromJob({
+      ...stored,
+      toolsCustom: true,
+      tools: ' builtin:read ,,builtin:read,',
+    })
+    expect(draft.tools).toEqual(['builtin:read'])
+  })
+
+  it('clears the payload tools when custom is off', () => {
+    const draft = { ...defaultDraft(), name: 'j', workspace: '/w' }
+    const payload = toPayload({ ...draft, tools: ['builtin:read'] })
+    expect(payload.toolsCustom).toBe(false)
+    expect(payload.tools).toBe('') // the server stores no list without the flag
+  })
+
+  it('keeps a custom set through duplication', () => {
+    const job = { ...stored, toolsCustom: true, tools: 'builtin:read' }
+    const draft = duplicateDraft(job)
+    expect(draft.customTools).toBe(true)
+    expect(draft.tools).toEqual(['builtin:read'])
+  })
+
+  it('bounds the joined list like the server does', () => {
+    const draft = {
+      ...defaultDraft(),
+      name: 'j',
+      workspace: '/w',
+      customTools: true,
+      tools: ['x'.repeat(maxToolsLen + 1)],
+    }
+    expect(validateDraft(draft)).toHaveProperty('tools')
+
+    const fits = { ...draft, tools: ['builtin:read'] }
+    expect(validateDraft(fits)).toEqual({})
+  })
+
+  it('ignores the list bound while custom is off', () => {
+    const draft = {
+      ...defaultDraft(),
+      name: 'j',
+      workspace: '/w',
+      customTools: false,
+      tools: ['x'.repeat(maxToolsLen + 1)],
+    }
+    expect(validateDraft(draft)).toEqual({})
   })
 })
 

@@ -39,6 +39,7 @@ const idleWindow = 10 * time.Minute
 type Runner interface {
 	Launch(ctx context.Context, req fleet.LaunchRequest) (fleet.LaunchResult, error)
 	Submit(ctx context.Context, sessionID string, params ctl.SubmitParams) error
+	ToolsSet(ctx context.Context, sessionID string, names []string) (ctl.ToolsSetResult, error)
 	StopSession(ctx context.Context, sessionID string) error
 	Subscribe(sessionID string, deliver func([]byte), onDrop func()) (*fleet.Subscription, error)
 	Unsubscribe(sub *fleet.Subscription)
@@ -87,6 +88,17 @@ func (s *Scheduler) execute(run store.Run, j store.Job) {
 	run.Prompt = prompt // the gate's output rides the stored row too
 	if err := s.store.UpdateRun(s.ctx, run); err != nil {
 		s.log.Warn("run session not persisted", "run", run.ID, "err", err)
+	}
+
+	// a custom set reshapes the fresh session before any prompt lands: ajent's
+	// tools.set is a free replacement until the first dispatched prompt. A set
+	// that never applies fails the run like a refused submit, since the job
+	// asked for a shape the session does not have.
+	if j.ToolsCustom {
+		if err := s.applyTools(ctx, run.SessionID, parseToolList(j.Tools)); err != nil {
+			s.finish(run, j, store.RunFailed, err.Error())
+			return
+		}
 	}
 
 	if prompt == "" { // a launcher job: serving is the whole deliverable
@@ -153,18 +165,15 @@ func (s *Scheduler) pump(sessionID string, out chan<- []byte, done <-chan struct
 	}
 }
 
-// submitPrompt delivers the run's prompt, retrying briefly so a still-starting
-// session or an old dialog that is about to clear does not fail the fire
-// outright. A refusal after the window lands in history instead of hanging.
-func (s *Scheduler) submitPrompt(ctx context.Context, run store.Run) error {
-	sessionID := run.SessionID
+// controlRetry drives one launch-time control call through the bounded retry
+// window submitPrompt and applyTools share: a still-starting session refuses
+// briefly, so retriable refusals wait theirs out while real rejections fail at
+// once. A refusal after the window lands in history instead of hanging.
+func (s *Scheduler) controlRetry(ctx context.Context, verb string, call func() error) error {
 	deadline := time.Now().Add(submitWait)
 	var last error
 	for {
-		err := s.runner.Submit(ctx, sessionID, ctl.SubmitParams{
-			Line:      run.Prompt,
-			PendingID: pendingID(run),
-		})
+		err := call()
 		if err == nil {
 			return nil
 		}
@@ -172,20 +181,41 @@ func (s *Scheduler) submitPrompt(ctx context.Context, run store.Run) error {
 
 		switch {
 		case ctx.Err() != nil:
-			return fmt.Errorf("submit cancelled: %w", ctx.Err())
+			return fmt.Errorf("%s cancelled: %w", verb, ctx.Err())
 		case time.Now().After(deadline):
-			return fmt.Errorf("submit refused after retrying for %s: %w",
-				submitWait, last)
+			return fmt.Errorf("%s refused after retrying for %s: %w",
+				verb, submitWait, last)
 		case retriable(err):
 			select { // brief pause between attempts
 			case <-ctx.Done():
-				return fmt.Errorf("submit cancelled: %w", ctx.Err())
+				return fmt.Errorf("%s cancelled: %w", verb, ctx.Err())
 			case <-time.After(submitEvery):
 			}
 		default:
-			return fmt.Errorf("submit refused: %s", err.Error())
+			return fmt.Errorf("%s refused: %s", verb, err.Error())
 		}
 	}
+}
+
+// submitPrompt delivers the run's prompt with its synthetic pendingId.
+func (s *Scheduler) submitPrompt(ctx context.Context, run store.Run) error {
+	return s.controlRetry(ctx, "submit", func() error {
+		return s.runner.Submit(ctx, run.SessionID, ctl.SubmitParams{
+			Line:      run.Prompt,
+			PendingID: pendingID(run),
+		})
+	})
+}
+
+// applyTools reshapes one launched session's enabled tool set. Unknown names
+// are ignored upstream, so a workspace missing a tool degrades to the rest of
+// the set; resumed or kept-alive sessions past their first prompt follow the
+// widen-only rule.
+func (s *Scheduler) applyTools(ctx context.Context, sessionID string, names []string) error {
+	return s.controlRetry(ctx, "tools", func() error {
+		_, err := s.runner.ToolsSet(ctx, sessionID, names)
+		return err
+	})
 }
 
 // retriable reports whether one submit refusal may clear on its own: a session

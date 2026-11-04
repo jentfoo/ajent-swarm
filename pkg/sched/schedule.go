@@ -288,6 +288,17 @@ func ValidateJob(j *store.Job) error {
 		return fmt.Errorf("unknown permission %q", j.Permission)
 	}
 
+	// A custom tool set is the whole enabled list at launch; the flag off
+	// means "session default, do not touch the tool set".
+	if !j.ToolsCustom {
+		j.Tools = ""
+	} else {
+		j.Tools = strings.Join(parseToolList(j.Tools), ",")
+	}
+	if len(j.Tools) > maxPrefixLen {
+		return fmt.Errorf("tools must be at most %d characters", maxPrefixLen)
+	}
+
 	switch j.OnMissed {
 	case "":
 		j.OnMissed = store.MissSkip
@@ -372,4 +383,19 @@ func weekdaysToken(weekdays []time.Weekday) string {
 		}
 	}
 	return strings.Join(names, ",")
+}
+
+// parseToolList reads a job's tool comma list onto names: tokens trimmed,
+// empties dropped and duplicates collapsed into canonical name order. An empty
+// or blank list parses as an intentional tool-less set.
+func parseToolList(s string) []string {
+	parts := strings.Split(s, ",")
+	names := make([]string, 0, len(parts))
+	for _, raw := range parts {
+		if name := strings.TrimSpace(raw); name != "" {
+			names = append(names, name)
+		}
+	}
+	slices.Sort(names)
+	return slices.Compact(names)
 }

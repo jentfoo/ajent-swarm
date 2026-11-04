@@ -27,12 +27,15 @@ type fakeRunner struct {
 	mu        sync.Mutex
 	launches  []fleet.LaunchRequest
 	submits   []ctl.SubmitParams
+	toolsSets [][]string // names per ToolsSet call, in order
+	ops       []string   // verb log across calls: "tools", "submit"
 	stopped   []string
 	subscribe int // subscribe calls the runner served
 
 	launchErr   error         // Launch fails with this when set
 	sessionID   string        // session id Launch returns
 	submitFailN int           // the first N submits fail as unavailable
+	toolsSetErr error         // ToolsSet fails with this when set
 	blockLaunch chan struct{} // set: Launch blocks until closed, per call
 	deliver     func([]byte)  // deliverer of the latest subscription
 	onDrop      func()
@@ -77,8 +80,19 @@ func (f *fakeRunner) Submit(_ context.Context, _ string, params ctl.SubmitParams
 		return ctl.Errf(ctl.CodeUnavailable, "session is still starting")
 	}
 	f.submits = append(f.submits, params)
+	f.ops = append(f.ops, "submit")
 	f.deliverToWatcher()
 	return nil
+}
+
+// ToolsSet records the requested set; toolsSetErr scripts a refusal.
+func (f *fakeRunner) ToolsSet(_ context.Context, _ string,
+	names []string) (ctl.ToolsSetResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.toolsSets = append(f.toolsSets, slices.Clone(names))
+	f.ops = append(f.ops, "tools")
+	return ctl.ToolsSetResult{}, f.toolsSetErr
 }
 
 // deliverToWatcher plays the landing sequence a real ajent emits after a

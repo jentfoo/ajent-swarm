@@ -83,10 +83,41 @@ func TestModelOptionsEndpoint(t *testing.T) {
 	assert.Equal(t, "haiku", got[0].Short)
 }
 
+func TestToolOptionsEndpoint(t *testing.T) {
+	h := newSessionAPI(t)
+	// snapshots seed each actor's view at attach, so they precede serving; the
+	// two sessions share one tool name, which the union must collapse
+	a := h.newStub("01TOOLSOPTS0000000000", fleettest.Options{})
+	a.SetSnapshot(ctl.State{
+		Tools: []ctl.ToolState{
+			{Name: "web_search", Source: "built-in"},
+			{Name: "repo_search", Source: "mcp:repo"},
+		},
+	})
+	h.serve(a)
+	b := h.newStub("01TOOLSOPTS0000000001", fleettest.Options{})
+	b.SetSnapshot(ctl.State{
+		Tools: []ctl.ToolState{
+			{Name: "bash", Source: "built-in"},
+			{Name: "repo_search", Source: "mcp:repo"}, // duplicates a's row
+		},
+	})
+	h.serve(b)
+
+	code, got := get[[]ctl.ToolState](h, "/api/tools/options")
+	require.Equal(t, http.StatusOK, code)
+	require.Len(t, got, 3)
+	// the union comes back sorted by name and carries each row's source
+	assert.Equal(t, "bash", got[0].Name)
+	assert.Equal(t, "repo_search", got[1].Name)
+	assert.Equal(t, "mcp:repo", got[1].Source)
+	assert.Equal(t, "web_search", got[2].Name)
+}
+
 func TestModelListsEmptyFleetBody(t *testing.T) {
 	h := newSessionAPI(t)
 
-	for _, path := range []string{"/api/models", "/api/models/options"} {
+	for _, path := range []string{"/api/models", "/api/models/options", "/api/tools/options"} {
 		resp := call(t, h.client, h.server.URL, http.MethodGet, path, nil)
 		require.Equal(t, http.StatusOK, resp.StatusCode)
 		raw, err := io.ReadAll(resp.Body)

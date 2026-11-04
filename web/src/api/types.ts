@@ -353,6 +353,8 @@ export interface Job {
   sessionTarget?: string
   model?: string
   permission?: string
+  tools?: string // comma list of enabled tool names; custom sets only
+  toolsCustom?: boolean // off keeps the launched session's default set
   enabled: boolean
   scheduleKind: ScheduleKind
   intervalSeconds?: number

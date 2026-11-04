@@ -55,3 +55,9 @@ func (s *apiServer) handleSettingsSet(w http.ResponseWriter, r *http.Request) {
 func (s *apiServer) handleModelOptions(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, orEmptySlice(s.fleet.ModelOptions(r.Context())))
 }
+
+// handleToolOptions serves the union of every live session's /tools rows:
+// the best-effort suggestion list job editors offer for a custom tool set.
+func (s *apiServer) handleToolOptions(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, orEmptySlice(s.fleet.ToolOptions(r.Context())))
+}

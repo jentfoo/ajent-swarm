@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 
 import { ApiError } from '../api/client'
-import { fleet, jobsApi, models as modelsApi, runsApi } from '../api/endpoints'
-import type { Job, Run, SavedSession } from '../api/types'
+import { fleet, jobsApi, models as modelsApi, runsApi, tools as toolsApi } from '../api/endpoints'
+import type { Job, Run, SavedSession, ToolState } from '../api/types'
 import { usePoll } from '../hooks/usePoll'
 import { useAuth } from '../providers/auth'
 import { useSwarm } from '../providers/swarm'
@@ -214,7 +214,8 @@ export default function JobsHome() {
 }
 
 // EditorWithFacts gathers the picker facts the editor suggests from: known
-// workspaces across live and saved sessions, model keys from live ones.
+// workspaces across live and saved sessions, model keys and tool rows from
+// live ones.
 function EditorWithFacts({
   job,
   seed,
@@ -229,6 +230,7 @@ function EditorWithFacts({
   const { sessions } = useSwarm()
   const [savedRows, setSavedRows] = useState<SavedSession[]>([])
   const [models, setModels] = useState<string[]>([])
+  const [toolOptions, setToolOptions] = useState<ToolState[]>([])
 
   // Suggestion sources load once; the live listing joins at render time.
   useEffect(() => {
@@ -253,6 +255,17 @@ function EditorWithFacts({
     }
   }, [])
 
+  useEffect(() => {
+    let alive = true
+    toolsApi
+      .options()
+      .then((rows) => alive && setToolOptions(rows))
+      .catch(() => {})
+    return () => {
+      alive = false
+    }
+  }, [])
+
   const workspaces = useMemo(() => {
     const seen: string[] = []
     for (const s of [...sessions, ...savedRows]) {
@@ -267,6 +280,7 @@ function EditorWithFacts({
       seed={seed}
       workspaces={workspaces}
       models={models}
+      toolOptions={toolOptions}
       onSaved={onSaved}
       onCancel={onClose}
     />

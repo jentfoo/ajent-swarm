@@ -28,6 +28,7 @@ import type {
   SettingsRowsReply,
   SubmitReply,
   ToolSetReply,
+  ToolState,
 } from './types'
 
 // Auth endpoints. Bootstrap answers 409 once a password already exists.
@@ -61,6 +62,12 @@ export const fleet = {
 export const models = {
   list: () => get<ModelRow[]>('/api/models'),
   options: (signal?: AbortSignal) => get<ModelState[]>('/api/models/options', { signal }),
+}
+
+// Tool options for swarm-level pickers: every live session's /tools rows
+// unioned by name, best-effort since availability differs per workspace.
+export const tools = {
+  options: (signal?: AbortSignal) => get<ToolState[]>('/api/tools/options', { signal }),
 }
 
 // Swarm-level settings, persisted in swarm's database across restarts.

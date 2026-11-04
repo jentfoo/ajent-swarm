@@ -1273,6 +1273,18 @@ label {
   margin: 0;
 }
 
+/* custom tool set inside the job editor's launch-facts grid: a master
+   checkbox plus chat-panel-styled rows, stacked across both columns */
+.job-tools {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--unit) * 2);
+}
+.job-tools .tool-row input {
+  margin: 0;
+}
+
 /* rename control: a quiet pencil beside session labels everywhere */
 .rename-control {
   padding: 0 calc(var(--unit) * 1);

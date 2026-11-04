@@ -1,10 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
-import type { FormEvent } from 'react'
+import type { FormEvent, ReactElement } from 'react'
 
 import { ApiError } from '../api/client'
 import { sessions } from '../api/endpoints'
 import type { InteractionPending, ResolveAnswer } from '../api/types'
 import type { DialogOutcome } from '../state/eventApplier'
+import {
+  denyAskOption,
+  isPermitDialog,
+  noteAskOption,
+  usePermitNoteAutoAnswer,
+} from './decisionNote'
 
 // Resolved chips linger briefly so an answer is visible, then leave on their
 // own: dialogs settled elsewhere never park under the dock until the cap.
@@ -15,6 +21,10 @@ const outcomeTtlMs = 4_000
 // options, checkbox list plus confirm for multi, text input with an optional
 // chat toggle, password masking for secrets, cancel everywhere. A dialog
 // answered elsewhere shows its real outcome as a resolved state, never an error.
+//
+// Permit cards carry one optional note input: picking Deny or Allow with note
+// answers at once and records a pending intent, so the barrier's follow-up
+// ask auto-resolves (decisionNote.ts) instead of reading as required input.
 //
 // Autofocus belongs to the focused pane only (dialog-focus-policy.md):
 // autoFocusDialogs marks the dock whose session holds keyboard focus, and only
@@ -34,18 +44,25 @@ export function DialogDock({
   autoFocusDialogs?: boolean
   onAnsweredLocally: (dialogId: number) => void
   onOutcomeDismissed: (dialogId: number) => void
-}) {
-  if (dialogs.length === 0 && outcomes.length === 0) return null
+}): ReactElement | null {
+  const { suppressed, recordIntent } = usePermitNoteAutoAnswer(
+    sessionId,
+    dialogs,
+    onAnsweredLocally,
+  )
+  const visible = dialogs.filter((dlg) => !suppressed.has(dlg.id))
+  if (visible.length === 0 && outcomes.length === 0) return null
 
   return (
     <section className="dialog-dock" aria-label="Open dialogs">
-      {dialogs.map((dlg, i) => (
+      {visible.map((dlg, i) => (
         <DialogCard
           key={dlg.id}
           dialog={dlg}
           sessionId={sessionId}
           autoFocusAnswer={autoFocusDialogs && i === 0}
           onAnsweredLocally={onAnsweredLocally}
+          onNoteIntent={recordIntent}
         />
       ))}
       {outcomes.map((o) => (
@@ -100,17 +117,22 @@ function ResolvedChip({
 
 // DialogCard picks one variant off the shape flags. Options answer by index,
 // multi answers by indexes with an empty list confirming no selection, text
-// answers carry chat when offered, and secrets mask their input.
+// answers carry chat when offered, and secrets mask their input. On permit
+// cards the note input stays optional and options never disable: a picked
+// Deny or Allow with note answers by index and hands its text to the dock as
+// a pending intent for the barrier's follow-up ask.
 function DialogCard({
   dialog,
   sessionId,
   autoFocusAnswer,
   onAnsweredLocally,
+  onNoteIntent,
 }: {
   dialog: InteractionPending
   sessionId: string
   autoFocusAnswer: boolean
   onAnsweredLocally: (dialogId: number) => void
+  onNoteIntent: (answeredId: number, text: string, deny: boolean) => void
 }) {
   // The autofocus decision pins at card mount: a stack position or dock focus
   // gained later never moves the caret, even if this card becomes the head.
@@ -119,6 +141,7 @@ function DialogCard({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [picked, setPicked] = useState<number[]>([])
+  const [note, setNote] = useState('')
   const togglePicked = (i: number) =>
     setPicked((p) => (p.includes(i) ? p.filter((x) => x !== i) : [...p, i]))
 
@@ -141,6 +164,7 @@ function DialogCard({
   }
 
   const multi = dialog.multi === true && dialog.options !== undefined
+  const permit = isPermitDialog(dialog) && !multi
   return (
     <div className="card dialog-card" data-dialog-id={dialog.id}>
       {dialog.subject && <p className="muted mono">{dialog.subject}</p>}
@@ -163,6 +187,15 @@ function DialogCard({
       {multi && (
         <MultiChecklist options={dialog.options!} picked={picked} onToggle={togglePicked} />
       )}
+      {permit && (
+        <input
+          className="dialog-note"
+          placeholder="Note for the agent (optional)"
+          value={note}
+          autoFocus={mayFocus}
+          onChange={(ev) => setNote(ev.target.value)}
+        />
+      )}
       {/* one compact row for the whole barrier: answers plus cancel together */}
       <div className="dialog-actions">
         {multi ? (
@@ -179,7 +212,12 @@ function DialogCard({
               key={i}
               type="button"
               disabled={busy}
-              onClick={() => void resolve({ dialogId: dialog.id, index: i })}
+              onClick={() => {
+                if (permit && noteAskOption(opt)) {
+                  onNoteIntent(dialog.id, note, denyAskOption(opt))
+                }
+                void resolve({ dialogId: dialog.id, index: i })
+              }}
             >
               {opt}
             </button>

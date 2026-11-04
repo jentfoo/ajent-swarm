@@ -5,6 +5,12 @@ import { ApiError } from '../api/client'
 import { sessions } from '../api/endpoints'
 import type { InteractionPending, ResolveAnswer } from '../api/types'
 import type { DialogOutcome } from '../state/eventApplier'
+import {
+  denyAskOption,
+  isPermitDialog,
+  noteAskOption,
+  usePermitNoteAutoAnswer,
+} from '../session/decisionNote'
 
 const outcomeDismissMs = 5_000
 
@@ -20,7 +26,10 @@ async function resolveDialog(sessionId: string, body: ResolveAnswer): Promise<vo
 
 // TouchDialogDock stacks full-width dialog cards above the composer: permit
 // and deny answer as separate large buttons, never a compact one-liner against
-// 44px touch targets. A dialog answered elsewhere shows its real outcome as an
+// 44px touch targets. Permit cards carry one optional note input above those
+// buttons, so Deny and Allow with note answer in one tap and the barrier's
+// follow-up ask auto-resolves (decisionNote.ts) instead of reading as required
+// input. A dialog answered elsewhere shows its real outcome as an
 // auto-dismissing chip; secret dialogs take over a dedicated screen with show
 // and hide.
 export function TouchDialogDock({
@@ -34,11 +43,17 @@ export function TouchDialogDock({
   outcomes: DialogOutcome[]
   onAnsweredLocally: (dialogId: number) => void
 }): ReactElement | null {
-  if (dialogs.length === 0 && outcomes.length === 0) return null
+  const { suppressed, recordIntent } = usePermitNoteAutoAnswer(
+    sessionId,
+    dialogs,
+    onAnsweredLocally,
+  )
+  const visible = dialogs.filter((dlg) => !suppressed.has(dlg.id))
+  if (visible.length === 0 && outcomes.length === 0) return null
 
   return (
     <section className="dialog-dock touch" aria-label="Open dialogs">
-      {dialogs.map((dlg) =>
+      {visible.map((dlg) =>
         dlg.secret ? (
           <SecretDialogScreen
             key={dlg.id}
@@ -52,6 +67,7 @@ export function TouchDialogDock({
             dialog={dlg}
             sessionId={sessionId}
             onAnsweredLocally={onAnsweredLocally}
+            onNoteIntent={recordIntent}
           />
         ),
       )}
@@ -64,18 +80,24 @@ export function TouchDialogDock({
 
 // TouchDialogCard picks its controls off the shape flags, never the kind hint:
 // stacked option buttons, checkbox list plus confirm for multi, large text
-// input with an optional chat toggle, cancel everywhere.
+// input with an optional chat toggle, cancel everywhere. On permit cards the
+// note input stays optional and buttons never disable: a picked Deny or Allow
+// with note answers by index and hands its text to the dock as a pending
+// intent for the barrier's follow-up ask.
 function TouchDialogCard({
   dialog,
   sessionId,
   onAnsweredLocally,
+  onNoteIntent,
 }: {
   dialog: InteractionPending
   sessionId: string
   onAnsweredLocally: (dialogId: number) => void
+  onNoteIntent: (answeredId: number, text: string, deny: boolean) => void
 }): ReactElement {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [note, setNote] = useState('')
 
   const resolve = async (body: ResolveAnswer) => {
     if (busy) return
@@ -91,10 +113,19 @@ function TouchDialogCard({
   }
 
   const multi = dialog.multi === true && dialog.options !== undefined
+  const permit = isPermitDialog(dialog) && !multi
   return (
     <div className="card dialog-card touch" data-dialog-id={dialog.id}>
       {dialog.subject && <p className="muted mono">{dialog.subject}</p>}
       <p className="dialog-prompt">{dialog.prompt || `[${dialog.kind}]`}</p>
+      {permit && (
+        <input
+          className="dialog-note"
+          placeholder="Note for the agent (optional)"
+          value={note}
+          onChange={(ev) => setNote(ev.target.value)}
+        />
+      )}
       {multi ? (
         <MultiPick
           options={dialog.options!}
@@ -110,7 +141,12 @@ function TouchDialogCard({
             type="button"
             className="dialog-choice"
             disabled={busy}
-            onClick={() => void resolve({ dialogId: dialog.id, index: i })}
+            onClick={() => {
+              if (permit && noteAskOption(opt)) {
+                onNoteIntent(dialog.id, note, denyAskOption(opt))
+              }
+              void resolve({ dialogId: dialog.id, index: i })
+            }}
           >
             {opt}
           </button>

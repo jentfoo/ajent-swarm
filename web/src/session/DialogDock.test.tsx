@@ -1,4 +1,4 @@
-import { act, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -189,6 +189,194 @@ describe('DialogDock shape mapping', () => {
     const second = screen.getByText('second question')
     // document order is the oldest-first dock order
     expect(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+})
+
+// The permit note flow: a permit card's Deny and Allow with note answer in
+// one tap, recording an intent that resolves the barrier's follow-up ask —
+// typed text as the note, empty as a cancel — without ever rendering it.
+// Without an intent the ask renders for hand answering, as today.
+describe('DialogDock permit note flow', () => {
+  const permitDialog = (id: number): InteractionPending => ({
+    id,
+    kind: 'decision',
+    prompt: 'Allow `rm` tool call?',
+    options: ['Allow', 'Allow with note', 'Deny'],
+  })
+
+  const followUpAsk = (id: number, prompt: string): InteractionPending => ({
+    id,
+    kind: 'ask',
+    prompt,
+    text: true,
+  })
+
+  function permitDock(dialogs: InteractionPending[]) {
+    const onAnsweredLocally = vi.fn()
+    const view = render(
+      <DialogDock
+        sessionId="01S"
+        dialogs={dialogs}
+        outcomes={[]}
+        onAnsweredLocally={onAnsweredLocally}
+        onOutcomeDismissed={vi.fn()}
+      />,
+    )
+    const rerenderWith = (next: InteractionPending[]) =>
+      view.rerender(
+        <DialogDock
+          sessionId="01S"
+          dialogs={next}
+          outcomes={[]}
+          onAnsweredLocally={onAnsweredLocally}
+          onOutcomeDismissed={vi.fn()}
+        />,
+      )
+    return { onAnsweredLocally, rerenderWith }
+  }
+
+  const noteInput = () => screen.getByPlaceholderText('Note for the agent (optional)')
+
+  it('deny with empty note cancels the follow-up ask', async () => {
+    const user = userEvent.setup()
+    const bodies = stubFetch({ settled: false })
+    const { onAnsweredLocally, rerenderWith } = permitDock([permitDialog(7)])
+    await user.click(screen.getByRole('button', { name: 'Deny' }))
+    expect(bodies[0]).toEqual({ dialogId: 7, index: 2 })
+
+    // the follow-up ask arrives and the pending empty intent cancels it blind
+    rerenderWith([followUpAsk(8, 'reason for denying')])
+    await vi.waitFor(() => {
+      expect(bodies[1]).toEqual({ dialogId: 8, cancel: true })
+      expect(onAnsweredLocally).toHaveBeenCalledWith(8)
+    })
+    // suppressed while the auto-answer round trip lands, so nothing flashes
+    expect(screen.queryByText('reason for denying')).not.toBeInTheDocument()
+  })
+
+  it('deny with typed note submits the reason', async () => {
+    const user = userEvent.setup()
+    const bodies = stubFetch({ settled: false })
+    const { rerenderWith } = permitDock([permitDialog(7)])
+    await user.type(noteInput(), 'too risky')
+    await user.click(screen.getByRole('button', { name: 'Deny' }))
+    expect(bodies[0]).toEqual({ dialogId: 7, index: 2 })
+
+    rerenderWith([followUpAsk(8, 'reason for denying')])
+    await vi.waitFor(() => expect(bodies[1]).toEqual({ dialogId: 8, text: 'too risky' }))
+    expect(screen.queryByText('reason for denying')).not.toBeInTheDocument()
+  })
+
+  it('allow with note mirrors deny on empty input', async () => {
+    const user = userEvent.setup()
+    const bodies = stubFetch({ settled: false })
+    const { rerenderWith } = permitDock([permitDialog(7)])
+    await user.click(screen.getByRole('button', { name: 'Allow with note' }))
+    expect(bodies[0]).toEqual({ dialogId: 7, index: 1 })
+
+    rerenderWith([followUpAsk(8, 'note for allowing')])
+    await vi.waitFor(() => expect(bodies[1]).toEqual({ dialogId: 8, cancel: true }))
+    expect(screen.queryByText('note for allowing')).not.toBeInTheDocument()
+  })
+
+  it('allow with note mirrors deny on typed input', async () => {
+    const user = userEvent.setup()
+    const bodies = stubFetch({ settled: false })
+    const { rerenderWith } = permitDock([permitDialog(7)])
+    await user.type(noteInput(), 'only inside build/')
+    await user.click(screen.getByRole('button', { name: 'Allow with note' }))
+    expect(bodies[0]).toEqual({ dialogId: 7, index: 1 })
+
+    rerenderWith([followUpAsk(8, 'note for allowing')])
+    await vi.waitFor(() => expect(bodies[1]).toEqual({ dialogId: 8, text: 'only inside build/' }))
+  })
+
+  it('plain allow never creates an intent', async () => {
+    const user = userEvent.setup()
+    const bodies = stubFetch({ settled: false })
+    const { rerenderWith } = permitDock([permitDialog(7)])
+    await user.click(screen.getByRole('button', { name: 'Allow' }))
+    expect(bodies[0]).toEqual({ dialogId: 7, index: 0 })
+
+    rerenderWith([followUpAsk(8, 'note for allowing')])
+    await act(async () => {}) // flush any wrongly scheduled auto-answer
+    expect(bodies).toHaveLength(1)
+    // no intent pending: the ask renders for hand answering
+    expect(screen.getByText('note for allowing')).toBeInTheDocument()
+  })
+
+  it('ask renders by hand without a pending intent', async () => {
+    const bodies = stubFetch({ settled: false })
+    permitDock([followUpAsk(8, 'reason for denying')])
+    await act(async () => {}) // flush any wrongly scheduled auto-answer
+    expect(screen.getByText('reason for denying')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Answer' })).toBeDisabled()
+    expect(bodies).toHaveLength(0)
+  })
+
+  it('failed auto-answer falls back to hand answering', async () => {
+    const user = userEvent.setup()
+    const bodies: Record<string, unknown>[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string | URL, init?: RequestInit) => {
+        if (init?.body) bodies.push(JSON.parse(String(init.body)))
+        if (bodies.length === 1) return Response.json({ settled: false })
+        return Response.json({ error: 'unexpected', message: 'mid-run fault' }, { status: 500 })
+      }),
+    )
+    const { rerenderWith } = permitDock([permitDialog(7)])
+    await user.click(screen.getByRole('button', { name: 'Deny' }))
+    expect(bodies[0]).toEqual({ dialogId: 7, index: 2 })
+
+    rerenderWith([followUpAsk(8, 'reason for denying')])
+    await vi.waitFor(() => expect(bodies).toHaveLength(2))
+    // the intent is spent; the ask renders for hand answering instead of vanishing
+    expect(await screen.findByText('reason for denying')).toBeInTheDocument()
+  })
+
+  it('auto-answer settled elsewhere stays benign', async () => {
+    const user = userEvent.setup()
+    const bodies: Record<string, unknown>[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string | URL, init?: RequestInit) => {
+        if (init?.body) bodies.push(JSON.parse(String(init.body)))
+        if (bodies.length === 1) return Response.json({ settled: false })
+        return Response.json({ error: 'settled', message: 'first answer won' }, { status: 409 })
+      }),
+    )
+    const { onAnsweredLocally, rerenderWith } = permitDock([permitDialog(7)])
+    await user.click(screen.getByRole('button', { name: 'Deny' }))
+    rerenderWith([followUpAsk(8, 'reason for denying')])
+    await vi.waitFor(() => expect(bodies).toHaveLength(2))
+    await act(async () => {}) // let the benign settle land
+    // no error surfaced, and the settled event owns the ask's exit
+    expect(screen.queryByText(/settled|failed|Resolve failed/i)).not.toBeInTheDocument()
+    expect(screen.queryByText('reason for denying')).not.toBeInTheDocument()
+    expect(onAnsweredLocally).toHaveBeenCalledWith(8)
+  })
+
+  it('stale intent leaves the ask to hand answering', async () => {
+    vi.useFakeTimers()
+    try {
+      const bodies = stubFetch({ settled: false })
+      const { rerenderWith } = permitDock([permitDialog(7)])
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Deny' }))
+      })
+      expect(bodies[0]).toEqual({ dialogId: 7, index: 2 })
+
+      await act(async () => {
+        vi.advanceTimersByTime(10_000) // the intent's clear timer fires
+      })
+      rerenderWith([followUpAsk(8, 'reason for denying')])
+      await act(async () => {})
+      expect(bodies).toHaveLength(1)
+      expect(screen.getByText('reason for denying')).toBeInTheDocument()
+    } finally {
+      vi.useRealTimers() // never leak the fake clock into later tests
+    }
   })
 })
 

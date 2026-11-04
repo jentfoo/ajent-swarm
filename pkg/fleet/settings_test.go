@@ -57,7 +57,8 @@ func (s *settingsMemStore) snapshot() map[string]string {
 
 func TestManagerTitleModelRoundTrip(t *testing.T) {
 	store := newSettingsMemStore()
-	m, _ := newTestFleetWithSettings(t, store, fakeNamerBin(t))
+	bin, _ := fakeNamerBin(t)
+	m, _ := newTestFleetWithSettings(t, store, bin)
 
 	assert.Empty(t, m.TitleModel()) // the store starts empty
 

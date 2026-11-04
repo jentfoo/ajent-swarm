@@ -1,6 +1,7 @@
 package fleet
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
@@ -50,19 +51,29 @@ func TestSanitizeSessionTitle(t *testing.T) {
 	}
 }
 
-// fakeNamerBin writes an executable that prints a fixed label, standing in
-// for ajent's one-shot -p run.
-func fakeNamerBin(t *testing.T) string {
+// fakeNamerBin writes an executable labeler stub that prints a fixed title;
+// the returned counter reports how many times it executed.
+func fakeNamerBin(t *testing.T) (string, func() int) {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "ajent-fake")
-	require.NoError(t, os.WriteFile(path, []byte("#!/bin/sh\necho 'Fix login flow'\n"), 0o700))
-	return path
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "namer-runs")
+	path := filepath.Join(dir, "ajent-fake")
+	script := "#!/bin/sh\necho 'Fix login flow'\necho run >> " + marker + "\n"
+	require.NoError(t, os.WriteFile(path, []byte(script), 0o700))
+	return path, func() int {
+		b, err := os.ReadFile(marker)
+		if err != nil { // never ran
+			return 0
+		}
+		return bytes.Count(b, []byte{'\n'})
+	}
 }
 
 func TestNamerTitlesFromFirstPrompt(t *testing.T) {
 	store := newTitleMemStore()
 	owned := func(inst ctl.Instance) bool { return inst.SessionID == "01AUTOTITLE0000000" }
-	m, home := newTestFleetWithTitlesAndBin(t, store, fakeNamerBin(t), owned)
+	bin, _ := fakeNamerBin(t)
+	m, home := newTestFleetWithTitlesAndBin(t, store, bin, owned)
 
 	f := fleettest.New(t, home, fleettest.Options{SessionID: "01AUTOTITLE0000000"})
 	first := session.Entry{
@@ -77,15 +88,8 @@ func TestNamerTitlesFromFirstPrompt(t *testing.T) {
 
 	waitForState(t, m, f.SessionID(), ChildOnline)
 
-	// the labeler schedules on a live first-typed-prompt commit; backfill alone
-	// never names a session that existed before this run attached. The actor's
-	// own control connection receives the broadcast.
-	next := first
-	next.ID = "01PROMPTENTRY00000001"
-	next.ParentID = first.ID
-	f.Broadcast(ctl.EventEntryAppend, ctl.EntryData{Entry: wireEntry(next)})
-
-	// the labeler runs once over the first typed prompt and writes through
+	// the labeler runs once over the first typed prompt recovered from the
+	// transcript at attach and writes through swarm's own title store
 	require.Eventually(t, func() bool {
 		return store.snapshot()[f.SessionID()] == "Fix login flow"
 	}, 2*time.Second, testPoll)
@@ -102,6 +106,115 @@ func TestNamerTitlesFromFirstPrompt(t *testing.T) {
 				string(req.Params))
 		}
 	}
+}
+
+// Adopted sessions auto-title from backfill: a first prompt committed before
+// swarm attached never announces as entry.append, so prepare schedules the
+// labeler off the recovered view. Reconnects stay cheap no-ops.
+
+// adoptedTranscript builds the committed branch of a session that predates
+// swarm: one root entry plus, when prompted, its first typed user prompt.
+func adoptedTranscript(prompt bool) []fleettest.Entry {
+	root := fleettest.Entry{
+		ID:   "01ADOPTROOT0000000001",
+		Type: session.TypeSession,
+		Data: mustJSON(session.SessionData{Version: 1}),
+	}
+	out := []fleettest.Entry{root}
+	if prompt {
+		out = append(out, fleettest.Entry{
+			ID:       "01ADOPTMSG0000000001",
+			ParentID: root.ID,
+			Type:     session.TypeMessage,
+			Data: mustJSON(session.MessageData{
+				Message: llm.Text(llm.RoleUser, "fix the login flow"),
+			}),
+		})
+	}
+	return out
+}
+
+func TestAdoptedSessionAutoTitles(t *testing.T) {
+	t.Run("names from backfill", func(t *testing.T) {
+		store := newTitleMemStore()
+		bin, runs := fakeNamerBin(t)
+		m, home := newTestFleetWithTitlesAndBin(t, store, bin, nil)
+
+		f := fleettest.New(t, home, fleettest.Options{SessionID: "01ADOPTNAME000000001"})
+		f.WriteTranscript(t, adoptedTranscript(true)...)
+		f.WriteRegistry(t, os.Getpid(), time.Now())
+
+		waitForState(t, m, f.SessionID(), ChildOnline)
+		require.Eventually(t, func() bool {
+			return store.snapshot()[f.SessionID()] == "Fix login flow"
+		}, 2*time.Second, testPoll)
+
+		rows := m.Sessions()
+		require.Len(t, rows, 1)
+		assert.Equal(t, "Fix login flow", rows[0].Title)
+		assert.Equal(t, 1, runs())
+
+		// a reconnect re-prepares through the same backfill without renaming
+		dials := f.DialCount()
+		f.DropConns()
+		require.Eventually(t, func() bool { return f.DialCount() > dials }, 2*time.Second, testPoll)
+		waitForState(t, m, f.SessionID(), ChildOnline)
+		assert.Equal(t, 1, runs())
+
+		for _, req := range f.Received() {
+			if req.Method == ctl.MethodSubmit {
+				t.Fatalf("namer submitted %q upstream; titles must never touch ajent names",
+					string(req.Params))
+			}
+		}
+	})
+
+	t.Run("stored title skips run", func(t *testing.T) {
+		store := newTitleMemStore()
+		bin, runs := fakeNamerBin(t)
+		m, home := newTestFleetWithTitlesAndBin(t, store, bin, nil)
+
+		f := fleettest.New(t, home, fleettest.Options{SessionID: "01ADOPTNAMED000000001"})
+		f.WriteTranscript(t, adoptedTranscript(true)...)
+		require.NoError(t, m.SetTitle(t.Context(), f.SessionID(), "human rename"))
+		f.WriteRegistry(t, os.Getpid(), time.Now())
+
+		waitForState(t, m, f.SessionID(), ChildOnline)
+
+		rows := m.Sessions()
+		require.Len(t, rows, 1)
+		assert.Equal(t, "human rename", rows[0].Title) // the stored title wins
+		require.Never(t, func() bool { return runs() > 0 }, 250*time.Millisecond, testPoll)
+	})
+
+	t.Run("no prompt waits for append", func(t *testing.T) {
+		store := newTitleMemStore()
+		bin, runs := fakeNamerBin(t)
+		m, home := newTestFleetWithTitlesAndBin(t, store, bin, nil)
+
+		f := fleettest.New(t, home, fleettest.Options{SessionID: "01ADOPTQUIET000000001"})
+		entries := adoptedTranscript(false)
+		f.WriteTranscript(t, entries...)
+		f.WriteRegistry(t, os.Getpid(), time.Now())
+
+		waitForState(t, m, f.SessionID(), ChildOnline)
+		require.Never(t, func() bool { return runs() > 0 }, 250*time.Millisecond, testPoll)
+
+		// the first typed prompt still names it through the live event path
+		f.Broadcast(ctl.EventEntryAppend, ctl.EntryData{Entry: wireEntry(fleettest.Entry{
+			ID:       "01ADOPTMSG0000000002",
+			ParentID: entries[0].ID,
+			Type:     session.TypeMessage,
+			Data: mustJSON(session.MessageData{
+				Message: llm.Text(llm.RoleUser, "fix the login flow"),
+			}),
+		})})
+
+		require.Eventually(t, func() bool {
+			return store.snapshot()[f.SessionID()] == "Fix login flow"
+		}, 2*time.Second, testPoll)
+		assert.Equal(t, 1, runs())
+	})
 }
 
 func TestNamerSkippedWithoutBin(t *testing.T) {

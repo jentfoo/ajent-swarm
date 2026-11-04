@@ -303,6 +303,9 @@ func (a *sessionActor) prepare(conn *client.Conn, hello ctl.Hello) error {
 	if a.mgr.ownedInstance(a.inst) {
 		a.view.seat = ctl.SeatState{Held: true, Holder: holderName, Yours: true}
 	}
+	// adopted sessions name from backfill too: their first prompt predates the
+	// live stream, so no entry.append announces it; guards keep reconnects cheap
+	a.mgr.maybeNameSession(a)
 	return nil
 }
 

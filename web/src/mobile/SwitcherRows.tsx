@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import type { FormEvent, ReactElement } from 'react'
 
 import { ApiError } from '../api/client'
@@ -6,12 +6,14 @@ import { sessions as sessionAPI } from '../api/endpoints'
 import { useSwarm } from '../providers/swarm'
 import { useWorkspace } from '../providers/workspace'
 import { useLongPress } from './useLongPress'
+import { groupSwitcherRows } from './switcher'
 import type { SwitcherRow } from './switcher'
 
-// SwitcherRows renders the sheet's large touch rows: status and needs-input
+// SwitcherRows renders the sheet's large touch rows grouped under the desktop
+// rail's headings (Needs input, Working, Recent): status and needs-input
 // badges beside each label, a check-off on actionable attention states (never
 // on neutral waiting or ended rows), and long-press rename editing the stored
-// swarm title — never ajent's own session names.
+// swarm title rather than ajent's own session names.
 export function SwitcherRows({
   rows,
   onOpen,
@@ -24,15 +26,23 @@ export function SwitcherRows({
   if (rows.length === 0) {
     return <p className="muted sheet-empty">No sessions yet. Launch one below.</p>
   }
+  const sections = groupSwitcherRows(rows)
   return (
     <div className="switcher-rows" role="list">
-      {rows.map((row) => (
-        <SwitchRow
-          key={row.sessionId}
-          row={row}
-          onOpen={onOpen}
-          onRename={() => setRenamingId(row.sessionId)}
-        />
+      {sections.map((group) => (
+        <Fragment key={group.section}>
+          <div className="rail-section-title">
+            {group.title} <span className="muted">({group.rows.length})</span>
+          </div>
+          {group.rows.map((row) => (
+            <SwitchRow
+              key={row.sessionId}
+              row={row}
+              onOpen={onOpen}
+              onRename={() => setRenamingId(row.sessionId)}
+            />
+          ))}
+        </Fragment>
       ))}
       {/* the editor rides above the rows as a modal, like every other surface */}
       {renamingId !== null && (

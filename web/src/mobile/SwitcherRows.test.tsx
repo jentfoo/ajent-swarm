@@ -10,15 +10,17 @@ import { SwarmProvider } from '../providers/swarm'
 import { WorkspaceProvider } from '../providers/workspace'
 import { resetLedger } from '../workspace/attention'
 
-// The switcher's interactive contract at its breakpoint: long-press rename
-// writes swarm storage and suppresses the tap, awaiting rows never offer a
-// check-off, and live needs-input rows offer one backed by the digest.
+// The switcher's interactive contract at its breakpoint: rows group under
+// muted desktop-rail headings, long-press rename writes swarm storage and
+// suppresses the tap, awaiting rows never offer a check-off, and live
+// needs-input rows offer one backed by the digest.
 
 function row(overrides: Partial<SwitcherRow> = {}): SwitcherRow {
   return {
     sessionId: '01A',
     label: 'project',
     status: 'idle',
+    section: 'working',
     needsInput: false,
     reason: '',
     checkOff: false,
@@ -27,6 +29,18 @@ function row(overrides: Partial<SwitcherRow> = {}): SwitcherRow {
 }
 
 const noOpen = () => {}
+
+// stubFacts answers the providers' bootstrap calls; each rendering test also
+// awaits one findBy so the settled AuthProvider fetch lands inside act.
+function stubFacts() {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string | URL) => {
+      if (String(url) === '/api/me') return Response.json({ username: 'you', via: 'cookie' })
+      return Response.json([])
+    }),
+  )
+}
 
 // needsInputDialog is one attention digest row with an open dialog, the same
 // shape GET /api/attention answers with.
@@ -53,8 +67,8 @@ describe('SwitcherRows', () => {
     vi.unstubAllGlobals()
   })
 
-  function renderRows(rows: SwitcherRow[], onOpen = noOpen) {
-    return render(
+  function tree(rows: SwitcherRow[], onOpen = noOpen) {
+    return (
       <MemoryRouter>
         <AuthProvider>
           <SwarmProvider>
@@ -63,8 +77,24 @@ describe('SwitcherRows', () => {
             </WorkspaceProvider>
           </SwarmProvider>
         </AuthProvider>
-      </MemoryRouter>,
+      </MemoryRouter>
     )
+  }
+
+  function renderRows(rows: SwitcherRow[], onOpen = noOpen) {
+    return render(tree(rows, onOpen))
+  }
+
+  // sectionOfRow reads the rendered order: headings and rows are siblings, so
+  // the last heading before a row names its section, count included.
+  function sectionOfRow(container: HTMLElement, sessionId: string): string | null {
+    let heading: string | null = null
+    const selector = '.rail-section-title, [data-session-id]'
+    for (const el of container.querySelectorAll<HTMLElement>(selector)) {
+      if (el.classList.contains('rail-section-title')) heading = el.textContent
+      else if (el.dataset.sessionId === sessionId) return heading
+    }
+    return null
   }
 
   // pressLong holds the row past the rename threshold on fake timers, then
@@ -127,7 +157,7 @@ describe('SwitcherRows', () => {
       }),
     )
 
-    renderRows([row({ status: 'waiting', reason: 'waiting for a prompt' })])
+    renderRows([row({ status: 'waiting', section: 'needs', reason: 'waiting for a prompt' })])
     await screen.findByText('waiting')
 
     // neutral waiting badge, no actionable control beside it
@@ -146,7 +176,7 @@ describe('SwitcherRows', () => {
     )
 
     renderRows([
-      row({ needsInput: true, reason: 'Allow write access?', checkOff: true }),
+      row({ section: 'needs', needsInput: true, reason: 'Allow write access?', checkOff: true }),
       row({ sessionId: '01B', label: 'other' }),
     ])
 
@@ -161,5 +191,49 @@ describe('SwitcherRows', () => {
       expect(ledger.dialogs['01A']['1:3']).toBeGreaterThan(0)
     })
     expect(screen.queryByRole('button', { name: /reviewed/ })).not.toBeInTheDocument()
+  })
+
+  it('heads each non-empty section with its count', async () => {
+    stubFacts()
+    const { container } = renderRows([
+      row({ sessionId: '01A', section: 'needs' }),
+      row({ sessionId: '01B', label: 'other', section: 'working' }),
+      row({ sessionId: '01C', label: 'old', status: 'ended', section: 'ended' }),
+    ])
+
+    await screen.findByText('Needs input')
+    expect(sectionOfRow(container, '01A')).toBe('Needs input (1)')
+    expect(sectionOfRow(container, '01B')).toBe('Working (1)')
+    expect(sectionOfRow(container, '01C')).toBe('Recent (1)')
+  })
+
+  it('moves rows under the right heading as attention shifts', async () => {
+    stubFacts()
+    const view = renderRows([
+      row({ sessionId: '01A', status: 'waiting', section: 'needs' }),
+      row({
+        sessionId: '01B',
+        label: 'other',
+        needsInput: true,
+        reason: 'Allow write access?',
+        checkOff: true,
+        section: 'needs',
+      }),
+    ])
+    await screen.findByText('Needs input')
+    expect(sectionOfRow(view.container, '01A')).toBe('Needs input (2)')
+    expect(sectionOfRow(view.container, '01B')).toBe('Needs input (2)')
+
+    // one session starts running while the other's dialog closes into its turn
+    view.rerender(
+      tree([
+        row({ sessionId: '01A', status: 'running', section: 'working' }),
+        row({ sessionId: '01B', label: 'other', status: 'running', section: 'working' }),
+      ]),
+    )
+    await screen.findByText('Working')
+    expect(sectionOfRow(view.container, '01A')).toBe('Working (2)')
+    expect(sectionOfRow(view.container, '01B')).toBe('Working (2)')
+    expect(screen.queryByText('Needs input')).not.toBeInTheDocument()
   })
 })

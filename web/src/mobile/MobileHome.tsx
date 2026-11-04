@@ -11,9 +11,10 @@ import { SwitcherRows } from './SwitcherRows'
 import type { SwitcherRow } from './switcher'
 import { useSwitcherRows } from './useSwitcherRows'
 
-// MobileHome is the launcher and switcher: live sessions first (the same rows
-// the bottom sheet shows), then sections for new session, saved sessions,
-// jobs and settings. Depth of controls trades for reachability here.
+// MobileHome is the launcher and switcher: the grouped live sessions the
+// bottom sheet shows (section headings included), then sections for new
+// session, saved sessions, jobs and settings. Depth of controls trades for
+// reachability here.
 export default function MobileHome() {
   const navigate = useNavigate()
   const rows = useSwitcherRows()
@@ -29,7 +30,6 @@ export default function MobileHome() {
   return (
     <div className="mobile-home">
       <section aria-label="Live sessions">
-        <h2>Sessions</h2>
         <SwitcherRows rows={rows} onOpen={open} />
       </section>
 

@@ -1374,6 +1374,10 @@ label {
   flex-direction: column;
   gap: calc(var(--unit) * 2);
 }
+/* section headings reuse the desktop rail's label style, padded to the rows */
+.switcher-rows .rail-section-title {
+  padding: calc(var(--unit) * 2) calc(var(--unit) * 3) 0;
+}
 .switch-row {
   display: flex;
   flex-direction: column;

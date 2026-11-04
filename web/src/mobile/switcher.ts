@@ -25,6 +25,7 @@ export interface SwitcherRow {
   needsInput: boolean // open dialogs; badged, counts toward the attention count
   reason: string // one-line digest reason when attention knows this session
   checkOff: boolean // a row that may be acknowledged; waiting rows refuse
+  workspace?: string // carried from the listing, the resume target directory
   exitedAt?: number // unix milliseconds, ended swarm children only
 }
 
@@ -69,6 +70,7 @@ export function buildSwitcherRows(
         needsInput: false,
         reason: s.detail ?? '',
         checkOff: false,
+        workspace: s.workspace,
         exitedAt: s.exitedAt,
       })
       continue
@@ -85,6 +87,7 @@ export function buildSwitcherRows(
         section: cls === workingClass ? 'working' : 'needs',
         needsInput: item?.kind === 'needs-input',
         reason: item?.reason ?? '',
+        workspace: s.workspace,
         checkOff:
           item !== undefined && (item.kind === 'needs-input' || item.kind === 'needs-review'),
       },

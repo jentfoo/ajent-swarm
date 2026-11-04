@@ -1417,6 +1417,20 @@ label {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* trailing action area per row: Settings and Stop on live rows, Resume on
+   ended ones with a workspace; refusals wrap onto their own line */
+.switch-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: calc(var(--unit) * 2);
+}
+.switch-actions button {
+  min-height: 44px; /* touch target */
+}
+.switch-actions .error-text {
+  flex-basis: 100%;
+}
 
 .mobile-home section {
   margin-bottom: calc(var(--unit) * 5);

@@ -1,10 +1,12 @@
 import { Fragment, useState } from 'react'
 import type { FormEvent, ReactElement } from 'react'
+import { useNavigate } from 'react-router'
 
 import { ApiError } from '../api/client'
-import { sessions as sessionAPI } from '../api/endpoints'
+import { fleet as fleetAPI, sessions as sessionAPI } from '../api/endpoints'
 import { useSwarm } from '../providers/swarm'
 import { useWorkspace } from '../providers/workspace'
+import { SettingsSheet } from './SettingsSheet'
 import { useLongPress } from './useLongPress'
 import { groupSwitcherRows } from './switcher'
 import type { SwitcherRow } from './switcher'
@@ -12,8 +14,9 @@ import type { SwitcherRow } from './switcher'
 // SwitcherRows renders the sheet's large touch rows grouped under the desktop
 // rail's headings (Needs input, Working, Recent): status and needs-input
 // badges beside each label, a check-off on actionable attention states (never
-// on neutral waiting or ended rows), and long-press rename editing the stored
-// swarm title rather than ajent's own session names.
+// on neutral waiting or ended rows), a trailing actions area mirroring the
+// desktop card bar minus Open, and long-press rename editing the stored swarm
+// title rather than ajent's own session names.
 export function SwitcherRows({
   rows,
   onOpen,
@@ -22,6 +25,7 @@ export function SwitcherRows({
   onOpen: (row: SwitcherRow) => void
 }) {
   const [renamingId, setRenamingId] = useState<string | null>(null)
+  const [settingsId, setSettingsId] = useState<string | null>(null)
 
   if (rows.length === 0) {
     return <p className="muted sheet-empty">No sessions yet. Launch one below.</p>
@@ -40,6 +44,7 @@ export function SwitcherRows({
               row={row}
               onOpen={onOpen}
               onRename={() => setRenamingId(row.sessionId)}
+              onSettings={() => setSettingsId(row.sessionId)}
             />
           ))}
         </Fragment>
@@ -51,6 +56,10 @@ export function SwitcherRows({
           onDone={() => setRenamingId(null)}
         />
       )}
+      {/* one pushed settings screen, rebound to whichever row was tapped */}
+      {settingsId !== null && (
+        <SettingsSheet sessionId={settingsId} open onClose={() => setSettingsId(null)} />
+      )}
     </div>
   )
 }
@@ -59,10 +68,12 @@ function SwitchRow({
   row,
   onOpen,
   onRename,
+  onSettings,
 }: {
   row: SwitcherRow
   onOpen: (row: SwitcherRow) => void
   onRename: () => void
+  onSettings: () => void
 }) {
   const { itemFor, acknowledgeItem } = useWorkspace()
   // pressed styles the row; the handlers spread without it
@@ -107,6 +118,75 @@ function SwitchRow({
           </button>
         )}
       </span>
+      <RowActions row={row} onSettings={onSettings} />
+    </div>
+  )
+}
+
+// RowActions is the row's trailing action area, mirroring the desktop card's
+// bar minus Open (the row itself opens): Settings and Stop for live rows,
+// Resume for ended ones with a recorded workspace. It swallows clicks and
+// pointer-downs so tapping or holding an action never reads as the row's own
+// open or long-press gestures.
+function RowActions({ row, onSettings }: { row: SwitcherRow; onSettings: () => void }) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const { refreshSessions } = useSwarm()
+  const navigate = useNavigate()
+  const ended = row.status === 'ended'
+
+  if (ended && !row.workspace) return null // resume needs the working directory back
+
+  const stop = async () => {
+    setBusy(true)
+    setError('')
+    try {
+      await sessionAPI.stop(row.sessionId)
+      await refreshSessions() // rows re-badge now, not on the next poll
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Stop failed.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const resume = async () => {
+    setBusy(true)
+    setError('')
+    try {
+      const res = await fleetAPI.launch({
+        workspace: row.workspace!, // guarded above, ended rows only
+        mode: 'resume',
+        target: row.sessionId,
+      })
+      navigate(`/s/${encodeURIComponent(res.sessionId)}`)
+    } catch (err) {
+      setBusy(false)
+      setError(err instanceof ApiError ? err.message : 'Resume failed.')
+    }
+  }
+
+  return (
+    <div
+      className="switch-actions"
+      onClick={(ev) => ev.stopPropagation()}
+      onPointerDown={(ev) => ev.stopPropagation()}
+    >
+      {ended ? (
+        <button type="button" onClick={() => void resume()} disabled={busy}>
+          {busy ? 'Resuming…' : 'Resume'}
+        </button>
+      ) : (
+        <>
+          <button type="button" onClick={onSettings}>
+            Settings
+          </button>
+          <button type="button" onClick={() => void stop()} disabled={busy}>
+            {busy ? 'Stopping…' : 'Stop'}
+          </button>
+        </>
+      )}
+      {error && <span className="error-text">{error}</span>}
     </div>
   )
 }

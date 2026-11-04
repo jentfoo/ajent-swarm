@@ -182,6 +182,18 @@ describe('buildSwitcherRows', () => {
       expect(row.section).toBe('working')
     }
   })
+
+  it('carries the listing workspace for resume targets', () => {
+    const rows = buildSwitcherRows(
+      [
+        session({ sessionId: 'live', workspace: '/home/you/project' }),
+        session({ sessionId: 'ended', state: ChildState.Exited, workspace: '/home/you/old' }),
+        session({ sessionId: 'nowhere', state: ChildState.Gone }),
+      ],
+      labelFor,
+    )
+    expect(rows.map((r) => r.workspace)).toEqual(['/home/you/project', '/home/you/old', undefined])
+  })
 })
 
 describe('groupSwitcherRows', () => {

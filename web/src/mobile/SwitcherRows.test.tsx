@@ -1,6 +1,6 @@
 import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router'
+import { MemoryRouter, Route, Routes, useParams } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { SwitcherRows } from './SwitcherRows'
@@ -12,8 +12,10 @@ import { resetLedger } from '../workspace/attention'
 
 // The switcher's interactive contract at its breakpoint: rows group under
 // muted desktop-rail headings, long-press rename writes swarm storage and
-// suppresses the tap, awaiting rows never offer a check-off, and live
-// needs-input rows offer one backed by the digest.
+// suppresses the tap, awaiting rows never offer a check-off, live needs-input
+// rows offer one backed by the digest, and the trailing actions (Settings,
+// Stop, Resume) hit their endpoints and rebind a single settings sheet
+// without ever tripping the row's own gestures.
 
 function row(overrides: Partial<SwitcherRow> = {}): SwitcherRow {
   return {
@@ -29,6 +31,16 @@ function row(overrides: Partial<SwitcherRow> = {}): SwitcherRow {
 }
 
 const noOpen = () => {}
+
+const endedRow = (overrides: Partial<SwitcherRow> = {}): SwitcherRow =>
+  row({ status: 'ended', section: 'ended', workspace: '/home/you/old', ...overrides })
+
+// SessionProbe renders the id it landed on, so navigation assertions read the
+// route instead of guessing what a bare MemoryRouter did.
+function SessionProbe() {
+  const { sessionId = '' } = useParams()
+  return <div data-testid="session-view">{sessionId}</div>
+}
 
 // stubFacts answers the providers' bootstrap calls; each rendering test also
 // awaits one findBy so the settled AuthProvider fetch lands inside act.
@@ -67,13 +79,18 @@ describe('SwitcherRows', () => {
     vi.unstubAllGlobals()
   })
 
+  // tree mounts the rows under the providers plus the live-session route, so
+  // resume navigation reads the URL it landed on like MobileHome's own tests.
   function tree(rows: SwitcherRow[], onOpen = noOpen) {
     return (
-      <MemoryRouter>
+      <MemoryRouter initialEntries={['/']}>
         <AuthProvider>
           <SwarmProvider>
             <WorkspaceProvider>
-              <SwitcherRows rows={rows} onOpen={onOpen} />
+              <Routes>
+                <Route path="/" element={<SwitcherRows rows={rows} onOpen={onOpen} />} />
+                <Route path="/s/:sessionId" element={<SessionProbe />} />
+              </Routes>
             </WorkspaceProvider>
           </SwarmProvider>
         </AuthProvider>
@@ -116,6 +133,13 @@ describe('SwitcherRows', () => {
       container.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
     return user
+  }
+
+  // fetchSpyCalled reads the current stub, whichever test installed it.
+  function fetchSpyCalled(path: string): boolean {
+    return (fetch as ReturnType<typeof vi.fn>).mock.calls.some(
+      ([u]) => String(u).split('?')[0] === path,
+    )
   }
 
   it('renames through long-press into swarm storage', async () => {
@@ -235,5 +259,176 @@ describe('SwitcherRows', () => {
     expect(sectionOfRow(view.container, '01A')).toBe('Working (2)')
     expect(sectionOfRow(view.container, '01B')).toBe('Working (2)')
     expect(screen.queryByText('Needs input')).not.toBeInTheDocument()
+  })
+
+  it('stops through the endpoint and refreshes rows', async () => {
+    let release: (() => void) | null = null
+    const fetchSpy = vi.fn(async (url: string | URL, _init?: RequestInit) => {
+      const path = String(url).split('?')[0]
+      if (path === '/api/me') return Response.json({ username: 'you', via: 'cookie' })
+      if (path === '/api/sessions/01A/stop') {
+        // held open until the test releases it, so the busy state is watchable
+        return new Promise<Response>((resolve) => {
+          release = () => resolve(new Response(null, { status: 204 }))
+        })
+      }
+      return Response.json([])
+    })
+    vi.stubGlobal('fetch', fetchSpy)
+
+    renderRows([row()])
+    await screen.findByText('project')
+
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Stop' }))
+    expect(await screen.findByRole('button', { name: 'Stopping…' })).toBeDisabled()
+
+    const listingGets = () =>
+      fetchSpy.mock.calls.filter(([u]) => String(u).split('?')[0] === '/api/sessions').length
+    const before = listingGets()
+    await act(async () => {
+      release?.()
+    })
+
+    await vi.waitFor(() => {
+      const stops = fetchSpy.mock.calls.filter(
+        ([u, init]) => String(u) === '/api/sessions/01A/stop' && init?.method === 'POST',
+      )
+      expect(stops).toHaveLength(1)
+      expect(listingGets()).toBeGreaterThan(before)
+    })
+    expect(screen.getByRole('button', { name: 'Stop' })).toBeEnabled()
+  })
+
+  it('renders a refused stop inline on the row', async () => {
+    const fetchSpy = vi.fn(async (url: string | URL, init?: RequestInit) => {
+      const path = String(url).split('?')[0]
+      if (path === '/api/me') return Response.json({ username: 'you', via: 'cookie' })
+      if (path === '/api/sessions/01A/stop' && init?.method === 'POST') {
+        return Response.json(
+          { error: 'unavailable', message: 'session is shutting down' },
+          {
+            status: 409,
+          },
+        )
+      }
+      return Response.json([])
+    })
+    vi.stubGlobal('fetch', fetchSpy)
+
+    renderRows([row()])
+    await screen.findByText('project')
+
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Stop' }))
+
+    // desktop's error-text style, rendered inline on the row
+    expect(await screen.findByText('unavailable: session is shutting down')).toHaveClass(
+      'error-text',
+    )
+    expect(screen.getByRole('button', { name: 'Stop' })).toBeEnabled()
+  })
+
+  it('offers resume only on ended rows with a workspace', async () => {
+    stubFacts()
+    renderRows([
+      row(),
+      endedRow({ sessionId: '01C', label: 'old' }),
+      endedRow({ sessionId: '01D', label: 'lost', workspace: undefined }),
+    ])
+    await screen.findByText('project')
+
+    // the live row acts, the recorded ended row resumes, the workspace-less
+    // one offers nothing
+    expect(screen.getAllByRole('button', { name: 'Settings' })).toHaveLength(1)
+    expect(screen.getAllByRole('button', { name: 'Stop' })).toHaveLength(1)
+    expect(screen.getAllByRole('button', { name: 'Resume' })).toHaveLength(1)
+  })
+
+  it('resumes an ended row into the live session', async () => {
+    const fetchSpy = vi.fn(async (url: string | URL, init?: RequestInit) => {
+      const path = String(url).split('?')[0]
+      if (path === '/api/me') return Response.json({ username: 'you', via: 'cookie' })
+      if (path === '/api/sessions' && init?.method === 'POST') {
+        expect(JSON.parse(String(init.body))).toEqual({
+          workspace: '/home/you/old',
+          mode: 'resume',
+          target: '01C',
+        })
+        return Response.json({ sessionId: '01RESUMED000000000', pid: 42 })
+      }
+      return Response.json([])
+    })
+    vi.stubGlobal('fetch', fetchSpy)
+
+    renderRows([endedRow({ sessionId: '01C', label: 'old' })])
+    await screen.findByText('old')
+
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Resume' }))
+
+    expect(await screen.findByTestId('session-view')).toHaveTextContent('01RESUMED000000000')
+  })
+
+  it('opens one settings sheet bound to the tapped row', async () => {
+    stubFacts()
+    renderRows([row(), row({ sessionId: '01B', label: 'other' })])
+    await screen.findByText('project')
+
+    const user = userEvent.setup()
+    await user.click(screen.getAllByRole('button', { name: 'Settings' })[1]!)
+
+    // one pushed sheet, riding the tapped row's session id
+    expect(await screen.findByRole('dialog', { name: 'Agent settings' })).toBeInTheDocument()
+    expect(screen.getAllByRole('dialog', { name: 'Agent settings' })).toHaveLength(1)
+    await vi.waitFor(() => {
+      expect(fetchSpyCalled('/api/sessions/01B/settings')).toBe(true)
+      expect(fetchSpyCalled('/api/sessions/01A/settings')).toBe(false)
+    })
+
+    // tapping the other row rebinds the same sheet instead of stacking one
+    await user.click(screen.getAllByRole('button', { name: 'Settings' })[0]!)
+    await vi.waitFor(() => {
+      expect(fetchSpyCalled('/api/sessions/01A/settings')).toBe(true)
+    })
+    expect(screen.getAllByRole('dialog', { name: 'Agent settings' })).toHaveLength(1)
+
+    await user.click(screen.getByRole('button', { name: '← Back' }))
+    expect(screen.queryByRole('dialog', { name: 'Agent settings' })).not.toBeInTheDocument()
+  })
+
+  it('tapping an action never opens the row', async () => {
+    const fetchSpy = vi.fn(async (url: string | URL, init?: RequestInit) => {
+      const path = String(url).split('?')[0]
+      if (path === '/api/me') return Response.json({ username: 'you', via: 'cookie' })
+      if (path === '/api/sessions' && init?.method === 'POST') {
+        return Response.json({ sessionId: '01RESUMED000000000', pid: 42 })
+      }
+      return Response.json([])
+    })
+    vi.stubGlobal('fetch', fetchSpy)
+    const onOpen = vi.fn()
+
+    renderRows([row(), endedRow({ sessionId: '01C', label: 'old' })], onOpen)
+    await screen.findByText('project')
+
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Settings' }))
+    await user.click(screen.getByRole('button', { name: 'Stop' }))
+    await user.click(screen.getByRole('button', { name: 'Resume' }))
+
+    expect(onOpen).not.toHaveBeenCalled()
+  })
+
+  it('holding an action never opens rename', async () => {
+    stubFacts()
+    const onOpen = vi.fn()
+    renderRows([row()], onOpen)
+    await screen.findByText('project')
+
+    await pressLong(screen.getByRole('button', { name: 'Stop' }))
+
+    expect(screen.queryByDisplayValue('project')).not.toBeInTheDocument()
+    expect(onOpen).not.toHaveBeenCalled()
   })
 })

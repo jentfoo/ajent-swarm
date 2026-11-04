@@ -276,12 +276,22 @@ describe('JobsHome', () => {
     await screen.findByText('nightly sweep')
 
     fireReplies.push({ id: 20, ok: true })
-    await user.click(screen.getByRole('button', { name: 'Run now' }))
+    await user.click(screen.getByRole('button', { name: 'Run nightly sweep now' }))
     expect(await screen.findByRole('status')).toHaveTextContent('Run #20 started.')
 
     fireReplies.push({ id: 21, ok: false })
-    await user.click(screen.getByRole('button', { name: 'Run now' }))
+    await user.click(screen.getByRole('button', { name: 'Run nightly sweep now' }))
     expect(await screen.findByText(/previous run is still active/)).toBeInTheDocument()
+  })
+
+  it('qualifies the run button with its job name', async () => {
+    const other = { ...job, id: 7, name: 'weekly digest' }
+    jobsReply = { rows: [job, other] }
+    renderJobs()
+
+    await screen.findByText('nightly sweep')
+    expect(screen.getByRole('button', { name: 'Run nightly sweep now' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Run weekly digest now' })).toBeInTheDocument()
   })
 
   it('opens the editor for a stored job and closes back to the list', async () => {

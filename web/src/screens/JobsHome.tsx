@@ -323,8 +323,8 @@ function JobRow({
             Duplicate
           </button>
         </Link>{' '}
-        <button type="button" onClick={onFire}>
-          Run now
+        <button type="button" title="Run now" aria-label={`Run ${job.name} now`} onClick={onFire}>
+          ▶
         </button>
       </td>
     </tr>

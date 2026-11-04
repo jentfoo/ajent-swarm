@@ -23,15 +23,19 @@ const permissionOptions = [
   { value: 'allow-all', label: 'allow-all' },
 ]
 
-// Timezone candidates for the daily picker; free text always works.
+// Timezone candidates for the daily picker; free text always works. The IANA
+// list never changes within a page load, so it memoizes at module scope rather
+// than rebuilding per keystroke in the editor.
+let timezoneMemo: string[] | undefined
 function timezoneCandidates(): string[] {
+  if (timezoneMemo !== undefined) return timezoneMemo
   try {
     const zones = Intl.supportedValuesOf?.('timeZone')
-    if (zones && zones.length > 0) return [...zones]
+    if (zones && zones.length > 0) return (timezoneMemo = [...zones])
   } catch {
     // Engines without the API answer nothing; typing a zone still works.
   }
-  return []
+  return (timezoneMemo = [])
 }
 
 // JobEditor is the one form for creating and editing jobs: launch facts matching
@@ -260,9 +264,10 @@ export function JobEditor({
             <>
               <label>
                 Every
+                {/* no native min: any positive interval is valid, so the
+                    draft's own validation owns the server's bounds */}
                 <input
                   type="number"
-                  min={1}
                   step="any"
                   value={draft.intervalValue}
                   onChange={(ev) => patch({ intervalValue: Number(ev.target.value) })}

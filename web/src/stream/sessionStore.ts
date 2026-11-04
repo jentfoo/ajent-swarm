@@ -27,6 +27,7 @@ interface StoreEntry {
   pollTimer: ReturnType<typeof setInterval> | null
   turnTimer: ReturnType<typeof setTimeout> | null
   healToken: number // bumps to cancel an in-flight heal loop
+  initTick: number // bumps on every stream rebuild; older snapshot reads drop
 }
 
 export class SessionStore {
@@ -107,14 +108,17 @@ export class SessionStore {
       refs: 0,
       listeners: new Set(),
       unsub: this.stream.subscribe(sessionId, (frame) => {
-        if (frame.type === 'init') this.apply(sessionId, entry!, { type: 'init', frame })
-        else if (frame.type === 'event') {
+        if (frame.type === 'init') {
+          entry!.initTick += 1 // the rebuild invalidates any read taken before it
+          this.apply(sessionId, entry!, { type: 'init', frame })
+        } else if (frame.type === 'event') {
           this.apply(sessionId, entry!, { type: 'event', event: frame.event })
         }
       }),
       pollTimer: null,
       turnTimer: null,
       healToken: 0,
+      initTick: 0,
     }
     this.entries.set(sessionId, entry)
     entry.pollTimer = setInterval(() => this.resnapshot(sessionId), resnapshotMs)
@@ -170,16 +174,22 @@ export class SessionStore {
   }
 
   // resnapshot merges the poll-only facts; skipped while the tab is hidden,
-  // mirroring the digest polls, and for sessions that ended for good.
+  // mirroring the digest polls, and for sessions that ended for good. A read
+  // that raced a stream rebuild drops: init replaced state wholesale, so the
+  // response predates what the client now holds.
   private async resnapshot(sessionId: string): Promise<void> {
     if (this.disposed) return
     if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
     const phase = this.stream.sessionPhase(sessionId)
     if (phase === 'ended') return
+    const entry = this.entries.get(sessionId)
+    if (!entry) return
+    const initTick = entry.initTick
     try {
       const snap = await sessionAPI.snapshot(sessionId)
-      const entry = this.entries.get(sessionId)
-      if (entry) this.apply(sessionId, entry, { type: 'snapshot', state: snap })
+      const current = this.entries.get(sessionId)
+      if (current !== entry || current.initTick !== initTick) return // rebuilt mid-read
+      this.apply(sessionId, current, { type: 'snapshot', state: snap })
     } catch {
       // Unknown sessions flip the phase through error frames instead.
     }

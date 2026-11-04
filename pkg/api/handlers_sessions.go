@@ -250,12 +250,13 @@ func (s *apiServer) handleSessionCandidates(w http.ResponseWriter, r *http.Reque
 }
 
 // handleSessionSnapshot serves the actor's reconciled state for polling
-// clients, the same shape a stream init carries.
+// clients, the same shape a stream init carries plus the seq watermark it was
+// read under: events at or below it are already covered by these fields.
 func (s *apiServer) handleSessionSnapshot(w http.ResponseWriter, r *http.Request) {
-	state, err := s.fleet.Snapshot(r.Context(), r.PathValue("id"))
+	snap, err := s.fleet.Snapshot(r.Context(), r.PathValue("id"))
 	switch {
 	case err == nil:
-		writeJSON(w, http.StatusOK, state)
+		writeJSON(w, http.StatusOK, snap)
 	case writeCommandFailure(w, err):
 	default:
 		writeError(w, http.StatusInternalServerError, "internal_error", "")

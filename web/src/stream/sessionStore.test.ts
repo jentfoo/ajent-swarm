@@ -143,6 +143,47 @@ describe('SessionStore', () => {
     expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/s1/snapshot'))).toBe(true)
   })
 
+  it('keeps stream state newer than a stale snapshot read', async () => {
+    // The poll's response was read upstream before the dialog opened and lands
+    // after its event; the stamp says so, so only poll-only facts merge.
+    const snap = { ...snapshotFor('s1'), seq: 3, cwd: '/elsewhere', interactions: [] }
+    vi.mocked(fetch).mockImplementation(() => Promise.resolve(Response.json(snap)))
+    store.acquire('s1')
+    const ws = openSocket()
+    ws.message({ type: 'init', sessionId: 's1', state: snapshotFor('s1'), entries: [] })
+    ws.message(
+      eventFrame('s1', 'interaction.pending', 5, {
+        id: 7,
+        kind: 'confirm',
+        prompt: 'Allow write access?',
+      }),
+    )
+    expect(store.peek('s1').snapshot.interactions).toHaveLength(1)
+
+    await vi.advanceTimersByTimeAsync(21_000) // the resnapshot cadence runs at least once
+    expect(store.peek('s1').snapshot.cwd).toBe('/elsewhere')
+    expect(store.peek('s1').snapshot.interactions).toHaveLength(1)
+  })
+
+  it('drops snapshot reads that raced a stream rebuild', async () => {
+    store.acquire('s1')
+    const ws = openSocket()
+    ws.message({ type: 'init', sessionId: 's1', state: snapshotFor('s1'), entries: [] })
+
+    // Hold the poll's response until a reconnect-style init has rebuilt state.
+    let respond!: (res: Response) => void
+    vi.mocked(fetch).mockImplementation(
+      () => new Promise<Response>((resolve) => (respond = resolve)),
+    )
+    await vi.advanceTimersByTimeAsync(21_000)
+    ws.message({ type: 'init', sessionId: 's1', state: snapshotFor('s1'), entries: [] })
+
+    const stale = Response.json({ ...snapshotFor('s1'), cwd: '/before-the-rebuild' })
+    respond(stale)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(store.peek('s1').snapshot.cwd).toBe('') // the pre-init read never lands
+  })
+
   it('unsubscribes everything on dispose', async () => {
     for (const id of ['a', 'b', 'c', 'd']) store.acquire(id)()
     const ws = openSocket()

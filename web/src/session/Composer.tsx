@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { FormEvent, KeyboardEvent } from 'react'
 
 import { ApiError } from '../api/client'
@@ -24,7 +24,8 @@ function isTextFile(file: File): boolean {
 }
 
 // ComposerProps keeps the submit flow beside SessionView: it mints the
-// pendingId, applies optimistic rows and clears the draft only on acceptance.
+// pendingId, applies optimistic rows, and clears the draft only once the wire
+// accepts a line — a refused one keeps its text (composer-draft-policy.md).
 export interface ComposerProps {
   sessionId: string
   value: string // the controlled draft; recall fills it from above
@@ -53,16 +54,51 @@ export function Composer({
   const fileRef = useRef<HTMLInputElement>(null)
   const areaRef = useRef<HTMLTextAreaElement>(null)
 
-  // @-path completion: the caret's token drives a debounced files lookup,
-  // Tab accepts and arrows move the highlight. The token is derived, so a
-  // closed menu never holds stale state or intercepts keys.
+  // valueRef mirrors the controlled prop so the submit continuation compares
+  // against what the composer holds now, not at send time. The layout effect
+  // commits with its render, before a reply's task can interleave.
+  const valueRef = useRef(value)
+  useLayoutEffect(() => {
+    valueRef.current = value
+  })
+  // typedSinceSend flags edits made while a submit is on the wire: an
+  // acceptance must never clear them (a retype included).
+  const typedSinceSend = useRef(false)
+  // inFlight names the line whose submit is unanswered, so an impatient Enter
+  // cannot fire the same submission twice before its reply lands.
+  const inFlight = useRef<string | null>(null)
+
+  // @-path completion: the caret's token drives a debounced files lookup.
+  // Tab or an arrow-moved Enter accepts and drops the caret after the token;
+  // a plain Enter sends as typed. The token is derived, so a closed menu never
+  // holds stale state or intercepts keys.
   const [caret, setCaret] = useState(0)
   const [items, setItems] = useState<FileSuggestion[]>([])
-  const [highlight, setHighlight] = useState(0)
+  // pick scopes the highlight and navigation to one token: a new token derives
+  // fresh defaults, so no effect ever resets stale selection state.
+  const [pick, setPick] = useState({ key: '', index: 0, moved: false })
   const [dismissed, setDismissed] = useState<string | null>(null) // Escape hides one query
   const token = atTokenBefore(value, caret)
   const menuOpen = token !== null && items.length > 0 && token.query !== dismissed
   const query = token?.query
+  const tokenKey = `${token?.start}:${query}`
+  const highlight = pick.key === tokenKey ? pick.index : 0
+  const moved = pick.key === tokenKey && pick.moved
+
+  // pendingSelection carries an accepted completion's caret across the
+  // controlled value commit, which drops the DOM selection to end of text.
+  const pendingSelectionRef = useRef<{ text: string; caret: number } | null>(null)
+  useLayoutEffect(() => {
+    const pending = pendingSelectionRef.current
+    if (!pending) return
+    pendingSelectionRef.current = null
+    const el = areaRef.current
+    // A superseded commit (e.g. a send cleared the draft in the same tick)
+    // no longer owns the caret.
+    if (!el || el.value !== pending.text) return
+    const pos = Math.min(pending.caret, el.value.length)
+    el.setSelectionRange(pos, pos)
+  }, [value])
 
   // Autosize with the draft, capped at a readable height.
   useEffect(() => {
@@ -89,35 +125,53 @@ export function Composer({
     }
   }, [sessionId, query])
 
-  const send = useCallback(async () => {
-    const line = value.trim()
-    if (line === '' || disabled) return
-    // Slash and shell lines submit as-is: they surface through their effects
-    // and commit no message entry, so only prompts paint an optimistic row.
-    const isPrompt = !line.startsWith('/') && !line.startsWith('!')
-    const pendingId = isPrompt ? newPendingID() : undefined
-    if (pendingId !== undefined) onSubmit(line, pendingId)
-    onChange('')
-    setError('')
-    try {
-      await sessionAPI.submit(sessionId, line, pendingId)
-    } catch (err) {
-      if (pendingId !== undefined) onSubmitFailed(pendingId)
-      setError(err instanceof ApiError ? err.message : 'Submit failed.')
-    }
-  }, [value, disabled, sessionId, onSubmit, onSubmitFailed, onChange])
+  // send submits one draft line: prompts mint the client pendingId that
+  // paints an optimistic row; slash and shell lines submit as-is. The draft
+  // stays put until the reply: a refusal keeps its text, and only acceptance
+  // clears — and then solely when typing has not already reshaped it.
+  const send = useCallback(
+    async (draft: string) => {
+      const line = draft.trim()
+      if (line === '' || disabled) return
+      if (inFlight.current === line) return
+      // Slash and shell lines submit as-is: they surface through their effects
+      // and commit no message entry, so only prompts paint an optimistic row.
+      const isPrompt = !line.startsWith('/') && !line.startsWith('!')
+      const pendingId = isPrompt ? newPendingID() : undefined
+      if (pendingId !== undefined) onSubmit(line, pendingId)
+      inFlight.current = line
+      typedSinceSend.current = false
+      setError('')
+      try {
+        await sessionAPI.submit(sessionId, line, pendingId)
+      } catch (err) {
+        inFlight.current = null
+        if (pendingId !== undefined) onSubmitFailed(pendingId)
+        setError(err instanceof ApiError ? err.message : 'Submit failed.')
+        return // the refused text stays right where it is
+      }
+      inFlight.current = null
+      if (!typedSinceSend.current && valueRef.current === draft) onChange('')
+    },
+    [disabled, sessionId, onSubmit, onSubmitFailed, onChange],
+  )
 
   // accept replaces the token with the highlighted suggestion: directories
-  // keep their separator so completion continues, files end the token.
+  // keep their separator so completion continues, files end the token. The
+  // tracked caret and DOM selection land after the insertion (past a file's
+  // trailing space) once the controlled commit reaches the textarea.
   const accept = useCallback(
-    (suggestion: FileSuggestion) => {
-      if (token === null) return
-      const tail = value.slice(caret)
-      const next = `${value.slice(0, token.start)}@${suggestion.path}${
-        suggestion.dir ? '' : ' '
-      }${tail}`
-      setCaret(token.start + 1 + suggestion.path.length)
+    (suggestion: FileSuggestion): string => {
+      if (token === null) return value
+      const insert = `${suggestion.path}${suggestion.dir ? '' : ' '}`
+      const nextCaret = token.start + 1 + insert.length
+      const next = `${value.slice(0, token.start)}@${insert}${value.slice(caret)}`
+      pendingSelectionRef.current = { text: next, caret: nextCaret }
+      setCaret(nextCaret)
+      // a following Enter submits instead of completing again
+      setPick({ key: '', index: 0, moved: false })
       onChange(next)
+      return next
     },
     [token, value, caret, onChange],
   )
@@ -131,17 +185,30 @@ export function Composer({
           return
         case 'ArrowDown':
           ev.preventDefault()
-          setHighlight((h) => Math.min(h + 1, items.length - 1))
+          setPick((p) => ({
+            key: tokenKey,
+            index: Math.min(p.key === tokenKey ? p.index + 1 : 1, items.length - 1),
+            moved: true,
+          }))
           return
         case 'ArrowUp':
           ev.preventDefault()
-          setHighlight((h) => Math.max(h - 1, 0))
+          setPick((p) => ({
+            key: tokenKey,
+            index: Math.max(p.key === tokenKey ? p.index - 1 : 0, 0),
+            moved: true,
+          }))
           return
-        case 'Enter': // completing a path wins over sending the draft
-          if (!ev.nativeEvent.isComposing) {
+        case 'Enter':
+          // Shift+Enter keeps its newline meaning while the menu is open. A
+          // moved selection completes first, then sends; an un-moved one falls
+          // through to send as typed (the TUI overlay's key rules).
+          if (!ev.shiftKey && !ev.nativeEvent.isComposing) {
             ev.preventDefault()
-            accept(items[highlight] ?? items[0])
-            return
+            if (moved) {
+              void send(accept(items[highlight] ?? items[0]))
+              return
+            }
           }
           break
         case 'Escape':
@@ -154,12 +221,12 @@ export function Composer({
     if (ev.key !== 'Enter' || ev.shiftKey) return
     if (ev.nativeEvent.isComposing) return // an IME mid-composition is not a send
     ev.preventDefault()
-    void send()
+    void send(value)
   }
 
   const onFormSubmit = (ev: FormEvent) => {
     ev.preventDefault()
-    void send()
+    void send(value)
   }
 
   // Attachments ride the workaround: images upload under swarm's state dir
@@ -209,7 +276,7 @@ export function Composer({
                     ev.preventDefault() // the textarea keeps focus
                     accept(item)
                   }}
-                  onMouseEnter={() => setHighlight(i)}
+                  onMouseEnter={() => setPick({ key: tokenKey, index: i, moved: true })}
                 >
                   {item.path}
                 </button>
@@ -226,7 +293,10 @@ export function Composer({
           }
           aria-label="Prompt"
           disabled={disabled}
-          onChange={(ev) => onChange(ev.target.value)}
+          onChange={(ev) => {
+            typedSinceSend.current = true
+            onChange(ev.target.value)
+          }}
           onKeyDown={onKeyDown}
           onSelect={(ev) => setCaret(ev.currentTarget.selectionStart ?? 0)}
         />

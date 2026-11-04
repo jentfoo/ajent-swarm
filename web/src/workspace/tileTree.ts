@@ -131,9 +131,10 @@ export function splitPane(
   return { tree: insert(tree), paneId: fresh.id }
 }
 
-// moveTab reorders tabs within a pane or moves one across panes. Dropping at
-// a toIndex in the target pane; a source pane left empty closes. Same-pane
-// no-ops keep the tree identity so drag ghosts settle without churn.
+// moveTab reorders tabs within a pane or moves one across panes. toIndex is
+// a tab position in the target pane: insert before it, past the end appends.
+// A source pane left empty closes. Same-pane no-ops keep the tree identity so
+// drag ghosts settle without churn.
 export function moveTab(
   tree: TileNode,
   fromPane: string,
@@ -146,7 +147,15 @@ export function moveTab(
   if (!source || !target || !source.tabs.includes(sessionId)) return tree
   if (fromPane === toPane) {
     const from = source.tabs.indexOf(sessionId)
-    const to = Math.max(0, Math.min(target.tabs.length - 1, toIndex))
+    // The id is removed before splicing, so a forward target shifts down one
+    // slot to stay where the drop-before indicator sat; strip drops append.
+    let to: number
+    if (toIndex >= target.tabs.length) {
+      to = target.tabs.length - 1
+    } else {
+      to = Math.max(0, toIndex)
+      if (from < to) to -= 1
+    }
     if (from === to) return tree
     const tabs = source.tabs.filter((id) => id !== sessionId)
     tabs.splice(to, 0, sessionId)

@@ -26,6 +26,15 @@ const tree = {
   b: { kind: 'pane', id: 'p2', tabs: [RIGHT], active: RIGHT },
 }
 
+// One pane holding both sessions with the second active: closing that tab
+// activates its neighbor, which is how a tab swap runs without dragging.
+const stackedTree = {
+  kind: 'pane',
+  id: 'p1',
+  tabs: [LEFT, RIGHT],
+  active: RIGHT,
+}
+
 function attention(): AttentionRow[] {
   return [
     {
@@ -40,6 +49,16 @@ function attention(): AttentionRow[] {
     },
     { sessionId: LEFT, pid: 1, openInteractions: 0, running: false, idle: true },
   ]
+}
+
+// pendingDialog is one text-answer interaction; paneAnswer finds the card's
+// input inside a pane's dock.
+function pendingDialog(id: number, prompt: string) {
+  return { id, kind: 'input', prompt, text: true }
+}
+
+function paneAnswer(paneId: string): HTMLInputElement | null {
+  return document.querySelector<HTMLInputElement>(`[data-pane-id="${paneId}"] .dialog-card input`)
 }
 
 describe('TileWorkspace', () => {
@@ -82,6 +101,9 @@ describe('TileWorkspace', () => {
         if (path === '/api/attention') return Promise.resolve(Response.json(attention()))
         const snap = /\/api\/sessions\/([^/]+)\/snapshot/.exec(path)
         if (snap) return Promise.resolve(Response.json({ session: { id: snap[1] } }))
+        if (path.endsWith('/candidates')) {
+          return Promise.resolve(Response.json({ head: '', candidates: [] }))
+        }
         return Promise.resolve(Response.json({}))
       }),
     )
@@ -127,6 +149,44 @@ describe('TileWorkspace', () => {
     const badges = document.querySelectorAll('.tab-badge.needs-input')
     expect(badges).toHaveLength(1)
     expect(badges[0].getAttribute('aria-label')).toBe('needs-input')
+  })
+
+  it('gives dialog autofocus to the focused pane only', async () => {
+    renderTile()
+    await waitFor(() => expect(sockets.length).toBeGreaterThan(0))
+    act(() => sockets[0].open())
+    await waitFor(() => {
+      const opens = sockets[0].sent.map((raw) => JSON.parse(raw))
+      expect(opens).toContainEqual({ type: 'subscribe', sessionId: LEFT })
+      expect(opens).toContainEqual({ type: 'subscribe', sessionId: RIGHT })
+    })
+
+    // a text answer rises in the backgrounded pane first
+    act(() => {
+      sockets[0].message({
+        type: 'event',
+        sessionId: RIGHT,
+        event: { event: 'interaction.pending', seq: 1, data: pendingDialog(3, 'background key?') },
+      })
+    })
+    expect(await screen.findByText('background key?')).toBeInTheDocument()
+
+    // cross-pane theft is the bug the focus policy exists for; attention
+    // surfaces it instead (the badge case above covers that claim)
+    const background = paneAnswer('p2')
+    expect(background).not.toBeNull()
+    expect(document.activeElement).not.toBe(background)
+
+    // the focused pane's own dialog takes the caret on mount
+    act(() => {
+      sockets[0].message({
+        type: 'event',
+        sessionId: LEFT,
+        event: { event: 'interaction.pending', seq: 1, data: pendingDialog(4, 'focused key?') },
+      })
+    })
+    expect(await screen.findByText('focused key?')).toBeInTheDocument()
+    expect(document.activeElement).toBe(paneAnswer('p1'))
   })
 
   it('closes a tab through the strip and keeps the sibling pane', async () => {
@@ -226,6 +286,35 @@ describe('TileWorkspace', () => {
     await user.click(screen.getByLabelText('Close left'))
     await screen.findByText('No panes open.')
     await expect(screen.findByText('No panes open.')).resolves.toBeInTheDocument()
+  })
+
+  it('presents an activated tab fresh instead of reusing the last view', async () => {
+    localStorage.setItem(
+      'swarm.workspace.v1',
+      JSON.stringify({ mode: 'tile', inbox: {}, tile: { tree: stackedTree, focusedPaneId: 'p1' } }),
+    )
+    renderTile()
+    await waitFor(() => expect(sockets.length).toBeGreaterThan(0))
+    act(() => sockets[0].open())
+    await screen.findAllByText('right') // the persisted tree landed
+
+    // transient chrome opens over the active session
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Rewind' }))
+    expect(
+      await screen.findByRole('dialog', { name: 'Rewind to an earlier point' }),
+    ).toBeInTheDocument()
+
+    // closing it activates the neighbor tab: a fresh view, no leftover dialog,
+    // and the newly shown session subscribes
+    await user.click(screen.getByLabelText('Close right'))
+    expect(
+      screen.queryByRole('dialog', { name: 'Rewind to an earlier point' }),
+    ).not.toBeInTheDocument()
+    await waitFor(() => {
+      const opens = sockets[0].sent.map((raw) => JSON.parse(raw))
+      expect(opens).toContainEqual({ type: 'subscribe', sessionId: LEFT })
+    })
   })
 
   it('shows the empty state when no sessions are live', async () => {

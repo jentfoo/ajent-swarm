@@ -57,6 +57,32 @@ func TestSessionCommandsRoute(t *testing.T) {
 	})
 }
 
+func TestSnapshotCarriesEventWatermark(t *testing.T) {
+	m, home := newTestFleet(t, nil)
+	f := fleettest.New(t, home, fleettest.Options{SessionID: "01SNAPSEQ00000000"})
+	f.SetSnapshot(ctl.State{})
+	f.WriteRegistry(t, os.Getpid(), time.Now())
+	waitForState(t, m, f.SessionID(), ChildOnline)
+
+	ctx := context.Background()
+	early, err := m.Snapshot(ctx, f.SessionID())
+	require.NoError(t, err)
+	assert.Zero(t, early.Queued) // nothing announced yet, so the stamp may sit low
+
+	ev := f.Broadcast(ctl.EventQueued, ctl.QueuedData{Rows: []ctl.QueueRow{{ID: "c1", Text: "queued"}}})
+	require.Eventually(t, func() bool { // the actor applies upstream events asynchronously
+		snap, err := m.Snapshot(ctx, f.SessionID())
+		return err == nil && snap.Queued == 1
+	}, 2*time.Second, testPoll)
+
+	snap, err := m.Snapshot(ctx, f.SessionID())
+	require.NoError(t, err)
+	// The read serializes beside event application on the actor goroutine, so
+	// its stamp covers exactly the events the fields folded in.
+	assert.Equal(t, ev.Seq, snap.Seq)
+	assert.Greater(t, snap.Seq, early.Seq)
+}
+
 func TestSessionCommandsSurfaceRefusals(t *testing.T) {
 	m, home := newTestFleet(t, nil)
 	f := fleettest.New(t, home, fleettest.Options{SessionID: "01CMDREJECT00000", Refuses: true})

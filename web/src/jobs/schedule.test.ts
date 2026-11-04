@@ -21,6 +21,16 @@ describe('interval conversion', () => {
     const split = splitInterval(5400)
     expect(intervalToSeconds(split.value, split.unit)).toBe(5400)
   })
+
+  it('keeps sub-minute intervals in seconds', () => {
+    expect(splitInterval(30)).toEqual({ value: 30, unit: 'seconds' })
+    expect(splitInterval(90)).toEqual({ value: 90, unit: 'seconds' }) // not whole minutes
+    expect(splitInterval(60)).toEqual({ value: 1, unit: 'minutes' })
+    expect(intervalToSeconds(30, 'seconds')).toBe(30)
+    // the stored value survives an edit round trip instead of rounding to 60
+    const split = splitInterval(30)
+    expect(intervalToSeconds(split.value, split.unit)).toBe(30)
+  })
 })
 
 describe('formatEvery', () => {
@@ -30,6 +40,8 @@ describe('formatEvery', () => {
     expect(formatEvery(7200)).toBe('every 2 hours')
     expect(formatEvery(86400)).toBe('every day')
     expect(formatEvery(60)).toBe('every minute')
+    expect(formatEvery(30)).toBe('every 30 seconds')
+    expect(formatEvery(1)).toBe('every second')
   })
 })
 

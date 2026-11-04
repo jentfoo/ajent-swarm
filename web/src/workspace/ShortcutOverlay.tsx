@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 
+import { setShortcutOverlayOpen } from './keys'
 import type { WorkspaceMode } from './layoutProfile'
 
 const inboxBindings: [string, string][] = [
@@ -23,8 +24,14 @@ const tileBindings: [string, string][] = [
 ]
 
 // ShortcutOverlay is the one keyboard map shared by both workspace modes; ?
-// toggles it, Escape or a click outside closes it.
+// toggles it, Escape or a click outside closes it. While mounted it stands
+// above the workspace: keys.ts suppresses its bindings until this unmounts.
 export function ShortcutOverlay({ mode, onClose }: { mode: WorkspaceMode; onClose: () => void }) {
+  useEffect(() => {
+    setShortcutOverlayOpen(true)
+    return () => setShortcutOverlayOpen(false)
+  }, [])
+
   useEffect(() => {
     const onKey = (ev: KeyboardEvent) => {
       if (ev.key === 'Escape' || ev.key === '?') onClose()

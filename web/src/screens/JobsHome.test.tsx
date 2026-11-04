@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -42,6 +42,7 @@ const run: Run = {
 }
 
 let jobsReply: { rows?: Job[]; status?: number }
+let jobsFetches = 0
 const fireReplies: Array<{ id: number; ok: boolean }> = []
 // Update requests park here until a test resolves them, so the optimistic
 // window is observable.
@@ -54,6 +55,7 @@ describe('JobsHome', () => {
   beforeEach(() => {
     localStorage.clear()
     jobsReply = { rows: [job] }
+    jobsFetches = 0
     fireReplies.length = 0
     updateBodies = []
     updateWaiters = []
@@ -80,6 +82,7 @@ describe('JobsHome', () => {
         if (base === '/api/jobs/preview') return Promise.resolve(Response.json({ times: [] }))
         const listJobs = base === '/api/jobs' && (!init?.method || init.method === 'GET')
         if (listJobs) {
+          jobsFetches++
           return Promise.resolve(Response.json(jobsReply.rows ?? []))
         }
         if (base === '/api/runs') {
@@ -175,28 +178,70 @@ describe('JobsHome', () => {
     renderJobs()
     await screen.findByText('nightly sweep')
 
-    // the flip lands while the request is still parked
-    const box = screen.getByLabelText('Enable nightly sweep') as HTMLInputElement
+    // the flip lands while the request is still parked, and the label tracks
+    // the direction the click will take
+    const box = screen.getByRole('checkbox', { name: 'Disable nightly sweep' })
+    expect(box).toBeChecked()
     await user.click(box)
-    expect(box.checked).toBe(false)
+    expect(screen.getByRole('checkbox', { name: 'Enable nightly sweep' })).not.toBeChecked()
 
     // a refusal puts it back with the backend's complaint alongside
     updateWaiters.shift()!(
       Response.json({ error: 'invalid_request', message: 'workspace missing' }, { status: 400 }),
     )
     await waitFor(() => {
-      expect((screen.getByLabelText('Enable nightly sweep') as HTMLInputElement).checked).toBe(true)
+      expect(screen.getByRole('checkbox', { name: 'Disable nightly sweep' })).toBeChecked()
     })
     expect(await screen.findByText(/workspace missing/)).toBeInTheDocument()
 
     // an accepted update keeps the flipped state and sent the whole row
-    const updated = screen.getByLabelText('Enable nightly sweep') as HTMLInputElement
+    const updated = screen.getByRole('checkbox', { name: 'Disable nightly sweep' })
     await user.click(updated)
-    expect(updated.checked).toBe(false)
+    expect(screen.getByRole('checkbox', { name: 'Enable nightly sweep' })).not.toBeChecked()
     updateWaiters.shift()!(Response.json({ ...job, enabled: false }))
     await waitFor(() => {
       expect(updateBodies.at(-1)).toMatchObject({ id: 5, enabled: false })
     })
+  })
+
+  it('keeps a toggled row when a poll lands mid request', async () => {
+    const user = userEvent.setup()
+    renderJobs()
+    await screen.findByText('nightly sweep')
+
+    await user.click(screen.getByRole('checkbox', { name: 'Disable nightly sweep' }))
+    const box = () => screen.getByRole('checkbox', { name: 'Enable nightly sweep' })
+    expect(box()).not.toBeChecked()
+
+    // a poll that read pre-toggle state lands while the PUT is still parked
+    act(() => document.dispatchEvent(new Event('visibilitychange')))
+    await waitFor(() => expect(jobsFetches).toBe(2))
+    expect(box()).not.toBeChecked()
+
+    // the accepted update re-syncs through its own load, still flipped
+    jobsReply = { rows: [{ ...job, enabled: false }] }
+    updateWaiters.shift()!(Response.json({ ...job, enabled: false }))
+    await waitFor(() => expect(jobsFetches).toBe(3))
+    expect(box()).not.toBeChecked()
+  })
+
+  it('keeps overlapping toggles consistent through their requests', async () => {
+    const user = userEvent.setup()
+    renderJobs()
+    await screen.findByText('nightly sweep')
+
+    const box = screen.getByRole('checkbox', { name: 'Disable nightly sweep' })
+    await user.click(box)
+    await user.click(screen.getByRole('checkbox', { name: 'Enable nightly sweep' }))
+    expect(box).toBeChecked()
+    expect(updateBodies).toHaveLength(2)
+
+    // both requests accept and both re-syncs confirm the double flip
+    jobsReply = { rows: [job] }
+    updateWaiters.shift()!(Response.json({ ...job, enabled: false }))
+    updateWaiters.shift()!(Response.json(job))
+    await waitFor(() => expect(jobsFetches).toBe(3))
+    expect(screen.getByRole('checkbox', { name: 'Disable nightly sweep' })).toBeChecked()
   })
 
   it('fires manually and reports the outcome', async () => {

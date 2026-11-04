@@ -123,7 +123,7 @@ export const sessions = {
 // Scheduled jobs and their run history. preview evaluates one draft schedule
 // server-side through the trigger loop's own arithmetic.
 export const jobsApi = {
-  list: () => get<Job[]>('/api/jobs'),
+  list: (signal?: AbortSignal) => get<Job[]>('/api/jobs', { signal }),
   create: (job: Partial<Job>) => post<Job>('/api/jobs', job),
   update: (id: number, job: Partial<Job>) => put<Job>(`/api/jobs/${id}`, job),
   remove: (id: number) => del<void>(`/api/jobs/${id}`),
@@ -134,9 +134,9 @@ export const jobsApi = {
 
 // Run history across every job; ?job= narrows to one.
 export const runsApi = {
-  list: (jobId?: number, limit = 200) => {
+  list: (jobId?: number, limit = 200, signal?: AbortSignal) => {
     const params = new URLSearchParams({ limit: String(limit) })
     if (jobId !== undefined) params.set('job', String(jobId))
-    return get<Run[]>(`/api/runs?${params}`)
+    return get<Run[]>(`/api/runs?${params}`, { signal })
   },
 }

@@ -1,3 +1,5 @@
+import { useLayoutEffect, useRef } from 'react'
+
 import { MarkdownBlock } from './MarkdownBlock'
 import { ToolCallCard, SubAgentChips } from './ToolCallCard'
 import { subAgentRows } from './StatusBar'
@@ -11,7 +13,17 @@ import type { ToolResultView } from '../state/derive'
 // through the same markdown pipeline the committed entry will, so the handoff
 // at turn end swaps nothing visibly. Sub-agent jobs stream as live chips
 // above it; agent tool cards show job state instead of a bare spinner.
-export function LiveStreamBlock({ live, activity }: { live: LiveTurn; activity?: ActivityRow[] }) {
+export function LiveStreamBlock({
+  live,
+  activity,
+  onThinkingToggle,
+}: {
+  live: LiveTurn
+  activity?: ActivityRow[]
+  // Reports each manual panel toggle's post-click state so the applier can
+  // stop applying programmatic collapses; absent leaves toggles view-local.
+  onThinkingToggle?: (open: boolean) => void
+}) {
   const current = useRafThrottled(live)
   const subs = subAgentRows(activity)
   return (
@@ -19,16 +31,46 @@ export function LiveStreamBlock({ live, activity }: { live: LiveTurn; activity?:
       <span className="block-role">live{current.model ? ` · ${current.model}` : ''}</span>
       {subs.length > 0 && <SubAgentChips rows={subs} />}
       {current.thinking !== '' && (
-        <details className="thinking" open={current.thinkingOpen}>
-          <summary>thinking…</summary>
-          <div className="muted thinking-text">{current.thinking}</div>
-        </details>
+        <LiveThinking
+          text={current.thinking}
+          open={current.thinkingOpen}
+          onUserToggle={onThinkingToggle}
+        />
       )}
       {current.text !== '' && <MarkdownBlock text={current.text} />}
       {current.tools.map((tool) => (
         <LiveToolCard key={tool.id} tool={tool} agents={subs} />
       ))}
     </div>
+  )
+}
+
+// LiveThinking renders the panel uncontrolled: manual toggles survive every
+// render, and only a flip of the applier's intent is written through (mount
+// seeding, end-of-thinking collapse), so React never rewrites a value the
+// user clicked. The click event lands before the native toggle's default
+// action, which is why the reported state is the pre-click value inverted.
+function LiveThinking({
+  text,
+  open,
+  onUserToggle,
+}: {
+  text: string
+  open: boolean
+  onUserToggle?: (open: boolean) => void
+}) {
+  const ref = useRef<HTMLDetailsElement>(null)
+
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (el && el.open !== open) el.open = open
+  }, [open])
+
+  return (
+    <details ref={ref} className="thinking">
+      <summary onClick={() => onUserToggle?.(!(ref.current?.open ?? false))}>thinking…</summary>
+      <div className="muted thinking-text">{text}</div>
+    </details>
   )
 }
 

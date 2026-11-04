@@ -256,6 +256,27 @@ describe('InboxWorkspace', () => {
     await waitFor(() => expect(screen.queryByText('turn complete')).not.toBeInTheDocument())
   })
 
+  it('mutes workspace keys while the shortcuts overlay is open', async () => {
+    renderInbox()
+    await openSocket()
+
+    const user = userEvent.setup()
+    expect(railRows()[0].getAttribute('data-cursor')).toBe('true')
+
+    await user.keyboard('?')
+    expect(screen.getByRole('dialog', { name: 'Keyboard shortcuts' })).toBeInTheDocument()
+
+    // the queue must not move under an overlay the user cannot see through
+    await user.keyboard('j')
+    expect(railRows()[0].getAttribute('data-cursor')).toBe('true')
+
+    // Escape closes through the overlay's own handling; bindings then return
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog', { name: 'Keyboard shortcuts' })).not.toBeInTheDocument()
+    await user.keyboard('j')
+    expect(railRows()[1].getAttribute('data-cursor')).toBe('true')
+  })
+
   it('deep-links ?session= into a selection', async () => {
     renderInbox(`/inbox?session=${WORKER}`)
     await openSocket()
@@ -265,5 +286,30 @@ describe('InboxWorkspace', () => {
     })
     // the parameter is consumed, leaving a clean URL
     await waitFor(() => expect(window.location.search).toBe(''))
+  })
+
+  it('presents a switched row fresh instead of reusing the last view', async () => {
+    renderInbox()
+    await openSocket()
+
+    const user = userEvent.setup()
+    await user.click(within(rail()).getByText('dialog session'))
+
+    // transient chrome opens over the selected session
+    await user.click(await screen.findByRole('button', { name: 'Rewind' }))
+    expect(
+      await screen.findByRole('dialog', { name: 'Rewind to an earlier point' }),
+    ).toBeInTheDocument()
+
+    // selecting another row swaps the hosted view for that session's own:
+    // no leftover dialog, and the new session subscribes
+    await user.click(within(rail()).getByText('worker session'))
+    expect(
+      screen.queryByRole('dialog', { name: 'Rewind to an earlier point' }),
+    ).not.toBeInTheDocument()
+    await waitFor(() => {
+      const opens = sockets[0].sent.map((raw) => JSON.parse(raw))
+      expect(opens).toContainEqual({ type: 'subscribe', sessionId: WORKER })
+    })
   })
 })

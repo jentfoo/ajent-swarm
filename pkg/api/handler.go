@@ -100,11 +100,12 @@ const (
 // stay reachable so the login page can render in every bootstrap state.
 func Handler(cfg Config) http.Handler {
 	srv := &apiServer{
-		auth:           cfg.Auth,
-		fleet:          cfg.Fleet,
-		sched:          cfg.Sched,
-		attachmentsDir: cfg.AttachmentsDir,
-		loginLimiter:   auth.NewFailLimiter(loginFailuresAllowed, loginWindow),
+		auth:                 cfg.Auth,
+		fleet:                cfg.Fleet,
+		sched:                cfg.Sched,
+		attachmentsDir:       cfg.AttachmentsDir,
+		allowRemoteBootstrap: cfg.AllowRemoteBootstrap,
+		loginLimiter:         auth.NewFailLimiter(loginFailuresAllowed, loginWindow),
 	}
 
 	apiMux := http.NewServeMux()

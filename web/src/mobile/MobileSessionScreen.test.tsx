@@ -1,12 +1,15 @@
-import { act, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import MobileSessionScreen from './MobileSessionScreen'
+import type { ReactElement } from 'react'
+import { useNavigate } from 'react-router'
 import { AuthProvider } from '../providers/auth'
 import { SwarmProvider } from '../providers/swarm'
 import { WorkspaceProvider } from '../providers/workspace'
+import { resetDrafts } from '../session/draftStore'
 import { MockWebSocket } from '../test/mockWebSocket'
 import { resetLedger } from '../workspace/attention'
 
@@ -15,6 +18,7 @@ import { resetLedger } from '../workspace/attention'
 // pushed sheet, and rewind as a flat recent-prompt list.
 
 const VIEW = '01MOBILEVIEW00000'
+const OTHER = '01MOBILEVIEW00001'
 
 class FetchRouter {
   handler = vi.fn((url: string | URL, _init?: RequestInit): Response => {
@@ -73,6 +77,7 @@ describe('MobileSessionScreen', () => {
 
   beforeEach(() => {
     localStorage.clear()
+    resetDrafts() // drafts persist by session, so tests start from a clean slate
     resetLedger()
     vvHeight = window.innerHeight // keyboard closed by default
 
@@ -158,6 +163,35 @@ describe('MobileSessionScreen', () => {
     return vi.waitFor(() => expect(sockets.length).toBeGreaterThan(0))
   }
 
+  // NavButton drives MemoryRouter between the two session routes, standing in
+  // for the launcher and switcher navigations that reuse one screen instance.
+  function NavButton({ to, children }: { to: string; children: string }): ReactElement {
+    const navigate = useNavigate()
+    return (
+      <button type="button" onClick={() => navigate(to)}>
+        {children}
+      </button>
+    )
+  }
+
+  function renderSwitchable() {
+    return render(
+      <MemoryRouter initialEntries={[`/s/${VIEW}`]}>
+        <AuthProvider>
+          <SwarmProvider>
+            <WorkspaceProvider>
+              <NavButton to={`/s/${OTHER}`}>go other</NavButton>
+              <NavButton to={`/s/${VIEW}`}>go view</NavButton>
+              <Routes>
+                <Route path="/s/:sessionId" element={<MobileSessionScreen />} />
+              </Routes>
+            </WorkspaceProvider>
+          </SwarmProvider>
+        </AuthProvider>
+      </MemoryRouter>,
+    )
+  }
+
   it('renders the compact chrome with status strip and queue count', async () => {
     renderScreen()
     const ws = await openSocket()
@@ -181,7 +215,7 @@ describe('MobileSessionScreen', () => {
     expect(screen.getByLabelText(/1 active/)).toBeInTheDocument()
   })
 
-  it('pads above the keyboard while it animates', async () => {
+  it('feeds the keyboard inset to css for composer and overlays', async () => {
     renderScreen()
     const ws = await openSocket()
     act(() => {
@@ -189,8 +223,10 @@ describe('MobileSessionScreen', () => {
     })
     await screen.findByRole('button', { name: /sonnet/ })
 
+    // the sheet pads above the keyboard through --keyboard-inset; theme.css
+    // adds the safe-area baseline and lifts fixed overlays with the same value
     const screenEl = document.querySelector('.mobile-session') as HTMLElement
-    expect(screenEl.style.paddingBottom).toBe('')
+    expect(screenEl.style.getPropertyValue('--keyboard-inset')).toBe('0px')
 
     // the keyboard rises in steps; every intermediate inset lands so the
     // transcript stays visible and autoscroll stays pinned while it animates
@@ -198,20 +234,20 @@ describe('MobileSessionScreen', () => {
     act(() => {
       ;(window.visualViewport as unknown as { fire: () => void }).fire()
     })
-    expect(screenEl.style.paddingBottom).toBe('120px')
+    expect(screenEl.style.getPropertyValue('--keyboard-inset')).toBe('120px')
 
     vvHeight = window.innerHeight - 300
     act(() => {
       ;(window.visualViewport as unknown as { fire: () => void }).fire()
     })
-    expect(screenEl.style.paddingBottom).toBe('300px')
+    expect(screenEl.style.getPropertyValue('--keyboard-inset')).toBe('300px')
 
-    // keyboard closed again clears the padding
+    // keyboard closed again returns to the safe-area baseline alone
     vvHeight = window.innerHeight
     act(() => {
       ;(window.visualViewport as unknown as { fire: () => void }).fire()
     })
-    expect(screenEl.style.paddingBottom).toBe('')
+    expect(screenEl.style.getPropertyValue('--keyboard-inset')).toBe('0px')
   })
 
   it('pushes the tools panel full-screen from the header', async () => {
@@ -287,13 +323,188 @@ describe('MobileSessionScreen', () => {
     expect(screen.queryByText('reply')).not.toBeInTheDocument()
     expect(screen.getByTestId('rewind-01C3')).toBeDisabled()
 
+    // a draft in the composer survives: the rewind lands above it
+    await user.type(screen.getByLabelText('Prompt'), 'my draft')
+
     await user.click(screen.getByTestId('rewind-01C1'))
     await vi.waitFor(() => {
       const rewindCalls = fetcher.handler.mock.calls.filter(([u]) => String(u).endsWith('/rewind'))
       expect(rewindCalls).toHaveLength(1)
     })
 
-    // the full prompt text lands in the composer for an edit
-    await vi.waitFor(() => expect(screen.getByLabelText('Prompt')).toHaveValue('first prompt text'))
+    // the full prompt text lands above the draft for an edit, noticed by toast
+    await vi.waitFor(() =>
+      expect(screen.getByLabelText('Prompt')).toHaveValue('first prompt text\nmy draft'),
+    )
+    expect(await screen.findByText('Placed above your existing draft.')).toBeInTheDocument()
+  })
+
+  it('opens the switcher from a dominant horizontal edge swipe', async () => {
+    renderScreen()
+    const ws = await openSocket()
+    act(() => {
+      ws.message({ type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
+    })
+    await screen.findByRole('button', { name: /sonnet/ })
+
+    const surface = document.querySelector('.mobile-session') as HTMLElement
+    fireEvent.touchStart(surface, {
+      touches: [{ clientX: 10, clientY: 300 }],
+      changedTouches: [{ clientX: 10, clientY: 300 }],
+    })
+    fireEvent.touchEnd(surface, { touches: [], changedTouches: [{ clientX: 80, clientY: 306 }] })
+
+    expect(await screen.findByRole('dialog', { name: 'Session switcher' })).toBeInTheDocument()
+  })
+
+  it('keeps a vertical edge scroll from opening the switcher', async () => {
+    renderScreen()
+    const ws = await openSocket()
+    act(() => {
+      ws.message({ type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
+    })
+    await screen.findByRole('button', { name: /sonnet/ })
+
+    // a scroll that starts at the edge and ends 60px right of it is a scroll
+    const surface = document.querySelector('.mobile-session') as HTMLElement
+    fireEvent.touchStart(surface, {
+      touches: [{ clientX: 10, clientY: 100 }],
+      changedTouches: [{ clientX: 10, clientY: 100 }],
+    })
+    fireEvent.touchEnd(surface, { touches: [], changedTouches: [{ clientX: 70, clientY: 400 }] })
+
+    expect(screen.queryByRole('dialog', { name: 'Session switcher' })).not.toBeInTheDocument()
+  })
+
+  it('keeps a second finger from opening the switcher', async () => {
+    renderScreen()
+    const ws = await openSocket()
+    act(() => {
+      ws.message({ type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
+    })
+    await screen.findByRole('button', { name: /sonnet/ })
+
+    // one finger seeds the gesture at the edge; a pinch kills it even when
+    // the last finger lifts far right of where the first landed
+    const surface = document.querySelector('.mobile-session') as HTMLElement
+    fireEvent.touchStart(surface, {
+      touches: [{ clientX: 10, clientY: 300 }],
+      changedTouches: [{ clientX: 10, clientY: 300 }],
+    })
+    fireEvent.touchStart(surface, {
+      touches: [
+        { clientX: 10, clientY: 300 },
+        { clientX: 250, clientY: 320 },
+      ],
+      changedTouches: [{ clientX: 250, clientY: 320 }],
+    })
+    fireEvent.touchEnd(surface, {
+      touches: [{ clientX: 10, clientY: 300 }],
+      changedTouches: [{ clientX: 250, clientY: 320 }],
+    })
+    fireEvent.touchEnd(surface, { touches: [], changedTouches: [{ clientX: 120, clientY: 310 }] })
+
+    expect(screen.queryByRole('dialog', { name: 'Session switcher' })).not.toBeInTheDocument()
+  })
+
+  it('shows the seat claim only while someone else holds the write seat', async () => {
+    renderScreen()
+    const ws = await openSocket()
+    act(() => {
+      ws.message({ type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
+    })
+    expect(await screen.findByText('seat: swarm')).toBeInTheDocument()
+
+    // a free seat renders nothing; writes take the seat lazily
+    act(() => {
+      ws.message({
+        type: 'init',
+        sessionId: VIEW,
+        state: snapshotFor(VIEW, { seat: { held: false, yours: false } }),
+        entries: [],
+      })
+    })
+    expect(screen.queryByText('seat: swarm')).not.toBeInTheDocument()
+    expect(screen.queryByText('seat held')).not.toBeInTheDocument()
+
+    // one this connection holds is not contested either
+    act(() => {
+      ws.message({
+        type: 'init',
+        sessionId: VIEW,
+        state: snapshotFor(VIEW, { seat: { held: true, holder: 'swarm', yours: true } }),
+        entries: [],
+      })
+    })
+    expect(screen.queryByText('seat: swarm')).not.toBeInTheDocument()
+  })
+
+  it('presents a switched session fresh and restores its own draft on return', async () => {
+    fetcher.on('/api/sessions', () =>
+      Response.json([
+        {
+          sessionId: VIEW,
+          state: 'online',
+          seatHeld: false,
+          seatOurs: false,
+          running: false,
+          idle: true,
+          openInteractions: 0,
+          spawnedBy: 'external',
+        },
+        {
+          sessionId: OTHER,
+          state: 'online',
+          seatHeld: false,
+          seatOurs: false,
+          running: false,
+          idle: true,
+          openInteractions: 0,
+          spawnedBy: 'external',
+        },
+      ]),
+    )
+    fetcher.on(`/api/sessions/${OTHER}/snapshot`, () => Response.json(snapshotFor(OTHER)))
+    fetcher.on(`/api/sessions/${VIEW}/models`, () =>
+      Response.json({
+        active: 'anthropic/claude-sonnet',
+        models: [
+          {
+            key: 'anthropic/claude-sonnet',
+            short: 'sonnet',
+            window: 200_000,
+            caps: { reasoning: true, images: false, parallelToolCalls: true },
+          },
+        ],
+      }),
+    )
+    renderSwitchable()
+    const ws = await openSocket()
+
+    act(() => {
+      ws.message({ type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
+    })
+    const user = userEvent.setup()
+    await user.type(await screen.findByLabelText('Prompt'), 'alpha draft')
+
+    // the tools sheet and the model menu stand open over the first session
+    await user.click(screen.getByRole('button', { name: 'Open tools panel' }))
+    expect(await screen.findByRole('dialog', { name: 'Tools' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /sonnet/ }))
+    expect(await screen.findByText('anthropic/claude-sonnet')).toBeInTheDocument()
+
+    // the swap presents the other session fresh: sheet and menu closed, and a
+    // draft typed for the first session is not sitting in the composer
+    await user.click(screen.getByRole('button', { name: 'go other' }))
+    act(() => {
+      ws.message({ type: 'init', sessionId: OTHER, state: snapshotFor(OTHER), entries: [] })
+    })
+    expect(await screen.findByLabelText('Prompt')).toHaveValue('')
+    expect(screen.queryByRole('dialog', { name: 'Tools' })).not.toBeInTheDocument()
+    expect(screen.queryByText('anthropic/claude-sonnet')).not.toBeInTheDocument()
+
+    // returning restores that session's draft from the store, not a blank
+    await user.click(screen.getByRole('button', { name: 'go view' }))
+    expect(await screen.findByLabelText('Prompt')).toHaveValue('alpha draft')
   })
 })

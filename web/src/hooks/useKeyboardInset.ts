@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import type { CSSProperties } from 'react'
 
 // useKeyboardInset tracks how much of the layout viewport a software keyboard
 // (or any floating browser chrome) covers, so a mobile composer can rise above
@@ -33,4 +34,11 @@ function currentInset(): number {
   const vv = window.visualViewport
   if (!vv) return 0
   return Math.max(0, Math.round(window.innerHeight - vv.height))
+}
+
+// keyboardInsetStyle exposes an inset as --keyboard-inset, the custom property
+// theme.css reads to pad the composer column and offset fixed overlays. One
+// name keeps those rules in step with what components publish.
+export function keyboardInsetStyle(inset: number): CSSProperties {
+  return { '--keyboard-inset': `${inset}px` } as CSSProperties
 }

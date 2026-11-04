@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { SwarmStream } from './swarmStream'
-import { resubscribeMaxMs } from './swarmStream'
+import { resubscribeBaseMs, resubscribeMaxMs } from './swarmStream'
 import type { ServerFrame } from '../api/types'
 import { MockWebSocket } from '../test/mockWebSocket'
 
@@ -9,6 +9,13 @@ function lastSocket(): MockWebSocket {
   const ws = MockWebSocket.instances.at(-1)
   if (!ws) throw new Error('no socket created')
   return ws
+}
+
+// subscribe frames the current socket has sent, retries included.
+function subscribeCount(): number {
+  return lastSocket()
+    .sent.map((raw) => JSON.parse(raw as string))
+    .filter((f: { type: string }) => f.type === 'subscribe').length
 }
 
 const initFrameFor = (sessionId: string): ServerFrame => ({
@@ -148,6 +155,61 @@ describe('SwarmStream subscriptions', () => {
     stream.resync('s1')
     expect(JSON.parse(ws.sent[1])).toEqual({ type: 'sync', sessionId: 's1' })
   })
+
+  it('retries every subscription-level refusal code', async () => {
+    const got: ServerFrame[] = []
+    stream.subscribe('s1', (f) => got.push(f))
+    await vi.advanceTimersByTimeAsync(0)
+    lastSocket().open()
+
+    for (const code of ['unknown_session', 'not_subscribed', 'subscribe_failed']) {
+      const before = subscribeCount()
+      lastSocket().message({ type: 'error', code, sessionId: 's1' })
+      expect(stream.sessionPhase('s1')).toBe('connecting') // waiting out the backoff
+      await vi.advanceTimersByTimeAsync(resubscribeMaxMs)
+      expect(subscribeCount()).toBe(before + 1) // exactly one retry per refusal
+    }
+
+    // refusals still reach listeners, and an init ends the retrying as live
+    expect(got.some((f) => f.type === 'error')).toBe(true)
+    lastSocket().message(initFrameFor('s1'))
+    expect(stream.sessionPhase('s1')).toBe('live')
+  })
+
+  it('never retries refusals that name no subscription failure', async () => {
+    stream.subscribe('s1', () => {})
+    await vi.advanceTimersByTimeAsync(0)
+    lastSocket().open()
+
+    lastSocket().message({ type: 'error', code: 'bad_request', sessionId: 's1' })
+    expect(stream.sessionPhase('s1')).toBe('connecting')
+    await vi.advanceTimersByTimeAsync(resubscribeMaxMs)
+    expect(subscribeCount()).toBe(1) // only the original join
+  })
+
+  it('gives a reopened view a fresh retry budget', async () => {
+    const unsub = stream.subscribe('gone', () => {})
+    await vi.advanceTimersByTimeAsync(0)
+    lastSocket().open()
+    for (let i = 0; i < 13; i++) {
+      lastSocket().message({ type: 'error', code: 'unknown_session', sessionId: 'gone' })
+      await vi.advanceTimersByTimeAsync(resubscribeMaxMs)
+    }
+    expect(stream.sessionPhase('gone')).toBe('lost')
+    const exhausted = subscribeCount()
+
+    // closing and reopening the view clears the spent budget, so the first
+    // refusal retries instead of re-marking lost with zero attempts
+    unsub()
+    stream.subscribe('gone', () => {})
+    lastSocket().message({ type: 'error', code: 'unknown_session', sessionId: 'gone' })
+    await vi.advanceTimersByTimeAsync(resubscribeBaseMs)
+    expect(stream.sessionPhase('gone')).toBe('connecting')
+    expect(subscribeCount()).toBe(exhausted + 2) // the reopened join plus one retry
+
+    lastSocket().message(initFrameFor('gone'))
+    expect(stream.sessionPhase('gone')).toBe('live')
+  })
 })
 
 describe('SwarmStream reconnects', () => {
@@ -277,5 +339,29 @@ describe('SwarmStream reconnects', () => {
     }
     expect(ws.readyState).toBe(1)
     expect(MockWebSocket.instances).toHaveLength(1)
+  })
+
+  it('keeps an ended session off the wire across a reconnect', async () => {
+    stream.subscribe('s1', () => {})
+    await vi.advanceTimersByTimeAsync(0)
+    const first = lastSocket()
+    first.open()
+    first.message(initFrameFor('s1'))
+    first.message({ type: 'child', sessionId: 's1', state: 'exited' })
+    expect(stream.sessionPhase('s1')).toBe('ended')
+
+    // the visibility resync skips a finished session too
+    document.dispatchEvent(new Event('visibilitychange'))
+    expect(first.sent.some((raw) => JSON.parse(raw).type === 'sync')).toBe(false)
+
+    first.close()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(stream.sessionPhase('s1')).toBe('ended') // no resyncing regression
+
+    await vi.advanceTimersByTimeAsync(100) // the reconnect lands
+    const second = lastSocket()
+    expect(second).not.toBe(first)
+    second.open()
+    expect(second.sent).toEqual([]) // a definitive end never rejoins
   })
 })

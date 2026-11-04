@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -92,5 +92,49 @@ describe('ModelChip', () => {
     await vi.waitFor(() => {
       expect(onToast).toHaveBeenCalledWith('seat_held: another controller holds the seat', 'error')
     })
+  })
+
+  it('dismisses on an outside tap', async () => {
+    const user = userEvent.setup()
+    stubFetch((url) => {
+      if (url === '/api/sessions/01S/models') {
+        return Response.json({ active: 'anthropic/claude-sonnet', models: [{ key: 'h' }] })
+      }
+      throw new Error(`unexpected fetch ${url}`)
+    })
+
+    render(<ModelChip sessionId="01S" snap={snap} onToast={() => {}} />)
+    await user.click(screen.getByRole('button', { name: /sonnet/ }))
+    expect(await screen.findByRole('menu')).toBeInTheDocument()
+
+    fireEvent.mouseDown(document.body) // anywhere outside the chip and menu
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+  })
+
+  it('drops a listing that lands after the menu closed', async () => {
+    const user = userEvent.setup()
+    const onToast = vi.fn()
+    let resolveModels!: (res: Response) => void
+    const spy = vi.fn(
+      () =>
+        new Promise<Response>((res) => {
+          resolveModels = res
+        }),
+    )
+    vi.stubGlobal('fetch', spy)
+
+    render(<ModelChip sessionId="01S" snap={snap} onToast={onToast} />)
+    await user.click(screen.getByRole('button', { name: /sonnet/ })) // open; listing flies
+    expect(spy).toHaveBeenCalledTimes(1)
+
+    fireEvent.mouseDown(document.body) // close before the reply lands
+
+    await act(async () => {
+      resolveModels(Response.json({ active: 'x', models: [{ key: 'x' }] }))
+    })
+
+    // the stale cycle reopens nothing and reports nothing
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+    expect(onToast).not.toHaveBeenCalled()
   })
 })

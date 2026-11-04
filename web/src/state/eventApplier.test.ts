@@ -399,6 +399,91 @@ describe('applierReducer live turn buffers', () => {
     s = apply(s, ev('status', 2, { spinning: true }), ev('turn.end', 3, {}))
     expect(s.snapshot.spinning).toBe(true)
   })
+
+  it('seeds every live buffer expanded, turn.start or not', () => {
+    const started = apply(initialSessionState(), ev('turn.start', 1, { model: 'm' }))
+    expect(started.live?.thinkingOpen).toBe(true)
+
+    // a mid-turn join rebuilds the buffer through the fallback path
+    const joined = apply(initialSessionState(), ev('thinking.delta', 1, { delta: 'hmm' }))
+    expect(joined.live?.thinkingOpen).toBe(true)
+  })
+})
+
+describe('applierReducer live thinking toggles', () => {
+  it('collapses at end-of-thinking and turn end by default', () => {
+    let s = apply(
+      initialSessionState(),
+      ev('turn.start', 1, { model: 'm' }),
+      ev('thinking.delta', 2, { delta: 'hmm' }),
+    )
+    expect(s.live?.thinkingOpen).toBe(true)
+
+    s = apply(s, ev('thinking.end', 3))
+    expect(s.live?.thinkingOpen).toBe(false)
+
+    // painted thinking stays through turn end and closes with it
+    s = apply(s, ev('turn.end', 4, { stop: 'end_turn' }))
+    expect(s.live?.thinking).toBe('hmm')
+    expect(s.live?.thinkingOpen).toBe(false)
+  })
+
+  it('re-expands a fresh stream the user never touched', () => {
+    let s = apply(
+      initialSessionState(),
+      ev('turn.start', 1, { model: 'm' }),
+      ev('thinking.delta', 2, { delta: 'one' }),
+      ev('thinking.end', 3),
+      // a running call keeps the buffer alive across the handoff
+      ev('tool.start', 4, { id: 'c1', name: 'bash', input: '{}' }),
+    )
+    expect(s.live?.thinkingOpen).toBe(false)
+
+    // the step's entry commits; the committed thinking drains from it
+    const committed = assistantWith([
+      { type: 'thinking', data: { text: 'one' } },
+      { type: 'tool_call', data: { id: 'c1', name: 'bash' } },
+    ])
+    s = apply(s, ev('entry.append', 5, { entry: committed }))
+    expect(s.live?.thinking).toBe('')
+
+    // the next step's stream mounts expanded again, like a new buffer would
+    s = apply(s, ev('thinking.delta', 6, { delta: 'two' }))
+    expect(s.live?.thinkingOpen).toBe(true)
+    expect(s.live?.thinking).toBe('two')
+  })
+
+  it('stops applying collapses once the user has toggled', () => {
+    let s = apply(
+      initialSessionState(),
+      ev('turn.start', 1, { model: 'm' }),
+      ev('thinking.delta', 2, { delta: 'hmm' }),
+      { type: 'liveThinkingToggled', open: false },
+    )
+    expect(s.live).toMatchObject({ thinkingOpen: false, thinkingUserToggled: true })
+
+    // the end-of-thinking collapse no longer snaps shut under them
+    s = apply(s, ev('thinking.end', 3))
+    expect(s.live?.thinkingOpen).toBe(false)
+
+    // reopening keeps ownership through turn end and later streams
+    s = apply(s, { type: 'liveThinkingToggled', open: true })
+    expect(s.live?.thinkingOpen).toBe(true)
+    s = apply(s, ev('turn.end', 4, { stop: 'end_turn' }))
+    expect(s.live?.thinkingOpen).toBe(true)
+    s = apply(s, ev('thinking.delta', 5, { delta: 'more' }))
+    expect(s.live?.thinkingOpen).toBe(true)
+  })
+
+  it('ignores toggles with no live buffer and converges on replay', () => {
+    const empty = apply(initialSessionState(), { type: 'liveThinkingToggled', open: true })
+    expect(empty.live).toBeNull()
+
+    // a recorded toggle replays to the same state object
+    let s = apply(initialSessionState(), ev('turn.start', 1, { model: 'm' }))
+    s = apply(s, { type: 'liveThinkingToggled', open: false })
+    expect(apply(s, { type: 'liveThinkingToggled', open: false })).toBe(s)
+  })
 })
 
 describe('applierReducer resnapshot poll-only fields', () => {
@@ -422,6 +507,78 @@ describe('applierReducer resnapshot poll-only fields', () => {
     expect(s.snapshot.permission).toBe('auto') // untouched
     expect(s.snapshot.idle).toBe(false) // untouched
     expect(s.snapshot.running).toBe(true) // untouched
+  })
+})
+
+describe('applierReducer snapshot ordering', () => {
+  const dialog = (id: number) => ({
+    id,
+    kind: 'confirm',
+    prompt: 'Allow write access?',
+    options: ['allow', 'deny'],
+  })
+
+  it('stale stamp keeps event state', () => {
+    // The poll fired, then the stream announced a dialog and queue rows; the
+    // in-flight response read before all that and must not empty them.
+    let s = apply(
+      initialSessionState(),
+      ev('turn.start', 1, { model: 'm' }),
+      ev('interaction.pending', 2, dialog(7)),
+      ev('status', 3, { spinning: true }),
+      ev('queued', 4, { rows: [{ id: 'c1', text: 'one' }] }),
+    )
+    s = apply(s, {
+      type: 'snapshot',
+      state: snap({
+        seq: 2,
+        session: { id: s.snapshot.session.id, name: 'older' },
+        spinning: false,
+        interactions: [],
+        queuedRows: [],
+        queued: 0,
+      }),
+    })
+    expect(s.snapshot.interactions).toEqual([dialog(7)]) // the dialog stays answerable
+    expect(s.snapshot.queuedRows).toEqual([{ id: 'c1', text: 'one' }])
+    expect(s.snapshot.spinning).toBe(true)
+    expect(s.snapshot.session.name).toBeUndefined() // no rename regression either
+  })
+
+  it('fresh stamp lands event state', () => {
+    let s = apply(initialSessionState(), ev('interaction.pending', 1, dialog(7)))
+    // The read folded the settle that is still in flight to us.
+    s = apply(s, { type: 'snapshot', state: snap({ seq: 2, interactions: [] }) })
+    expect(s.snapshot.interactions).toEqual([])
+
+    // A later event below a fresher read cannot resurrect anything either way.
+    s = apply(s, ev('interaction.pending', 1, dialog(7)))
+    expect(s.snapshot.interactions).toEqual([])
+  })
+
+  it('stale stamp keeps queued pendings waiting', () => {
+    let s = apply(initialSessionState(), { type: 'pendingSubmitted', pendingId: 'p1', text: 'hi' })
+    s = apply(s, ev('queued', 2, { rows: [{ id: 'p1', text: 'hi' }] }))
+    s = apply(s, {
+      type: 'snapshot',
+      state: snap({ seq: 1, queuedRows: [], queued: 0 }),
+    })
+    expect(s.pendings[0]?.state).toBe('queued') // a stale read never resolves rows
+  })
+
+  it('stale stamp keeps a running turn live', () => {
+    let s = apply(
+      initialSessionState(),
+      ev('turn.start', 5, { model: 'm' }),
+      ev('tool.output', 6, { id: 'c1', delta: 'partial out' }),
+    )
+    // The read predates the turn; it must not seal its freshly streamed card.
+    s = apply(s, { type: 'snapshot', state: snap({ seq: 4, running: false }) })
+    expect(s.live?.tools[0]?.closed).toBeUndefined()
+
+    // A read at least as fresh as the stream seals what no event closed.
+    s = apply(s, { type: 'snapshot', state: snap({ seq: 7, running: false }) })
+    expect(s.live?.tools[0]?.closed).toBe(true)
   })
 })
 

@@ -17,6 +17,14 @@ export const maxNameLen = 200 // mirrors sched's bound
 export const maxTriggerLen = 2000 // mirrors sched's bound
 const maxIntervalSeconds = 366 * 24 * 3600 // one leap year of seconds
 
+// Length bounds are server-side Go string lengths, so they count UTF-8 bytes.
+const textEncoder = new TextEncoder()
+
+// byteLength reports a string's UTF-8 size, the unit the server's bounds use.
+function byteLength(s: string): number {
+  return textEncoder.encode(s).length
+}
+
 // Run-when-idle delay options: how long a held fire may wait before it skips.
 // Zero means never skipped. The labels double as the dropdown's entries.
 export const idleDelayOptions = [
@@ -194,7 +202,7 @@ export function validateDraft(draft: JobDraft): DraftErrors {
   const errors: DraftErrors = {}
 
   if (draft.name.trim() === '') errors.name = 'Name is required.'
-  else if (draft.name.trim().length > maxNameLen)
+  else if (byteLength(draft.name.trim()) > maxNameLen)
     errors.name = `Name must be at most ${maxNameLen} characters.`
   if (draft.workspace.trim() === '') errors.workspace = 'Workspace is required.'
 
@@ -227,7 +235,8 @@ export function validateDraft(draft: JobDraft): DraftErrors {
 
   if (draft.timeoutMinutes < 0) errors.timeoutMinutes = 'Timeout cannot be negative.'
   if (draft.idleMaxDelaySeconds < 0) errors.idle = 'Idle delay cannot be negative.'
-  if (draft.triggerCommand.length > maxTriggerLen)
+  // the server trims before checking, so the bound applies to the trimmed value
+  if (byteLength(draft.triggerCommand.trim()) > maxTriggerLen)
     errors.triggerCommand = `Trigger command must be at most ${maxTriggerLen} characters.`
   return errors
 }

@@ -52,7 +52,7 @@ func TestFailLimiterSprayStaysBounded(t *testing.T) {
 	for i := 0; i < limiterMaxTracked+100; i++ {
 		l.Allow(strconv.Itoa(i))
 	}
-	assert.Equal(t, limiterMaxTracked, len(l.wins))
+	assert.Len(t, l.wins, limiterMaxTracked)
 }
 
 func TestFailLimiterRetryAfter(t *testing.T) {

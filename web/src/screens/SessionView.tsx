@@ -7,6 +7,7 @@ import { useSessionChannel } from '../hooks/useSessionChannel'
 import type { SessionPhase } from '../stream/swarmStream'
 import { useWorkspace } from '../providers/workspace'
 import { Composer } from '../session/Composer'
+import { placedAboveNotice, useComposerDraft } from '../session/useComposerDraft'
 import { DialogDock } from '../session/DialogDock'
 import { QueuedPrompts } from '../session/QueuedPrompts'
 import { StatusBar } from '../session/StatusBar'
@@ -24,16 +25,43 @@ interface Toast {
 // SessionView is the single-session experience: slim status header with
 // controls, virtualized transcript over reconciled state, dialog dock above a
 // queue-aware composer, and a bottom status bar answering "what is the agent
-// doing" at a glance. The workspace modes host it by sessionId; the
-// /s/:sessionId route keeps a standalone focused view for deep links.
-export default function SessionView({ sessionId: hostedId }: { sessionId?: string }) {
+// doing" at a glance. The workspace modes host it by sessionId; the /s/:sessionId
+// route keeps a standalone focused view for deep links. autoFocusDialogs marks
+// the surface that holds keyboard focus: dialogs take the caret there (head
+// card, on mount) and render inert in background panes.
+//
+// The content keys on sessionId, so every host presents a swap as a remount:
+// that session's own draft restores from the store while sheets, menus, toasts
+// and scroll reset instead of bleeding across sessions
+// (session-switch-state-reset.md).
+export default function SessionView({
+  sessionId: hostedId,
+  autoFocusDialogs = true,
+}: {
+  sessionId?: string
+  autoFocusDialogs?: boolean
+}) {
   const params = useParams()
   const sessionId = hostedId ?? params.sessionId ?? ''
+  return (
+    <SessionSurface key={sessionId} sessionId={sessionId} autoFocusDialogs={autoFocusDialogs} />
+  )
+}
+
+// SessionSurface is one session's mounted presentation; the key above makes a
+// session swap a remount, so local state never outlives its session.
+function SessionSurface({
+  sessionId,
+  autoFocusDialogs,
+}: {
+  sessionId: string
+  autoFocusDialogs: boolean
+}) {
   const { state, phase, loadOlder, dispatch } = useSessionChannel(sessionId)
   const { acknowledgeDialog, acknowledgeTurn } = useWorkspace()
   const snap = state.snapshot
 
-  const [draft, setDraft] = useState('')
+  const { draft, setDraft, prefill } = useComposerDraft(sessionId)
   const [showRewind, setShowRewind] = useState(false)
 
   const [toasts, setToasts] = useState<Toast[]>([])
@@ -44,16 +72,25 @@ export default function SessionView({ sessionId: hostedId }: { sessionId?: strin
     setTimeout(() => setToasts((ts) => ts.filter((t) => t.id !== id)), 6_000)
   }, [])
 
+  // placedAbove surfaces a prefill that merged above an existing draft, so the
+  // arrival is noticed instead of reading as one's own text moving down.
+  const placedAbove = useCallback(
+    (text: string) => {
+      if (prefill(text)) pushToast(placedAboveNotice, 'info')
+    },
+    [prefill, pushToast],
+  )
+
   // Editing a queued prompt pops it back into the composer through recall;
   // secret rows refuse upstream and their toast says so.
   const recallToEdit = useCallback(async () => {
     try {
       const row = await sessionAPI.recall(sessionId)
-      if (row.text) setDraft(row.text)
+      if (row.text) placedAbove(row.text)
     } catch (err) {
       pushToast(err instanceof ApiError ? err.message : 'Recall failed.', 'error')
     }
-  }, [sessionId, pushToast])
+  }, [sessionId, pushToast, placedAbove])
 
   // Wire refusals while a dialog holds input mirror into the composer's
   // disabled state; every other coded refusal surfaces as a toast.
@@ -84,13 +121,19 @@ export default function SessionView({ sessionId: hostedId }: { sessionId?: strin
         </div>
       )}
 
-      <TranscriptView sessionId={sessionId} state={state} loadOlder={loadOlder} />
+      <TranscriptView
+        sessionId={sessionId}
+        state={state}
+        loadOlder={loadOlder}
+        onThinkingToggle={(open) => dispatch({ type: 'liveThinkingToggled', open })}
+      />
 
       {state.notices.length > 0 && <Notices notices={state.notices} />}
       <DialogDock
         sessionId={sessionId}
         dialogs={dialogs}
         outcomes={state.resolvedElsewhere}
+        autoFocusDialogs={autoFocusDialogs}
         onAnsweredLocally={(dialogId) => {
           dispatch({ type: 'dialogAnswered', dialogId })
           acknowledgeDialog(sessionId, dialogId) // acting clears the inbox row
@@ -108,7 +151,7 @@ export default function SessionView({ sessionId: hostedId }: { sessionId?: strin
           sessionId={sessionId}
           onClose={() => setShowRewind(false)}
           onToast={pushToast}
-          onPrefill={setDraft} // a rewound prompt lands in the composer to edit
+          onPrefill={placedAbove} // a rewound prompt lands above the draft to edit
         />
       )}
       <Composer

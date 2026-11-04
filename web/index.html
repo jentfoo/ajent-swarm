@@ -12,6 +12,25 @@
     <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <!-- Applies the stored theme, falling back to prefers-color-scheme,
+         before first paint so light users never see a dark flash. Mirrors
+         SwarmProvider's readStored/preferredTheme; the provider keeps owning
+         runtime changes and the meta theme-color after mount. -->
+    <script id="theme-bootstrap">
+      ;(() => {
+        var theme = ''
+        try {
+          var stored = localStorage.getItem('swarm.theme')
+          if (stored === 'dark' || stored === 'light') theme = stored
+        } catch (_e) {}
+        if (!theme && window.matchMedia) {
+          try {
+            if (window.matchMedia('(prefers-color-scheme: light)').matches) theme = 'light'
+          } catch (_e) {}
+        }
+        document.documentElement.dataset.theme = theme || 'dark'
+      })()
+    </script>
     <title>ajent-swarm</title>
   </head>
   <body>

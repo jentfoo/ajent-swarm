@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { ApiError } from '../api/client'
 import { sessions as sessionAPI } from '../api/endpoints'
@@ -18,26 +18,48 @@ export function ModelChip({
   onToast: (text: string, level?: 'info' | 'error') => void
 }) {
   const [open, setOpen] = useState(false)
-  const [keys, setKeys] = useState<string[]>([])
-  const [active, setActive] = useState('')
-  const [busy, setBusy] = useState(false)
+  // the last listing reply, keyed to the session it answered; rendering only
+  // when it belongs here keeps another session's registry from flashing in
+  const [fetched, setFetched] = useState<{
+    forSession: string
+    keys: string[]
+    active: string
+  } | null>(null)
+  const [busy, setBusy] = useState(false) // a model.set is in flight
   const working = snap.running || snap.spinning
+  const menuRef = useRef<HTMLSpanElement>(null)
 
-  const openMenu = useCallback(async () => {
-    if (open) {
-      setOpen(false)
-      return
+  useEffect(() => {
+    if (!open) return
+    const onDocClick = (ev: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(ev.target as Node)) setOpen(false)
     }
-    setBusy(true)
-    try {
-      const listing = await sessionAPI.models(sessionId)
-      setKeys(listing.models.map((m) => m.key))
-      setActive(listing.active || snap.model.key)
-      setOpen(true)
-    } catch (err) {
-      onToast(err instanceof ApiError ? err.message : 'Model listing failed.', 'error')
-    } finally {
-      setBusy(false)
+    document.addEventListener('mousedown', onDocClick)
+    return () => document.removeEventListener('mousedown', onDocClick)
+  }, [open])
+
+  // every open lists fresh; closing mid-flight drops the reply, so a stale
+  // cycle can never reopen the menu or apply another session's listing
+  useEffect(() => {
+    if (!open) return
+    let alive = true
+    const forSession = sessionId
+    sessionAPI
+      .models(sessionId)
+      .then((listing) => {
+        if (alive) {
+          setFetched({
+            forSession,
+            keys: listing.models.map((m) => m.key),
+            active: listing.active || snap.model.key,
+          })
+        }
+      })
+      .catch((err: unknown) => {
+        if (alive) onToast(err instanceof ApiError ? err.message : 'Model listing failed.', 'error')
+      })
+    return () => {
+      alive = false
     }
   }, [open, sessionId, snap.model.key, onToast])
 
@@ -55,23 +77,27 @@ export function ModelChip({
     }
   }
 
+  const listed = fetched !== null && fetched.forSession === sessionId
   return (
-    <span className="model-chip-wrap">
+    <span ref={menuRef} className="model-chip-wrap">
       <button
         type="button"
         className="badge accent model-chip"
         disabled={busy}
-        onClick={() => void openMenu()}
+        onClick={() => setOpen((v) => !v)}
       >
         {snap.model.short || snap.model.key || 'model'}
         {working && <Spinner state={working ? 'wait' : 'idle'} />}
       </button>
-      {open && (
+      {open && listed && (
         <div className="menu card model-menu-list" role="menu">
-          {keys.map((key) => (
+          {fetched.keys.length === 0 && <span className="muted menu-empty">No models listed.</span>}
+          {fetched.keys.map((key) => (
             <button key={key} type="button" role="menuitem" onClick={() => void pick(key)}>
               {key}
-              {key === active && <span className="badge ok">current</span>}
+              {(key === fetched.active || key === snap.model.key) && (
+                <span className="badge ok">current</span>
+              )}
             </button>
           ))}
         </div>

@@ -22,6 +22,15 @@ export interface WorkspaceKeyHandlers {
   onResize?: (dir: Direction) => void // alt+arrow
 }
 
+// While a ShortcutOverlay is mounted it owns Escape and ?, so workspace
+// bindings stand down behind it instead of acting on rows the user cannot
+// see.
+let shortcutOverlayOpen = false
+
+export function setShortcutOverlayOpen(open: boolean): void {
+  shortcutOverlayOpen = open
+}
+
 export function isEditable(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false
   if (target.isContentEditable) return true
@@ -39,7 +48,7 @@ export function useWorkspaceKeys(handlers: WorkspaceKeyHandlers): void {
 
   useEffect(() => {
     const onKey = (ev: KeyboardEvent) => {
-      if (isEditable(ev.target)) return
+      if (isEditable(ev.target) || shortcutOverlayOpen) return
       const h = ref.current
       const mod = ev.ctrlKey || ev.metaKey
 
@@ -53,15 +62,18 @@ export function useWorkspaceKeys(handlers: WorkspaceKeyHandlers): void {
         return
       }
       if (mod && !ev.altKey) {
+        // Shift turns '\' into '|', so splits match the physical key through
+        // ev.code instead of the produced character.
+        if (ev.code === 'Backslash') {
+          ev.preventDefault()
+          if (ev.shiftKey) h.onSplitDown?.()
+          else h.onSplitRight?.()
+          return
+        }
         switch (ev.key.toLowerCase()) {
           case 'w':
             ev.preventDefault()
             h.onPaneClose?.()
-            return
-          case '\\':
-            ev.preventDefault()
-            if (ev.shiftKey) h.onSplitDown?.()
-            else h.onSplitRight?.()
             return
           case 'arrowleft':
             ev.preventDefault()
@@ -107,21 +119,31 @@ export function useWorkspaceKeys(handlers: WorkspaceKeyHandlers): void {
       }
       if (mod || ev.altKey) return
 
+      // Plain keys preventDefault only when a handler is bound, so unclaimed
+      // keys keep browser semantics like Enter activating a focused control.
+      const fire = (fn?: () => void) => {
+        if (!fn) return
+        ev.preventDefault()
+        fn()
+      }
       switch (ev.key) {
         case 'j':
-          h.onNext?.()
+          fire(h.onNext)
           return
         case 'k':
-          h.onPrevious?.()
+          fire(h.onPrevious)
           return
         case 'Enter':
-          h.onOpen?.()
+          fire(h.onOpen)
           return
         case 'r':
-          h.onReview?.()
+          fire(h.onReview)
           return
         default:
-          if (/^[1-9]$/.test(ev.key)) h.onDigit?.(Number(ev.key))
+          if (/^[1-9]$/.test(ev.key) && h.onDigit) {
+            ev.preventDefault()
+            h.onDigit(Number(ev.key))
+          }
       }
     }
     window.addEventListener('keydown', onKey)

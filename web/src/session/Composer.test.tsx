@@ -1,10 +1,22 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 
 import { Composer } from './Composer'
 import type { ComposerProps } from './Composer'
+
+type Suggestion = { path: string; dir?: boolean }
+
+// filesFetch answers /files lookups from a query -> suggestions table so
+// re-completion tests can vary the candidates per token state.
+function filesFetch(byQuery: Record<string, Suggestion[]>) {
+  return vi.fn(async (url: string | URL) => {
+    const q = new URL(String(url), 'http://localhost').searchParams.get('query')
+    if (q !== null && q in byQuery) return Response.json({ items: byQuery[q] })
+    return Response.json({})
+  })
+}
 
 // A controlled harness: SessionView owns the draft in production, so the test
 // mirrors that by feeding onChange back into value.
@@ -104,8 +116,159 @@ describe('Composer @-completion', () => {
   })
 })
 
+describe('Composer caret and completion keys', () => {
+  it('drops_the_caret_after_an_accepted_token', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string | URL) => {
+        if (String(url).includes('/files')) {
+          return Response.json({ items: [{ path: 'src/main.go' }] })
+        }
+        return Response.json({})
+      }),
+    )
+    render(Harness())
+
+    const box = screen.getByLabelText('Prompt') as HTMLTextAreaElement
+    await user.type(box, 'look at @ma')
+    await screen.findByRole('listbox', { name: 'Path suggestions' })
+    await user.tab()
+
+    // the selection sits past the trailing space, where typing continues
+    expect(box.value).toBe('look at @src/main.go ')
+    expect(box.selectionStart).toBe(box.value.length)
+    expect(box.selectionEnd).toBe(box.value.length)
+  })
+
+  it('closes_the_menu_so_tab_cannot_splice_twice', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string | URL) => {
+        if (String(url).includes('/files')) {
+          return Response.json({ items: [{ path: 'src/main.go' }] })
+        }
+        return Response.json({})
+      }),
+    )
+    render(Harness())
+
+    const box = screen.getByLabelText('Prompt') as HTMLTextAreaElement
+    await user.type(box, 'look at @ma')
+    await screen.findByRole('listbox', { name: 'Path suggestions' })
+    await user.tab()
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
+
+    await user.tab() // no token remains to complete
+
+    expect(box.value).toBe('look at @src/main.go ')
+  })
+
+  it('unmoved_enter_submits_the_draft_as_typed', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('fetch', filesFetch({ ma: [{ path: 'src/main.go' }] }))
+    const onSubmit = vi.fn()
+    render(Harness({ onSubmit }))
+
+    const box = screen.getByLabelText('Prompt') as HTMLTextAreaElement
+    await user.type(box, 'look at @ma')
+    await screen.findByRole('listbox', { name: 'Path suggestions' })
+
+    // the highlight was never moved, so Enter keeps its send role
+    await user.type(box, '{Enter}')
+
+    expect(onSubmit).toHaveBeenCalledOnce()
+    expect(onSubmit.mock.calls[0]![0]).toBe('look at @ma')
+  })
+
+  it('moved_enter_completes_then_sends', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal(
+      'fetch',
+      filesFetch({ s: [{ path: 'src/main.go' }, { path: 'src/', dir: true }] }),
+    )
+    const onSubmit = vi.fn()
+    render(Harness({ onSubmit }))
+
+    await user.type(screen.getByLabelText('Prompt'), 'see @s')
+    await screen.findByRole('listbox', { name: 'Path suggestions' })
+
+    // arrows move the selection, so Enter accepts and submits in one key
+    await user.type(screen.getByLabelText('Prompt'), '{ArrowDown}{Enter}')
+
+    expect(onSubmit).toHaveBeenCalledOnce()
+    expect(onSubmit.mock.calls[0]![0]).toBe('see @src/')
+  })
+
+  it('shift_enter_stays_a_newline_while_open', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('fetch', filesFetch({ ma: [{ path: 'src/main.go' }] }))
+    const onSubmit = vi.fn()
+    render(Harness({ onSubmit }))
+
+    const box = screen.getByLabelText('Prompt') as HTMLTextAreaElement
+    await user.type(box, 'look at @ma')
+    await screen.findByRole('listbox', { name: 'Path suggestions' })
+    await user.type(box, '{Shift>}{Enter}{/Shift}more')
+
+    expect(onSubmit).not.toHaveBeenCalled()
+    expect(box.value).toBe('look at @ma\nmore')
+    // the newline ends the token, so the menu closed with it
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
+  })
+
+  it('escape_closes_without_side_effects', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('fetch', filesFetch({ ma: [{ path: 'src/main.go' }] }))
+    const onSubmit = vi.fn()
+    render(Harness({ onSubmit }))
+
+    const box = screen.getByLabelText('Prompt') as HTMLTextAreaElement
+    await user.type(box, 'look at @ma')
+    await screen.findByRole('listbox', { name: 'Path suggestions' })
+    await user.type(box, '{Escape}')
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
+    expect(box.value).toBe('look at @ma')
+
+    // a dismissed menu never intercepts the next Enter
+    await user.type(box, '{Enter}')
+    expect(onSubmit).toHaveBeenCalledOnce()
+    expect(onSubmit.mock.calls[0]![0]).toBe('look at @ma')
+  })
+
+  it('mid_path_completion_keeps_the_tail', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal(
+      'fetch',
+      filesFetch({
+        s: [{ path: 'src/', dir: true }, { path: 'src/main.go' }],
+        'src/': [{ path: 'src/main.go' }],
+      }),
+    )
+    render(Harness())
+
+    const box = screen.getByLabelText('Prompt') as HTMLTextAreaElement
+    await user.type(box, 'see @s')
+    await screen.findByRole('listbox', { name: 'Path suggestions' })
+
+    // the directory completes with its separator so the token stays open
+    await user.tab()
+    expect(box.value).toBe('see @src/')
+
+    // the refetched candidates replace the stale list, then complete the path
+    const menu = screen.getByRole('listbox', { name: 'Path suggestions' })
+    await waitFor(() => expect(menu.querySelectorAll('[role="option"]')).toHaveLength(1))
+    await user.tab()
+
+    // the refetched candidate replaces only the query, text after it survives
+    expect(box.value).toBe('see @src/main.go ')
+    expect(box.selectionStart).toBe(box.value.length)
+  })
+})
+
 describe('Composer submit flow', () => {
-  it('sends on Enter with a client-minted pendingId and clears the draft', async () => {
+  it('sends on Enter with a client-minted pendingId and clears once accepted', async () => {
     const user = userEvent.setup()
     const bodies: Record<string, unknown>[] = []
     vi.stubGlobal(
@@ -128,7 +291,8 @@ describe('Composer submit flow', () => {
     // a client-minted correlation rides every submit
     expect(String(onSubmit.mock.calls[0]![1]).length).toBeGreaterThan(8)
     await waitFor(() => expect(bodies[0]).toMatchObject({ line: 'fix the bug' }))
-    expect(screen.getByLabelText('Prompt')).toHaveValue('')
+    // acceptance clears; until then the draft stays exactly as typed
+    await waitFor(() => expect(screen.getByLabelText('Prompt')).toHaveValue(''))
   })
 
   it('submits slash and shell lines as-is without an optimistic row', async () => {
@@ -171,6 +335,51 @@ describe('Composer submit flow', () => {
     await user.type(screen.getByLabelText('Prompt'), 'queued up{Enter}')
     await waitFor(() => expect(onSubmitFailed).toHaveBeenCalledOnce())
     expect(await screen.findByText(/queue is full/)).toBeInTheDocument()
+  })
+
+  it('keeps the draft in the composer when a submit is refused', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({ error: 'unavailable' }, { status: 409 })),
+    )
+    render(Harness({}))
+
+    const box = screen.getByLabelText('Prompt') as HTMLTextAreaElement
+    await user.type(box, 'my unsent idea{Enter}')
+    expect(await screen.findByText(/unavailable/)).toBeInTheDocument()
+    // the refused text stays right where it was typed
+    expect(box.value).toBe('my unsent idea')
+  })
+
+  it('fires one submit while an identical line is still unanswered', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => new Promise<Response>(() => {})), // never answers
+    )
+    const onSubmit = vi.fn()
+    render(Harness({ onSubmit }))
+
+    await user.type(screen.getByLabelText('Prompt'), 'once only{Enter}{Enter}')
+    expect(onSubmit).toHaveBeenCalledOnce()
+  })
+
+  it('clears nothing an edit touched while a submit was on the wire', async () => {
+    const user = userEvent.setup()
+    let accept!: (res: Response) => void
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => new Promise<Response>((r) => (accept = r))),
+    )
+    render(Harness({}))
+
+    await user.type(screen.getByLabelText('Prompt'), 'hello{Enter}')
+    // typing reshaped the draft before the reply landed
+    await user.type(screen.getByLabelText('Prompt'), ' world')
+    accept(Response.json({}, { status: 202 }))
+    await act(async () => {}) // let the acceptance continuation run
+    expect(screen.getByLabelText('Prompt')).toHaveValue('hello world')
   })
 
   it('keeps Shift+Enter from sending', async () => {

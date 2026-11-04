@@ -413,10 +413,11 @@ func TestSessionSnapshotHandler(t *testing.T) {
 	h.serve(f)
 
 	t.Run("matches the reconciled state", func(t *testing.T) {
-		code, st := get[ctl.State](h, "/api/sessions/"+f.SessionID()+"/snapshot")
+		code, st := get[fleet.StampedState](h, "/api/sessions/"+f.SessionID()+"/snapshot")
 		require.Equal(t, http.StatusOK, code)
 		assert.Equal(t, "p/m", st.Model.Key)
 		assert.Equal(t, 1, st.Queued)
+		assert.NotZero(t, st.Seq) // the watermark every poll-only client reconciles by
 
 		live, err := h.mgr.Snapshot(h.t.Context(), f.SessionID())
 		require.NoError(t, err)
@@ -429,7 +430,7 @@ func TestSessionSnapshotHandler(t *testing.T) {
 	})
 
 	t.Run("unknown session is not found", func(t *testing.T) {
-		code, _ := get[ctl.State](h, "/api/sessions/01NOBODY00000000/snapshot")
+		code, _ := get[fleet.StampedState](h, "/api/sessions/01NOBODY00000000/snapshot")
 		assert.Equal(t, http.StatusNotFound, code)
 	})
 }

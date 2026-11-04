@@ -4,6 +4,8 @@
 //   - an init replaces everything and resets the watermark
 //   - events apply only above the watermark (ephemeral) and dedupe by entry
 //     id (committed)
+//   - a snapshot applies its event-covered fields only when stamped at or
+//     above the applied watermark; poll-only facts always merge
 //   - keyed families replace wholesale, empty text removes a row
 //   - dialogs are state: rebuilt from snapshots, cleared when absent
 //   - queue rows resolve by id, secret redaction respected
@@ -51,7 +53,12 @@ export interface ToolCallView {
 export interface LiveTurn {
   model: string
   thinking: string
+  // Panel intent for the live thinking details. The panel renders
+  // uncontrolled and follows only flips of this value, never per render.
   thinkingOpen: boolean
+  // Set once a user toggle reaches the applier; programmatic collapses then
+  // stop applying for the rest of this buffer.
+  thinkingUserToggled?: boolean
   text: string
   textOpen: boolean
   tools: ToolCallView[] // first-seen order, keyed by id
@@ -135,6 +142,7 @@ export type ApplierAction =
   | { type: 'backfill'; entries: Entry[] }
   | { type: 'pendingSubmitted'; pendingId: string; text: string }
   | { type: 'pendingFailed'; pendingId: string }
+  | { type: 'liveThinkingToggled'; open: boolean }
   | { type: 'dialogAnswered'; dialogId: number }
   | { type: 'outcomeDismissed'; dialogId: number }
 
@@ -244,6 +252,16 @@ export function applierReducer(
       next.pendings = state.pendings.map((p) =>
         p.id === action.pendingId ? { ...p, state: 'failed' as const } : p,
       )
+      return next
+    }
+    case 'liveThinkingToggled': {
+      // A user toggle takes the panel over: later programmatic collapses
+      // (thinking.end, turn end) stop applying for this buffer. Replaying a
+      // recorded toggle converges instead of churning the state object.
+      const live = state.live
+      if (!live || (live.thinkingUserToggled && live.thinkingOpen === action.open)) return state
+      const next = cloneShallow(state)
+      next.live = { ...live, thinkingOpen: action.open, thinkingUserToggled: true }
       return next
     }
     case 'dialogAnswered': {
@@ -419,10 +437,15 @@ function applyEvent(state: AppliedSessionState, ev: WireEvent): AppliedSessionSt
       if (!delta) return keepSeq(state, ev.seq)
       ensureLive(next)
       const live = next.live!
-      next.live =
-        ev.event === 'text.delta'
-          ? { ...live, text: live.text + delta }
-          : { ...live, thinking: live.thinking + delta }
+      if (ev.event === 'text.delta') {
+        next.live = { ...live, text: live.text + delta }
+        return next
+      }
+      // A fresh stream mounts expanded again unless the user owns the panel,
+      // matching how a buffer rebuilt from scratch would seed it.
+      const thinkingOpen =
+        live.thinking === '' && !live.thinkingUserToggled ? true : live.thinkingOpen
+      next.live = { ...live, thinking: live.thinking + delta, thinkingOpen }
       return next
     }
 
@@ -430,8 +453,12 @@ function applyEvent(state: AppliedSessionState, ev: WireEvent): AppliedSessionSt
     case 'text.end': {
       ensureLive(next)
       const live = next.live!
-      next.live =
-        ev.event === 'text.end' ? { ...live, textOpen: false } : { ...live, thinkingOpen: false }
+      if (ev.event === 'text.end') {
+        next.live = { ...live, textOpen: false }
+        return next
+      }
+      // The end-of-thinking collapse skips a panel the user has toggled.
+      if (!live.thinkingUserToggled) next.live = { ...live, thinkingOpen: false }
       return next
     }
 
@@ -677,18 +704,27 @@ function applyToolEvent(next: AppliedSessionState, ev: WireEvent): AppliedSessio
   }
 }
 
-// applyResnapshot merges the poll-only facts a snapshot exists to refresh:
-// identity, workspace, cwd and usage totals. Event-covered fields stay, since
-// stream state may already be newer than the read. Dialogs are the one
-// exception: rebuilt from the snapshot and cleared when absent.
+// applyResnapshot merges one REST snapshot. Poll-only facts (workspace, cwd,
+// usage totals) merge unconditionally, since no change event can regress under
+// them. The reply's stamp names the watermark the actor had applied when it
+// read: at or above ours, its event-covered fields land wholesale since they
+// fold every event this client has seen; below, events already moved past the
+// read and only those facts merge, so a late response can never empty a dialog
+// or queue the live stream just announced.
 function applyResnapshot(state: AppliedSessionState, snap: CtlState): AppliedSessionState {
+  const fresh = snap.seq === undefined || snap.seq >= state.seq
   const next = cloneShallow(state)
   next.snapshot = {
     ...next.snapshot,
-    session: { ...next.snapshot.session, name: snap.session.name },
     workspace: snap.workspace,
     cwd: snap.cwd,
     usage: snap.usage,
+  }
+  if (!fresh) return next
+
+  next.snapshot = {
+    ...next.snapshot,
+    session: { ...next.snapshot.session, name: snap.session.name },
     // A drop can lose a turn's end event; the snapshot is where a stuck
     // spinner finally clears.
     spinning: snap.spinning,
@@ -719,14 +755,15 @@ function closeLiveTurn(live: LiveTurn | null): LiveTurn | null {
     live.text === '' &&
     live.thinking === '' &&
     tools.every((t) => t.outputs.length === 0 && !t.result)
-  return empty
-    ? null
-    : {
-        ...live,
-        thinkingOpen: false,
-        textOpen: false,
-        tools,
-      }
+  if (empty) return null
+  return {
+    ...live,
+    // the resting state at commit is collapsed unless the user owns the panel;
+    // the committed block's own default keeps it collapsed after handoff
+    thinkingOpen: live.thinkingUserToggled ? live.thinkingOpen : false,
+    textOpen: false,
+    tools,
+  }
 }
 
 // --- entry bookkeeping ---
@@ -907,12 +944,13 @@ function keepSeq(state: AppliedSessionState, seq: number): AppliedSessionState {
 }
 
 function ensureLive(state: AppliedSessionState): void {
-  // Deltas and tool events after a lost turn.start still paint.
+  // Deltas and tool events after a lost turn.start still paint; every buffer
+  // mounts expanded, so a mid-turn join streams with the panel open too.
   if (!state.live) {
     state.live = {
       model: '',
       thinking: '',
-      thinkingOpen: false,
+      thinkingOpen: true,
       text: '',
       textOpen: true,
       tools: [],

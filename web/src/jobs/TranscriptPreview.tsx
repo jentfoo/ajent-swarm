@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { ApiError } from '../api/client'
 import { fleet } from '../api/endpoints'
@@ -14,12 +14,25 @@ export function TranscriptPreview({ sessionId }: { sessionId: string }) {
   const [cursor, setCursor] = useState<string | undefined>(undefined)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    let alive = true
+  const [loadingOlder, setLoadingOlder] = useState(false)
+  // Rides the reset below so a session switch retires an in-flight older page
+  // from the previous session instead of prepending into the new one.
+  const sessionToken = useRef(0)
+  // A session switch resets the walk during render, React's documented reset
+  // pattern. The effect then refetches against the fresh state.
+  const [session, setSession] = useState(sessionId)
+  if (session !== sessionId) {
+    setSession(sessionId)
     setPages([])
     setCursor(undefined)
+    setError('')
     setLoading(true)
+    setLoadingOlder(false)
+  }
+
+  useEffect(() => {
+    sessionToken.current++ // retires any older-page fetch of the prior session
+    let alive = true
     fleet
       .savedEntries(sessionId)
       .then((page) => {
@@ -39,17 +52,23 @@ export function TranscriptPreview({ sessionId }: { sessionId: string }) {
   }, [sessionId])
 
   const loadOlder = async () => {
-    if (cursor === undefined || cursor === '') return
-    let older: Entry[] = []
-    let next: string | undefined
+    // The guard pins the cursor for this walk, so a double-click cannot fire
+    // two fetches for the same page. A new session retires the fetch outright.
+    if (loadingOlder || cursor === undefined || cursor === '') return
+    const token = sessionToken.current
+    setLoadingOlder(true)
     try {
-      ;({ entries: older, cursor: next } = await fleet.savedEntries(sessionId, cursor))
+      const { entries: older, cursor: next } = await fleet.savedEntries(sessionId, cursor)
+      if (token !== sessionToken.current) return
+      setPages((ps) => [older, ...ps])
+      setCursor(next)
+      setError('') // a prior failed page clears once a retry succeeds
     } catch (err) {
+      if (token !== sessionToken.current) return
       setError(err instanceof ApiError ? err.message : 'Reading the transcript failed.')
-      return
+    } finally {
+      if (token === sessionToken.current) setLoadingOlder(false)
     }
-    setPages((ps) => [older, ...ps])
-    setCursor(next)
   }
 
   const entries = useMemo(() => pages.flat(), [pages])
@@ -73,7 +92,7 @@ export function TranscriptPreview({ sessionId }: { sessionId: string }) {
         <EntryBlock key={b.id} block={b} />
       ))}
       {cursor ? (
-        <button type="button" onClick={() => void loadOlder()}>
+        <button type="button" onClick={() => void loadOlder()} disabled={loadingOlder}>
           Load earlier history
         </button>
       ) : null}

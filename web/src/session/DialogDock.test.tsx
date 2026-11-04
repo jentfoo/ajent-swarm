@@ -164,11 +164,15 @@ describe('DialogDock shape mapping', () => {
 
   it('auto-dismisses an outcome after a few seconds', async () => {
     vi.useFakeTimers()
-    const { onOutcomeDismissed } = dock([], [{ id: 11, cancelled: true, answered: false }])
-    expect(screen.getByText(/Dialog 11 answered elsewhere/)).toBeInTheDocument()
+    try {
+      const { onOutcomeDismissed } = dock([], [{ id: 11, cancelled: true, answered: false }])
+      expect(screen.getByText(/Dialog 11 answered elsewhere/)).toBeInTheDocument()
 
-    await act(() => vi.advanceTimersByTimeAsync(4_000))
-    expect(onOutcomeDismissed).toHaveBeenCalledWith(11)
+      await act(() => vi.advanceTimersByTimeAsync(4_000))
+      expect(onOutcomeDismissed).toHaveBeenCalledWith(11)
+    } finally {
+      vi.useRealTimers() // later async tests need the real clock back
+    }
   })
 
   it('lists several open dialogs oldest first', () => {
@@ -177,5 +181,98 @@ describe('DialogDock shape mapping', () => {
     const second = screen.getByText('second question')
     // document order is the oldest-first dock order
     expect(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+})
+
+// Focus policy (dialog-focus-policy.md): autofocus belongs to the focused pane,
+// and within a focused dock only the head card takes the caret, on mount. A
+// text dialog exercises the rule; the secret variant shares the same path.
+describe('DialogDock focus policy', () => {
+  const noop = () => {}
+  const textDialog = (id: number): InteractionPending => ({
+    id,
+    kind: 'input',
+    prompt: `question ${id}`,
+    text: true,
+  })
+
+  function renderDock(dialogs: InteractionPending[], autoFocusDialogs?: boolean) {
+    return render(
+      <DialogDock
+        sessionId="01S"
+        dialogs={dialogs}
+        outcomes={[]}
+        autoFocusDialogs={autoFocusDialogs}
+        onAnsweredLocally={noop}
+        onOutcomeDismissed={noop}
+      />,
+    )
+  }
+
+  const answerFor = (id: number) =>
+    document.querySelector<HTMLInputElement>(`[data-dialog-id="${id}"] input`)
+
+  it('takes the caret on the head answer of a focused dock', () => {
+    renderDock([textDialog(1)])
+    expect(document.activeElement).toBe(answerFor(1))
+  })
+
+  it('renders an unfocused dock without taking focus', () => {
+    renderDock([textDialog(1)], false)
+    expect(document.activeElement).toBe(document.body)
+  })
+
+  it('autofocuses a head secret answer only when focused', () => {
+    renderDock([{ ...textDialog(1), secret: true }])
+    const input = answerFor(1)
+    expect(input).toHaveAttribute('type', 'password')
+    expect(document.activeElement).toBe(input)
+  })
+
+  it('never autofocuses secrets in an unfocused dock', () => {
+    renderDock([{ ...textDialog(1), secret: true }], false)
+    const input = answerFor(1)
+    expect(input).toHaveAttribute('type', 'password')
+    expect(document.activeElement).toBe(document.body)
+  })
+
+  it('mounts stacked cards behind the head without focus', () => {
+    renderDock([textDialog(1), textDialog(2)])
+    expect(document.activeElement).toBe(answerFor(1))
+  })
+
+  it('keeps later arrivals from stealing an in-progress answer', async () => {
+    const user = userEvent.setup()
+    const view = renderDock([textDialog(1)])
+    const head = answerFor(1)
+    await user.type(head!, 'mid-answer')
+
+    // a second dialog joins the stack while the first answer is being typed
+    view.rerender(
+      <DialogDock
+        sessionId="01S"
+        dialogs={[textDialog(1), textDialog(2)]}
+        outcomes={[]}
+        onAnsweredLocally={noop}
+        onOutcomeDismissed={noop}
+      />,
+    )
+    expect(answerFor(2)).not.toBeNull()
+    expect(document.activeElement).toBe(head)
+  })
+
+  it('never promotes a stacked answer to the caret', () => {
+    const view = renderDock([textDialog(1), textDialog(2)])
+    // the head settles elsewhere; its neighbor was mounted unfocused and stays so
+    view.rerender(
+      <DialogDock
+        sessionId="01S"
+        dialogs={[textDialog(2)]}
+        outcomes={[]}
+        onAnsweredLocally={noop}
+        onOutcomeDismissed={noop}
+      />,
+    )
+    expect(document.activeElement).toBe(document.body)
   })
 })

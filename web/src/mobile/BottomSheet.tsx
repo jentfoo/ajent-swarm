@@ -1,13 +1,17 @@
 import { useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent, ReactElement } from 'react'
 
+import { useKeyboardInset, keyboardInsetStyle } from '../hooks/useKeyboardInset'
+
 // dismissThreshold is how far the sheet must be dragged down before release
 // closes it; below that it springs back open.
 const dismissThreshold = 96
 
 // BottomSheet is a full-width panel docked to the bottom with a drag handle:
 // drag it past the threshold (or tap the backdrop) to dismiss. Children render
-// inside the scrollable body, so tall content never fights the gesture.
+// inside the scrollable body, so tall content never fights the gesture. The
+// sheet tracks the keyboard inset itself: ancestor padding cannot move a
+// position:fixed panel, so the backdrop shrinks from the bottom instead.
 export function BottomSheet({
   open,
   onClose,
@@ -19,8 +23,16 @@ export function BottomSheet({
   label: string
   children: ReactElement
 }) {
+  const keyboardInset = useKeyboardInset()
   const [dragY, setDragY] = useState(0)
+  const [wasOpen, setWasOpen] = useState(open)
+  if (open !== wasOpen) {
+    setWasOpen(open)
+    // a closed sheet forgets its drag offset, whatever path dismissed it
+    if (!open) setDragY(0)
+  }
   const startY = useRef<number | null>(null)
+
   if (!open) return null
 
   const onPointerDown = (ev: ReactPointerEvent<HTMLDivElement>) => {
@@ -32,16 +44,16 @@ export function BottomSheet({
     setDragY(Math.max(0, ev.clientY - startY.current))
   }
 
+  // the release decision reads the last committed offset; updaters stay pure,
+  // so StrictMode's double render cannot close the sheet twice
   const endDrag = () => {
     startY.current = null
-    setDragY((y) => {
-      if (y >= dismissThreshold) onClose()
-      return 0
-    })
+    if (dragY >= dismissThreshold) onClose()
+    setDragY(0)
   }
 
   return (
-    <div className="sheet-backdrop" onClick={onClose}>
+    <div className="sheet-backdrop" style={keyboardInsetStyle(keyboardInset)} onClick={onClose}>
       <section
         role="dialog"
         aria-modal="true"

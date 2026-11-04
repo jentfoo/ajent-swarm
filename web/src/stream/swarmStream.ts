@@ -41,12 +41,18 @@ type FrameListener = (frame: ServerFrame) => void
 
 const defaultStaleAfterMs = 75_000 // heartbeats ride every 20s; allow two misses
 
-// A subscribe refused with unknown_session (a session the fleet does not track
-// yet, e.g. one still attaching after a resume) retries on this backoff while
-// any view still holds it, then gives up as lost.
+// A subscribe or sync refused with a subscription-level error retries on
+// this backoff while any view still holds the session, then gives up as lost.
 export const resubscribeBaseMs = 500
 export const resubscribeMaxMs = 5_000
 const resubscribeMaxAttempts = 12 // about a minute of trying before 'lost'
+
+// Error codes meaning our wire subscription is absent or was refused, so the
+// subscribe frame goes out again under the backoff: a session the fleet does
+// not track yet (unknown_session), a Subscribe failure worth retrying
+// (subscribe_failed), and a sync naming no live subscription
+// (not_subscribed). Anything else names no recoverable subscription state.
+const resubscribeCodes = new Set(['unknown_session', 'subscribe_failed', 'not_subscribed'])
 
 export class SwarmStream {
   private readonly url: string
@@ -119,6 +125,8 @@ export class SwarmStream {
       this.listeners.delete(sessionId)
       this.phases.delete(sessionId)
       this.phaseListeners.delete(sessionId)
+      // A reopened view starts over: fresh budget for its subscribe retries.
+      this.resubAttempts.delete(sessionId)
       this.cancelResubscribe(sessionId)
       if (this.isOpen()) this.sendFrame({ type: 'unsubscribe', sessionId })
     }
@@ -133,9 +141,11 @@ export class SwarmStream {
   }
 
   // resync asks the backend to re-push one session's init, rebuilding state in
-  // place without dropping other subscriptions.
+  // place without dropping other subscriptions. An ended session holds its
+  // final view; there is nothing left to rebuild.
   resync(sessionId: string): void {
     if (!this.refs.has(sessionId)) return
+    if (this.phases.get(sessionId) === 'ended') return
     if (this.isOpen()) this.sendFrame({ type: 'sync', sessionId })
   }
 
@@ -223,6 +233,7 @@ export class SwarmStream {
       this.setState('open')
       // Re-join every ref'd session; a fresh socket knows no subscriptions.
       for (const sessionId of this.listeners.keys()) {
+        if (this.phases.get(sessionId) === 'ended') continue // definitive end, never rejoins
         this.sendFrame({ type: 'subscribe', sessionId })
         if (!this.phases.has(sessionId)) this.setPhase(sessionId, 'connecting')
         else this.setPhase(sessionId, 'resyncing') // state exists; init will replace it
@@ -254,6 +265,7 @@ export class SwarmStream {
       }
       // Held state is stale until the next init; keep it visible while we retry.
       for (const sessionId of this.listeners.keys()) {
+        if (this.phases.get(sessionId) === 'ended') continue // an exit outlives socket churn
         this.setPhase(sessionId, this.phases.has(sessionId) ? 'resyncing' : 'connecting')
       }
       this.scheduleReconnect()
@@ -335,11 +347,12 @@ export class SwarmStream {
         return
       }
       case 'error': {
-        // A refused subscribe names the session gone for viewers' purposes —
-        // unless the fleet may simply not track it yet (a just-resumed child),
-        // so unknown sessions retry their subscribe on a backoff first.
+        // A refused subscribe or sync means the wire subscription is gone
+        // while a view still holds the session: retry under backoff, so one
+        // the fleet does not track yet (a just-resumed child) joins as soon
+        // as its actor appears.
         if ('sessionId' in frame && typeof frame.sessionId === 'string') {
-          if (frame.code === 'unknown_session') this.scheduleResubscribe(frame.sessionId)
+          if (resubscribeCodes.has(frame.code)) this.scheduleResubscribe(frame.sessionId)
           this.dispatch(frame.sessionId, frame)
         }
         return
@@ -356,10 +369,11 @@ export class SwarmStream {
   }
 
   // scheduleResubscribe re-sends one session's subscribe after a backoff, so a
-  // session the fleet does not track yet joins as soon as its actor appears.
-  // A run of exhausted attempts marks the phase lost for good.
+  // refused or retired subscription rejoins as soon as the fleet can serve it.
+  // Exhausted attempts mark the phase lost; an ended session never retries.
   private scheduleResubscribe(sessionId: string): void {
     if (this.destroyed || !this.refs.has(sessionId)) return
+    if (this.phases.get(sessionId) === 'ended') return // definitive end, stops retrying
     const attempt = this.resubAttempts.get(sessionId) ?? 0
     if (attempt >= resubscribeMaxAttempts) {
       this.setPhase(sessionId, 'lost')

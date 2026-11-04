@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ApiError } from '../api/client'
 import { jobsApi, runsApi } from '../api/endpoints'
 import type { Job, Run, RunStatus } from '../api/types'
@@ -11,29 +11,43 @@ const pollRunsMs = 10_000
 
 // RunHistory is the filterable table over /api/runs: by job through the
 // backend's ?job= parameter, by status client-side. Clicking a row explains
-// what happened without opening logs.
+// what happened without opening logs. The detail modal resolves its run from
+// the latest list, so each poll refreshes it in place.
 export default function RunsHistory() {
   const [jobs, setJobs] = useState<Job[]>([])
   const [runs, setRuns] = useState<Run[] | null>(null)
   const [error, setError] = useState('')
   const [jobFilter, setJobFilter] = useState<number | ''>('')
   const [statusFilter, setStatusFilter] = useState<'' | RunStatus>('')
-  const [selected, setSelected] = useState<Run | undefined>(undefined)
+  const [selectedId, setSelectedId] = useState<number | undefined>(undefined)
+
+  // Each load aborts its predecessor and only the newest may commit state:
+  // a poll tick racing a filter change would otherwise let last-resolved win
+  // and paint one job's rows under another's select.
+  const loadSeq = useRef(0)
+  const abortRef = useRef<AbortController | null>(null)
+  useEffect(() => () => abortRef.current?.abort(), [])
 
   // The explicit job filter takes the value so a change reloads at once; the
   // poll's initial tick covers the mount-time load and later cadence ticks
   // read the latest filter through the callback ref.
   const load = useCallback(
     async (jobId: number | '' = jobFilter) => {
+      const seq = ++loadSeq.current
+      abortRef.current?.abort()
+      const controller = new AbortController()
+      abortRef.current = controller
       try {
         const [rows, jobRows] = await Promise.all([
-          runsApi.list(jobId === '' ? undefined : jobId),
-          jobsApi.list(),
+          runsApi.list(jobId === '' ? undefined : jobId, 200, controller.signal),
+          jobsApi.list(controller.signal),
         ])
+        if (controller.signal.aborted || seq !== loadSeq.current) return // superseded
         setRuns(rows ?? []) // a null body reads as an empty history
         setJobs(jobRows ?? [])
         setError('')
       } catch (err) {
+        if (controller.signal.aborted || seq !== loadSeq.current) return // superseded
         setError(err instanceof ApiError ? err.message : 'Loading run history failed.')
       }
     },
@@ -46,6 +60,10 @@ export default function RunsHistory() {
     (run: Run) => jobs.find((j) => j.id === run.jobId)?.name ?? '',
     [jobs],
   )
+
+  // Resolution by id keeps the modal off a frozen snapshot: status, finished
+  // time and error track each poll. A run that left the history closes it.
+  const selected = useMemo(() => (runs ?? []).find((r) => r.id === selectedId), [runs, selectedId])
 
   const visible = useMemo(
     () => (runs ?? []).filter((r) => statusFilter === '' || r.status === statusFilter),
@@ -121,7 +139,7 @@ export default function RunsHistory() {
               {visible.map((r) => (
                 <tr
                   key={r.id}
-                  onClick={() => setSelected(r)}
+                  onClick={() => setSelectedId(r.id)}
                   className="run-row"
                   data-testid={`run-${r.id}`}
                 >
@@ -138,7 +156,7 @@ export default function RunsHistory() {
                       type="button"
                       onClick={(ev) => {
                         ev.stopPropagation()
-                        setSelected(r)
+                        setSelectedId(r.id)
                       }}
                     >
                       Details
@@ -151,7 +169,7 @@ export default function RunsHistory() {
         )
       )}
 
-      {selected && <RunDetail run={selected} onClose={() => setSelected(undefined)} />}
+      {selected && <RunDetail run={selected} onClose={() => setSelectedId(undefined)} />}
     </div>
   )
 }

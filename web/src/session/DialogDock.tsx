@@ -14,16 +14,23 @@ const outcomeTtlMs = 4_000
 // options, checkbox list plus confirm for multi, text input with an optional
 // chat toggle, password masking for secrets, cancel everywhere. A dialog
 // answered elsewhere shows its real outcome as a resolved state, never an error.
+//
+// Autofocus belongs to the focused pane only (dialog-focus-policy.md):
+// autoFocusDialogs marks the dock whose session holds keyboard focus, and only
+// that dock's head card may take the caret — on mount, so later arrivals and
+// background panes never steal it. Unfocused panes surface through attention.
 export function DialogDock({
   sessionId,
   dialogs,
   outcomes,
+  autoFocusDialogs = true,
   onAnsweredLocally,
   onOutcomeDismissed,
 }: {
   sessionId: string
   dialogs: InteractionPending[]
   outcomes: DialogOutcome[]
+  autoFocusDialogs?: boolean
   onAnsweredLocally: (dialogId: number) => void
   onOutcomeDismissed: (dialogId: number) => void
 }) {
@@ -31,11 +38,12 @@ export function DialogDock({
 
   return (
     <section className="dialog-dock" aria-label="Open dialogs">
-      {dialogs.map((dlg) => (
+      {dialogs.map((dlg, i) => (
         <DialogCard
           key={dlg.id}
           dialog={dlg}
           sessionId={sessionId}
+          autoFocusAnswer={autoFocusDialogs && i === 0}
           onAnsweredLocally={onAnsweredLocally}
         />
       ))}
@@ -94,12 +102,18 @@ function ResolvedChip({
 function DialogCard({
   dialog,
   sessionId,
+  autoFocusAnswer,
   onAnsweredLocally,
 }: {
   dialog: InteractionPending
   sessionId: string
+  autoFocusAnswer: boolean
   onAnsweredLocally: (dialogId: number) => void
 }) {
+  // The autofocus decision pins at card mount: a stack position or dock focus
+  // gained later never moves the caret, even if this card becomes the head.
+  const [mayFocus] = useState(autoFocusAnswer)
+
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [picked, setPicked] = useState<number[]>([])
@@ -134,12 +148,17 @@ function DialogCard({
       {dialog.text === true && !dialog.secret && (
         <TextAnswer
           busy={busy}
+          autoFocus={mayFocus}
           chat={dialog.chat === true}
           onSend={(text) => void resolve({ dialogId: dialog.id, text, chat: dialog.chat })}
         />
       )}
       {dialog.text === true && dialog.secret && (
-        <SecretAnswer busy={busy} onSend={(text) => void resolve({ dialogId: dialog.id, text })} />
+        <SecretAnswer
+          busy={busy}
+          autoFocus={mayFocus}
+          onSend={(text) => void resolve({ dialogId: dialog.id, text })}
+        />
       )}
       {multi && (
         <MultiChecklist options={dialog.options!} picked={picked} onToggle={togglePicked} />
@@ -206,10 +225,12 @@ function MultiChecklist({
 function TextAnswer({
   busy,
   chat,
+  autoFocus,
   onSend,
 }: {
   busy: boolean
   chat: boolean
+  autoFocus: boolean
   onSend: (text: string) => void
 }) {
   const [text, setText] = useState('')
@@ -222,7 +243,7 @@ function TextAnswer({
   }
   return (
     <form onSubmit={submit} className="dialog-text">
-      <input value={text} autoFocus onChange={(ev) => setText(ev.target.value)} />
+      <input value={text} autoFocus={autoFocus} onChange={(ev) => setText(ev.target.value)} />
       {chat && (
         <label className="chat-toggle">
           <input type="checkbox" checked={asChat} onChange={(ev) => setAsChat(ev.target.checked)} />
@@ -237,7 +258,15 @@ function TextAnswer({
 }
 
 // SecretAnswer masks its input; the answer's text never echoes anywhere.
-function SecretAnswer({ busy, onSend }: { busy: boolean; onSend: (text: string) => void }) {
+function SecretAnswer({
+  busy,
+  autoFocus,
+  onSend,
+}: {
+  busy: boolean
+  autoFocus: boolean
+  onSend: (text: string) => void
+}) {
   const [text, setText] = useState('')
   const submit = (ev: FormEvent) => {
     ev.preventDefault()
@@ -247,7 +276,12 @@ function SecretAnswer({ busy, onSend }: { busy: boolean; onSend: (text: string) 
   }
   return (
     <form onSubmit={submit} className="dialog-text">
-      <input type="password" value={text} autoFocus onChange={(ev) => setText(ev.target.value)} />
+      <input
+        type="password"
+        value={text}
+        autoFocus={autoFocus}
+        onChange={(ev) => setText(ev.target.value)}
+      />
       <button className="primary" type="submit" disabled={busy || text === ''}>
         Answer
       </button>

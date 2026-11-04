@@ -4,10 +4,11 @@
 
 import type { Job, ScheduleKind } from '../api/types'
 
-export const intervalUnits = ['minutes', 'hours', 'days'] as const
+export const intervalUnits = ['seconds', 'minutes', 'hours', 'days'] as const
 export type IntervalUnit = (typeof intervalUnits)[number]
 
 const unitSeconds: Record<IntervalUnit, number> = {
+  seconds: 1,
   minutes: 60,
   hours: 3600,
   days: 86400,
@@ -21,18 +22,19 @@ export function intervalToSeconds(value: number, unit: IntervalUnit): number {
 }
 
 // splitInterval picks the largest unit that divides an interval into whole
-// counts, so stored seconds round-trip through the editor unchanged.
+// counts, falling through to exact seconds so the server's no-floor intervals
+// keep their precision through an edit round trip.
 export function splitInterval(seconds?: number): { value: number; unit: IntervalUnit } {
   if (!seconds || seconds <= 0) return { value: 30, unit: 'minutes' }
-  for (const unit of ['days', 'hours'] as const) {
+  for (const unit of ['days', 'hours', 'minutes'] as const) {
     if (seconds % unitSeconds[unit] === 0) {
       return { value: seconds / unitSeconds[unit], unit }
     }
   }
-  return { value: Math.round(seconds / unitSeconds.minutes), unit: 'minutes' }
+  return { value: seconds, unit: 'seconds' }
 }
 
-// formatEvery renders an interval in words: every 30 minutes, every 2 hours.
+// formatEvery renders an interval in words: every 30 seconds, every 2 hours.
 export function formatEvery(seconds?: number): string {
   const { value, unit } = splitInterval(seconds)
   if (value === 1) return `every ${unit.slice(0, -1)}` // hour, day

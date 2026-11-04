@@ -57,6 +57,14 @@ type cmdRecall struct {
 
 type msgSnapshot struct{ reply chan snapshotReply }
 
+// StampedState pairs one reconciled snapshot with the actor watermark it was
+// read under: every event at or below Seq had applied when these fields were
+// taken, so a client compares stamps to judge which side is fresher.
+type StampedState struct {
+	ctl.State
+	Seq uint64 `json:"seq"`
+}
+
 // Snapshot command messages for the phase-13 control methods.
 type msgSnapshotModels struct{ reply chan cmdModels }
 
@@ -79,9 +87,9 @@ type msgSnapshotSettingSet struct {
 	reply  chan cmdSettings[ctl.SettingsSetResult]
 }
 
-// snapshotReply carries one reconciled state beside why it is missing.
+// snapshotReply carries one stamped state beside why it is missing.
 type snapshotReply struct {
-	state ctl.State
+	state StampedState
 	err   error
 }
 
@@ -236,13 +244,15 @@ func (a *sessionActor) handleRecall(msg msgRecall) {
 	msg.reply <- cmdRecall{row: row, err: err}
 }
 
-// handleSnapshot reads the actor's reconciled state for polling clients.
+// handleSnapshot reads the actor's reconciled state for polling clients. The
+// stamp shares the read with event application on this goroutine, so every
+// event at or below it is already folded into the fields.
 func (a *sessionActor) handleSnapshot(msg msgSnapshot) {
 	if !a.ready() {
 		msg.reply <- snapshotReply{err: notReady()}
 		return
 	}
-	msg.reply <- snapshotReply{state: a.view.snapshot()}
+	msg.reply <- snapshotReply{state: StampedState{State: a.view.snapshot(), Seq: a.view.seq}}
 }
 
 // --- control-method commands (phase 13 upstream surface) ---
@@ -433,17 +443,17 @@ func (m *Manager) Recall(ctx context.Context, sessionID string) (ctl.RecallResul
 }
 
 // Snapshot serves one session's reconciled state for polling clients, the
-// same shape a stream init carries.
-func (m *Manager) Snapshot(ctx context.Context, sessionID string) (ctl.State, error) {
+// same shape a stream init carries beside the watermark it was read under.
+func (m *Manager) Snapshot(ctx context.Context, sessionID string) (StampedState, error) {
 	a := m.route(sessionID)
 	if a == nil {
-		return ctl.State{}, ErrUnknownSession
+		return StampedState{}, ErrUnknownSession
 	}
 	res, err := mailboxCommand(ctx, a, func(reply chan snapshotReply) actorMsg {
 		return msgSnapshot{reply: reply}
 	})
 	if err != nil {
-		return ctl.State{}, err
+		return StampedState{}, err
 	}
 	return res.state, res.err
 }

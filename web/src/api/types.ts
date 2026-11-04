@@ -106,6 +106,10 @@ export interface CtlState {
   status?: { segments?: Segment[] }
   seat: SeatState
   interactions?: InteractionPending[]
+  // Snapshot stamp, present on GET /snapshot replies only (init frames omit
+  // it): the actor watermark this state was read under, so events at or below
+  // it are already covered by these fields.
+  seq?: number
 }
 
 // Entry is one transcript line. Data stays opaque here; renderers decode the

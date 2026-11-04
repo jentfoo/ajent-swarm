@@ -1,7 +1,7 @@
 import { act, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { useKeyboardInset } from './useKeyboardInset'
+import { keyboardInsetStyle, useKeyboardInset } from './useKeyboardInset'
 
 // The hook is exercised against a mocked visualViewport: resize and scroll
 // events stand in for the keyboard's animation frames.
@@ -71,5 +71,12 @@ describe('useKeyboardInset', () => {
     unmount()
     // events still dispatch on the target; the hook just no longer holds state
     expect(() => fire()).not.toThrow()
+  })
+})
+
+describe('keyboardInsetStyle', () => {
+  it('publishes the inset as a pixel custom property', () => {
+    expect(keyboardInsetStyle(250)).toEqual({ '--keyboard-inset': '250px' })
+    expect(keyboardInsetStyle(0)).toEqual({ '--keyboard-inset': '0px' })
   })
 })

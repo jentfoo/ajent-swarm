@@ -34,7 +34,11 @@ export function RewindSheet({
     let alive = true
     sessionAPI
       .candidates(sessionId)
-      .then((res) => alive && setCandidates(res.candidates ?? []))
+      .then((res) => {
+        if (!alive) return
+        setCandidates(res.candidates ?? [])
+        setError('') // a fresh list supersedes any earlier load's failure
+      })
       .catch((err: unknown) => {
         if (alive) setError(err instanceof ApiError ? err.message : 'Loading rewind points failed.')
       })

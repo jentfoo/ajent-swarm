@@ -99,6 +99,8 @@ export function SwarmProvider({ children }: { children: ReactNode }) {
     readStored('swarm.theme', ['dark', 'light'] as const, preferredTheme()),
   )
 
+  // index.html's head script applied this value before first paint; the
+  // effect owns runtime changes, persistence and installed-chrome color.
   useEffect(() => {
     document.documentElement.dataset.theme = theme
     writeStored('swarm.theme', theme)

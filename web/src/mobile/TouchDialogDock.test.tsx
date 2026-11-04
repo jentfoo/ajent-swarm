@@ -65,6 +65,8 @@ describe('TouchDialogDock', () => {
 
     const input = screen.getByLabelText('Secret answer')
     expect(input).toHaveAttribute('type', 'password')
+    // mobile keeps autofocus: only one session is ever visible here
+    expect(input).toHaveFocus()
 
     await user.click(screen.getByRole('button', { name: 'Show' }))
     expect(input).toHaveAttribute('type', 'text')

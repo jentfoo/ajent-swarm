@@ -229,4 +229,29 @@ describe('JobEditor', () => {
     expect(screen.getByRole('checkbox', { name: /Thu/ })).toBeChecked()
     expect(screen.getByRole('checkbox', { name: /Mon/ })).not.toBeChecked()
   })
+
+  it('reopens a sub-minute interval in seconds and saves it unchanged', async () => {
+    const onSaved = vi.fn()
+    renderEditor({
+      job: { ...storedJob, scheduleKind: 'interval', intervalSeconds: 30 },
+      onSaved,
+    })
+    await settlePreview()
+
+    expect(screen.getByRole('spinbutton', { name: 'Every' })).toHaveValue(30)
+    expect(screen.getByLabelText('Unit')).toHaveValue('seconds')
+
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Save changes' }))
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ id: 3 })))
+    expect(savedRoutes[0].body).toMatchObject({ scheduleKind: 'interval', intervalSeconds: 30 })
+  })
+
+  it('fills the timezone datalist without rebuilding it per keystroke', () => {
+    renderEditor({ job: storedJob })
+
+    const options = document.querySelectorAll('#job-timezones option')
+    expect(options.length).toBeGreaterThan(0)
+    expect(screen.getByLabelText(/Timezone/)).toHaveValue('UTC')
+  })
 })

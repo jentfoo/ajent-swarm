@@ -118,6 +118,23 @@ describe('tile tree operations', () => {
     expect((moveTab(solo, 'solo', 's1', 'solo', 5) as TilePane).tabs).toEqual(['s1'])
   })
 
+  it('lands forward same-pane drops where the indicator sat', () => {
+    const triple = pane('p1', ['s1', 's2', 's3'])
+
+    // dropping s1 before s3 must not slide past it ([A,B,C] case)
+    expect((moveTab(triple, 'p1', 's1', 'p1', 2) as TilePane).tabs).toEqual(['s2', 's1', 's3'])
+
+    // a one-slot forward drop is already there: identity, no churn
+    expect(moveTab(triple, 'p1', 's1', 'p1', 1)).toBe(triple)
+
+    // strip drops still append after every tab
+    const appended = moveTab(triple, 'p1', 's1', 'p1', Number.MAX_SAFE_INTEGER) as TilePane
+    expect(appended.tabs).toEqual(['s2', 's3', 's1'])
+
+    // backward drops splice straight at the target index
+    expect((moveTab(triple, 'p1', 's3', 'p1', 0) as TilePane).tabs).toEqual(['s3', 's1', 's2'])
+  })
+
   it('clamps ratios so panes never vanish', () => {
     expect(clampRatio(0.5)).toBe(0.5)
     expect(clampRatio(-1)).toBe(0.12)

@@ -18,8 +18,8 @@ import WorkspaceRoute from './screens/WorkspaceRoute'
 
 // AuthGate renders the shell and routes only once signed in. The pre-auth
 // states stand alone: bootstrap before any password exists, and a redirect to
-// /login that keeps the current location so an expired session returns where
-// it started.
+// /login that keeps the current path and query so an expired session returns
+// where it started.
 //
 // Two chrome variants host the same route ideas. Desktop keeps the pane-capable
 // bar; mobile (phase 11) swaps in its own routes — launcher and switcher as
@@ -37,7 +37,8 @@ export default function AuthGate(): ReactElement {
     return <BootstrapScreen />
   }
   if (status === 'anon') {
-    return <Navigate to="/login" replace state={{ from: location.pathname }} />
+    // one string restores the whole deep link, and LoginScreen reads it back
+    return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />
   }
 
   if (mobile) {

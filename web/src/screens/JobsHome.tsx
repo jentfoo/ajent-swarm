@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 
 import { ApiError } from '../api/client'
@@ -29,6 +29,13 @@ export default function JobsHome() {
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
 
+  // Toggles in flight hold their rows out of poll results, so a poll that read
+  // pre-toggle state cannot flip the checkbox back mid-request. Counted per
+  // row, since a second click may overlap the first.
+  const pendingToggles = useRef(new Map<number, number>())
+  // Monotonic load token, so only the newest load's response applies.
+  const loadToken = useRef(0)
+
   // Editing state derives from the route: /jobs/new or /jobs/<id>.
   const editingId = useMemo(() => {
     if (jobId === undefined) return undefined
@@ -40,16 +47,27 @@ export default function JobsHome() {
       : undefined
 
   const load = useCallback(async () => {
+    const token = ++loadToken.current
     try {
       // The newest-first history page doubles as every job's last-run status.
       const [rows, history] = await Promise.all([
         jobsApi.list(),
         runsApi.list(undefined, lastRunPage),
       ])
-      setJobs(rows)
+      if (token !== loadToken.current) return // a newer load superseded this one
+      setJobs((current) => {
+        const held = new Map(
+          (current ?? [])
+            .filter((j) => (pendingToggles.current.get(j.id) ?? 0) > 0)
+            .map((j) => [j.id, j]),
+        )
+        if (held.size === 0) return rows
+        return rows.map((j) => held.get(j.id) ?? j)
+      })
       setLastRuns(new Map(history.filter((r) => r.jobId !== undefined).map((r) => [r.jobId!, r])))
       setError('')
     } catch (err) {
+      if (token !== loadToken.current) return
       setError(err instanceof ApiError ? err.message : 'Loading jobs failed.')
     }
   }, [])
@@ -69,17 +87,27 @@ export default function JobsHome() {
   )
 
   // toggle flips the row optimistically and reverts when the backend refuses.
+  // After the request settles a fresh load re-syncs the row with server truth
+  // (a toggle moves nextRunAt too). The row stays shielded from polls until
+  // every overlapping toggle settles. Overlapping flips may end one step off,
+  // so the next poll converges on the stored row.
   const toggle = async (job: Job) => {
+    pendingToggles.current.set(job.id, (pendingToggles.current.get(job.id) ?? 0) + 1)
     setJobs((rows) =>
       (rows ?? []).map((j) => (j.id === job.id ? { ...j, enabled: !j.enabled } : j)),
     )
     try {
       await jobsApi.update(job.id, { ...job, enabled: !job.enabled })
+      await load()
     } catch (err) {
       setJobs((rows) =>
         (rows ?? []).map((j) => (j.id === job.id ? { ...j, enabled: job.enabled } : j)),
       )
       setError(err instanceof ApiError ? err.message : 'Updating the job failed.')
+    } finally {
+      const left = (pendingToggles.current.get(job.id) ?? 1) - 1
+      if (left <= 0) pendingToggles.current.delete(job.id)
+      else pendingToggles.current.set(job.id, left)
     }
   }
 
@@ -265,7 +293,7 @@ function JobRow({
             type="checkbox"
             checked={job.enabled}
             onChange={onToggle} // optimistic; JobsHome reverts on refusal
-            aria-label={`Enable ${job.name}`}
+            aria-label={`${job.enabled ? 'Disable' : 'Enable'} ${job.name}`}
           />
           enabled
         </label>{' '}

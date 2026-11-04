@@ -37,7 +37,7 @@ func TestSettingsRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, value) // empty clears the row
 
-	assert.Error(t, st.SetSetting(ctx, " ", "x"))
+	require.Error(t, st.SetSetting(ctx, " ", "x"))
 	_, err = st.Setting(ctx, " ")
 	assert.Error(t, err)
 }

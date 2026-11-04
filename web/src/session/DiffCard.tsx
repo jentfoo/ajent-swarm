@@ -29,19 +29,17 @@ interface DiffLine {
 
 function diffLines(path: string, before: string, after: string): DiffLine[] {
   const patch = createTwoFilesPatch(`a/${path}`, `b/${path}`, before, after)
-  return (
-    patch
-      .split('\n')
-      // the leading "====" banner and file headers carry nothing the path chip
-      // above does not; hunks keep their @@ line as a meta row
-      .filter(
-        (line) => !line.startsWith('===') && !line.startsWith('---') && !line.startsWith('+++'),
-      )
-      .map<DiffLine>((line) => {
-        if (line.startsWith('@@')) return { kind: 'meta', text: line }
-        if (line.startsWith('+')) return { kind: 'add', text: line.slice(1) }
-        if (line.startsWith('-')) return { kind: 'del', text: line.slice(1) }
-        return { kind: 'ctx', text: line.startsWith(' ') ? line.slice(1) : line }
-      })
-  )
+  const rows = patch.split('\n')
+  // Rows before the first @@ are jsdiff's banner and file headers, which carry
+  // nothing the path chip above does not. Filtering marker prefixes past that
+  // point would drop body rows like a deleted "---" frontmatter fence, so
+  // hunks render whole with their @@ line as a meta row.
+  const hunkStart = rows.findIndex((row) => row.startsWith('@@'))
+  if (hunkStart < 0) return [] // unchanged file: headers only
+  return rows.slice(hunkStart).map<DiffLine>((row) => {
+    if (row.startsWith('@@')) return { kind: 'meta', text: row }
+    if (row.startsWith('+')) return { kind: 'add', text: row.slice(1) }
+    if (row.startsWith('-')) return { kind: 'del', text: row.slice(1) }
+    return { kind: 'ctx', text: row.startsWith(' ') ? row.slice(1) : row }
+  })
 }

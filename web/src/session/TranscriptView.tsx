@@ -28,11 +28,15 @@ export function TranscriptView({
   state,
   loadOlder,
   pullDownToLatest = false, // mobile: rubber-band at the top jumps to latest
+  onThinkingToggle,
 }: {
   sessionId?: string
   state: AppliedSessionState
   loadOlder: () => Promise<boolean>
   pullDownToLatest?: boolean
+  // Threaded to the live thinking panel so user toggles reach the applier;
+  // surfaces that cannot dispatch keep the defaults instead.
+  onThinkingToggle?: (open: boolean) => void
 }) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
@@ -214,7 +218,11 @@ export function TranscriptView({
             <>
               {/* sub-agent jobs show as live chips before their cards open */}
               <SubAgentChips rows={subAgentRows(state.snapshot.activity)} />
-              <LiveStreamBlock live={state.live} activity={state.snapshot.activity} />
+              <LiveStreamBlock
+                live={state.live}
+                activity={state.snapshot.activity}
+                onThinkingToggle={onThinkingToggle}
+              />
             </>
           )}
         </div>

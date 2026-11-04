@@ -5,9 +5,10 @@ import { Link, useNavigate, useParams } from 'react-router'
 import { sessions as sessionAPI } from '../api/endpoints'
 import { ApiError } from '../api/client'
 import { Composer } from '../session/Composer'
+import { placedAboveNotice, useComposerDraft } from '../session/useComposerDraft'
 import { ModeMenu } from '../session/StatusHeader'
 import { TranscriptView } from '../session/TranscriptView'
-import { useKeyboardInset } from '../hooks/useKeyboardInset'
+import { useKeyboardInset, keyboardInsetStyle } from '../hooks/useKeyboardInset'
 import { useSessionChannel } from '../hooks/useSessionChannel'
 import { useWorkspace } from '../providers/workspace'
 import { BottomSheet } from './BottomSheet'
@@ -35,13 +36,24 @@ interface Toast {
 // sticky compact header collapsing to model plus spinner, dialogs as stacked
 // full-width cards above the composer, and a status strip where side rails
 // used to be.
+//
+// The content keys on sessionId, so the route reusing this screen for another
+// session presents it as a remount: that session's own draft restores from the
+// store while open sheets, menus and toasts reset instead of bleeding across
+// sessions (session-switch-state-reset.md).
 export default function MobileSessionScreen(): ReactElement {
   const { sessionId = '' } = useParams()
+  return <MobileSessionSurface key={sessionId} sessionId={sessionId} />
+}
+
+// MobileSessionSurface is one session's mounted presentation; the key above
+// makes a session swap a remount, so local state never outlives its session.
+function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElement {
   const { state, phase, loadOlder, dispatch } = useSessionChannel(sessionId)
   const { acknowledgeDialog, acknowledgeTurn } = useWorkspace()
   const snap = state.snapshot
 
-  const [draft, setDraft] = useState('')
+  const { draft, setDraft, prefill } = useComposerDraft(sessionId)
   const [showTools, setShowTools] = useState(false)
   const [showRewind, setShowRewind] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
@@ -51,7 +63,7 @@ export default function MobileSessionScreen(): ReactElement {
 
   // Edge-swipe from the left reopens the switcher over any session view; the
   // touch zone is only the first 24px so transcript selection never fights it.
-  const edgeStartX = useRef<number | null>(null)
+  const edgeStart = useRef<{ x: number; y: number } | null>(null)
 
   const [toasts, setToasts] = useState<Toast[]>([])
   const toastID = useRef(0)
@@ -83,16 +95,27 @@ export default function MobileSessionScreen(): ReactElement {
   return (
     <div
       className="session-screen mobile-session"
-      style={keyboardInset > 0 ? { paddingBottom: keyboardInset } : undefined}
+      style={keyboardInsetStyle(keyboardInset)}
       onTouchStart={(ev) => {
-        edgeStartX.current = ev.touches[0]?.clientX ?? null
+        // one fresh finger seeds a candidate; anything else (a second touch
+        // landing mid-gesture, a pinch) kills the pending one
+        const t = ev.touches[0]
+        edgeStart.current = ev.touches.length === 1 && t ? { x: t.clientX, y: t.clientY } : null
       }}
       onTouchEnd={(ev) => {
-        const start = edgeStartX.current
-        edgeStartX.current = null
-        if (start === null || start > 24 || showRewind || showTools || showSettings) return
-        const dx = (ev.changedTouches[0]?.clientX ?? 0) - start
-        if (dx >= edgeSwipePx) setSheetOpen(true)
+        const start = edgeStart.current
+        edgeStart.current = null
+        if (start === null || start.x > 24 || showRewind || showTools || showSettings) return
+        // a finger still down or several lifted together was never a swipe
+        if (ev.touches.length > 0 || ev.changedTouches.length !== 1) return
+        const end = ev.changedTouches[0]
+        const dx = (end?.clientX ?? 0) - start.x
+        const dy = Math.abs((end?.clientY ?? 0) - start.y)
+        // horizontal dominance keeps vertical scrolls from reading as swipes
+        if (dx >= edgeSwipePx && dx > dy) setSheetOpen(true)
+      }}
+      onTouchCancel={() => {
+        edgeStart.current = null
       }}
     >
       <header className="mobile-session-header">
@@ -144,7 +167,13 @@ export default function MobileSessionScreen(): ReactElement {
         </div>
       )}
 
-      <TranscriptView sessionId={sessionId} state={state} loadOlder={loadOlder} pullDownToLatest />
+      <TranscriptView
+        sessionId={sessionId}
+        state={state}
+        loadOlder={loadOlder}
+        pullDownToLatest
+        onThinkingToggle={(open) => dispatch({ type: 'liveThinkingToggled', open })}
+      />
 
       <StatusStrip snap={snap} live={state.live} />
       <TouchDialogDock
@@ -185,7 +214,11 @@ export default function MobileSessionScreen(): ReactElement {
         sessionId={sessionId}
         open={showRewind}
         onClose={() => setShowRewind(false)}
-        onPrefill={setDraft}
+        // a rewound prompt lands above the draft to edit; announce a merge so
+        // it is noticed on the small screen instead of reading as one's own
+        onPrefill={(text) => {
+          if (prefill(text)) pushToast(placedAboveNotice, 'info')
+        }}
         onToast={pushToast}
       />
 

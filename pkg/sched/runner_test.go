@@ -371,16 +371,20 @@ func TestRunEndToEndThroughFleet(t *testing.T) {
 	run := env.h.waitForRun(id, store.RunOK)
 	assert.Equal(t, env.stub.SessionID(), run.SessionID)
 
-	// the prompt went out with its synthetic pendingId and teardown followed
+	// the prompt went out with its synthetic pendingId and teardown followed;
+	// /exit trails the terminal row finish persists, so poll until it lands
 	var submits []string
-	for _, req := range env.stub.Received() {
-		if req.Method == ctl.MethodSubmit {
-			var p ctl.SubmitParams
-			_ = json.Unmarshal(req.Params, &p)
-			submits = append(submits, p.Line+"|"+p.PendingID)
+	require.Eventually(t, func() bool {
+		submits = nil
+		for _, req := range env.stub.Received() {
+			if req.Method == ctl.MethodSubmit {
+				var p ctl.SubmitParams
+				_ = json.Unmarshal(req.Params, &p)
+				submits = append(submits, p.Line+"|"+p.PendingID)
+			}
 		}
-	}
-	require.Len(t, submits, 2) // the prompt and the /exit teardown
+		return len(submits) >= 2
+	}, 3*time.Second, 10*time.Millisecond)
 	assert.Equal(t, fmt.Sprintf("say hi|run-%d", run.ID), submits[0])
 	assert.True(t, strings.HasPrefix(submits[1], "/exit")) // swarm's stop line
 }

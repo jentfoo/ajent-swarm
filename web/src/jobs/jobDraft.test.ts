@@ -4,6 +4,8 @@ import {
   defaultDraft,
   draftFromJob,
   localInputToDate,
+  maxNameLen,
+  maxTriggerLen,
   toPayload,
   validateDraft,
   validDailyTime,
@@ -88,6 +90,38 @@ describe('validateDraft', () => {
     }
   })
 
+  it('counts name length in bytes like the server', () => {
+    // 199 ASCII plus one emoji passes the UTF-16 count but exceeds 200 bytes
+    const passesUtf16 = {
+      ...defaultDraft(),
+      workspace: '/repo',
+      name: 'x'.repeat(199) + '\u{1F600}',
+    }
+    expect([...passesUtf16.name].length).toBeLessThanOrEqual(maxNameLen)
+    expect(validateDraft(passesUtf16)).toHaveProperty('name')
+
+    const fitsInBytes = { ...defaultDraft(), workspace: '/repo', name: 'x'.repeat(199) + 'y' }
+    expect(validateDraft(fitsInBytes)).toEqual({})
+  })
+
+  it('counts trigger command length in bytes like the server', () => {
+    const emoji = '\u{1F600}' // four UTF-8 bytes per emoji
+    const tooBig = {
+      ...defaultDraft(),
+      workspace: '/repo',
+      triggerCommand: emoji.repeat(501),
+    }
+    expect(validateDraft(tooBig)).toHaveProperty('triggerCommand')
+
+    const fitsInBytes = {
+      ...defaultDraft(),
+      name: 'job',
+      workspace: '/repo',
+      triggerCommand: 'x'.repeat(maxTriggerLen),
+    }
+    expect(validateDraft(fitsInBytes)).toEqual({})
+  })
+
   it('accepts one-digit daily times like the backend', () => {
     expect(validDailyTime('7:05')).toBe(true)
     expect(validDailyTime('09:60')).toBe(false)
@@ -155,6 +189,13 @@ describe('draftFromJob', () => {
     const draft = draftFromJob({ ...stored, scheduleKind: 'once' })
     const parsed = localInputToDate(draft.onceAt)
     expect(parsed?.getTime()).toBe(new Date(stored.nextRunAt!).getTime())
+  })
+
+  it('keeps sub-minute intervals through an edit round trip', () => {
+    const draft = draftFromJob({ ...stored, scheduleKind: 'interval', intervalSeconds: 30 })
+    expect(draft.intervalValue).toBe(30)
+    expect(draft.intervalUnit).toBe('seconds')
+    expect(toPayload(draft, stored.id).intervalSeconds).toBe(30)
   })
 })
 

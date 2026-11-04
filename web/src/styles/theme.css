@@ -17,7 +17,8 @@
   --spin-tool: var(--warn);
 }
 
-/* dark is the default; SwarmProvider applies the stored choice post-load */
+/* dark is the default; index.html's head script applies the stored choice
+   before first paint, SwarmProvider on runtime change */
 :root,
 [data-theme='dark'] {
   color-scheme: dark;
@@ -91,6 +92,9 @@ pre {
   align-items: center;
   gap: calc(var(--unit) * 3);
   padding: calc(var(--unit) * 2) calc(var(--unit) * 4);
+  /* env() is zero without a notch; standalone PWA keeps chrome below the
+     status bar while the surface still paints behind it */
+  padding-top: calc(env(safe-area-inset-top, 0px) + var(--unit) * 2);
   background: var(--surface);
   border-bottom: 1px solid var(--border);
 }
@@ -621,7 +625,9 @@ label {
 /* toasts */
 .toasts {
   position: fixed;
-  bottom: calc(var(--unit) * 6);
+  /* --keyboard-inset lifts notices above the OS keyboard, where ancestor
+     padding cannot reach a fixed element; unset on desktop reads as zero */
+  bottom: calc(var(--unit) * 6 + var(--keyboard-inset, 0px));
   left: 50%;
   transform: translateX(-50%);
   display: flex;
@@ -1459,6 +1465,9 @@ label {
 .sheet-backdrop {
   position: fixed;
   inset: 0;
+  /* the sheet rides this offset above the keyboard; ancestor padding cannot
+     move a fixed element, so the component publishes --keyboard-inset here */
+  bottom: var(--keyboard-inset, 0px);
   background: color-mix(in srgb, var(--bg) 55%, transparent);
   z-index: 30;
 }
@@ -1467,7 +1476,9 @@ label {
   bottom: 0;
   left: 0;
   right: 0;
-  max-height: 82vh;
+  /* the keyboard-lifted backdrop is shorter than the layout viewport, so
+     cap against both instead of poking past the screen top */
+  max-height: min(82vh, 100%);
   display: flex;
   flex-direction: column;
   background: var(--surface);
@@ -1501,11 +1512,15 @@ label {
   padding: 0 calc(var(--unit) * 3) calc(var(--unit) * 4);
 }
 
-/* mobile session screen: compact sticky header, strip above the composer */
+/* mobile session screen: compact sticky header, strip above the composer.
+   The safe-area baseline keeps Send and StatusStrip out of the home-indicator
+   gesture zone with the keyboard closed; --keyboard-inset adds on top while
+   it is open, so the two insets compose instead of replacing each other */
 .mobile-session {
   display: flex;
   flex-direction: column;
   height: 100%;
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--keyboard-inset, 0px));
 }
 .mobile-session-header {
   position: sticky;
@@ -1626,6 +1641,12 @@ label {
   font-size: var(--fs-body);
   margin: 0;
   flex: 1;
+}
+/* fixed panels cover the whole viewport, so their sticky header carries the
+   top safe area itself; the ended-screen header sits below the shell topbar
+   and must not double it */
+.pushed-screen > .pushed-header {
+  padding-top: calc(env(safe-area-inset-top, 0px) + var(--unit) * 2);
 }
 .tools-hint,
 .rewind-list {

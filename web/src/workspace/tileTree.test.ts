@@ -12,6 +12,7 @@ import {
   serializeTree,
   setRatio,
   splitPane,
+  tileFor,
 } from './tileTree'
 import type { TileNode, TilePane, TileSplit } from './tileTree'
 
@@ -38,6 +39,24 @@ function twoByTwo(): TileNode {
     pane('left', ['s1']),
     split('col1', 'column', 0.4, pane('rightTop', ['s2']), pane('rightBottom', ['s3'])),
   )
+}
+
+// sessions flattens each pane's tabs in document order; tiled trees hold one
+// tab per pane, so this reads back the ids tileFor was given.
+function sessions(tree: TileNode): string[] {
+  if (tree.kind === 'pane') return tree.tabs
+  return [...sessions(tree.a), ...sessions(tree.b)]
+}
+
+// shares resolves every pane's width and height as a fraction of the whole,
+// in document order.
+function shares(tree: TileNode, w = 1, h = 1): { id: string; w: number; h: number }[] {
+  if (tree.kind === 'pane') return [{ id: tree.id, w, h }]
+  const row = tree.dir === 'row'
+  return [
+    ...shares(tree.a, row ? w * tree.ratio : w, row ? h : h * tree.ratio),
+    ...shares(tree.b, row ? w * (1 - tree.ratio) : w, row ? h : h * (1 - tree.ratio)),
+  ]
 }
 
 describe('tile tree operations', () => {
@@ -178,5 +197,83 @@ describe('tile tree operations', () => {
   it('lists panes in document order', () => {
     expect(paneIds(twoByTwo())).toEqual(['left', 'rightTop', 'rightBottom'])
     expect(paneIds(null)).toEqual([])
+  })
+})
+
+describe('tileFor', () => {
+  it('single session is a lone pane', () => {
+    const solo = tileFor(['s1']) as TilePane
+    expect(solo.kind).toBe('pane')
+    expect(solo.tabs).toEqual(['s1'])
+    expect(solo.active).toBe('s1')
+  })
+
+  it('one row for two or three', () => {
+    const pair = tileFor(['s1', 's2']) as TileSplit
+    expect(pair.dir).toBe('row')
+    expect(pair.ratio).toBe(1 / 2)
+    expect(sessions(pair)).toEqual(['s1', 's2'])
+
+    // a three-pane row nests: the first pane takes a third, the rest halve it
+    const triple = tileFor(['s1', 's2', 's3']) as TileSplit
+    expect(triple.dir).toBe('row')
+    expect(triple.ratio).toBe(1 / 3)
+    expect((triple.b as TileSplit).dir).toBe('row')
+    expect((triple.b as TileSplit).ratio).toBe(1 / 2)
+    for (const cell of shares(triple)) {
+      expect(cell.w).toBeCloseTo(1 / 3)
+      expect(cell.h).toBe(1)
+    }
+    expect(sessions(triple)).toEqual(['s1', 's2', 's3'])
+  })
+
+  it('four panes wrap into two equal rows', () => {
+    const grid = tileFor(['s1', 's2', 's3', 's4']) as TileSplit
+    expect(grid.dir).toBe('column')
+    expect(grid.ratio).toBe(1 / 2)
+    for (const row of [grid.a, grid.b]) {
+      expect((row as TileSplit).dir).toBe('row')
+      expect((row as TileSplit).ratio).toBe(1 / 2)
+    }
+    for (const cell of shares(grid)) {
+      expect(cell.w).toBeCloseTo(1 / 2)
+      expect(cell.h).toBeCloseTo(1 / 2)
+    }
+    expect(sessions(grid)).toEqual(['s1', 's2', 's3', 's4'])
+  })
+
+  it('five wraps as three then two', () => {
+    const grid = tileFor(['s1', 's2', 's3', 's4', 's5']) as TileSplit
+    expect(grid.dir).toBe('column')
+    expect(grid.ratio).toBe(1 / 2)
+    const top = grid.a as TileSplit
+    expect(top.dir).toBe('row')
+    expect(top.ratio).toBe(1 / 3)
+    expect((top.b as TileSplit).ratio).toBe(1 / 2)
+    expect(sessions(grid)).toEqual(['s1', 's2', 's3', 's4', 's5'])
+  })
+
+  it('seven wraps as three two two', () => {
+    const grid = tileFor(['s1', 's2', 's3', 's4', 's5', 's6', 's7']) as TileSplit
+    expect(grid.dir).toBe('column')
+    expect(grid.ratio).toBe(1 / 3)
+    const rest = grid.b as TileSplit
+    expect(rest.dir).toBe('column')
+    expect(rest.ratio).toBe(1 / 2)
+    expect(sessions(grid.a)).toEqual(['s1', 's2', 's3'])
+    expect(sessions(rest.a)).toEqual(['s4', 's5'])
+    expect(sessions(rest.b)).toEqual(['s6', 's7'])
+    for (const cell of shares(grid)) {
+      expect(cell.h).toBeCloseTo(1 / 3)
+    }
+  })
+
+  it('reading order matches the input ids', () => {
+    const ids = ['s1', 's2', 's3', 's4', 's5', 's6', 's7', 's8', 's9']
+    expect(sessions(tileFor(ids))).toEqual(ids)
+  })
+
+  it('rejects an empty id list', () => {
+    expect(() => tileFor([])).toThrow()
   })
 })

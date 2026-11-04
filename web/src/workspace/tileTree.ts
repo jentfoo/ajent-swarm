@@ -68,9 +68,7 @@ export function findPane(tree: TileNode | null, paneId: string): TilePane | null
 // first pane, else as the root pane of an empty tree. A session already
 // tabbed anywhere just activates there.
 export function openTab(tree: TileNode | null, sessionId: string, paneId?: string): TileNode {
-  if (tree === null) {
-    return { kind: 'pane', id: newNodeId(), tabs: [sessionId], active: sessionId }
-  }
+  if (tree === null) return freshPane(sessionId)
   const existing = findSessionPane(tree, sessionId)
   if (existing) return setActive(tree, existing.id, sessionId)
   const target = (paneId && findPane(tree, paneId)) || firstPane(tree)
@@ -118,7 +116,7 @@ export function splitPane(
   sessionId: string,
   where: 'before' | 'after',
 ): { tree: TileNode; paneId: string } {
-  const fresh: TilePane = { kind: 'pane', id: newNodeId(), tabs: [sessionId], active: sessionId }
+  const fresh = freshPane(sessionId)
   const insert = (node: TileNode): TileNode => {
     if (node.kind === 'pane') {
       if (node.id !== paneId) return node
@@ -199,17 +197,47 @@ export function firstPane(tree: TileNode): TilePane | null {
   return out
 }
 
-// tileFor lays one pane per session id out in a flat row split, the shape
-// tiling requests (an explicit ?open= list or an empty workspace's auto-seed)
-// start from. ids must be non-empty.
+// Panes per row in grids tileFor generates.
+const tileRowCap = 3
+
+// tileFor lays one pane per session id out as a balanced grid of equal panes:
+// rows hold at most three, wrapping over as few rows as possible with larger
+// rows first (5 → 3+2; 7 → 3+2+2), joined by column splits. Reading order is
+// left-to-right then top-down. ids must be non-empty.
 export function tileFor(ids: string[]): TileNode {
-  let next = openTab(null, ids[0]!)
-  for (const id of ids.slice(1)) {
-    const anchor = firstPane(next)
-    if (anchor === null) break // unreachable: every branch keeps a leftmost pane
-    next = splitPane(next, anchor.id, 'row', id, 'after').tree
+  if (ids.length === 0) throw new Error('tileFor requires at least one session id')
+  const rows = Math.ceil(ids.length / tileRowCap)
+  let at = 0
+  const rowTrees: TileNode[] = []
+  for (let row = 0; row < rows; row++) {
+    // leading rows take the remainder, so row sizes come out larger-first
+    const count = Math.floor(ids.length / rows) + (row < ids.length % rows ? 1 : 0)
+    rowTrees.push(chainSplits('row', ids.slice(at, at + count).map(freshPane)))
+    at += count
   }
-  return next
+  return chainSplits('column', rowTrees)
+}
+
+// freshPane builds a pane holding one session as its only active tab.
+function freshPane(sessionId: string): TilePane {
+  return { kind: 'pane', id: newNodeId(), tabs: [sessionId], active: sessionId }
+}
+
+// chainSplits nests nodes along dir with ratios that give every node an equal
+// share: k nodes split as 1/k, then 1/(k-1) of the rest, and so on.
+function chainSplits(dir: SplitDirection, nodes: TileNode[]): TileNode {
+  let merged = nodes[nodes.length - 1]
+  for (let i = nodes.length - 2; i >= 0; i--) {
+    merged = {
+      kind: 'split',
+      id: newNodeId(),
+      dir,
+      ratio: 1 / (nodes.length - i),
+      a: nodes[i],
+      b: merged,
+    }
+  }
+  return merged
 }
 
 // findSessionPane locates the pane tabbing a session, null when nowhere open.

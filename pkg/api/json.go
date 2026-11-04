@@ -34,6 +34,15 @@ func writeError(w http.ResponseWriter, status int, code, message string) {
 	writeJSON(w, status, errorBody{Error: code, Message: message})
 }
 
+// orEmptySlice replaces a typed nil slice with an empty one so list replies
+// encode as [] rather than null.
+func orEmptySlice[T any](rows []T) []T {
+	if rows == nil {
+		return []T{}
+	}
+	return rows
+}
+
 // readRequest decodes a strict JSON body into dst. Unknown fields and
 // oversize bodies are rejected so typos surface instead of silently no-ops.
 func readRequest(w http.ResponseWriter, r *http.Request, dst any) bool {

@@ -277,15 +277,6 @@ func (s *apiServer) handleRuns(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, orEmptySlice(runs))
 }
 
-// orEmptySlice replaces a typed nil slice with an empty one so list replies
-// encode as [] rather than null.
-func orEmptySlice[T any](rows []T) []T {
-	if rows == nil {
-		return []T{}
-	}
-	return rows
-}
-
 // pathID reads the {id} path value as a job id.
 func pathID(r *http.Request) int64 {
 	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)

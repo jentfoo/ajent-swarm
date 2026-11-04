@@ -53,5 +53,5 @@ func (s *apiServer) handleSettingsSet(w http.ResponseWriter, r *http.Request) {
 // handleModelOptions serves the union of every live session's model registry:
 // the choices swarm-level model pickers offer.
 func (s *apiServer) handleModelOptions(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, s.fleet.ModelOptions(r.Context()))
+	writeJSON(w, http.StatusOK, orEmptySlice(s.fleet.ModelOptions(r.Context())))
 }

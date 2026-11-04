@@ -6,8 +6,9 @@ import { TitleModelSelect } from './TitleModelSelect'
 import type { ModelState } from '../api/types'
 
 // The swarm-level titling model picker: registry union options grouped per
-// provider, the default selection for an unset value, and a stored-but-missing
-// model flagged rather than silently dropped.
+// provider, the default selection for an unset value, a stored-but-missing
+// model flagged rather than silently dropped, and a null payload (older
+// server) degrading to the default entry instead of crashing.
 const model = (key: string, short: string): ModelState => ({
   key,
   short,
@@ -21,7 +22,11 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-function mockBackend(stored: string, put?: (model: string) => Response, registry = REGISTRY) {
+function mockBackend(
+  stored: string,
+  put?: (model: string) => Response,
+  registry: ModelState[] | null = REGISTRY,
+) {
   return vi.fn(async (url: string | URL, init?: RequestInit) => {
     const path = String(url).split('?')[0]
     if (path === '/api/settings') {
@@ -88,6 +93,16 @@ describe('TitleModelSelect', () => {
       'Session model (default)',
       'local-tuned',
       'z/gone (missing)',
+    ])
+  })
+
+  it('degrades a null options payload to the default entry', async () => {
+    vi.stubGlobal('fetch', mockBackend('', undefined, null))
+    render(<TitleModelSelect />)
+
+    const select = await screen.findByLabelText('Session titling model')
+    expect([...select.querySelectorAll('option')].map((o) => o.textContent)).toEqual([
+      'Session model (default)',
     ])
   })
 

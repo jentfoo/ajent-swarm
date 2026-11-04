@@ -2,7 +2,9 @@ package api
 
 import (
 	"context"
+	"io"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -79,4 +81,17 @@ func TestModelOptionsEndpoint(t *testing.T) {
 	assert.Equal(t, "anthropic/claude-haiku", got[0].Key)
 	assert.Equal(t, "anthropic/claude-sonnet", got[1].Key)
 	assert.Equal(t, "haiku", got[0].Short)
+}
+
+func TestModelListsEmptyFleetBody(t *testing.T) {
+	h := newSessionAPI(t)
+
+	for _, path := range []string{"/api/models", "/api/models/options"} {
+		resp := call(t, h.client, h.server.URL, http.MethodGet, path, nil)
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+		raw, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		// raw text: a typed decode would accept null silently
+		assert.Equal(t, "[]", strings.TrimSpace(string(raw)))
+	}
 }

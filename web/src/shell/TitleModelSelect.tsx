@@ -25,7 +25,8 @@ export function TitleModelSelect(): ReactElement {
       .catch(() => alive && setError('Reading the titling model failed.'))
     modelsAPI
       .options()
-      .then((rows) => alive && setOptions(rows))
+      // an older server may still answer null for an empty fleet
+      .then((rows) => alive && setOptions(rows ?? []))
       .catch(() => {}) // no live sessions: only the default is offered
     return () => {
       alive = false

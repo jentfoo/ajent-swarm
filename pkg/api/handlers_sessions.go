@@ -291,5 +291,5 @@ func (s *apiServer) handleAttention(w http.ResponseWriter, _ *http.Request) {
 // current model comes from its snapshot. Switching goes through POST /model
 // against the same registry models.get lists.
 func (s *apiServer) handleModels(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, s.fleet.ModelRows(r.Context()))
+	writeJSON(w, http.StatusOK, orEmptySlice(s.fleet.ModelRows(r.Context())))
 }

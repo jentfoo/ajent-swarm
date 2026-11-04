@@ -50,7 +50,8 @@ type Options struct {
 
 	// Child launching: AjentBin and ChildrenDir must both be set for Launch
 	// to work. ChildStore persistence enables orphan re-adoption across
-	// restarts; KillOnExit opts into terminating running children at Stop.
+	// restarts and retains external sessions in the listing; KillOnExit opts
+	// into terminating running children at Stop.
 	AjentBin    string
 	ChildrenDir string
 	ChildStore  ChildStore
@@ -106,6 +107,7 @@ type Manager struct {
 	nudge          chan struct{}
 	children       map[int]*childProc // by pid, running and exited
 	childBySession map[string]*childProc
+	externals      map[int]ChildRecord // retained external session rows, by pid
 	named          map[string]struct{} // sessions whose auto-name already ran
 	titles         map[string]string   // cached display titles, mirrored from TitleStore
 	titleModel     string              // cached titling model, mirrored from SettingStore
@@ -139,6 +141,7 @@ func New(opts Options) *Manager {
 		nudge:           make(chan struct{}, 1),
 		children:        make(map[int]*childProc),
 		childBySession:  make(map[string]*childProc),
+		externals:       make(map[int]ChildRecord),
 		named:           make(map[string]struct{}),
 		titles:          make(map[string]string),
 	}
@@ -234,7 +237,8 @@ func (m *Manager) watch(ctx context.Context) {
 	}
 }
 
-// diff starts actors for new instances and stops those whose record left.
+// diff starts actors for new instances and stops those whose record left,
+// retaining first-sighted externals so their rows outlive tracking.
 func (m *Manager) diff() error {
 	live, err := m.discover()
 	if err != nil {
@@ -258,6 +262,7 @@ func (m *Manager) diff() error {
 	}
 
 	var starting []ctl.Instance
+	var unrecorded []ctl.Instance
 	for _, inst := range live {
 		key := actorKey{sessionID: inst.SessionID, token: inst.Token}
 		if _, tracked := m.actors[key]; tracked {
@@ -266,6 +271,9 @@ func (m *Manager) diff() error {
 		a := newSessionActor(m, inst)
 		m.actors[key] = a
 		starting = append(starting, inst)
+		if inst.PID > 0 && inst.SessionID != "" && !m.recordedLocked(inst.PID) {
+			unrecorded = append(unrecorded, inst)
+		}
 	}
 	rebinds := m.planRebinds()
 	m.mu.Unlock()
@@ -278,7 +286,12 @@ func (m *Manager) diff() error {
 		}
 	}
 
+	for _, inst := range unrecorded {
+		m.retainExternal(inst)
+	}
+
 	for _, a := range stopping {
+		m.markExternalGone(a.inst)
 		a.stop()
 		select {
 		case <-a.done:
@@ -318,6 +331,70 @@ func (m *Manager) diff() error {
 		}
 	}
 	return nil
+}
+
+// recordedLocked reports whether a child record already covers the pid, so
+// first-sighting retention can skip it. mu must be held.
+func (m *Manager) recordedLocked(pid int) bool {
+	if _, ok := m.children[pid]; ok {
+		return true
+	}
+	_, ok := m.externals[pid]
+	return ok
+}
+
+// retainExternal persists one external instance's row at its first sighting,
+// so the listing keeps it once tracking ends or the service restarts. The
+// store dedupes by pid, so repeated discovery passes never duplicate it.
+func (m *Manager) retainExternal(inst ctl.Instance) {
+	rec := ChildRecord{
+		PID:         inst.PID,
+		SessionID:   inst.SessionID,
+		SessionName: inst.SessionName,
+		Workspace:   inst.Workspace,
+		StartedAt:   inst.Started(),
+		Origin:      SpawnedByExternal,
+	}
+	if rec.StartedAt.IsZero() {
+		rec.StartedAt = time.Now()
+	}
+	if m.childStore != nil {
+		id, _, err := m.childStore.CreateChildIfAbsent(m.storeCtx, rec)
+		if err != nil {
+			m.log.Warn("external session not persisted", "pid", rec.PID, "err", err)
+		}
+		rec.ID = id
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.recordedLocked(rec.PID) { // a pass before us, or a spawn, covered the pid
+		return
+	}
+	m.externals[rec.PID] = rec
+}
+
+// markExternalGone tombstones an external session's retained row once its
+// record left discovery: swarm never reaped that process, so the exit code
+// stays unset. A pass racing shutdown skips the marking, so a restart never
+// lists still-running externals as ended.
+func (m *Manager) markExternalGone(inst ctl.Instance) {
+	if m.ctx.Err() != nil {
+		return
+	}
+	m.mu.Lock()
+	rec, ok := m.externals[inst.PID]
+	if !ok || !rec.ExitedAt.IsZero() {
+		m.mu.Unlock()
+		return
+	}
+	rec.ExitedAt = time.Now()
+	rec.ExitNote = "left the control registry"
+	m.externals[inst.PID] = rec
+	m.mu.Unlock()
+
+	m.persistChild(rec)
+	m.log.Info("external session left the control registry", "pid", rec.PID, "session", rec.SessionID)
 }
 
 // orphanLocked detaches every subscription hosted by one actor key, so its
@@ -519,37 +596,47 @@ func (m *Manager) route(sessionID string) *sessionActor {
 
 // Sessions lists one row per known session: live actors carry their
 // reconciled state, children add spawn facts, and children no longer tracked
-// stand alone as exited or waiting rows. Alive sessions sort by id first;
-// ended ones follow most-recent-first, capped so a day of exits never buries
-// the grid while a just-exited session stays reachable for resume.
+// stand alone as exited or waiting rows. External sessions persist a row at
+// their first sighting, so a record leaving discovery marks the row exited
+// instead of dropping it. Alive sessions sort by id first; ended ones follow
+// most-recent-first, capped so a day of exits never buries the grid while a
+// just-exited session stays reachable for resume.
 func (m *Manager) Sessions() []Status {
 	m.mu.Lock()
 	actors := bulk.MapValuesSlice(m.actors)
-	byPID := make(map[int]ChildRecord, len(m.children))
+	byPID := make(map[int]ChildRecord, len(m.children)+len(m.externals))
 	for _, cp := range m.children {
 		byPID[cp.rec.PID] = cp.rec
 	}
+	for pid, rec := range m.externals { // a pid is never recorded twice
+		if _, ok := byPID[pid]; !ok {
+			byPID[pid] = rec
+		}
+	}
 	m.mu.Unlock()
 
-	bySession := make(map[string]*Status, len(actors)+len(byPID))
+	recs := bulk.MapValuesSlice(byPID)
+	slices.SortFunc(recs, func(a, b ChildRecord) int { return b.StartedAt.Compare(a.StartedAt) })
+
+	bySession := make(map[string]*Status, len(actors)+len(recs))
 	for _, a := range actors {
 		st := *a.status.Load()
 		st.SpawnedBy = SpawnedByExternal
-		if rec, ok := byPID[st.PID]; ok {
-			decorateChild(&st, rec)
-		}
 		bySession[st.SessionID] = &st
 	}
-	for _, rec := range byPID {
+	for _, rec := range recs { // newest first: the latest record describes the session
 		if rec.SessionID == "" {
 			continue // never served: the launch error told its story
 		}
-		if st, ok := bySession[rec.SessionID]; ok {
-			decorateChild(st, rec)
+		st, ok := bySession[rec.SessionID]
+		if ok {
+			if st.PID == rec.PID { // an actor keeps only its own spawn facts
+				decorateChild(st, rec)
+			}
 			continue
 		}
-		st := childStatus(rec)
-		bySession[rec.SessionID] = &st
+		row := childStatus(rec)
+		bySession[rec.SessionID] = &row
 	}
 
 	alive := make([]Status, 0, len(bySession))
@@ -674,7 +761,7 @@ func (m *Manager) LastBusyAt() time.Time {
 
 // decorateChild folds a child record's spawn facts into a listing row.
 func decorateChild(st *Status, rec ChildRecord) {
-	st.SpawnedBy = SpawnedBySwarm
+	st.SpawnedBy = rec.spawnedBy()
 	st.Argv = rec.Argv
 	st.LogPath = rec.LogPath
 	st.ExitCode = rec.ExitCode
@@ -685,15 +772,17 @@ func decorateChild(st *Status, rec ChildRecord) {
 }
 
 // childStatus renders a child no actor tracks: reaped ones keep their exit
-// facts, running ones wait for a control socket to serve.
+// facts, running ones wait for a control socket to serve. Externals carry
+// their discovery facts, so an ended one reads as it served.
 func childStatus(rec ChildRecord) Status {
 	st := Status{
 		SessionID: rec.SessionID,
+		Name:      rec.SessionName,
 		Workspace: rec.Workspace,
 		PID:       rec.PID,
 		State:     ChildReconnecting,
 		Detail:    "waiting for its control socket",
-		SpawnedBy: SpawnedBySwarm,
+		SpawnedBy: rec.spawnedBy(),
 		Argv:      rec.Argv,
 		LogPath:   rec.LogPath,
 		ExitCode:  rec.ExitCode,
@@ -702,6 +791,7 @@ func childStatus(rec ChildRecord) Status {
 	if !rec.ExitedAt.IsZero() {
 		st.State = ChildExited
 		st.Detail = rec.ExitNote
+		st.ExitedAt = rec.ExitedAt.UnixMilli()
 	}
 	return st
 }

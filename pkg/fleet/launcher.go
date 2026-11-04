@@ -398,9 +398,10 @@ func (m *Manager) markStopped(cp *childProc) {
 	m.persistChild(rec)
 }
 
-// adopt loads persisted children at startup: running ones count as owned
-// again so their seat is force-claimed when they serve, and ones whose pid
-// is provably dead are marked exited.
+// adopt loads persisted children at startup: running swarm children count as
+// owned again so their seat is force-claimed when they serve, and ones whose
+// pid is provably dead are marked exited. External rows only re-join the
+// listing, with the same dead-pid marking.
 func (m *Manager) adopt(ctx context.Context) {
 	if m.childStore == nil {
 		return
@@ -411,6 +412,7 @@ func (m *Manager) adopt(ctx context.Context) {
 		return
 	}
 	for _, rec := range rows {
+		swarm := rec.spawnedBy() == SpawnedBySwarm
 		running := rec.ExitedAt.IsZero()
 		if running {
 			if pidGone(rec.PID) {
@@ -420,16 +422,20 @@ func (m *Manager) adopt(ctx context.Context) {
 				running = false
 				m.persistChild(rec)
 				m.log.Info("child lost across restart", "pid", rec.PID, "session", rec.SessionID)
-			} else {
+			} else if swarm {
 				m.log.Info("re-adopted child", "pid", rec.PID, "session", rec.SessionID)
 			}
 		}
-		// indexed for the listing, stop lookups and the seat policy
-		cp := &childProc{rec: rec, adopted: running, exit: make(chan struct{})}
 		m.mu.Lock()
-		m.children[rec.PID] = cp
-		if rec.SessionID != "" {
-			m.childBySession[rec.SessionID] = cp
+		if swarm {
+			// indexed for the listing, stop lookups and the seat policy
+			cp := &childProc{rec: rec, adopted: running, exit: make(chan struct{})}
+			m.children[rec.PID] = cp
+			if rec.SessionID != "" {
+				m.childBySession[rec.SessionID] = cp
+			}
+		} else if _, ok := m.externals[rec.PID]; !ok {
+			m.externals[rec.PID] = rec // retained for the listing alone
 		}
 		m.mu.Unlock()
 	}

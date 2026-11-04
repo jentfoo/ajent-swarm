@@ -41,8 +41,30 @@ func (f *fakeChildStore) CreateChild(_ context.Context, rec ChildRecord) (int64,
 	defer f.mu.Unlock()
 	f.next++
 	rec.ID = f.next
+	if rec.Origin == "" {
+		rec.Origin = SpawnedBySwarm
+	}
 	f.rows[f.next] = rec
 	return f.next, nil
+}
+
+// CreateChildIfAbsent inserts unless the pid is already recorded, mirroring
+// the SQLite store's dedupe for repeated discovery passes.
+func (f *fakeChildStore) CreateChildIfAbsent(_ context.Context, rec ChildRecord) (int64, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, row := range f.rows {
+		if row.PID == rec.PID {
+			return row.ID, false, nil
+		}
+	}
+	f.next++
+	rec.ID = f.next
+	if rec.Origin == "" {
+		rec.Origin = SpawnedBySwarm
+	}
+	f.rows[f.next] = rec
+	return f.next, true, nil
 }
 
 func (f *fakeChildStore) UpdateChild(_ context.Context, rec ChildRecord) error {

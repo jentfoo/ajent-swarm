@@ -62,7 +62,7 @@ type Status struct {
 	Spinning         bool   `json:"spinning,omitempty"`
 	OpenInteractions int    `json:"openInteractions"`
 	LastTurnEnd      int64  `json:"lastTurnEnd,omitempty"` // unix milliseconds
-	ExitedAt         int64  `json:"exitedAt,omitempty"`    // unix ms; exited swarm children
+	ExitedAt         int64  `json:"exitedAt,omitempty"`    // unix ms; ended sessions
 
 	// Attention digest facts: what holds input and how the last turn ended,
 	// one line each so the desktop focus queue renders reasons without subscribing.

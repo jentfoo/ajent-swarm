@@ -58,6 +58,23 @@ func newTestFleet(t *testing.T, owned func(inst ctl.Instance) bool) (*Manager, s
 	return m, home
 }
 
+// externalFleet starts a manager over a stubbed discovery feed and a fake
+// child store. The watch idles: retention tests drive diff() by hand.
+func externalFleet(t *testing.T, cs *fakeChildStore, live func() ([]ctl.Instance, error)) *Manager {
+	t.Helper()
+	m := New(Options{
+		Log:          testLogger(),
+		PollInterval: time.Hour,
+		BackoffBase:  testBackoff,
+		BackoffMax:   testBackoffHi,
+		ChildStore:   cs,
+		Discover:     live,
+	})
+	m.Start(t.Context())
+	t.Cleanup(m.Stop)
+	return m
+}
+
 // subscribeTest registers one test viewer; frames flow into the channel.
 func subscribeTest(t *testing.T, m *Manager, sessionID string) (*Subscription, <-chan []byte) {
 	t.Helper()
@@ -461,6 +478,198 @@ func TestSessions(t *testing.T) {
 		rows := m.Sessions()
 		require.Len(t, rows, 1)
 		assert.Equal(t, ChildOnline, rows[0].State) // the live instance owns the row
+	})
+
+	t.Run("external rows read as external", func(t *testing.T) {
+		m := New(Options{Log: testLogger()})
+		now := time.Now()
+		m.externals[4601] = ChildRecord{
+			PID: 4601, SessionID: "01EXTENDED00000001", SessionName: "daily",
+			Workspace: "/w", Origin: SpawnedByExternal,
+			StartedAt: now.Add(-time.Hour), ExitedAt: now,
+			ExitNote: "left the control registry",
+		}
+
+		rows := m.Sessions()
+		require.Len(t, rows, 1)
+		st := rows[0]
+		assert.Equal(t, SpawnedByExternal, st.SpawnedBy)
+		assert.Equal(t, ChildExited, st.State)
+		assert.Equal(t, "left the control registry", st.Detail)
+		assert.Equal(t, "daily", st.Name)
+		assert.Nil(t, st.ExitCode) // swarm never reaped the process
+		assert.Empty(t, st.Argv)   // externals have neither spawn fact
+		assert.Empty(t, st.LogPath)
+	})
+
+	t.Run("live row ignores a stale exited record", func(t *testing.T) {
+		m := New(Options{Log: testLogger()})
+		now := time.Now()
+		// an older instance's exited record beside its resumed replacement
+		m.children[4701] = &childProc{rec: ChildRecord{
+			PID: 4701, SessionID: "01RESUMED000000001", Workspace: "/w",
+			StartedAt: now.Add(-2 * time.Hour), ExitedAt: now.Add(-time.Hour),
+			ExitNote: "exited",
+		}}
+		live := &sessionActor{}
+		live.key.sessionID = "01RESUMED000000001"
+		live.status.Store(&Status{
+			SessionID: live.key.sessionID,
+			State:     ChildOnline,
+			PID:       4702,
+		})
+		m.actors[actorKey{sessionID: live.key.sessionID, token: "t"}] = live
+		m.externals[4702] = ChildRecord{
+			PID: 4702, SessionID: "01RESUMED000000001", SessionName: "daily",
+			Workspace: "/w", Origin: SpawnedByExternal, StartedAt: now.Add(-time.Minute),
+		}
+
+		rows := m.Sessions()
+		require.Len(t, rows, 1)
+		st := rows[0]
+		assert.Equal(t, ChildOnline, st.State)
+		assert.Zero(t, st.ExitedAt) // the stale exit never decorates the live row
+		assert.Equal(t, SpawnedByExternal, st.SpawnedBy)
+	})
+}
+
+// External sessions persist a children row at their first sighting, so the
+// listing keeps them once their record leaves discovery. The passes run by
+// hand against a stubbed discovery feed: the watch idles for the whole test.
+func TestExternalRetention(t *testing.T) {
+	t.Parallel()
+
+	inst := ctl.Instance{
+		SessionID:   "01EXTRETAIN00000001",
+		SessionName: "daily-driver",
+		Workspace:   "/repo",
+		StartedAt:   time.Now().Add(-time.Minute).UnixMilli(),
+		PID:         os.Getpid(),
+		Token:       "exttok1",
+		Socket:      "/nonexistent/external.sock",
+	}
+
+	t.Run("gains row at first sighting", func(t *testing.T) {
+		t.Parallel()
+
+		cs := newFakeChildStore()
+		live := true
+		m := externalFleet(t, cs, func() ([]ctl.Instance, error) {
+			if !live {
+				return nil, nil
+			}
+			return []ctl.Instance{inst}, nil
+		})
+
+		require.NoError(t, m.diff()) // the sighting retains and tracks the instance
+
+		st, ok := rowFor(m.Sessions(), inst.SessionID)
+		require.True(t, ok)
+		assert.Equal(t, SpawnedByExternal, st.SpawnedBy)
+		assert.Equal(t, inst.Workspace, st.Workspace)
+		assert.Equal(t, inst.SessionName, st.Name)
+		assert.Equal(t, ChildReconnecting, st.State) // tracked, though dialing fails
+		assert.Zero(t, st.ExitedAt)
+
+		rec, ok := cs.byPID(inst.PID)
+		require.True(t, ok)
+		assert.Equal(t, SpawnedByExternal, rec.Origin)
+		assert.Equal(t, inst.SessionID, rec.SessionID)
+		assert.Equal(t, inst.SessionName, rec.SessionName)
+		assert.Equal(t, inst.Workspace, rec.Workspace)
+		assert.Equal(t, inst.Started(), rec.StartedAt)
+		assert.True(t, rec.ExitedAt.IsZero())
+		assert.Empty(t, rec.Argv)
+		assert.Empty(t, rec.LogPath)
+
+		require.NoError(t, m.diff()) // repeated passes never duplicate the row
+		rows, err := cs.Children(t.Context())
+		require.NoError(t, err)
+		require.Len(t, rows, 1)
+	})
+
+	t.Run("drop marks the row exited", func(t *testing.T) {
+		t.Parallel()
+
+		cs := newFakeChildStore()
+		live := true
+		m := externalFleet(t, cs, func() ([]ctl.Instance, error) {
+			if !live {
+				return nil, nil
+			}
+			return []ctl.Instance{inst}, nil
+		})
+
+		require.NoError(t, m.diff())
+		live = false                 // the record left discovery
+		require.NoError(t, m.diff()) // tracking ends, the row stays listed as ended
+
+		st, ok := rowFor(m.Sessions(), inst.SessionID)
+		require.True(t, ok)
+		assert.Equal(t, ChildExited, st.State)
+		assert.Equal(t, "left the control registry", st.Detail)
+		assert.Equal(t, SpawnedByExternal, st.SpawnedBy)
+		assert.Positive(t, st.ExitedAt)
+		assert.Nil(t, st.ExitCode)
+
+		rec, ok := cs.byPID(inst.PID)
+		require.True(t, ok)
+		assert.False(t, rec.ExitedAt.IsZero())
+		assert.Equal(t, "left the control registry", rec.ExitNote)
+		assert.Nil(t, rec.ExitCode)
+	})
+
+	t.Run("running external survives restart", func(t *testing.T) {
+		t.Parallel()
+
+		cs := newFakeChildStore()
+		live := func() ([]ctl.Instance, error) { return []ctl.Instance{inst}, nil }
+
+		first := externalFleet(t, cs, live)
+		require.NoError(t, first.diff())
+		first.Stop()
+
+		second := externalFleet(t, cs, live) // adopt re-loads the running row
+		require.NoError(t, second.diff())    // re-tracks without a second row
+
+		st, ok := rowFor(second.Sessions(), inst.SessionID)
+		require.True(t, ok)
+		assert.Equal(t, ChildReconnecting, st.State)
+		assert.Zero(t, st.ExitedAt)
+
+		rec, ok := cs.byPID(inst.PID)
+		require.True(t, ok)
+		assert.True(t, rec.ExitedAt.IsZero()) // a restart never marks it exited
+
+		rows, err := cs.Children(t.Context())
+		require.NoError(t, err)
+		require.Len(t, rows, 1)
+	})
+
+	t.Run("shutdown pass skips marking", func(t *testing.T) {
+		t.Parallel()
+
+		cs := newFakeChildStore()
+		live := true
+		m := externalFleet(t, cs, func() ([]ctl.Instance, error) {
+			if !live {
+				return nil, nil
+			}
+			return []ctl.Instance{inst}, nil
+		})
+
+		require.NoError(t, m.diff()) // the instance is tracked and retained
+		live = false
+		m.cancel() // shutdown lands before the pass that sees the drop
+		require.NoError(t, m.diff())
+
+		rec, ok := cs.byPID(inst.PID)
+		require.True(t, ok)
+		assert.True(t, rec.ExitedAt.IsZero()) // not tombstoned mid-shutdown
+
+		st, ok := rowFor(m.Sessions(), inst.SessionID)
+		require.True(t, ok)
+		assert.Equal(t, ChildReconnecting, st.State) // still a running row
 	})
 }
 

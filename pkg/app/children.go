@@ -12,25 +12,35 @@ import (
 type childStore struct{ st *store.Store }
 
 func (a childStore) CreateChild(ctx context.Context, rec fleet.ChildRecord) (int64, error) {
-	return a.st.CreateChild(ctx, store.Child{
-		PID:       rec.PID,
-		Workspace: rec.Workspace,
-		Argv:      rec.Argv,
-		LogPath:   rec.LogPath,
-		StartedAt: rec.StartedAt,
-	})
+	return a.st.CreateChild(ctx, childRow(rec))
+}
+
+func (a childStore) CreateChildIfAbsent(ctx context.Context, rec fleet.ChildRecord) (int64, bool, error) {
+	return a.st.CreateChildIfAbsent(ctx, childRow(rec))
 }
 
 func (a childStore) UpdateChild(ctx context.Context, rec fleet.ChildRecord) error {
-	return a.st.UpdateChild(ctx, store.Child{
-		ID:        rec.ID,
-		SessionID: rec.SessionID,
-		LogPath:   rec.LogPath,
-		ExitedAt:  rec.ExitedAt,
-		ExitCode:  rec.ExitCode,
-		ExitNote:  rec.ExitNote,
-		LogTail:   rec.LogTail,
-	})
+	return a.st.UpdateChild(ctx, childRow(rec))
+}
+
+// childRow maps fleet's record onto the store row: identity, origin and
+// spawn facts ride the insert, exit facts the update.
+func childRow(rec fleet.ChildRecord) store.Child {
+	return store.Child{
+		ID:          rec.ID,
+		PID:         rec.PID,
+		SessionID:   rec.SessionID,
+		SessionName: rec.SessionName,
+		Workspace:   rec.Workspace,
+		Argv:        rec.Argv,
+		LogPath:     rec.LogPath,
+		StartedAt:   rec.StartedAt,
+		ExitedAt:    rec.ExitedAt,
+		ExitCode:    rec.ExitCode,
+		ExitNote:    rec.ExitNote,
+		LogTail:     rec.LogTail,
+		Origin:      rec.Origin,
+	}
 }
 
 func (a childStore) Children(ctx context.Context) ([]fleet.ChildRecord, error) {
@@ -41,17 +51,19 @@ func (a childStore) Children(ctx context.Context) ([]fleet.ChildRecord, error) {
 	out := make([]fleet.ChildRecord, 0, len(rows))
 	for _, ch := range rows {
 		out = append(out, fleet.ChildRecord{
-			ID:        ch.ID,
-			PID:       ch.PID,
-			SessionID: ch.SessionID,
-			Workspace: ch.Workspace,
-			Argv:      ch.Argv,
-			LogPath:   ch.LogPath,
-			StartedAt: ch.StartedAt,
-			ExitedAt:  ch.ExitedAt,
-			ExitCode:  ch.ExitCode,
-			ExitNote:  ch.ExitNote,
-			LogTail:   ch.LogTail,
+			ID:          ch.ID,
+			PID:         ch.PID,
+			SessionID:   ch.SessionID,
+			SessionName: ch.SessionName,
+			Workspace:   ch.Workspace,
+			Argv:        ch.Argv,
+			LogPath:     ch.LogPath,
+			StartedAt:   ch.StartedAt,
+			ExitedAt:    ch.ExitedAt,
+			ExitCode:    ch.ExitCode,
+			ExitNote:    ch.ExitNote,
+			LogTail:     ch.LogTail,
+			Origin:      ch.Origin,
 		})
 	}
 	return out, nil

@@ -198,27 +198,42 @@ func shellQuote(arg string) string {
 	return "'" + strings.ReplaceAll(arg, "'", esc) + "'"
 }
 
-// ChildRecord is the persisted fact set for one ajent process swarm spawned.
-// Exit fields stay zero while the child runs; ExitCode is negative when a
-// signal ended it.
+// ChildRecord is the persisted fact set for one tracked ajent process,
+// swarm-spawned or external by Origin. Exit fields stay zero while it runs;
+// ExitCode is negative when a signal ended it and stays nil for externals,
+// which swarm never reaps.
 type ChildRecord struct {
-	ID        int64
-	PID       int
-	SessionID string
-	Workspace string
-	Argv      string
-	LogPath   string
-	StartedAt time.Time
-	ExitedAt  time.Time
-	ExitCode  *int
-	ExitNote  string
-	LogTail   string
+	ID          int64
+	PID         int
+	SessionID   string
+	SessionName string
+	Workspace   string
+	Argv        string
+	LogPath     string
+	StartedAt   time.Time
+	ExitedAt    time.Time
+	ExitCode    *int
+	ExitNote    string
+	LogTail     string
+	Origin      string // SpawnedBySwarm or SpawnedByExternal
+}
+
+// spawnedBy renders the record's origin for the listing; rows written before
+// origins existed read as swarm.
+func (rec ChildRecord) spawnedBy() string {
+	if rec.Origin == SpawnedByExternal {
+		return SpawnedByExternal
+	}
+	return SpawnedBySwarm
 }
 
 // ChildStore persists children across service restarts, so a restart can
-// re-adopt running ones and exited ones keep their exit facts.
+// re-adopt running ones and exited ones keep their exit facts. External
+// sessions persist the same rows with an external origin, so the listing
+// retains them too.
 type ChildStore interface {
 	CreateChild(ctx context.Context, rec ChildRecord) (int64, error)
+	CreateChildIfAbsent(ctx context.Context, rec ChildRecord) (int64, bool, error)
 	UpdateChild(ctx context.Context, rec ChildRecord) error
 	Children(ctx context.Context) ([]ChildRecord, error)
 }

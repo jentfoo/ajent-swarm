@@ -12,7 +12,7 @@ import { JobEditor } from '../jobs/JobEditor'
 import { duplicateDraft } from '../jobs/jobDraft'
 import type { JobDraft } from '../jobs/jobDraft'
 import { JobTabs } from '../jobs/JobTabs'
-import { formatSlot, runStatusClass, scheduleSummary } from '../jobs/schedule'
+import { formatSlot, runStatusClass, scheduleSummary, sortJobsForDisplay } from '../jobs/schedule'
 
 const pollJobsMs = 10_000
 // A page deep enough that every job's latest run is on it for most installs.
@@ -59,6 +59,10 @@ export default function JobsHome() {
     const source = Number.isInteger(from) ? jobs.find((j) => j.id === from) : undefined
     return source === undefined ? undefined : duplicateDraft(source)
   }, [wantsSeed, searchParams, jobs])
+
+  // Rows render soonest next fire first, display only: jobs keeps its stored
+  // order for the toggle holds and editor lookups above.
+  const sortedJobs = useMemo(() => (jobs ? sortJobsForDisplay(jobs) : []), [jobs])
 
   const load = useCallback(async () => {
     const token = ++loadToken.current
@@ -180,7 +184,7 @@ export default function JobsHome() {
               </tr>
             </thead>
             <tbody>
-              {jobs.map((job) => (
+              {sortedJobs.map((job) => (
                 <JobRow
                   key={job.id}
                   job={job}

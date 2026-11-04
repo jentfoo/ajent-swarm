@@ -145,6 +145,23 @@ export function formatDuration(startedAt: string, finishedAt?: string): string {
   return mins > 0 ? `${mins}m ${secs}s${suffix}` : `${secs}s${suffix}`
 }
 
+// sortJobsForDisplay orders the jobs table for scanning: enabled rows with a
+// parseable next fire come first, soonest first, ties by id; everything else
+// keeps its stored order after them. Pure: never mutates the caller's array,
+// whose order also feeds pending-toggle holds.
+export function sortJobsForDisplay(jobs: Job[]): Job[] {
+  const scheduled: Array<{ at: number; job: Job }> = []
+  const rest: Job[] = []
+  for (const job of jobs) {
+    // disabled or null/unparseable rows have nothing to sort by
+    const at = job.enabled && job.nextRunAt ? new Date(job.nextRunAt).getTime() : NaN
+    if (Number.isNaN(at)) rest.push(job)
+    else scheduled.push({ at, job })
+  }
+  scheduled.sort((a, b) => a.at - b.at || a.job.id - b.job.id)
+  return [...scheduled.map(({ job }) => job), ...rest]
+}
+
 // scheduleKindLabel names the editor's mode chooser entries.
 export const scheduleKindLabels: Record<ScheduleKind, string> = {
   once: 'One-shot',

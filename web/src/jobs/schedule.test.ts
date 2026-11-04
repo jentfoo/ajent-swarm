@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
-import { formatEvery, intervalToSeconds, scheduleSummary, splitInterval } from './schedule'
+import {
+  formatEvery,
+  intervalToSeconds,
+  scheduleSummary,
+  sortJobsForDisplay,
+  splitInterval,
+} from './schedule'
 import type { Job } from '../api/types'
 
 describe('interval conversion', () => {
@@ -93,5 +99,74 @@ describe('scheduleSummary', () => {
 
   it('renders unknown kinds verbatim', () => {
     expect(scheduleSummary({ ...base, scheduleKind: 'weekly' as never })).toBe('weekly')
+  })
+})
+
+describe('sortJobsForDisplay', () => {
+  const base = {
+    name: '',
+    workspace: '/repo',
+    spawnMode: 'new',
+    enabled: true,
+    scheduleKind: 'interval',
+    intervalSeconds: 60,
+    onMissed: 'skip',
+    overlap: 'run',
+    keepAlive: false,
+    createdAt: '2026-11-01T00:00:00Z',
+  } satisfies Omit<Job, 'id'>
+
+  function job(id: number, overrides: Partial<Job> = {}): Job {
+    return { ...base, id, name: `job ${id}`, ...overrides }
+  }
+
+  it('sorts scheduled rows soonest first', () => {
+    const sorted = sortJobsForDisplay([
+      job(3, { nextRunAt: '2026-11-07T09:00:00Z' }),
+      job(1, { nextRunAt: '2026-11-06T10:00:00Z' }),
+      job(2, { nextRunAt: '2026-11-06T12:00:00Z' }),
+    ])
+    expect(sorted.map((j) => j.id)).toEqual([1, 2, 3])
+  })
+
+  it('sinks disabled rows below scheduled ones', () => {
+    // job 4's slot is earlier, but disabled alone decides the row sinks
+    const sorted = sortJobsForDisplay([
+      job(4, { enabled: false, nextRunAt: '2026-11-06T08:00:00Z' }),
+      job(5, { nextRunAt: '2026-11-07T09:00:00Z' }),
+    ])
+    expect(sorted.map((j) => j.id)).toEqual([5, 4])
+  })
+
+  it('sinks null and unparseable fire times', () => {
+    const sorted = sortJobsForDisplay([
+      job(6, { nextRunAt: 'not a date' }),
+      job(7, { nextRunAt: null }),
+      job(8, { nextRunAt: '2026-11-06T10:00:00Z' }),
+      job(9),
+    ])
+    // the unscheduled tail keeps its stored order
+    expect(sorted.map((j) => j.id)).toEqual([8, 6, 7, 9])
+  })
+
+  it('breaks equal fire times by id', () => {
+    const slot = '2026-11-06T10:00:00Z'
+    const sorted = sortJobsForDisplay([job(12, { nextRunAt: slot }), job(11, { nextRunAt: slot })])
+    expect(sorted.map((j) => j.id)).toEqual([11, 12])
+  })
+
+  it('sorts a copy and leaves the input untouched', () => {
+    const input = [
+      job(14, { nextRunAt: '2026-11-07T09:00:00Z' }),
+      job(13, { enabled: false }),
+      job(15, { nextRunAt: '2026-11-06T10:00:00Z' }),
+    ]
+    const before = [...input]
+
+    const sorted = sortJobsForDisplay(input)
+
+    expect(sorted).not.toBe(input)
+    expect(sorted.map((j) => j.id)).toEqual([15, 14, 13])
+    expect(input).toEqual(before)
   })
 })

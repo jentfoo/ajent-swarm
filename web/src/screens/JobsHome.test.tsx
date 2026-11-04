@@ -259,6 +259,17 @@ describe('JobsHome', () => {
     expect(screen.getByRole('checkbox', { name: 'Disable nightly sweep' })).toBeChecked()
   })
 
+  it('renders rows with the earliest next run first', async () => {
+    const late = { ...job, id: 9, name: 'late job', nextRunAt: '2026-11-06T18:00:00Z' }
+    const early = { ...job, id: 2, name: 'early job', nextRunAt: '2026-11-06T10:00:00Z' }
+    jobsReply = { rows: [late, early] } // the payload keeps its insertion order
+    renderJobs()
+
+    await screen.findByText('early job')
+    const ids = screen.getAllByTestId(/^job-\d+$/).map((row) => row.getAttribute('data-testid'))
+    expect(ids).toEqual(['job-2', 'job-9'])
+  })
+
   it('fires manually and reports the outcome', async () => {
     const user = userEvent.setup()
     renderJobs()

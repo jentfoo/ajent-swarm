@@ -9,7 +9,31 @@ import type { CtlState } from '../api/types'
 // shared grouped items, model.set switches without a picker, refusals surface
 // as toasts, and the listing only ever renders for its own session.
 
-const snap = { model: { key: 'anthropic/claude-sonnet', short: 'sonnet' } } as CtlState
+const zeroUsage = () => ({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0 })
+
+const snap: CtlState = {
+  session: { id: '01S' },
+  workspace: '/w',
+  cwd: '/w',
+  head: '',
+  model: {
+    key: 'anthropic/claude-sonnet',
+    short: 'sonnet',
+    window: 0,
+    caps: { reasoning: false, images: false, parallelToolCalls: false },
+  },
+  permission: '',
+  tools: [],
+  usage: { turns: 0, total: zeroUsage(), child: zeroUsage(), estimatedTurns: 0 },
+  context: { used: 0, window: 0, reserve: 0, compact: 0, estimated: false },
+  running: false,
+  idle: true,
+  spinning: false,
+  queued: 0,
+  activity: [],
+  status: {},
+  seat: { held: false, yours: false },
+}
 
 function stubFetch(respond: (url: string, init?: RequestInit) => Response) {
   const spy = vi.fn(async (url: string | URL, init?: RequestInit) =>

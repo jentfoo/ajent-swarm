@@ -1812,6 +1812,10 @@ label {
   color: var(--muted);
   font-size: var(--fs-small);
 }
+/* a provider group is semantic only; its items join the menu's own layout */
+.menu .model-menu-group {
+  display: contents;
+}
 .tool-row {
   display: flex;
   align-items: center;

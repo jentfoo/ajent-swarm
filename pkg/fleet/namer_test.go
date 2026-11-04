@@ -23,17 +23,31 @@ import (
 func TestSanitizeSessionTitle(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct{ in, want string }{
-		{"Fix the login flow", "Fix the login flow"},
-		{"  padded   spaces  collapse ", "padded spaces collapse"},
-		{"first line only\nsecond line dropped", "first line only"},
-		{"\n", ""},
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"plain one line", "Fix the login flow", "Fix the login flow"},
+		{"padded spaces collapse", "  padded   spaces  collapse ", "padded spaces collapse"},
+		{"first line wins", "first line only\nsecond line dropped", "first line only"},
+		{"blank output", "\n", ""},
+		{"empty output", "", ""},
+		{"tool call then title",
+			"<tool_call>\n{\"name\": \"agent_start\"}\n</tool_call>\nFix the login flow", "Fix the login flow"},
+		{"interleaved tags skip to last",
+			"first try\n<arg_key>\nsecond try\n</tool_call>\nreal title", "real title"},
+		{"markup only", "<tool_call>\n{\"name\": \"read\"}\n</tool_call>\n", ""},
+		{"blank lines after tag skipped", "</tool_call>\n\n   \nFix the login flow", "Fix the login flow"},
+		{"indented closing tag", "\t </tool_call>  \nFix the login flow", "Fix the login flow"},
+		{"brackets with spaces are content", "<invoke some tool>", "<invoke some tool>"},
+		{"markup inside prose kept", "Fix <div> layout now", "Fix <div> layout now"},
 	}
 	for _, tc := range cases {
-		assert.Equal(t, tc.want, sanitizeSessionTitle(tc.in))
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, sanitizeSessionTitle(tc.in))
+		})
 	}
-
-	assert.Empty(t, sanitizeSessionTitle(""))
 }
 
 // fakeNamerBin writes an executable that prints a fixed label, standing in

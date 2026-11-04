@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // Session auto-titling: when a session commits its first typed prompt, one
@@ -137,11 +138,27 @@ func runNamer(ctx context.Context, bin, dir, prompt, model string) (string, erro
 	return title, nil
 }
 
-// sanitizeSessionTitle turns freeform model output into a display label: the
-// first line with whitespace runs collapsed to single spaces. Empty means the
-// answer was unusable.
+// sanitizeSessionTitle reduces freeform namer output to a display label: the
+// first non-empty line after the last bare markup tag, with whitespace runs
+// collapsed. Empty means no usable answer.
 func sanitizeSessionTitle(s string) string {
-	return strings.Join(strings.Fields(strings.SplitN(s, "\n", 2)[0]), " ")
+	lines := strings.Split(s, "\n")
+	// some models answer the titling prompt with an XML-ish tool-call block
+	// despite --no-tools, and the real title sits after that markup
+	start := 0
+	for i, line := range lines {
+		tag := strings.TrimSpace(line)
+		if len(tag) > 1 && tag[0] == '<' && tag[len(tag)-1] == '>' &&
+			!strings.ContainsFunc(tag[1:len(tag)-1], unicode.IsSpace) {
+			start = i + 1
+		}
+	}
+	for _, line := range lines[start:] {
+		if fields := strings.Fields(line); len(fields) > 0 {
+			return strings.Join(fields, " ")
+		}
+	}
+	return ""
 }
 
 // clipRunes bounds s to at most n runes.

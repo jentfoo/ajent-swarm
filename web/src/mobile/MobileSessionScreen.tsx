@@ -7,6 +7,7 @@ import { ApiError } from '../api/client'
 import { Composer } from '../session/Composer'
 import { placedAboveNotice, useComposerDraft } from '../session/useComposerDraft'
 import { ModeMenu } from '../session/StatusHeader'
+import { StatusBar } from '../session/StatusBar'
 import { TranscriptView } from '../session/TranscriptView'
 import { useKeyboardInset, keyboardInsetStyle } from '../hooks/useKeyboardInset'
 import { useSessionChannel } from '../hooks/useSessionChannel'
@@ -15,7 +16,6 @@ import { BottomSheet } from './BottomSheet'
 import { ModelChip } from './ModelChip'
 import { RewindSheet } from './RewindSheet'
 import { SettingsSheet } from './SettingsSheet'
-import { StatusStrip } from './StatusStrip'
 import { SwitcherRows } from './SwitcherRows'
 import { ToolsSheet } from './ToolsSheet'
 import { TouchDialogDock } from './TouchDialogDock'
@@ -32,10 +32,9 @@ interface Toast {
 }
 
 // MobileSessionScreen drives one session on a phone. The component tree stays
-// shared with desktop (TranscriptView, Composer); only the chrome forks: a
-// sticky compact header collapsing to model plus spinner, dialogs as stacked
-// full-width cards above the composer, and a status strip where side rails
-// used to be.
+// shared with desktop (TranscriptView, Composer, StatusBar); only the chrome
+// forks: a sticky compact header collapsing to model plus spinner and dialogs
+// as stacked full-width cards above the composer.
 //
 // The content keys on sessionId, so the route reusing this screen for another
 // session presents it as a remount: that session's own draft restores from the
@@ -175,7 +174,6 @@ function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElemen
         onThinkingToggle={(open) => dispatch({ type: 'liveThinkingToggled', open })}
       />
 
-      <StatusStrip snap={snap} live={state.live} />
       <TouchDialogDock
         sessionId={sessionId}
         dialogs={dialogs}
@@ -197,6 +195,7 @@ function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElemen
         }}
         onSubmitFailed={(pendingId) => dispatch({ type: 'pendingFailed', pendingId })}
       />
+      <StatusBar snap={snap} live={state.live} />
 
       <ToolsSheet
         sessionId={sessionId}

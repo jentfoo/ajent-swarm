@@ -192,7 +192,7 @@ describe('MobileSessionScreen', () => {
     )
   }
 
-  it('renders the compact chrome with status strip and queue count', async () => {
+  it('renders the compact chrome with the shared status bar', async () => {
     renderScreen()
     const ws = await openSocket()
 
@@ -209,10 +209,85 @@ describe('MobileSessionScreen', () => {
     expect(await screen.findByRole('button', { name: /sonnet/ })).toBeInTheDocument()
     expect(screen.getByLabelText('Back to launcher')).toBeInTheDocument()
 
-    // the strip reads one data source with the desktop status bar
+    // the bar reads one data source with desktop's: queue depth, segments and
+    // sub-agent chips
     expect(screen.getByText('2 queued')).toBeInTheDocument()
-    expect(screen.getByText('ctx 40k'))
-    expect(screen.getByLabelText(/1 active/)).toBeInTheDocument()
+    expect(screen.getByText('ctx 40k')).toBeInTheDocument()
+    expect(screen.getByText(/1 agent/)).toBeInTheDocument()
+  })
+
+  it('keeps the status bar visible on an idle session', async () => {
+    renderScreen()
+    const ws = await openSocket()
+    act(() => {
+      ws.message({
+        type: 'init',
+        sessionId: VIEW,
+        state: snapshotFor(VIEW, {
+          queued: 0,
+          activity: [],
+          status: { segments: [] },
+        }),
+        entries: [],
+      })
+    })
+
+    // the resting dim glyph answers "is it working" with nothing else to
+    // report; the old strip returned null here instead
+    expect(await screen.findByLabelText('idle')).toBeInTheDocument()
+    expect(document.querySelector('.status-bar')).toBeInTheDocument()
+    expect(document.querySelector('.status-strip')).not.toBeInTheDocument()
+  })
+
+  it('flips the spinner to working and shows the activity line', async () => {
+    renderScreen()
+    const ws = await openSocket()
+    act(() => {
+      ws.message({
+        type: 'init',
+        sessionId: VIEW,
+        state: snapshotFor(VIEW, {
+          running: true,
+          idle: false,
+          activity: [
+            { key: 'step', text: 'reading files', rank: 10 },
+            { key: 'sub-1', text: 'scanning files', rank: 0 },
+          ],
+        }),
+        entries: [],
+      })
+    })
+
+    expect(await screen.findByText('reading files')).toBeInTheDocument()
+    // the bar's glyph flips to the waiting color while the turn runs, not the
+    // idle dim the old strip's null left the phone with
+    const bar = document.querySelector('.status-bar')!
+    expect(bar.querySelector('.spinner.wait')).toBeInTheDocument()
+    expect(bar.querySelector('.spinner.idle')).not.toBeInTheDocument()
+  })
+
+  it('renders the context meter only when the window is known', async () => {
+    renderScreen()
+    const ws = await openSocket()
+    act(() => {
+      ws.message({ type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
+    })
+
+    // 1k of a 200k window meters one percent, labeled for screen readers
+    expect(await screen.findByRole('img', { name: 'Context 1% full' })).toBeInTheDocument()
+
+    // an unknown window size leaves nothing to meter
+    act(() => {
+      ws.message({
+        type: 'init',
+        sessionId: VIEW,
+        state: snapshotFor(VIEW, {
+          context: { used: 0, window: 0, reserve: 0, compact: 0, estimated: false },
+        }),
+        entries: [],
+      })
+    })
+    expect(screen.queryByRole('img', { name: /Context/ })).not.toBeInTheDocument()
   })
 
   it('feeds the keyboard inset to css for composer and overlays', async () => {

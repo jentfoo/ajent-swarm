@@ -1540,10 +1540,11 @@ label {
   padding: 0 calc(var(--unit) * 3) calc(var(--unit) * 4);
 }
 
-/* mobile session screen: compact sticky header, strip above the composer.
-   The safe-area baseline keeps Send and StatusStrip out of the home-indicator
-   gesture zone with the keyboard closed; --keyboard-inset adds on top while
-   it is open, so the two insets compose instead of replacing each other */
+/* mobile session screen: compact sticky header, shared status bar under the
+   composer. The safe-area baseline keeps Send and the status bar out of the
+   home-indicator gesture zone with the keyboard closed; --keyboard-inset adds
+   on top while it is open, so the two insets compose instead of replacing
+   each other */
 .mobile-session {
   display: flex;
   flex-direction: column;
@@ -1594,31 +1595,9 @@ label {
   text-align: left;
 }
 
-/* status strip: side rails collapsed into one slim line */
-.status-strip {
-  display: flex;
-  align-items: center;
-  gap: calc(var(--unit) * 2);
-  padding: calc(var(--unit) * 1) calc(var(--unit) * 3);
-  border-top: 1px solid var(--border);
-  font-size: var(--fs-small);
-  overflow-x: auto;
-  white-space: nowrap;
-}
+/* segment chip inside a status line */
 .strip-segment {
   flex-shrink: 0;
-}
-.activity-dots {
-  display: inline-flex;
-  gap: calc(var(--unit) * 1);
-  align-items: center;
-  flex-shrink: 0;
-}
-.activity-dots .dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 999px;
-  background: var(--accent);
 }
 
 /* touch dialogs: full-width stacked cards, big answer buttons */
@@ -1766,11 +1745,17 @@ label {
   color: var(--accent-text);
 }
 
-/* mobile session screen owns its scrolling under the sticky header */
+/* mobile session screen: the transcript owns the scroll under the sticky
+   header, and the bottom status bar gets touch padding the desktop bar does
+   not need; it stays inside .mobile-session's safe-area baseline, hugging the
+   bottom edge like desktop's */
 @media (max-width: 48rem) {
   .mobile-session .transcript-wrap {
     flex: 1;
     min-height: 0;
+  }
+  .mobile-session .status-bar {
+    padding: calc(var(--unit) * 2) calc(var(--unit) * 3);
   }
 }
 

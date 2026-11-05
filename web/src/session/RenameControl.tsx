@@ -7,16 +7,17 @@ import { useSwarm } from '../providers/swarm'
 import { ModalShell } from '../ui/ModalShell'
 
 // RenameControl is the pencil affordance beside a session label: clicking it
-// swaps in an inline editor that writes swarm's stored display title. An empty
-// submit clears the title, falling labels back to names and paths. Ajent's own
-// session names are never touched, so resume targets stay clean.
+// opens the shared rename editor (RenameEditorModal) over swarm's stored
+// display title. An empty submit clears the title, falling labels back to
+// names and paths. Ajent's own session names are never touched, so resume
+// targets stay clean.
 export function RenameControl({
   sessionId,
   label,
 }: {
   sessionId: string
   label: string
-}): ReactElement | null {
+}): ReactElement {
   const [editing, setEditing] = useState(false)
 
   if (editing) {

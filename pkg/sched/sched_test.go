@@ -30,12 +30,14 @@ type fakeRunner struct {
 	toolsSets [][]string // names per ToolsSet call, in order
 	ops       []string   // verb log across calls: "tools", "submit"
 	stopped   []string
-	subscribe int // subscribe calls the runner served
+	titles    map[string]string // last title written per session id
+	subscribe int               // subscribe calls the runner served
 
 	launchErr   error         // Launch fails with this when set
 	sessionID   string        // session id Launch returns
 	submitFailN int           // the first N submits fail as unavailable
 	toolsSetErr error         // ToolsSet fails with this when set
+	titleErr    error         // SetTitle fails with this when set
 	blockLaunch chan struct{} // set: Launch blocks until closed, per call
 	deliver     func([]byte)  // deliverer of the latest subscription
 	onDrop      func()
@@ -93,6 +95,18 @@ func (f *fakeRunner) ToolsSet(_ context.Context, _ string,
 	f.toolsSets = append(f.toolsSets, slices.Clone(names))
 	f.ops = append(f.ops, "tools")
 	return ctl.ToolsSetResult{}, f.toolsSetErr
+}
+
+// SetTitle records the last title written per session; titleErr scripts a
+// failed write.
+func (f *fakeRunner) SetTitle(_ context.Context, sessionID, title string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.titles == nil {
+		f.titles = make(map[string]string)
+	}
+	f.titles[sessionID] = title
+	return f.titleErr
 }
 
 // deliverToWatcher plays the landing sequence a real ajent emits after a

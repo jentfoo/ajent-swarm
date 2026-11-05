@@ -319,6 +319,89 @@ func TestRunner(t *testing.T) {
 		assert.Empty(h.t, submits)
 	})
 
+	t.Run("titles_session_from_job_name", func(t *testing.T) {
+		h := newHarness(t, nil)
+		id := h.addJob("nightly sweep", func(j *store.Job) {
+			j.Prompt = "run the checks"
+			slot := time.Now().Add(10 * time.Millisecond)
+			j.NextRunAt = &slot
+		})
+		h.start(t.Context())
+
+		run := h.waitForRun(id, store.RunOK)
+
+		h.runner.mu.Lock()
+		title := h.runner.titles[run.SessionID]
+		h.runner.mu.Unlock()
+		assert.Equal(t, "nightly sweep", title)
+	})
+
+	t.Run("launcher_job_titled_without_prompt", func(t *testing.T) {
+		h := newHarness(t, nil)
+		id := h.addJob("serve workspace", func(j *store.Job) {
+			j.Prompt = "" // a launcher job: serving is the whole deliverable
+			slot := time.Now().Add(10 * time.Millisecond)
+			j.NextRunAt = &slot
+		})
+		h.start(t.Context())
+
+		run := h.waitForRun(id, store.RunOK)
+
+		h.runner.mu.Lock()
+		title := h.runner.titles[run.SessionID]
+		h.runner.mu.Unlock()
+		assert.Equal(t, "serve workspace", title)
+	})
+
+	// a resumed session already carries its own history; the job label may not
+	// stomp whatever it is called today
+	t.Run("resume_mode_keeps_session_title", func(t *testing.T) {
+		h := newHarness(t, nil)
+		id := h.addJob("resumed", func(j *store.Job) {
+			j.Prompt = "run the checks"
+			j.SpawnMode = string(fleet.LaunchResume)
+			slot := time.Now().Add(10 * time.Millisecond)
+			j.NextRunAt = &slot
+		})
+		h.start(t.Context())
+		h.waitForRun(id, store.RunOK)
+
+		h.runner.mu.Lock()
+		defer h.runner.mu.Unlock()
+		assert.Empty(h.t, h.runner.titles)
+	})
+
+	t.Run("empty_name_skips_title", func(t *testing.T) {
+		h := newHarness(t, nil)
+		id := h.addJob("", func(j *store.Job) {
+			j.Prompt = "run the checks"
+			slot := time.Now().Add(10 * time.Millisecond)
+			j.NextRunAt = &slot
+		})
+		h.start(t.Context())
+		h.waitForRun(id, store.RunOK)
+
+		h.runner.mu.Lock()
+		defer h.runner.mu.Unlock()
+		assert.Empty(h.t, h.runner.titles)
+	})
+
+	t.Run("title_failure_keeps_run_ok", func(t *testing.T) {
+		h := newHarness(t, nil)
+		h.runner.titleErr = errors.New("no session title store configured")
+		id := h.addJob("unlabelable", func(j *store.Job) {
+			j.Prompt = "run the checks"
+			slot := time.Now().Add(10 * time.Millisecond)
+			j.NextRunAt = &slot
+		})
+		h.start(t.Context())
+
+		run := h.waitForRun(id, store.RunOK)
+
+		assert.Empty(t, run.Error) // the failed label write never gates the run
+		assert.Equal(t, "run the checks", h.submittedPrompt())
+	})
+
 	t.Run("submit_retries_through_refusals", func(t *testing.T) {
 		h := newHarness(t, nil)
 		// a resumed session whose old dialog is still open refuses briefly

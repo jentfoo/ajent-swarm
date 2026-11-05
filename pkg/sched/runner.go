@@ -49,6 +49,7 @@ type Runner interface {
 	Launch(ctx context.Context, req fleet.LaunchRequest) (fleet.LaunchResult, error)
 	Submit(ctx context.Context, sessionID string, params ctl.SubmitParams) error
 	ToolsSet(ctx context.Context, sessionID string, names []string) (ctl.ToolsSetResult, error)
+	SetTitle(ctx context.Context, sessionID, title string) error
 	StopSession(ctx context.Context, sessionID string) error
 	Subscribe(sessionID string, deliver func([]byte), onDrop func()) (*fleet.Subscription, error)
 	Unsubscribe(sub *fleet.Subscription)
@@ -79,14 +80,15 @@ func (s *Scheduler) execute(run store.Run, j store.Job) {
 		}
 	}
 
-	res, err := s.runner.Launch(ctx, fleet.LaunchRequest{
+	req := fleet.LaunchRequest{
 		Workspace:     j.Workspace,
 		Mode:          fleet.LaunchMode(j.SpawnMode),
 		Target:        j.SessionTarget,
 		Model:         j.Model,
 		Permission:    j.Permission,
 		CommandPrefix: j.CommandPrefix,
-	})
+	}
+	res, err := s.runner.Launch(ctx, req)
 	if err != nil {
 		s.finish(run, j, store.RunFailed, err.Error())
 		return
@@ -96,6 +98,7 @@ func (s *Scheduler) execute(run store.Run, j store.Job) {
 	if err := s.store.UpdateRun(s.ctx, run); err != nil {
 		s.log.Warn("run session not persisted", "run", run.ID, "err", err)
 	}
+	s.titleFromJob(ctx, req.Mode, run.SessionID, j)
 
 	// a custom set reshapes the fresh session before any prompt lands: ajent's
 	// tools.set is a free replacement until the first dispatched prompt. A set
@@ -223,6 +226,23 @@ func (s *Scheduler) applyTools(ctx context.Context, sessionID string, names []st
 		_, err := s.runner.ToolsSet(ctx, sessionID, names)
 		return err
 	})
+}
+
+// titleFromJob labels a freshly launched session with the job's name, so its
+// listings read as the job before any prompt lands. Only new sessions take
+// the label; resumed ones carry their own history and titles stay put.
+func (s *Scheduler) titleFromJob(ctx context.Context, mode fleet.LaunchMode,
+	sessionID string, j store.Job) {
+	// an unset spawn mode launches fresh, matching LaunchRequest normalization
+	if strings.TrimSpace(j.Name) == "" ||
+		(mode != fleet.LaunchNew && mode != "") {
+		return
+	}
+	// best effort: a failed write only logs, titling never gates the run
+	if err := s.runner.SetTitle(ctx, sessionID, j.Name); err != nil {
+		s.log.Warn("run session not titled", "job", j.ID,
+			"session", sessionID, "err", err)
+	}
 }
 
 // retriable reports whether one submit refusal may clear on its own: a session

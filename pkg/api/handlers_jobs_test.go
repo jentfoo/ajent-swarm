@@ -116,6 +116,9 @@ func (r *scriptRunner) ToolsSet(_ context.Context, _ string,
 	return ctl.ToolsSetResult{}, nil
 }
 
+// SetTitle answers nothing here: the manager's title store owns real labels.
+func (r *scriptRunner) SetTitle(_ context.Context, _, _ string) error { return nil }
+
 func (r *scriptRunner) Subscribe(_ string, deliver func([]byte), _ func()) (*fleet.Subscription, error) {
 	r.mu.Lock()
 	r.deliver = deliver

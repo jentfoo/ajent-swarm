@@ -4,6 +4,7 @@ import type { FormEvent, ReactElement } from 'react'
 import { ApiError } from '../api/client'
 import { sessions as sessionAPI } from '../api/endpoints'
 import { useSwarm } from '../providers/swarm'
+import { ModalShell } from '../ui/ModalShell'
 
 // RenameControl is the pencil affordance beside a session label: clicking it
 // swaps in an inline editor that writes swarm's stored display title. An empty
@@ -19,7 +20,9 @@ export function RenameControl({
   const [editing, setEditing] = useState(false)
 
   if (editing) {
-    return <RenameEditor sessionId={sessionId} initial={label} onDone={() => setEditing(false)} />
+    return (
+      <RenameEditorModal sessionId={sessionId} initial={label} onDone={() => setEditing(false)} />
+    )
   }
   return (
     <button
@@ -37,9 +40,12 @@ export function RenameControl({
   )
 }
 
-// RenameEditor submits once; saving refreshes the listing so every label
-// re-renders without waiting out the poll.
-function RenameEditor({
+// RenameEditorModal is the one rename surface for every breakpoint: the
+// desktop card bar and the mobile switcher rows both open it over ModalShell,
+// so an edit behaves identically wherever it starts. Submitting empty clears
+// the stored title, falling labels back to names and paths; saving refreshes
+// the listing so every label re-renders without waiting out the poll.
+export function RenameEditorModal({
   sessionId,
   initial,
   onDone,
@@ -68,13 +74,8 @@ function RenameEditor({
   }
 
   return (
-    <div className="modal-backdrop" onClick={onDone} role="presentation">
-      <form
-        className="card modal rename-modal"
-        onSubmit={(ev) => void submit(ev)}
-        data-testid={`rename-${sessionId}`}
-        onClick={(ev) => ev.stopPropagation()}
-      >
+    <ModalShell label="Rename session" className="rename-modal" onClose={onDone}>
+      <form onSubmit={(ev) => void submit(ev)} data-testid={`rename-${sessionId}`}>
         <label>
           Display title
           <input value={title} onChange={(ev) => setTitle(ev.target.value)} autoFocus />
@@ -89,6 +90,6 @@ function RenameEditor({
           </button>
         </div>
       </form>
-    </div>
+    </ModalShell>
   )
 }

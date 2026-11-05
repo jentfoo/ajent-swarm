@@ -1,9 +1,10 @@
 import { Fragment, useState } from 'react'
-import type { FormEvent, ReactElement } from 'react'
+import type { ReactElement } from 'react'
 
 import { ApiError } from '../api/client'
 import { sessions as sessionAPI } from '../api/endpoints'
 import { useResume } from '../hooks/useResume'
+import { RenameEditorModal } from '../session/RenameControl'
 import { useSwarm } from '../providers/swarm'
 import { useWorkspace } from '../providers/workspace'
 import { SettingsScreen } from './SettingsScreen'
@@ -52,8 +53,15 @@ export function SwitcherRows({
           ))}
         </Fragment>
       ))}
-      {/* the editor rides above the rows as a modal, like every other surface */}
-      {renaming !== null && <RenameEditor row={renaming} onDone={() => setRenaming(null)} />}
+      {/* the shared rename editor (session/RenameControl) rides above the
+          rows as a modal, like every other surface */}
+      {renaming !== null && (
+        <RenameEditorModal
+          sessionId={renaming.sessionId}
+          initial={renaming.label}
+          onDone={() => setRenaming(null)}
+        />
+      )}
       {/* one pushed settings screen, rebound to whichever row was tapped */}
       {settingsId !== null && (
         <SettingsScreen sessionId={settingsId} open onClose={() => setSettingsId(null)} />
@@ -199,53 +207,4 @@ function StatusBadge({ status }: { status: SwitcherRow['status'] }): ReactElemen
     default:
       return <span className="badge">idle</span>
   }
-}
-
-// RenameEditor edits the swarm-side display title in a centered modal.
-// Submitting empty clears the stored title, falling labels back to names and
-// paths.
-function RenameEditor({ row, onDone }: { row: SwitcherRow; onDone: () => void }) {
-  const { refreshSessions } = useSwarm()
-  const [title, setTitle] = useState(row.label)
-  const [error, setError] = useState('')
-  const [busy, setBusy] = useState(false)
-
-  const submit = async (ev: FormEvent) => {
-    ev.preventDefault()
-    if (busy) return
-    setBusy(true)
-    try {
-      await sessionAPI.setTitle(row.sessionId, title.trim())
-      await refreshSessions() // rows re-label immediately, not on the next poll
-      onDone()
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Rename failed.')
-      setBusy(false)
-    }
-  }
-
-  return (
-    <div className="modal-backdrop" onClick={onDone} role="presentation">
-      <form
-        className="card modal rename-modal"
-        onSubmit={(ev) => void submit(ev)}
-        data-testid={`rename-${row.sessionId}`}
-        onClick={(ev) => ev.stopPropagation()}
-      >
-        <label>
-          Display title
-          <input value={title} onChange={(ev) => setTitle(ev.target.value)} autoFocus />
-        </label>
-        {error && <p className="error-text">{error}</p>}
-        <div className="rename-actions">
-          <button type="submit" className="primary" disabled={busy}>
-            Save
-          </button>
-          <button type="button" onClick={onDone} disabled={busy}>
-            Cancel
-          </button>
-        </div>
-      </form>
-    </div>
-  )
 }

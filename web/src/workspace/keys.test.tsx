@@ -1,16 +1,22 @@
 import { render } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
-import { setShortcutOverlayOpen, useWorkspaceKeys } from './keys'
+import { ModalShell } from '../ui/ModalShell'
+import { useWorkspaceKeys } from './keys'
 import type { WorkspaceKeyHandlers } from './keys'
 
 // The hook binds window keydown; events dispatch with a cancelable event so
 // each preventDefault claim shows up in defaultPrevented. Shifted keys carry
 // their produced character ('|') and only ev.code names the physical key.
 
-function Harness(props: WorkspaceKeyHandlers) {
+function Harness(props: WorkspaceKeyHandlers & { modal?: boolean }) {
   useWorkspaceKeys(props)
-  return null
+  if (props.modal !== true) return null
+  return (
+    <ModalShell label="Test dialog" onClose={() => {}}>
+      <p>body</p>
+    </ModalShell>
+  )
 }
 
 function mount(props: WorkspaceKeyHandlers) {
@@ -32,10 +38,6 @@ function pressOn(target: Element, init: KeyboardEventInit = {}): boolean {
 }
 
 describe('useWorkspaceKeys', () => {
-  afterEach(() => {
-    setShortcutOverlayOpen(false)
-  })
-
   it('splits down through the shifted pipe character', () => {
     const handlers = { onSplitDown: vi.fn(), onSplitRight: vi.fn() }
     mount(handlers)
@@ -105,19 +107,19 @@ describe('useWorkspaceKeys', () => {
     expect(onNext).not.toHaveBeenCalled()
   })
 
-  it('stands down while the shortcuts overlay is open', () => {
+  it('stands down while a modal shell holds the screen', () => {
     const handlers = { onNext: vi.fn(), onEscape: vi.fn(), onShortcuts: vi.fn() }
-    mount(handlers)
+    const view = render(<Harness {...handlers} />)
 
-    setShortcutOverlayOpen(true)
-    // every binding rests, leaving Escape and ? to the overlay itself
+    // every binding rests behind the backdrop, leaving keys to the dialog
+    view.rerender(<Harness {...handlers} modal />)
     expect(press({ key: 'j' })).toBe(false)
     expect(press({ key: '?' })).toBe(false)
     expect(press({ key: 'Escape' })).toBe(false)
     expect(handlers.onNext).not.toHaveBeenCalled()
     expect(handlers.onShortcuts).not.toHaveBeenCalled()
 
-    setShortcutOverlayOpen(false)
+    view.rerender(<Harness {...handlers} />)
     expect(press({ key: 'j' })).toBe(true) // bindings return once it closes
   })
 })

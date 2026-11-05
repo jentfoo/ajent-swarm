@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 
-import { setShortcutOverlayOpen } from './keys'
+import { ModalShell } from '../ui/ModalShell'
 import type { WorkspaceMode } from './layoutProfile'
 
 const focusBindings: [string, string][] = [
@@ -24,17 +24,13 @@ const tileBindings: [string, string][] = [
 ]
 
 // ShortcutOverlay is the one keyboard map shared by both workspace modes; ?
-// toggles it, Escape or a click outside closes it. While mounted it stands
-// above the workspace: keys.ts suppresses its bindings until this unmounts.
+// toggles it while Escape and clicks outside close it through ModalShell,
+// which also holds the workspace's own bindings down while it shows.
 export function ShortcutOverlay({ mode, onClose }: { mode: WorkspaceMode; onClose: () => void }) {
-  useEffect(() => {
-    setShortcutOverlayOpen(true)
-    return () => setShortcutOverlayOpen(false)
-  }, [])
-
+  // '?' reaches this listener even though workspace keys rest behind the shell
   useEffect(() => {
     const onKey = (ev: KeyboardEvent) => {
-      if (ev.key === 'Escape' || ev.key === '?') onClose()
+      if (ev.key === '?') onClose()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -42,28 +38,21 @@ export function ShortcutOverlay({ mode, onClose }: { mode: WorkspaceMode; onClos
 
   const bindings = mode === 'tile' ? tileBindings : focusBindings
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div
-        className="modal card shortcut-card"
-        role="dialog"
-        aria-label="Keyboard shortcuts"
-        onClick={(ev) => ev.stopPropagation()}
-      >
-        <h2 style={{ marginTop: 0, fontSize: 'inherit' }}>Keyboard shortcuts</h2>
-        <p className="muted" style={{ marginTop: 0 }}>
-          {mode === 'tile' ? 'Tile mode' : 'Focused mode'} · Mod is Ctrl or ⌘
-        </p>
-        <table className="shortcut-table">
-          <tbody>
-            {bindings.map(([keys, what]) => (
-              <tr key={keys}>
-                <td className="mono">{keys}</td>
-                <td>{what}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
+    <ModalShell label="Keyboard shortcuts" className="shortcut-card" onClose={onClose}>
+      <h2 style={{ marginTop: 0, fontSize: 'inherit' }}>Keyboard shortcuts</h2>
+      <p className="muted" style={{ marginTop: 0 }}>
+        {mode === 'tile' ? 'Tile mode' : 'Focused mode'} · Mod is Ctrl or ⌘
+      </p>
+      <table className="shortcut-table">
+        <tbody>
+          {bindings.map(([keys, what]) => (
+            <tr key={keys}>
+              <td className="mono">{keys}</td>
+              <td>{what}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </ModalShell>
   )
 }

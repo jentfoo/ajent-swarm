@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import type { ReactElement, ReactNode } from 'react'
 
+import { ModalShell } from '../ui/ModalShell'
 import { SettingsMenu } from './SettingsMenu'
 
 // HamburgerDialog is the open/close shell both ☰ settings menus share: a
@@ -18,15 +19,6 @@ export function HamburgerDialog({
 }): ReactElement {
   const [open, setOpen] = useState(false)
 
-  useEffect(() => {
-    if (!open) return
-    const onKey = (ev: KeyboardEvent) => {
-      if (ev.key === 'Escape') setOpen(false)
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [open])
-
   return (
     <>
       <button
@@ -39,16 +31,9 @@ export function HamburgerDialog({
         ☰
       </button>
       {open && (
-        <div className="modal-backdrop" role="presentation" onClick={() => setOpen(false)}>
-          <div
-            className="card modal settings-modal"
-            role="dialog"
-            aria-label={label}
-            onClick={(ev) => ev.stopPropagation()}
-          >
-            {children}
-          </div>
-        </div>
+        <ModalShell className="settings-modal" label={label} onClose={() => setOpen(false)}>
+          {children}
+        </ModalShell>
       )}
     </>
   )

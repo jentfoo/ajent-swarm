@@ -4,6 +4,8 @@
 // dialog answer must never move the workspace.
 import { useEffect, useRef } from 'react'
 
+import { modalOpen } from '../ui/ModalShell'
+
 export type Direction = 'left' | 'right' | 'up' | 'down'
 
 export interface WorkspaceKeyHandlers {
@@ -19,15 +21,6 @@ export interface WorkspaceKeyHandlers {
   onSplitDown?: () => void // mod+shift+\
   onFocusDirection?: (dir: Direction) => void // mod+arrow
   onResize?: (dir: Direction) => void // alt+arrow
-}
-
-// While a ShortcutOverlay is mounted it owns Escape and ?, so workspace
-// bindings stand down behind it instead of acting on rows the user cannot
-// see.
-let shortcutOverlayOpen = false
-
-export function setShortcutOverlayOpen(open: boolean): void {
-  shortcutOverlayOpen = open
 }
 
 function isEditable(target: EventTarget | null): boolean {
@@ -47,7 +40,9 @@ export function useWorkspaceKeys(handlers: WorkspaceKeyHandlers): void {
 
   useEffect(() => {
     const onKey = (ev: KeyboardEvent) => {
-      if (isEditable(ev.target) || shortcutOverlayOpen) return
+      // editable targets win; behind any open ModalShell every binding rests,
+      // leaving keys to the dialog instead of rows the backdrop hides
+      if (isEditable(ev.target) || modalOpen()) return
       const h = ref.current
       const mod = ev.ctrlKey || ev.metaKey
 

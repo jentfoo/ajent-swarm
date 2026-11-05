@@ -4,8 +4,9 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { ShortcutOverlay } from './ShortcutOverlay'
 
-// The overlay is modal to workspace shortcuts: keys.ts suppresses its
-// bindings while this is mounted, and the overlay alone answers Escape and ?
+// The overlay is modal to workspace shortcuts: ModalShell holds the
+// workspace's bindings down while this is mounted, and the overlay alone
+// answers ? with Escape closing through the shell.
 
 describe('ShortcutOverlay', () => {
   it('closes on Escape, ? and a click outside', async () => {

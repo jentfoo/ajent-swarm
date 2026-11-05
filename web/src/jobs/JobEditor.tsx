@@ -13,6 +13,7 @@ import {
   weekdayTokens,
   weekdayShort,
 } from './schedule'
+import { ModalShell } from '../ui/ModalShell'
 
 // Permission startup flags, matching phase 04's launcher.
 const permissionOptions = [
@@ -145,14 +146,12 @@ export function JobEditor({
   }
 
   return (
-    <div className="modal-backdrop" onClick={onCancel}>
-      <form
-        className="card modal job-editor"
-        role="dialog"
-        aria-label={job !== undefined ? `Edit job ${draft.name}` : 'New job'}
-        onClick={(ev) => ev.stopPropagation()}
-        onSubmit={save}
-      >
+    <ModalShell
+      label={job !== undefined ? `Edit job ${draft.name}` : 'New job'}
+      className="job-editor"
+      onClose={onCancel}
+    >
+      <form onSubmit={save}>
         <h2 style={{ marginTop: 0, fontSize: 'inherit' }}>
           {job !== undefined ? `Edit “${draft.name || 'job'}”` : 'New job'}
         </h2>
@@ -580,7 +579,7 @@ export function JobEditor({
           </button>
         </div>
       </form>
-    </div>
+    </ModalShell>
   )
 }
 

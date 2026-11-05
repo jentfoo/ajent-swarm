@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { ApiError } from '../api/client'
 import { sessions as sessionAPI } from '../api/endpoints'
 import type { RewindCandidate, RewindKind } from '../api/types'
+import { ModalShell } from '../ui/ModalShell'
 
 // RewindDialog offers the fork candidates GET /candidates derived: user
 // prompts re-send (their text prefills the composer for an edit), assistant
@@ -58,45 +59,38 @@ export function RewindDialog({
   }
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div
-        className="card modal"
-        role="dialog"
-        aria-label="Rewind to an earlier point"
-        onClick={(ev) => ev.stopPropagation()}
-      >
-        <h2 style={{ marginTop: 0, fontSize: 'inherit' }}>Rewind</h2>
-        {candidates === null && !loadError && <p className="muted">Loading forks…</p>}
-        {loadError && <p className="error-text">{loadError}</p>}
-        {candidates !== null && candidates.length === 0 && (
-          <p className="muted">Nothing rewirable yet: no prompts, replies or compactions.</p>
-        )}
-        <div className="rewind-list">
-          {(candidates ?? []).map((c) => (
-            <button
-              key={c.id}
-              type="button"
-              disabled={busyId !== ''}
-              title={`${kindLabel(c.kind)}${c.isHead ? ' · current head' : ''}`}
-              className={`rewind-row ${c.active ? 'active-branch' : ''}`}
-              style={{ paddingLeft: `calc(${(c.depth ?? 0) * 1.1}em + 0.4em)` }}
-              onClick={() => void rewind(c)}
-            >
-              <span className="badge">{kindLabel(c.kind)}</span>
-              {c.isHead && <span className="badge accent">head</span>}
-              {c.active && !c.isHead && <span className="badge ok-badge">current</span>}
-              <span className="rewind-guide muted mono">{c.guide}</span>
-              <span className="rewind-label">{c.label || c.id}</span>
-            </button>
-          ))}
-        </div>
-        <div style={{ marginTop: '0.6em' }}>
-          <button type="button" onClick={onClose}>
-            Keep current history
+    <ModalShell label="Rewind to an earlier point" onClose={onClose}>
+      <h2 style={{ marginTop: 0, fontSize: 'inherit' }}>Rewind</h2>
+      {candidates === null && !loadError && <p className="muted">Loading forks…</p>}
+      {loadError && <p className="error-text">{loadError}</p>}
+      {candidates !== null && candidates.length === 0 && (
+        <p className="muted">Nothing rewirable yet: no prompts, replies or compactions.</p>
+      )}
+      <div className="rewind-list">
+        {(candidates ?? []).map((c) => (
+          <button
+            key={c.id}
+            type="button"
+            disabled={busyId !== ''}
+            title={`${kindLabel(c.kind)}${c.isHead ? ' · current head' : ''}`}
+            className={`rewind-row ${c.active ? 'active-branch' : ''}`}
+            style={{ paddingLeft: `calc(${(c.depth ?? 0) * 1.1}em + 0.4em)` }}
+            onClick={() => void rewind(c)}
+          >
+            <span className="badge">{kindLabel(c.kind)}</span>
+            {c.isHead && <span className="badge accent">head</span>}
+            {c.active && !c.isHead && <span className="badge ok-badge">current</span>}
+            <span className="rewind-guide muted mono">{c.guide}</span>
+            <span className="rewind-label">{c.label || c.id}</span>
           </button>
-        </div>
+        ))}
       </div>
-    </div>
+      <div style={{ marginTop: '0.6em' }}>
+        <button type="button" onClick={onClose}>
+          Keep current history
+        </button>
+      </div>
+    </ModalShell>
   )
 }
 

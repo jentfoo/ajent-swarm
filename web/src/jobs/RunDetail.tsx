@@ -5,6 +5,7 @@ import { childEnded, type Run, type SessionStatus } from '../api/types'
 import { useSwarm } from '../providers/swarm'
 import { runStatusClass, formatDuration, formatTimestamp } from './schedule'
 import { TranscriptPreview } from './TranscriptPreview'
+import { ModalShell } from '../ui/ModalShell'
 
 // RunDetail explains what one run did: its facts, the prompt and error in
 // full, then the session it produced. Live sessions open into a view,
@@ -14,46 +15,39 @@ export function RunDetail({ run, onClose }: { run: Run; onClose: () => void }) {
   const status = useSwarm().sessions.find((s) => s.sessionId === run.sessionId)
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div
-        className="card modal run-detail"
-        role="dialog"
-        aria-label={`Run ${run.id}`}
-        onClick={(ev) => ev.stopPropagation()}
-      >
-        <h2 style={{ marginTop: 0, fontSize: 'inherit' }}>
-          Run #{run.id}{' '}
-          <span className={runStatusClass(run.status)} data-testid="detail-status">
-            {run.status}
-          </span>
-        </h2>
+    <ModalShell label={`Run ${run.id}`} className="run-detail" onClose={onClose}>
+      <h2 style={{ marginTop: 0, fontSize: 'inherit' }}>
+        Run #{run.id}{' '}
+        <span className={runStatusClass(run.status)} data-testid="detail-status">
+          {run.status}
+        </span>
+      </h2>
 
-        <RunFacts run={run} />
+      <RunFacts run={run} />
 
-        {run.prompt && (
-          <>
-            <h3>Prompt</h3>
-            <pre className="mono run-prompt">{run.prompt}</pre>
-          </>
-        )}
+      {run.prompt && (
+        <>
+          <h3>Prompt</h3>
+          <pre className="mono run-prompt">{run.prompt}</pre>
+        </>
+      )}
 
-        {run.error && (
-          <>
-            <h3>What went wrong</h3>
-            <p className="error-text run-error">{run.error}</p>
-          </>
-        )}
+      {run.error && (
+        <>
+          <h3>What went wrong</h3>
+          <p className="error-text run-error">{run.error}</p>
+        </>
+      )}
 
-        {run.sessionId && (
-          <RunSessionFacts
-            run={run}
-            status={status}
-            showTranscript={showLiveTranscript}
-            onShowTranscript={() => setShowLiveTranscript(true)}
-          />
-        )}
-      </div>
-    </div>
+      {run.sessionId && (
+        <RunSessionFacts
+          run={run}
+          status={status}
+          showTranscript={showLiveTranscript}
+          onShowTranscript={() => setShowLiveTranscript(true)}
+        />
+      )}
+    </ModalShell>
   )
 }
 

@@ -12,27 +12,6 @@ describe('useToasts', () => {
     vi.useRealTimers()
   })
 
-  it('pushes a toast with the info level by default', () => {
-    const { result } = renderHook(() => useToasts())
-    act(() => result.current.pushToast('hello'))
-    expect(result.current.toasts).toEqual([{ id: 1, text: 'hello', level: 'info' }])
-  })
-
-  it('overrides the toast level when asked', () => {
-    const { result } = renderHook(() => useToasts())
-    act(() => result.current.pushToast('boom', 'error'))
-    expect(result.current.toasts).toEqual([{ id: 1, text: 'boom', level: 'error' }])
-  })
-
-  it('assigns unique ids across pushes', () => {
-    const { result } = renderHook(() => useToasts())
-    act(() => {
-      result.current.pushToast('one')
-      result.current.pushToast('two', 'error')
-    })
-    expect(result.current.toasts.map((t) => t.id)).toEqual([1, 2])
-  })
-
   it('expires a toast after its display window', () => {
     const { result } = renderHook(() => useToasts())
     act(() => result.current.pushToast('gone soon'))

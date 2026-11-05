@@ -1,4 +1,4 @@
-import { del, get, post, postForm, put, request } from './client'
+import { del, get, post, postForm, put } from './client'
 import type {
   AttachmentReply,
   AttentionRow,
@@ -44,8 +44,7 @@ export const auth = {
 export const fleet = {
   sessions: () => get<SessionStatus[]>('/api/sessions'),
   attention: () => get<AttentionRow[]>('/api/attention'),
-  launch: (req: LaunchRequest) =>
-    request<LaunchResult>('/api/sessions', { method: 'POST', body: req }),
+  launch: (req: LaunchRequest) => post<LaunchResult>('/api/sessions', req),
   saved: () => get<SavedSession[]>('/api/saved-sessions'),
   // Offline transcript read for a recorded session; before continues the walk
   // back in time from a previous page's cursor.

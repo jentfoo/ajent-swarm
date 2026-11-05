@@ -147,7 +147,7 @@ func findSavedRow(rows []session.Listed, target string) (session.Listed, error) 
 	case 1:
 		return named[0], nil
 	case 0:
-		return session.Listed{}, fmt.Errorf("%w: %s", errNoSavedMatch, target)
+		return session.Listed{}, errNoSavedMatch
 	default:
 		paths := make([]string, 0, len(named))
 		for _, r := range named {

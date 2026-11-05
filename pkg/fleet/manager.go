@@ -57,6 +57,7 @@ type Options struct {
 	ChildStore  ChildStore
 	KillOnExit  bool
 	LaunchWait  time.Duration // spawn-to-socket deadline
+	AwaitPoll   time.Duration // registry poll cadence while awaiting that socket
 	ExitGrace   time.Duration // /exit settles before SIGTERM
 	TermGrace   time.Duration // SIGTERM before SIGKILL
 
@@ -87,6 +88,7 @@ type Manager struct {
 	childStore   ChildStore
 	killOnExit   bool
 	launchWait   time.Duration
+	awaitPoll    time.Duration
 	exitGrace    time.Duration
 	termGrace    time.Duration
 	noNaming     bool
@@ -130,6 +132,7 @@ func New(opts Options) *Manager {
 		childStore:      opts.ChildStore,
 		killOnExit:      opts.KillOnExit,
 		launchWait:      cmpOr(opts.LaunchWait, launchWaitDefault),
+		awaitPoll:       cmpOr(opts.AwaitPoll, awaitPollEvery),
 		exitGrace:       cmpOr(opts.ExitGrace, exitGraceDefault),
 		termGrace:       cmpOr(opts.TermGrace, termGraceDefault),
 		noNaming:        opts.NoNaming,

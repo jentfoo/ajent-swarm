@@ -199,15 +199,7 @@ export default function TileWorkspace() {
               : dir === 'up'
                 ? from.top - to.bottom
                 : to.top - from.bottom
-        const toward =
-          dir === 'left'
-            ? to.right <= from.left + 1
-            : dir === 'right'
-              ? to.left >= from.right - 1
-              : dir === 'up'
-                ? to.bottom <= from.top + 1
-                : to.top >= from.bottom - 1
-        if (!toward || gap < 0) continue
+        if (gap < 0) continue
         if (best === null || gap < best.gap) best = { id, gap }
       }
       if (best) focusPane(best.id)

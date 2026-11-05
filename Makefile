@@ -98,7 +98,7 @@ test-integration: | embed-stubs
 test-integration-fleet: | embed-stubs
 	@mkdir -p bin
 	cd ../ajent && go build -o "$(CURDIR)/bin/test-ajent" .
-	AJENT_SWARM_TEST_AJENT="$(CURDIR)/bin/test-ajent" go test -count=1 -run 'TestFleetLaunchIntegration' ./pkg/fleet
+	AJENT_SWARM_TEST_AJENT="$(CURDIR)/bin/test-ajent" go test -count=1 -run 'TestLauncher/launch_integration' ./pkg/fleet
 
 # full UI smoke: builds ajent + swarm, drives one turn through Playwright
 # (see docs/phases/12-polish-hardening.md); needs browsers once via

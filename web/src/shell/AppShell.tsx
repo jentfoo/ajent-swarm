@@ -23,8 +23,13 @@ export function reachableSession(s: SessionStatus): boolean {
 // agent settings ride each session's own chrome.
 export default function AppShell({ children }: { children: ReactNode }) {
   const { sessions, connection, theme, setTheme } = useSwarm()
-  const { needsInputCount, profile, setMode, notificationPermission, requestNotifications } =
-    useWorkspace()
+  const {
+    needsInputCount,
+    profile,
+    setMode,
+    notificationPermission: permission,
+    requestNotifications,
+  } = useWorkspace()
   const auth = useAuth()
   const mobile = useMediaQuery(mobileLayout)
   const location = useLocation()
@@ -41,56 +46,25 @@ export default function AppShell({ children }: { children: ReactNode }) {
     navigate('/focused')
   }
 
-  const attention = () => {
-    if (needsInputCount === 0) return null
-    return (
-      <button
-        type="button"
-        className="attend-badge"
-        title={`${needsInputCount} session(s) need input`}
-        aria-label={`${needsInputCount} sessions need input`}
-        onClick={() => navigate('/focused')}
-      >
-        {needsInputCount}
-      </button>
-    )
-  }
-
-  const notifications = () => {
-    const permission = notificationPermission()
-    if (permission === 'denied' || permission === 'unsupported') return null
-    return (
-      <button
-        type="button"
-        className={permission === 'granted' ? 'bell on' : 'bell'}
-        title={
-          permission === 'granted' ? 'Desktop notifications are on' : 'Enable desktop notifications'
-        }
-        aria-label="Toggle desktop notifications"
-        onClick={() => requestNotifications()}
-      >
-        {permission === 'granted' ? '🔔' : '🔕'}
-      </button>
-    )
-  }
+  // navLinks render twice: the desktop bar and the mobile bottom navigation.
+  const navLinks = (
+    <>
+      <Link to="/" className={location.pathname === '/' ? 'active' : ''}>
+        Workspace
+      </Link>
+      <Link to="/sessions" className={location.pathname.startsWith('/sessions') ? 'active' : ''}>
+        Sessions
+      </Link>
+      <Link to="/jobs" className={location.pathname.startsWith('/jobs') ? 'active' : ''}>
+        Jobs
+      </Link>
+    </>
+  )
 
   return (
     <div className="app-shell">
       <header className="topbar">
-        <nav>
-          <Link to="/" className={location.pathname === '/' ? 'active' : ''}>
-            Workspace
-          </Link>
-          <Link
-            to="/sessions"
-            className={location.pathname.startsWith('/sessions') ? 'active' : ''}
-          >
-            Sessions
-          </Link>
-          <Link to="/jobs" className={location.pathname.startsWith('/jobs') ? 'active' : ''}>
-            Jobs
-          </Link>
-        </nav>
+        <nav>{navLinks}</nav>
         {!mobile && (
           <div className="ws-switcher" role="group" aria-label="Workspace mode">
             <button
@@ -112,8 +86,32 @@ export default function AppShell({ children }: { children: ReactNode }) {
           </div>
         )}
         <span className="spacer" />
-        {attention()}
-        {notifications()}
+        {needsInputCount > 0 && (
+          <button
+            type="button"
+            className="attend-badge"
+            title={`${needsInputCount} session(s) need input`}
+            aria-label={`${needsInputCount} sessions need input`}
+            onClick={() => navigate('/focused')}
+          >
+            {needsInputCount}
+          </button>
+        )}
+        {(permission === 'granted' || permission === 'default') && (
+          <button
+            type="button"
+            className={permission === 'granted' ? 'bell on' : 'bell'}
+            title={
+              permission === 'granted'
+                ? 'Desktop notifications are on'
+                : 'Enable desktop notifications'
+            }
+            aria-label="Toggle desktop notifications"
+            onClick={() => requestNotifications()}
+          >
+            {permission === 'granted' ? '🔔' : '🔕'}
+          </button>
+        )}
         <button
           type="button"
           onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
@@ -149,22 +147,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
         {children}
       </main>
 
-      {mobile && (
-        <nav className="mobile-nav">
-          <Link to="/" className={location.pathname === '/' ? 'active' : ''}>
-            Workspace
-          </Link>
-          <Link
-            to="/sessions"
-            className={location.pathname.startsWith('/sessions') ? 'active' : ''}
-          >
-            Sessions
-          </Link>
-          <Link to="/jobs" className={location.pathname.startsWith('/jobs') ? 'active' : ''}>
-            Jobs
-          </Link>
-        </nav>
-      )}
+      {mobile && <nav className="mobile-nav">{navLinks}</nav>}
     </div>
   )
 }

@@ -13,17 +13,30 @@ import (
 	"github.com/jentfoo/ajent/pkg/ctl"
 )
 
-func TestStatusForControl(t *testing.T) {
-	t.Parallel()
-
-	t.Run("unknown_code_maps_to_500", func(t *testing.T) {
-		status := statusForControl(&ctl.Error{Code: "unknown-code"})
-		assert.Equal(t, http.StatusInternalServerError, status)
-	})
-}
-
 func TestErrors(t *testing.T) {
 	t.Parallel()
+
+	t.Run("status_maps_control_codes", func(t *testing.T) {
+		cases := []struct {
+			name string
+			code string
+			want int
+		}{
+			{"bad request", ctl.CodeBadRequest, http.StatusBadRequest},
+			{"not found", ctl.CodeNotFound, http.StatusNotFound},
+			{"unavailable conflicts", ctl.CodeUnavailable, http.StatusConflict},
+			{"settled conflicts", ctl.CodeSettled, http.StatusConflict},
+			{"busy conflicts", ctl.CodeBusy, http.StatusConflict},
+			{"seat held conflicts", ctl.CodeSeatHeld, http.StatusConflict},
+			{"observer conflicts", ctl.CodeObserver, http.StatusConflict},
+			{"unknown code", "no-such-code", http.StatusInternalServerError},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				assert.Equal(t, tc.want, statusForControl(&ctl.Error{Code: tc.code}))
+			})
+		}
+	})
 
 	t.Run("coded_errors_keep_their_code", func(t *testing.T) {
 		w := httptest.NewRecorder()

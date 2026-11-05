@@ -7,6 +7,7 @@
 // reconnects), exponential backoff between attempts, and an immediate resync
 // when the tab becomes visible again, since backgrounded mobile tabs drop
 // sockets and throttle timers.
+import { childEnded, ChildState } from '../api/types'
 import type { ServerFrame } from '../api/types'
 
 export type SocketState = 'connecting' | 'open' | 'closed'
@@ -331,14 +332,16 @@ export class SwarmStream {
         return
       }
       case 'child': {
-        if (frame.state === 'exited' || frame.state === 'gone') {
+        if (childEnded(frame.state)) {
           // ended for good: no point re-asking for a dead session's stream
           this.resubAttempts.delete(frame.sessionId)
           this.cancelResubscribe(frame.sessionId)
         }
-        if (frame.state === 'exited') this.setPhase(frame.sessionId, 'ended')
-        else if (frame.state === 'gone') this.setPhase(frame.sessionId, 'lost')
-        else if (frame.state === 'reconnecting') this.setPhase(frame.sessionId, 'resyncing')
+        if (frame.state === ChildState.Exited) this.setPhase(frame.sessionId, 'ended')
+        else if (frame.state === ChildState.Gone) this.setPhase(frame.sessionId, 'lost')
+        else if (frame.state === ChildState.Reconnecting) {
+          this.setPhase(frame.sessionId, 'resyncing')
+        }
         this.dispatch(frame.sessionId, frame)
         return
       }

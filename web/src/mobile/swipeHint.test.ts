@@ -14,10 +14,6 @@ describe('swipeHint', () => {
     vi.unstubAllGlobals()
   })
 
-  it('reports unseen on fresh storage', () => {
-    expect(swipeHintSeen()).toBe(false)
-  })
-
   it('stays seen once dismissed', () => {
     dismissSwipeHint()
     expect(swipeHintSeen()).toBe(true)

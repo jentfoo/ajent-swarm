@@ -57,7 +57,7 @@ func (s *apiServer) handleJobPreview(w http.ResponseWriter, r *http.Request) {
 	}
 	times, err := sched.PreviewTimes(req.Job, time.Now(), count)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		writeError(w, http.StatusBadRequest, codeInvalidRequest, err.Error())
 		return
 	}
 	reply.Times = times
@@ -105,7 +105,7 @@ func scheduleChanged(a, b store.Job) bool {
 func (s *apiServer) handleJobList(w http.ResponseWriter, r *http.Request) {
 	jobs, err := s.sched.Jobs(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal_error", "")
+		writeError(w, http.StatusInternalServerError, codeInternalError, "")
 		return
 	}
 	writeJSON(w, http.StatusOK, orEmptySlice(jobs))
@@ -123,13 +123,13 @@ func (s *apiServer) handleJobCreate(w http.ResponseWriter, r *http.Request) {
 	req.applyEnabled(&j, true)
 
 	if err := sched.ValidateJob(&j); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		writeError(w, http.StatusBadRequest, codeInvalidRequest, err.Error())
 		return
 	}
 
 	next, err := nextRunFor(j, j.Enabled, j.NextRunAt == nil)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		writeError(w, http.StatusBadRequest, codeInvalidRequest, err.Error())
 		return
 	}
 	j.NextRunAt = next
@@ -139,11 +139,11 @@ func (s *apiServer) handleJobCreate(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, store.ErrConflict):
 		writeError(w, http.StatusConflict, "conflict", err.Error())
 	case err != nil:
-		writeError(w, http.StatusInternalServerError, "internal_error", "")
+		writeError(w, http.StatusInternalServerError, codeInternalError, "")
 	default: // CreateJob nudged the trigger loop
 		created, err := s.sched.JobByID(r.Context(), id)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal_error", "")
+			writeError(w, http.StatusInternalServerError, codeInternalError, "")
 			return
 		}
 		writeJSON(w, http.StatusCreated, created)
@@ -159,7 +159,7 @@ func (s *apiServer) handleJobGet(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, store.ErrNotFound):
 		writeError(w, http.StatusNotFound, "job_not_found", "")
 	default:
-		writeError(w, http.StatusInternalServerError, "internal_error", "")
+		writeError(w, http.StatusInternalServerError, codeInternalError, "")
 	}
 }
 
@@ -173,7 +173,7 @@ func (s *apiServer) handleJobUpdate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "job_not_found", "")
 		return
 	case err != nil:
-		writeError(w, http.StatusInternalServerError, "internal_error", "")
+		writeError(w, http.StatusInternalServerError, codeInternalError, "")
 		return
 	}
 
@@ -187,14 +187,14 @@ func (s *apiServer) handleJobUpdate(w http.ResponseWriter, r *http.Request) {
 	req.applyEnabled(&j, current.Enabled)
 
 	if err := sched.ValidateJob(&j); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		writeError(w, http.StatusBadRequest, codeInvalidRequest, err.Error())
 		return
 	}
 
 	recompute := j.NextRunAt == nil || scheduleChanged(current, j)
 	next, err := nextRunFor(j, j.Enabled, recompute)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		writeError(w, http.StatusBadRequest, codeInvalidRequest, err.Error())
 		return
 	}
 	j.NextRunAt = next
@@ -207,7 +207,7 @@ func (s *apiServer) handleJobUpdate(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, store.ErrNotFound):
 		writeError(w, http.StatusNotFound, "job_not_found", "")
 	default:
-		writeError(w, http.StatusInternalServerError, "internal_error", "")
+		writeError(w, http.StatusInternalServerError, codeInternalError, "")
 	}
 }
 
@@ -232,7 +232,7 @@ func (s *apiServer) handleJobDelete(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, store.ErrNotFound):
 		writeError(w, http.StatusNotFound, "job_not_found", "")
 	default:
-		writeError(w, http.StatusInternalServerError, "internal_error", "")
+		writeError(w, http.StatusInternalServerError, codeInternalError, "")
 	}
 }
 
@@ -248,7 +248,7 @@ func (s *apiServer) handleJobFire(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, store.ErrLiveRun), errors.Is(err, store.ErrCapacity):
 		writeError(w, http.StatusConflict, "conflict", err.Error())
 	default:
-		writeError(w, http.StatusInternalServerError, "internal_error", "")
+		writeError(w, http.StatusInternalServerError, codeInternalError, "")
 	}
 }
 
@@ -262,14 +262,14 @@ func (s *apiServer) handleRuns(w http.ResponseWriter, r *http.Request) {
 	if raw := r.URL.Query().Get("job"); raw != "" {
 		parsed, err := strconv.ParseInt(raw, 10, 64)
 		if err != nil || parsed < 1 {
-			writeError(w, http.StatusBadRequest, "invalid_request", "job must be a positive id")
+			writeError(w, http.StatusBadRequest, codeInvalidRequest, "job must be a positive id")
 			return
 		}
 		jobID = parsed
 	}
 	runs, err := s.sched.Runs(r.Context(), jobID, min(limit, maxRunLimit))
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal_error", "")
+		writeError(w, http.StatusInternalServerError, codeInternalError, "")
 		return
 	}
 	writeJSON(w, http.StatusOK, orEmptySlice(runs))

@@ -23,13 +23,11 @@ func (s *apiServer) handleSessionEntries(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	entries, cursor, err := s.fleet.Entries(r.Context(), r.PathValue("id"), r.URL.Query().Get("before"), limit)
-	switch {
-	case err == nil:
-		writeJSON(w, http.StatusOK, entriesPage{Entries: entries, Cursor: cursor})
-	case writeCommandFailure(w, err):
-	default:
-		writeError(w, http.StatusInternalServerError, "internal_error", "")
+	if err != nil {
+		writeCommandFailure(w, err)
+		return
 	}
+	writeJSON(w, http.StatusOK, entriesPage{Entries: entries, Cursor: cursor})
 }
 
 // entriesPage is one page of committed history plus the cursor to continue.
@@ -47,7 +45,7 @@ func parseLimit(w http.ResponseWriter, r *http.Request) (int, bool) {
 	}
 	parsed, err := strconv.Atoi(raw)
 	if err != nil || parsed < 1 {
-		writeError(w, http.StatusBadRequest, "invalid_request", "limit must be a positive integer")
+		writeError(w, http.StatusBadRequest, codeInvalidRequest, "limit must be a positive integer")
 		return 0, false
 	}
 	return parsed, true
@@ -58,11 +56,9 @@ func parseLimit(w http.ResponseWriter, r *http.Request) (int, bool) {
 func (s *apiServer) handleTakeControl(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	err := s.fleet.TakeControl(r.Context(), id)
-	switch {
-	case err == nil:
-		w.WriteHeader(http.StatusNoContent)
-	case writeCommandFailure(w, err):
-	default:
-		writeError(w, http.StatusInternalServerError, "internal_error", "")
+	if err != nil {
+		writeCommandFailure(w, err)
+		return
 	}
+	w.WriteHeader(http.StatusNoContent)
 }

@@ -195,7 +195,7 @@ func runUntilSignal(srv *http.Server, ln net.Listener, log *slog.Logger) int {
 // rotation keeps the size bounded.
 func openLogger(opts Options, stderr io.Writer) (*slog.Logger, func()) {
 	sink := stderr
-	var closer func()
+	closer := func() {} // no-op unless a rotated log file opened
 	if !isDaemonChild() && opts.LogPath != "" {
 		w, err := logrotate.NewWriter(opts.LogPath, opts.LogMaxBytes, opts.LogBackups)
 		if err == nil {
@@ -206,12 +206,7 @@ func openLogger(opts Options, stderr io.Writer) (*slog.Logger, func()) {
 				opts.LogPath, err)
 		}
 	}
-	log := slog.New(slog.NewTextHandler(sink, nil))
-	return log, func() {
-		if closer != nil {
-			closer()
-		}
-	}
+	return slog.New(slog.NewTextHandler(sink, nil)), closer
 }
 
 // startLogRotation copytruncates logs this process does not own on a cadence:

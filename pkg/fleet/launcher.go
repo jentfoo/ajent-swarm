@@ -34,9 +34,9 @@ const (
 	tailLimit = 8 << 10 // failure hints kept in the child record
 )
 
-// awaitPollEvery polls the registry while awaiting a launched child; a var so
-// tests can shrink it below the production cadence.
-var awaitPollEvery = 250 * time.Millisecond
+// awaitPollEvery is the default registry poll cadence while awaiting a
+// launched child; Options.AwaitPoll overrides it.
+const awaitPollEvery = 250 * time.Millisecond
 
 // childProc tracks one ajent process swarm spawned: its record, its command
 // while it runs, and an exit channel closed once the process is reaped and
@@ -202,7 +202,7 @@ func (m *Manager) reapChild(cp *childProc) {
 // returns the session id it registered under. A child that dies first fails
 // the launch with its log tail attached, so ajent's own hint surfaces.
 func (m *Manager) awaitSocket(ctx context.Context, cp *childProc) (string, error) {
-	tick := time.NewTicker(awaitPollEvery)
+	tick := time.NewTicker(m.awaitPoll)
 	defer tick.Stop()
 	for {
 		live, err := m.discover()
@@ -481,12 +481,9 @@ func (m *Manager) reconcileAdopted() {
 // asked the service to take its children down on exit.
 func (m *Manager) killChildren() {
 	m.mu.Lock()
-	var targets []int
-	for pid, cp := range m.children {
-		if cp.rec.ExitedAt.IsZero() {
-			targets = append(targets, pid)
-		}
-	}
+	targets := bulk.SliceFilterInPlace(func(pid int) bool {
+		return m.children[pid].rec.ExitedAt.IsZero()
+	}, bulk.MapKeysSlice(m.children))
 	m.mu.Unlock()
 	if len(targets) == 0 {
 		return

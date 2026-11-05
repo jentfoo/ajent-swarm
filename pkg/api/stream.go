@@ -210,6 +210,7 @@ func (sc *streamConn) writePump() {
 		ticker.Stop()
 		sc.fail()
 	}()
+	heartbeat, _ := json.Marshal(fleet.HeartbeatFrame{Type: fleet.FrameHeartbeat}) // constant frame
 	for {
 		select {
 		case <-sc.done:
@@ -220,7 +221,6 @@ func (sc *streamConn) writePump() {
 				return
 			}
 		case <-ticker.C:
-			heartbeat, _ := json.Marshal(fleet.HeartbeatFrame{Type: fleet.FrameHeartbeat})
 			_ = sc.ws.SetWriteDeadline(time.Now().Add(wsWriteWait))
 			if err := sc.ws.WriteMessage(websocket.TextMessage, heartbeat); err != nil {
 				return

@@ -184,7 +184,7 @@ func recoverPanics(log *slog.Logger) func(http.Handler) http.Handler {
 				if rec := recover(); rec != nil {
 					log.Error("handler panic", "path", r.URL.Path, "panic", rec)
 					if !ww.wrote {
-						writeError(ww, http.StatusInternalServerError, "internal_error", "")
+						writeError(ww, http.StatusInternalServerError, codeInternalError, "")
 					}
 				}
 			}()

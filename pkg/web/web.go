@@ -71,20 +71,15 @@ func Handler() http.Handler {
 	})
 }
 
-// serveDocument serves index.html with the SPA content security policy.
+// serveDocument serves the SPA document with its content security policy.
 func serveDocument(w http.ResponseWriter, r *http.Request, fsys fs.FS) {
 	w.Header().Set("Content-Security-Policy", contentSecurityPolicy)
-	serveName(w, r, fsys, indexHTML)
-}
-
-// serveName streams one fixed file from the embedded filesystem.
-func serveName(w http.ResponseWriter, r *http.Request, fsys fs.FS, name string) {
-	f, err := fsys.Open(name)
+	f, err := fsys.Open(indexHTML)
 	if err != nil { // only for a broken embed; index.html always exists
 		http.NotFound(w, r)
 		return
 	}
 	defer func() { _ = f.Close() }()
 	content := f.(io.ReadSeeker)
-	http.ServeContent(w, r, path.Base(name), time.Time{}, content)
+	http.ServeContent(w, r, indexHTML, time.Time{}, content)
 }

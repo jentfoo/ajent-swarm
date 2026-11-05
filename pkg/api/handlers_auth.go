@@ -25,7 +25,7 @@ func (s *apiServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Username == "" || req.Password == "" {
-		writeError(w, http.StatusBadRequest, "invalid_request", "username and password are required")
+		writeError(w, http.StatusBadRequest, codeInvalidRequest, "username and password are required")
 		return
 	}
 	key := remoteKey(r)
@@ -39,7 +39,7 @@ func (s *apiServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "invalid_credentials", "")
 		return
 	} else if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal_error", "login failed")
+		writeError(w, http.StatusInternalServerError, codeInternalError, "login failed")
 		return
 	}
 	s.loginLimiter.Reset(key)
@@ -96,7 +96,7 @@ func (s *apiServer) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Password == "" {
-		writeError(w, http.StatusBadRequest, "invalid_request", "a password is required")
+		writeError(w, http.StatusBadRequest, codeInvalidRequest, "a password is required")
 		return
 	}
 	if !s.loginLimiter.Allow(key) {
@@ -110,11 +110,11 @@ func (s *apiServer) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "already_bootstrapped", "")
 		return
 	case errors.Is(err, auth.ErrPasswordTooLong):
-		writeError(w, http.StatusBadRequest, "invalid_request",
+		writeError(w, http.StatusBadRequest, codeInvalidRequest,
 			fmt.Sprintf("password must be at most %d bytes", auth.MaxPasswordBytes))
 		return
 	case err != nil:
-		writeError(w, http.StatusInternalServerError, "internal_error", "bootstrap failed")
+		writeError(w, http.StatusInternalServerError, codeInternalError, "bootstrap failed")
 		return
 	}
 	s.loginLimiter.Reset(key)

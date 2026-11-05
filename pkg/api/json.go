@@ -10,6 +10,12 @@ import (
 // maxBodyBytes bounds every request body; the API carries small JSON only.
 const maxBodyBytes = 1 << 20
 
+// The two wire codes shared across handlers; clients branch on codes, not prose.
+const (
+	codeInternalError  = "internal_error"
+	codeInvalidRequest = "invalid_request"
+)
+
 // errorBody is the one error envelope every failure uses, so clients branch
 // on codes instead of parsing prose.
 type errorBody struct {
@@ -17,8 +23,7 @@ type errorBody struct {
 	Message string `json:"message,omitempty"`
 }
 
-// writeJSON encodes v as a JSON response body. Encode failures after the
-// status line are unrecoverable by design; only unreachable types hit them.
+// writeJSON encodes v as a JSON response body.
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)

@@ -145,10 +145,20 @@ func TestView(t *testing.T) {
 			v := emptyView()
 			v.apply(seqEvent(ctl.EventTools, 11, ctl.ToolsData{Rows: []ctl.ToolState{
 				{Name: "bash", Enabled: true},
+				{Name: "edit", Enabled: false},
+			}}))
+
+			// the next event replaces the list wholesale instead of merging rows
+			v.apply(seqEvent(ctl.EventTools, 12, ctl.ToolsData{Rows: []ctl.ToolState{
+				{Name: "bash", Enabled: false},
 			}}))
 			rows := v.snapshot().Tools
 			require.Len(t, rows, 1)
-			assert.True(t, rows[0].Enabled)
+			assert.Equal(t, "bash", rows[0].Name)
+			assert.False(t, rows[0].Enabled)
+
+			v.apply(seqEvent(ctl.EventTools, 13, ctl.ToolsData{})) // empty list clears
+			assert.Empty(t, v.snapshot().Tools)
 		})
 	})
 

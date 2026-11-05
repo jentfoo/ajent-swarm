@@ -73,10 +73,8 @@ export function DialogDock({
 }
 
 // ResolvedChip self-dismisses after a few seconds and leaves on click, so an
-// answer decided elsewhere never becomes residue. The timer runs once per id:
-// the callback rides a ref, so parent re-renders from streaming or polling
-// never reset the clock. The line stays terse; hover keeps which dialog
-// settled and what was picked.
+// answer decided elsewhere never becomes residue. The timer is per id and
+// ignores parent re-renders; hover keeps what was picked.
 function ResolvedChip({
   outcome,
   onDismiss,

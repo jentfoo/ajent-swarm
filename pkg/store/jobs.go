@@ -38,7 +38,7 @@ const (
 )
 
 // liveRunStatuses are the statuses of runs that still occupy their slot.
-const liveRunStatuses = `('running','awaiting_input')`
+const liveRunStatuses = `('` + RunRunning + `','` + RunAwaitingInput + `')`
 
 // ErrLiveRun reports a fire refused by the job's skip-if-running policy.
 var ErrLiveRun = errors.New("previous run is still active")
@@ -305,7 +305,6 @@ func (s *Store) StartScheduledFire(ctx context.Context, jobID int64,
 		return 0, "", false, nil
 	}
 
-	final := run.Status // honor a pre-decided skip; guards may flip it too
 	liveJob, err := countLiveRunsTx(ctx, tx, jobID)
 	if err != nil {
 		return 0, "", false, err
@@ -316,11 +315,11 @@ func (s *Store) StartScheduledFire(ctx context.Context, jobID int64,
 	}
 	switch {
 	case enforceOverlap && liveJob > 0:
-		final = RunSkipped
-		run.Status, run.Error = final, "skipped: previous run is still active"
+		run.Status = RunSkipped
+		run.Error = "skipped: " + ErrLiveRun.Error()
 	case int(liveAll) >= maxConcurrent:
-		final = RunSkipped
-		run.Status, run.Error = final, "skipped: global run limit reached"
+		run.Status = RunSkipped
+		run.Error = "skipped: " + ErrCapacity.Error()
 	}
 
 	id, err = insertRunTx(ctx, tx, run)
@@ -330,7 +329,7 @@ func (s *Store) StartScheduledFire(ctx context.Context, jobID int64,
 	if err = tx.Commit(); err != nil {
 		return 0, "", false, fmt.Errorf("fire job %d: %w", jobID, err)
 	}
-	return id, final, true, nil
+	return id, run.Status, true, nil
 }
 
 // BeginManualRun records a manual fire of one job without touching its

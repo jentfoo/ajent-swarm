@@ -52,7 +52,7 @@ func setEnv(t *testing.T, key, value string) {
 	})
 }
 
-func TestResolveLoginPassword(t *testing.T) {
+func TestPassword(t *testing.T) {
 	// not parallel: swaps the terminal seams and process environment
 
 	t.Run("prompt_match", func(t *testing.T) {
@@ -157,40 +157,38 @@ func TestResolveLoginPassword(t *testing.T) {
 		require.NoError(t, err)
 		assert.Len(t, pw, auth.MaxPasswordBytes)
 	})
-}
 
-func TestCheckLoginPassword(t *testing.T) {
-	t.Parallel()
+	t.Run("check_login_password", func(t *testing.T) {
+		tests := []struct {
+			name    string
+			pw      string
+			wantErr string
+		}{
+			{name: "empty", pw: "", wantErr: "password must not be empty"},
+			{
+				name: "short",
+				pw:   "hunter2",
+			},
+			{
+				name: "exactly_the_limit",
+				pw:   strings.Repeat("a", auth.MaxPasswordBytes),
+			},
+			{
+				name:    "one_past_the_limit",
+				pw:      strings.Repeat("a", auth.MaxPasswordBytes+1),
+				wantErr: "password must be at most 72 bytes",
+			},
+		}
 
-	tests := []struct {
-		name    string
-		pw      string
-		wantErr string
-	}{
-		{name: "empty", pw: "", wantErr: "password must not be empty"},
-		{
-			name: "short",
-			pw:   "hunter2",
-		},
-		{
-			name: "exactly_the_limit",
-			pw:   strings.Repeat("a", auth.MaxPasswordBytes),
-		},
-		{
-			name:    "one_past_the_limit",
-			pw:      strings.Repeat("a", auth.MaxPasswordBytes+1),
-			wantErr: "password must be at most 72 bytes",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := checkLoginPassword(tt.pw)
-			if tt.wantErr != "" {
-				assert.EqualError(t, err, tt.wantErr)
-				return
-			}
-			assert.NoError(t, err)
-		})
-	}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				err := checkLoginPassword(tt.pw)
+				if tt.wantErr != "" {
+					assert.EqualError(t, err, tt.wantErr)
+					return
+				}
+				assert.NoError(t, err)
+			})
+		}
+	})
 }

@@ -431,6 +431,301 @@ func TestManager(t *testing.T) {
 			return ok && st.Queued == 1
 		}, 2*time.Second, testPoll)
 	})
+
+	t.Run("session_rows", func(t *testing.T) {
+		t.Run("keeps_exited_pinned", func(t *testing.T) {
+			m := New(Options{Log: testLogger()})
+			now := time.Now()
+			for _, rec := range []ChildRecord{
+				exitedRec("01EXITMID0000000000", 4202, now.Add(-time.Minute)), // the newer exit
+				exitedRec("01EXITOLD0000000000", 4201, now.Add(-2*time.Minute)),
+			} {
+				m.children[rec.PID] = &childProc{rec: rec}
+			}
+			live := &sessionActor{}
+			live.key.sessionID = "01LIVESESSION000000"
+			live.status.Store(&Status{
+				SessionID: live.key.sessionID,
+				State:     ChildOnline,
+				SpawnedBy: SpawnedBySwarm,
+			})
+			m.actors[actorKey{sessionID: live.key.sessionID, token: "t"}] = live
+
+			rows := m.Sessions()
+			require.Len(t, rows, 3)
+			// alive sorts before exited ones; ended rows run most-recent-first
+			assert.Equal(t, "01LIVESESSION000000", rows[0].SessionID)
+			assert.Equal(t, ChildOnline, rows[0].State)
+			assert.Equal(t, "01EXITMID0000000000", rows[1].SessionID)
+			assert.Equal(t, ChildExited, rows[1].State)
+			assert.Equal(t, "01EXITOLD0000000000", rows[2].SessionID)
+		})
+
+		t.Run("caps_exited_at_four", func(t *testing.T) {
+			m := New(Options{Log: testLogger()})
+			now := time.Now()
+			for i := range 6 {
+				rec := exitedRec(
+					string(rune('A'+i))+"-session-padding0", 4301+i, now.Add(-time.Duration(i)*time.Minute))
+				m.children[rec.PID] = &childProc{rec: rec}
+			}
+
+			rows := m.Sessions()
+			require.Len(t, rows, maxExitedPinned)
+			// the newest four survive; the two oldest dropped off
+			assert.Equal(t, "A-session-padding0", rows[0].SessionID)
+			assert.Equal(t, "D-session-padding0", rows[maxExitedPinned-1].SessionID)
+		})
+
+		t.Run("hides_replaced_exited_rows", func(t *testing.T) {
+			m := New(Options{Log: testLogger()})
+			now := time.Now()
+			old := &childProc{rec: exitedRec("01SESSIONREUSED0000", 4401, now.Add(-time.Hour))}
+			m.children[old.rec.PID] = old
+			replacement := &sessionActor{}
+			replacement.key.sessionID = "01SESSIONREUSED0000"
+			replacement.status.Store(&Status{
+				SessionID: replacement.key.sessionID,
+				State:     ChildOnline,
+			})
+			m.actors[actorKey{sessionID: replacement.key.sessionID, token: "t"}] = replacement
+
+			rows := m.Sessions()
+			require.Len(t, rows, 1)
+			assert.Equal(t, ChildOnline, rows[0].State) // the live instance owns the row
+		})
+
+		t.Run("external_rows_read_as_external", func(t *testing.T) {
+			m := New(Options{Log: testLogger()})
+			now := time.Now()
+			m.externals[4601] = ChildRecord{
+				PID: 4601, SessionID: "01EXTENDED00000001", SessionName: "daily",
+				Workspace: "/w", Origin: SpawnedByExternal,
+				StartedAt: now.Add(-time.Hour), ExitedAt: now,
+				ExitNote: "left the control registry",
+			}
+
+			rows := m.Sessions()
+			require.Len(t, rows, 1)
+			st := rows[0]
+			assert.Equal(t, SpawnedByExternal, st.SpawnedBy)
+			assert.Equal(t, ChildExited, st.State)
+			assert.Equal(t, "left the control registry", st.Detail)
+			assert.Equal(t, "daily", st.Name)
+			assert.Nil(t, st.ExitCode) // swarm never reaped the process
+			assert.Empty(t, st.Argv)   // externals have neither spawn fact
+			assert.Empty(t, st.LogPath)
+		})
+
+		t.Run("live_row_ignores_stale_record", func(t *testing.T) {
+			m := New(Options{Log: testLogger()})
+			now := time.Now()
+			// an older instance's exited record beside its resumed replacement
+			m.children[4701] = &childProc{rec: ChildRecord{
+				PID: 4701, SessionID: "01RESUMED000000001", Workspace: "/w",
+				StartedAt: now.Add(-2 * time.Hour), ExitedAt: now.Add(-time.Hour),
+				ExitNote: "exited",
+			}}
+			live := &sessionActor{}
+			live.key.sessionID = "01RESUMED000000001"
+			live.status.Store(&Status{
+				SessionID: live.key.sessionID,
+				State:     ChildOnline,
+				PID:       4702,
+			})
+			m.actors[actorKey{sessionID: live.key.sessionID, token: "t"}] = live
+			m.externals[4702] = ChildRecord{
+				PID: 4702, SessionID: "01RESUMED000000001", SessionName: "daily",
+				Workspace: "/w", Origin: SpawnedByExternal, StartedAt: now.Add(-time.Minute),
+			}
+
+			rows := m.Sessions()
+			require.Len(t, rows, 1)
+			st := rows[0]
+			assert.Equal(t, ChildOnline, st.State)
+			assert.Zero(t, st.ExitedAt) // the stale exit never decorates the live row
+			assert.Equal(t, SpawnedByExternal, st.SpawnedBy)
+		})
+	})
+
+	t.Run("external_retention", func(t *testing.T) {
+		inst := ctl.Instance{
+			SessionID:   "01EXTRETAIN00000001",
+			SessionName: "daily-driver",
+			Workspace:   "/repo",
+			StartedAt:   time.Now().Add(-time.Minute).UnixMilli(),
+			PID:         os.Getpid(),
+			Token:       "exttok1",
+			Socket:      "/nonexistent/external.sock",
+		}
+
+		t.Run("gains_row_at_first_sighting", func(t *testing.T) {
+			cs := newFakeChildStore()
+			live := true
+			m := externalFleet(t, cs, func() ([]ctl.Instance, error) {
+				if !live {
+					return nil, nil
+				}
+				return []ctl.Instance{inst}, nil
+			})
+
+			require.NoError(t, m.diff()) // the sighting retains and tracks the instance
+
+			st, ok := rowFor(m.Sessions(), inst.SessionID)
+			require.True(t, ok)
+			assert.Equal(t, SpawnedByExternal, st.SpawnedBy)
+			assert.Equal(t, inst.Workspace, st.Workspace)
+			assert.Equal(t, inst.SessionName, st.Name)
+			assert.Equal(t, ChildReconnecting, st.State) // tracked, though dialing fails
+			assert.Zero(t, st.ExitedAt)
+
+			rec, ok := cs.byPID(inst.PID)
+			require.True(t, ok)
+			assert.Equal(t, SpawnedByExternal, rec.Origin)
+			assert.Equal(t, inst.SessionID, rec.SessionID)
+			assert.Equal(t, inst.SessionName, rec.SessionName)
+			assert.Equal(t, inst.Workspace, rec.Workspace)
+			assert.Equal(t, inst.Started(), rec.StartedAt)
+			assert.True(t, rec.ExitedAt.IsZero())
+			assert.Empty(t, rec.Argv)
+			assert.Empty(t, rec.LogPath)
+
+			require.NoError(t, m.diff()) // repeated passes never duplicate the row
+			rows, err := cs.Children(t.Context())
+			require.NoError(t, err)
+			require.Len(t, rows, 1)
+		})
+
+		t.Run("drop_marks_the_row_exited", func(t *testing.T) {
+			cs := newFakeChildStore()
+			live := true
+			m := externalFleet(t, cs, func() ([]ctl.Instance, error) {
+				if !live {
+					return nil, nil
+				}
+				return []ctl.Instance{inst}, nil
+			})
+
+			require.NoError(t, m.diff())
+			live = false                 // the record left discovery
+			require.NoError(t, m.diff()) // tracking ends, the row stays listed as ended
+
+			st, ok := rowFor(m.Sessions(), inst.SessionID)
+			require.True(t, ok)
+			assert.Equal(t, ChildExited, st.State)
+			assert.Equal(t, "left the control registry", st.Detail)
+			assert.Equal(t, SpawnedByExternal, st.SpawnedBy)
+			assert.Positive(t, st.ExitedAt)
+			assert.Nil(t, st.ExitCode)
+
+			rec, ok := cs.byPID(inst.PID)
+			require.True(t, ok)
+			assert.False(t, rec.ExitedAt.IsZero())
+			assert.Equal(t, "left the control registry", rec.ExitNote)
+			assert.Nil(t, rec.ExitCode)
+		})
+
+		t.Run("running_external_survives_restart", func(t *testing.T) {
+			cs := newFakeChildStore()
+			live := func() ([]ctl.Instance, error) { return []ctl.Instance{inst}, nil }
+
+			first := externalFleet(t, cs, live)
+			require.NoError(t, first.diff())
+			first.Stop()
+
+			second := externalFleet(t, cs, live) // adopt re-loads the running row
+			require.NoError(t, second.diff())    // re-tracks without a second row
+
+			st, ok := rowFor(second.Sessions(), inst.SessionID)
+			require.True(t, ok)
+			assert.Equal(t, ChildReconnecting, st.State)
+			assert.Zero(t, st.ExitedAt)
+
+			rec, ok := cs.byPID(inst.PID)
+			require.True(t, ok)
+			assert.True(t, rec.ExitedAt.IsZero()) // a restart never marks it exited
+
+			rows, err := cs.Children(t.Context())
+			require.NoError(t, err)
+			require.Len(t, rows, 1)
+		})
+
+		t.Run("shutdown_pass_skips_marking", func(t *testing.T) {
+			cs := newFakeChildStore()
+			live := true
+			m := externalFleet(t, cs, func() ([]ctl.Instance, error) {
+				if !live {
+					return nil, nil
+				}
+				return []ctl.Instance{inst}, nil
+			})
+
+			require.NoError(t, m.diff()) // the instance is tracked and retained
+			live = false
+			m.cancel() // shutdown lands before the pass that sees the drop
+			require.NoError(t, m.diff())
+
+			rec, ok := cs.byPID(inst.PID)
+			require.True(t, ok)
+			assert.True(t, rec.ExitedAt.IsZero()) // not tombstoned mid-shutdown
+
+			st, ok := rowFor(m.Sessions(), inst.SessionID)
+			require.True(t, ok)
+			assert.Equal(t, ChildReconnecting, st.State) // still a running row
+		})
+	})
+
+	t.Run("last_busy_at", func(t *testing.T) {
+		m := New(Options{Log: testLogger()})
+		actor := func(lastTurnEnd int64, running bool) *sessionActor {
+			live := &sessionActor{}
+			live.key.sessionID = "01BUSYSESSION0000000"
+			live.status.Store(&Status{
+				SessionID:   live.key.sessionID,
+				State:       ChildOnline,
+				served:      true, // attached and streaming at least once
+				LastTurnEnd: lastTurnEnd,
+				Running:     running,
+			})
+			m.actors[actorKey{sessionID: live.key.sessionID, token: "t"}] = live
+			return live
+		}
+
+		t.Run("empty_fleet_never_busy", func(t *testing.T) {
+			assert.True(t, m.LastBusyAt().IsZero())
+		})
+
+		t.Run("recent_turn_end_busy", func(t *testing.T) {
+			now := time.Now()
+			actor(now.Add(-time.Minute).UnixMilli(), false)
+			assert.False(t, m.LastBusyAt().IsZero())
+		})
+
+		t.Run("aged_turn_end_still_busy", func(t *testing.T) {
+			// a long-quiet session stops counting once its turn end ages out of memory
+			now := time.Now()
+			actor(now.Add(-time.Hour).UnixMilli(), false)
+			busy := m.LastBusyAt()
+			assert.False(t, busy.IsZero())
+			assert.LessOrEqual(t, busy.UnixMilli(), now.Add(-time.Hour).UnixMilli())
+		})
+
+		t.Run("running_actor_busy_now", func(t *testing.T) {
+			actor(time.Now().Add(-time.Hour).UnixMilli(), true)
+			assert.WithinDuration(t, time.Now(), m.LastBusyAt(), time.Second)
+		})
+
+		t.Run("exited_actor_never_busy", func(t *testing.T) {
+			live := actor(time.Now().Add(-time.Hour).UnixMilli(), true)
+			live.status.Store(&Status{
+				SessionID: live.key.sessionID,
+				State:     ChildExited,
+				served:    true,
+				Running:   true, // stale flag beside a terminal state still means ended
+			})
+			assert.True(t, m.LastBusyAt().IsZero())
+		})
+	})
 }
 
 // Exited swarm children stay listed for one-click resume: the four most
@@ -443,301 +738,6 @@ func exitedRec(id string, pid int, at time.Time) ChildRecord {
 		ExitedAt:  at,
 		ExitNote:  "exited",
 	}
-}
-
-func TestSessions(t *testing.T) {
-	t.Run("keeps_exited_pinned", func(t *testing.T) {
-		m := New(Options{Log: testLogger()})
-		now := time.Now()
-		for _, rec := range []ChildRecord{
-			exitedRec("01EXITMID0000000000", 4202, now.Add(-time.Minute)), // the newer exit
-			exitedRec("01EXITOLD0000000000", 4201, now.Add(-2*time.Minute)),
-		} {
-			m.children[rec.PID] = &childProc{rec: rec}
-		}
-		live := &sessionActor{}
-		live.key.sessionID = "01LIVESESSION000000"
-		live.status.Store(&Status{
-			SessionID: live.key.sessionID,
-			State:     ChildOnline,
-			SpawnedBy: SpawnedBySwarm,
-		})
-		m.actors[actorKey{sessionID: live.key.sessionID, token: "t"}] = live
-
-		rows := m.Sessions()
-		require.Len(t, rows, 3)
-		// alive sorts before exited ones; ended rows run most-recent-first
-		assert.Equal(t, "01LIVESESSION000000", rows[0].SessionID)
-		assert.Equal(t, ChildOnline, rows[0].State)
-		assert.Equal(t, "01EXITMID0000000000", rows[1].SessionID)
-		assert.Equal(t, ChildExited, rows[1].State)
-		assert.Equal(t, "01EXITOLD0000000000", rows[2].SessionID)
-	})
-
-	t.Run("caps_exited_at_four", func(t *testing.T) {
-		m := New(Options{Log: testLogger()})
-		now := time.Now()
-		for i := range 6 {
-			rec := exitedRec(
-				string(rune('A'+i))+"-session-padding0", 4301+i, now.Add(-time.Duration(i)*time.Minute))
-			m.children[rec.PID] = &childProc{rec: rec}
-		}
-
-		rows := m.Sessions()
-		require.Len(t, rows, maxExitedPinned)
-		// the newest four survive; the two oldest dropped off
-		assert.Equal(t, "A-session-padding0", rows[0].SessionID)
-		assert.Equal(t, "D-session-padding0", rows[maxExitedPinned-1].SessionID)
-	})
-
-	t.Run("hides_replaced_exited_rows", func(t *testing.T) {
-		m := New(Options{Log: testLogger()})
-		now := time.Now()
-		old := &childProc{rec: exitedRec("01SESSIONREUSED0000", 4401, now.Add(-time.Hour))}
-		m.children[old.rec.PID] = old
-		replacement := &sessionActor{}
-		replacement.key.sessionID = "01SESSIONREUSED0000"
-		replacement.status.Store(&Status{
-			SessionID: replacement.key.sessionID,
-			State:     ChildOnline,
-		})
-		m.actors[actorKey{sessionID: replacement.key.sessionID, token: "t"}] = replacement
-
-		rows := m.Sessions()
-		require.Len(t, rows, 1)
-		assert.Equal(t, ChildOnline, rows[0].State) // the live instance owns the row
-	})
-
-	t.Run("external_rows_read_as_external", func(t *testing.T) {
-		m := New(Options{Log: testLogger()})
-		now := time.Now()
-		m.externals[4601] = ChildRecord{
-			PID: 4601, SessionID: "01EXTENDED00000001", SessionName: "daily",
-			Workspace: "/w", Origin: SpawnedByExternal,
-			StartedAt: now.Add(-time.Hour), ExitedAt: now,
-			ExitNote: "left the control registry",
-		}
-
-		rows := m.Sessions()
-		require.Len(t, rows, 1)
-		st := rows[0]
-		assert.Equal(t, SpawnedByExternal, st.SpawnedBy)
-		assert.Equal(t, ChildExited, st.State)
-		assert.Equal(t, "left the control registry", st.Detail)
-		assert.Equal(t, "daily", st.Name)
-		assert.Nil(t, st.ExitCode) // swarm never reaped the process
-		assert.Empty(t, st.Argv)   // externals have neither spawn fact
-		assert.Empty(t, st.LogPath)
-	})
-
-	t.Run("live_row_ignores_stale_record", func(t *testing.T) {
-		m := New(Options{Log: testLogger()})
-		now := time.Now()
-		// an older instance's exited record beside its resumed replacement
-		m.children[4701] = &childProc{rec: ChildRecord{
-			PID: 4701, SessionID: "01RESUMED000000001", Workspace: "/w",
-			StartedAt: now.Add(-2 * time.Hour), ExitedAt: now.Add(-time.Hour),
-			ExitNote: "exited",
-		}}
-		live := &sessionActor{}
-		live.key.sessionID = "01RESUMED000000001"
-		live.status.Store(&Status{
-			SessionID: live.key.sessionID,
-			State:     ChildOnline,
-			PID:       4702,
-		})
-		m.actors[actorKey{sessionID: live.key.sessionID, token: "t"}] = live
-		m.externals[4702] = ChildRecord{
-			PID: 4702, SessionID: "01RESUMED000000001", SessionName: "daily",
-			Workspace: "/w", Origin: SpawnedByExternal, StartedAt: now.Add(-time.Minute),
-		}
-
-		rows := m.Sessions()
-		require.Len(t, rows, 1)
-		st := rows[0]
-		assert.Equal(t, ChildOnline, st.State)
-		assert.Zero(t, st.ExitedAt) // the stale exit never decorates the live row
-		assert.Equal(t, SpawnedByExternal, st.SpawnedBy)
-	})
-}
-
-func TestExternalRetention(t *testing.T) {
-	inst := ctl.Instance{
-		SessionID:   "01EXTRETAIN00000001",
-		SessionName: "daily-driver",
-		Workspace:   "/repo",
-		StartedAt:   time.Now().Add(-time.Minute).UnixMilli(),
-		PID:         os.Getpid(),
-		Token:       "exttok1",
-		Socket:      "/nonexistent/external.sock",
-	}
-
-	t.Run("gains_row_at_first_sighting", func(t *testing.T) {
-		cs := newFakeChildStore()
-		live := true
-		m := externalFleet(t, cs, func() ([]ctl.Instance, error) {
-			if !live {
-				return nil, nil
-			}
-			return []ctl.Instance{inst}, nil
-		})
-
-		require.NoError(t, m.diff()) // the sighting retains and tracks the instance
-
-		st, ok := rowFor(m.Sessions(), inst.SessionID)
-		require.True(t, ok)
-		assert.Equal(t, SpawnedByExternal, st.SpawnedBy)
-		assert.Equal(t, inst.Workspace, st.Workspace)
-		assert.Equal(t, inst.SessionName, st.Name)
-		assert.Equal(t, ChildReconnecting, st.State) // tracked, though dialing fails
-		assert.Zero(t, st.ExitedAt)
-
-		rec, ok := cs.byPID(inst.PID)
-		require.True(t, ok)
-		assert.Equal(t, SpawnedByExternal, rec.Origin)
-		assert.Equal(t, inst.SessionID, rec.SessionID)
-		assert.Equal(t, inst.SessionName, rec.SessionName)
-		assert.Equal(t, inst.Workspace, rec.Workspace)
-		assert.Equal(t, inst.Started(), rec.StartedAt)
-		assert.True(t, rec.ExitedAt.IsZero())
-		assert.Empty(t, rec.Argv)
-		assert.Empty(t, rec.LogPath)
-
-		require.NoError(t, m.diff()) // repeated passes never duplicate the row
-		rows, err := cs.Children(t.Context())
-		require.NoError(t, err)
-		require.Len(t, rows, 1)
-	})
-
-	t.Run("drop_marks_the_row_exited", func(t *testing.T) {
-		cs := newFakeChildStore()
-		live := true
-		m := externalFleet(t, cs, func() ([]ctl.Instance, error) {
-			if !live {
-				return nil, nil
-			}
-			return []ctl.Instance{inst}, nil
-		})
-
-		require.NoError(t, m.diff())
-		live = false                 // the record left discovery
-		require.NoError(t, m.diff()) // tracking ends, the row stays listed as ended
-
-		st, ok := rowFor(m.Sessions(), inst.SessionID)
-		require.True(t, ok)
-		assert.Equal(t, ChildExited, st.State)
-		assert.Equal(t, "left the control registry", st.Detail)
-		assert.Equal(t, SpawnedByExternal, st.SpawnedBy)
-		assert.Positive(t, st.ExitedAt)
-		assert.Nil(t, st.ExitCode)
-
-		rec, ok := cs.byPID(inst.PID)
-		require.True(t, ok)
-		assert.False(t, rec.ExitedAt.IsZero())
-		assert.Equal(t, "left the control registry", rec.ExitNote)
-		assert.Nil(t, rec.ExitCode)
-	})
-
-	t.Run("running_external_survives_restart", func(t *testing.T) {
-		cs := newFakeChildStore()
-		live := func() ([]ctl.Instance, error) { return []ctl.Instance{inst}, nil }
-
-		first := externalFleet(t, cs, live)
-		require.NoError(t, first.diff())
-		first.Stop()
-
-		second := externalFleet(t, cs, live) // adopt re-loads the running row
-		require.NoError(t, second.diff())    // re-tracks without a second row
-
-		st, ok := rowFor(second.Sessions(), inst.SessionID)
-		require.True(t, ok)
-		assert.Equal(t, ChildReconnecting, st.State)
-		assert.Zero(t, st.ExitedAt)
-
-		rec, ok := cs.byPID(inst.PID)
-		require.True(t, ok)
-		assert.True(t, rec.ExitedAt.IsZero()) // a restart never marks it exited
-
-		rows, err := cs.Children(t.Context())
-		require.NoError(t, err)
-		require.Len(t, rows, 1)
-	})
-
-	t.Run("shutdown_pass_skips_marking", func(t *testing.T) {
-		cs := newFakeChildStore()
-		live := true
-		m := externalFleet(t, cs, func() ([]ctl.Instance, error) {
-			if !live {
-				return nil, nil
-			}
-			return []ctl.Instance{inst}, nil
-		})
-
-		require.NoError(t, m.diff()) // the instance is tracked and retained
-		live = false
-		m.cancel() // shutdown lands before the pass that sees the drop
-		require.NoError(t, m.diff())
-
-		rec, ok := cs.byPID(inst.PID)
-		require.True(t, ok)
-		assert.True(t, rec.ExitedAt.IsZero()) // not tombstoned mid-shutdown
-
-		st, ok := rowFor(m.Sessions(), inst.SessionID)
-		require.True(t, ok)
-		assert.Equal(t, ChildReconnecting, st.State) // still a running row
-	})
-}
-
-func TestLastBusyAt(t *testing.T) {
-	m := New(Options{Log: testLogger()})
-	actor := func(lastTurnEnd int64, running bool) *sessionActor {
-		live := &sessionActor{}
-		live.key.sessionID = "01BUSYSESSION0000000"
-		live.status.Store(&Status{
-			SessionID:   live.key.sessionID,
-			State:       ChildOnline,
-			served:      true, // attached and streaming at least once
-			LastTurnEnd: lastTurnEnd,
-			Running:     running,
-		})
-		m.actors[actorKey{sessionID: live.key.sessionID, token: "t"}] = live
-		return live
-	}
-
-	t.Run("empty_fleet_never_busy", func(t *testing.T) {
-		assert.True(t, m.LastBusyAt().IsZero())
-	})
-
-	t.Run("recent_turn_end_busy", func(t *testing.T) {
-		now := time.Now()
-		actor(now.Add(-time.Minute).UnixMilli(), false)
-		assert.False(t, m.LastBusyAt().IsZero())
-	})
-
-	t.Run("aged_turn_end_still_busy", func(t *testing.T) {
-		// a long-quiet session stops counting once its turn end ages out of memory
-		now := time.Now()
-		actor(now.Add(-time.Hour).UnixMilli(), false)
-		busy := m.LastBusyAt()
-		assert.False(t, busy.IsZero())
-		assert.LessOrEqual(t, busy.UnixMilli(), now.Add(-time.Hour).UnixMilli())
-	})
-
-	t.Run("running_actor_busy_now", func(t *testing.T) {
-		actor(time.Now().Add(-time.Hour).UnixMilli(), true)
-		assert.WithinDuration(t, time.Now(), m.LastBusyAt(), time.Second)
-	})
-
-	t.Run("exited_actor_never_busy", func(t *testing.T) {
-		live := actor(time.Now().Add(-time.Hour).UnixMilli(), true)
-		live.status.Store(&Status{
-			SessionID: live.key.sessionID,
-			State:     ChildExited,
-			served:    true,
-			Running:   true, // stale flag beside a terminal state still means ended
-		})
-		assert.True(t, m.LastBusyAt().IsZero())
-	})
 }
 
 func expectRaw(t *testing.T, in <-chan []byte, want string) []byte {

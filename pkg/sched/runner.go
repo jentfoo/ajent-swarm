@@ -27,6 +27,9 @@ const (
 	stopCallWait          = 30 * time.Second // teardown bound: Stop never hangs on a wedged runner
 )
 
+// maxGateNote bounds the exit detail inside a skip reason.
+const maxGateNote = 200
+
 // Retry cadences are vars so tests can shrink them below their production
 // values while keeping the retry structure intact.
 var (
@@ -55,11 +58,9 @@ type Runner interface {
 // ensure the manager keeps satisfying the runner surface.
 var _ Runner = (*fleet.Manager)(nil)
 
-// execute drives one claimed run to a terminal row: evaluate the trigger
-// command gate, launch, submit the prompt with its synthetic pendingId, watch
-// the stream until the prompt settles or the timeout lands, then record the
-// outcome and tear the session down unless keep_alive says otherwise. Runs
-// detached from callers so a slow launch never blocks the trigger loop.
+// execute drives one claimed run to its terminal row, tearing the session
+// down afterwards unless keep_alive says otherwise. Runs detached from callers
+// so a slow launch never blocks the trigger loop.
 func (s *Scheduler) execute(run store.Run, j store.Job) {
 	defer s.wg.Done()
 
@@ -122,8 +123,8 @@ func (s *Scheduler) execute(run store.Run, j store.Job) {
 		return
 	}
 
-	status, note := s.awaitSettled(run, j, frames)
-	s.finish(run, j, status, note)
+	status := s.awaitSettled(run, j, frames)
+	s.finish(run, j, status.status, status.err)
 }
 
 // pump keeps one live subscription on the session's stream for as long as
@@ -371,7 +372,7 @@ func (w *watchState) settle(persist func(status string)) outcome {
 
 // awaitSettled consumes the run's stream until it concludes or its bounded
 // timeout lands. The budget runs from the row's start, so launch time counts.
-func (s *Scheduler) awaitSettled(run store.Run, j store.Job, frames <-chan []byte) (string, string) {
+func (s *Scheduler) awaitSettled(run store.Run, j store.Job, frames <-chan []byte) outcome {
 	w := &watchState{pid: pendingID(run)}
 	persist := func(status string) {
 		run.Status = status
@@ -390,14 +391,14 @@ func (s *Scheduler) awaitSettled(run store.Run, j store.Job, frames <-chan []byt
 	for {
 		select {
 		case <-timer.C:
-			return store.RunTimeout, w.timeoutNote()
+			return outcome{store.RunTimeout, w.timeoutNote()}
 
 		case <-s.baseCtx.Done():
-			return store.RunFailed, interruptedNote
+			return outcome{store.RunFailed, interruptedNote}
 
 		case raw := <-frames:
 			if o := w.apply(raw, persist); o.status != "" {
-				return o.status, o.err
+				return o
 			}
 		}
 	}
@@ -537,9 +538,6 @@ func prependGateOutput(command string, code int, out, prompt string) string {
 	b.WriteString(prompt)
 	return b.String()
 }
-
-// maxGateNote bounds the exit detail inside a skip reason.
-const maxGateNote = 200
 
 // clipRunes bounds s to at most n runes.
 func clipRunes(s string, n int) string {

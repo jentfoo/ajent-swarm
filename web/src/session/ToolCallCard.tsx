@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { ActivityRow } from '../api/types'
 import type { ImageView, ToolResultView } from '../state/derive'
+import type { ToolProgressView } from '../state/eventApplier'
 
 // ToolCardView is what a card renders: a committed call's info or the live
 // shape with its streamed outputs. Live output appends while running; once
@@ -10,7 +11,7 @@ export interface ToolCardView {
   name?: string
   input?: unknown
   outputs?: string[]
-  progress?: { path?: string; bytes?: number; lines?: number }
+  progress?: ToolProgressView
   result?: ToolResultView
   closed?: boolean // the turn ended before a result arrived
 }

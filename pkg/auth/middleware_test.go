@@ -107,101 +107,97 @@ func TestMiddleware(t *testing.T) {
 			assert.Equal(t, http.StatusNoContent, rec.Code)
 		})
 	})
-}
 
-func TestCrossSiteWriteBlocked(t *testing.T) {
-	t.Parallel()
-
-	for _, tc := range []struct {
-		name    string
-		method  string
-		site    string // Sec-Fetch-Site value, empty when the header is absent
-		blocked bool
-	}{
-		{"post_absent_allowed", http.MethodPost, "", false},
-		{"post_same_origin_allowed", http.MethodPost, "same-origin", false},
-		{"post_none_allowed", http.MethodPost, "none", false},
-		{"post_cross_site_blocked", http.MethodPost, "cross-site", true},
-		{"post_same_site_blocked", http.MethodPost, "same-site", true},
-		{"put_cross_site_blocked", http.MethodPut, "cross-site", true},
-		{"delete_cross_site_blocked", http.MethodDelete, "cross-site", true},
-		{"patch_cross_site_blocked", http.MethodPatch, "cross-site", true},
-		{"get_cross_site_allowed", http.MethodGet, "cross-site", false},
-		{"head_cross_site_allowed", http.MethodHead, "cross-site", false},
-		{"options_cross_site_allowed", http.MethodOptions, "cross-site", false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			req := httptest.NewRequestWithContext(t.Context(), tc.method, "/api/jobs", nil)
-			if tc.site != "" {
-				req.Header.Set("Sec-Fetch-Site", tc.site)
-			}
-			assert.Equal(t, tc.blocked, crossSiteWriteBlocked(req))
-		})
-	}
-}
-
-func TestMiddlewareCrossSite(t *testing.T) {
-	t.Parallel()
-
-	svc, handler := newGate(t)
-	ctx := t.Context()
-	require.NoError(t, svc.SetPassword(ctx, "hunter2"))
-	sessionToken, err := svc.Login(ctx, "jent", "hunter2")
-	require.NoError(t, err)
-
-	// postWithSite posts /api/jobs with the session cookie and Sec-Fetch-Site.
-	postWithSite := func(site string) *httptest.ResponseRecorder {
-		req := httptest.NewRequestWithContext(ctx, http.MethodPost, "/api/jobs", nil)
-		req.AddCookie(&http.Cookie{Name: SessionCookieName, Value: sessionToken})
-		if site != "" {
-			req.Header.Set("Sec-Fetch-Site", site)
+	t.Run("cross_site_write_blocked", func(t *testing.T) {
+		for _, tc := range []struct {
+			name    string
+			method  string
+			site    string // Sec-Fetch-Site value, empty when the header is absent
+			blocked bool
+		}{
+			{"post_absent_allowed", http.MethodPost, "", false},
+			{"post_same_origin_allowed", http.MethodPost, "same-origin", false},
+			{"post_none_allowed", http.MethodPost, "none", false},
+			{"post_cross_site_blocked", http.MethodPost, "cross-site", true},
+			{"post_same_site_blocked", http.MethodPost, "same-site", true},
+			{"put_cross_site_blocked", http.MethodPut, "cross-site", true},
+			{"delete_cross_site_blocked", http.MethodDelete, "cross-site", true},
+			{"patch_cross_site_blocked", http.MethodPatch, "cross-site", true},
+			{"get_cross_site_allowed", http.MethodGet, "cross-site", false},
+			{"head_cross_site_allowed", http.MethodHead, "cross-site", false},
+			{"options_cross_site_allowed", http.MethodOptions, "cross-site", false},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				req := httptest.NewRequestWithContext(t.Context(), tc.method, "/api/jobs", nil)
+				if tc.site != "" {
+					req.Header.Set("Sec-Fetch-Site", tc.site)
+				}
+				assert.Equal(t, tc.blocked, crossSiteWriteBlocked(req))
+			})
 		}
-		rec := httptest.NewRecorder()
-		handler.ServeHTTP(rec, req)
-		return rec
-	}
-
-	t.Run("cross_site_post_refused", func(t *testing.T) {
-		rec := postWithSite("cross-site")
-		assert.Equal(t, http.StatusForbidden, rec.Code)
-		var body map[string]string
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
-		assert.Equal(t, "cross_site_blocked", body["error"])
 	})
 
-	t.Run("same_site_post_refused", func(t *testing.T) {
-		rec := postWithSite("same-site")
-		assert.Equal(t, http.StatusForbidden, rec.Code)
-	})
-
-	t.Run("absent_header_passes", func(t *testing.T) {
-		assert.Equal(t, http.StatusNoContent, postWithSite("").Code)
-	})
-
-	t.Run("none_passes", func(t *testing.T) {
-		assert.Equal(t, http.StatusNoContent, postWithSite("none").Code)
-	})
-
-	t.Run("bearer_cross_site_passes", func(t *testing.T) {
-		token, err := svc.CreateToken(ctx, "ci")
+	t.Run("middleware_cross_site", func(t *testing.T) {
+		svc, handler := newGate(t)
+		ctx := t.Context()
+		require.NoError(t, svc.SetPassword(ctx, "hunter2"))
+		sessionToken, err := svc.Login(ctx, "jent", "hunter2")
 		require.NoError(t, err)
 
-		req := httptest.NewRequestWithContext(ctx, http.MethodPost, "/api/jobs", nil)
-		req.Header.Set("Authorization", "Bearer "+token)
-		req.Header.Set("Sec-Fetch-Site", "cross-site")
-		rec := httptest.NewRecorder()
-		handler.ServeHTTP(rec, req)
+		// postWithSite posts /api/jobs with the session cookie and Sec-Fetch-Site.
+		postWithSite := func(site string) *httptest.ResponseRecorder {
+			req := httptest.NewRequestWithContext(ctx, http.MethodPost, "/api/jobs", nil)
+			req.AddCookie(&http.Cookie{Name: SessionCookieName, Value: sessionToken})
+			if site != "" {
+				req.Header.Set("Sec-Fetch-Site", site)
+			}
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			return rec
+		}
 
-		assert.Equal(t, http.StatusNoContent, rec.Code)
-	})
+		t.Run("cross_site_post_refused", func(t *testing.T) {
+			rec := postWithSite("cross-site")
+			assert.Equal(t, http.StatusForbidden, rec.Code)
+			var body map[string]string
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+			assert.Equal(t, "cross_site_blocked", body["error"])
+		})
 
-	t.Run("get_cross_site_passes", func(t *testing.T) {
-		req := httptest.NewRequestWithContext(ctx, http.MethodGet, "/api/secret", nil)
-		req.AddCookie(&http.Cookie{Name: SessionCookieName, Value: sessionToken})
-		req.Header.Set("Sec-Fetch-Site", "cross-site")
-		rec := httptest.NewRecorder()
-		handler.ServeHTTP(rec, req)
+		t.Run("same_site_post_refused", func(t *testing.T) {
+			rec := postWithSite("same-site")
+			assert.Equal(t, http.StatusForbidden, rec.Code)
+		})
 
-		assert.Equal(t, http.StatusNoContent, rec.Code)
+		t.Run("absent_header_passes", func(t *testing.T) {
+			assert.Equal(t, http.StatusNoContent, postWithSite("").Code)
+		})
+
+		t.Run("none_passes", func(t *testing.T) {
+			assert.Equal(t, http.StatusNoContent, postWithSite("none").Code)
+		})
+
+		t.Run("bearer_cross_site_passes", func(t *testing.T) {
+			token, err := svc.CreateToken(ctx, "ci")
+			require.NoError(t, err)
+
+			req := httptest.NewRequestWithContext(ctx, http.MethodPost, "/api/jobs", nil)
+			req.Header.Set("Authorization", "Bearer "+token)
+			req.Header.Set("Sec-Fetch-Site", "cross-site")
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+
+			assert.Equal(t, http.StatusNoContent, rec.Code)
+		})
+
+		t.Run("get_cross_site_passes", func(t *testing.T) {
+			req := httptest.NewRequestWithContext(ctx, http.MethodGet, "/api/secret", nil)
+			req.AddCookie(&http.Cookie{Name: SessionCookieName, Value: sessionToken})
+			req.Header.Set("Sec-Fetch-Site", "cross-site")
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+
+			assert.Equal(t, http.StatusNoContent, rec.Code)
+		})
 	})
 }

@@ -27,7 +27,7 @@ func rfcTime(t time.Time) string {
 func (s *apiServer) handleTokenList(w http.ResponseWriter, r *http.Request) {
 	toks, err := s.auth.Tokens(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal_error", "listing tokens failed")
+		writeError(w, http.StatusInternalServerError, codeInternalError, "listing tokens failed")
 		return
 	}
 	out := make([]tokenBody, len(toks))
@@ -53,7 +53,7 @@ func (s *apiServer) handleTokenCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	} else if err != nil {
 		// token-name validation failures surface here as request problems
-		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		writeError(w, http.StatusBadRequest, codeInvalidRequest, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]string{"name": req.Name, "token": secret})
@@ -63,14 +63,14 @@ func (s *apiServer) handleTokenCreate(w http.ResponseWriter, r *http.Request) {
 func (s *apiServer) handleTokenDelete(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if err := auth.ValidateTokenName(name); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		writeError(w, http.StatusBadRequest, codeInvalidRequest, err.Error())
 		return
 	}
 
 	removed, err := s.auth.DeleteToken(r.Context(), name)
 	switch {
 	case err != nil:
-		writeError(w, http.StatusInternalServerError, "internal_error", "delete failed")
+		writeError(w, http.StatusInternalServerError, codeInternalError, "delete failed")
 	case !removed:
 		writeError(w, http.StatusNotFound, "not_found", "")
 	default:

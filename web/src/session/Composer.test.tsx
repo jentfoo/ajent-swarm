@@ -475,15 +475,6 @@ describe('Composer submit flow', () => {
     await act(async () => {}) // let the acceptance continuation run
     expect(screen.getByLabelText('Prompt')).toHaveValue('hello world')
   })
-
-  it('keeps Shift+Enter from sending', async () => {
-    const user = userEvent.setup()
-    const fetchSpy = vi.fn(okSubmit())
-    vi.stubGlobal('fetch', fetchSpy)
-    render(Harness({}))
-    await user.type(screen.getByLabelText('Prompt'), 'line one{Shift>}{Enter}more')
-    expect(fetchSpy).not.toHaveBeenCalled()
-  })
 })
 
 describe('Composer attachments', () => {

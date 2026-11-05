@@ -44,7 +44,7 @@ func (m *Manager) Files(ctx context.Context, sessionID string, query string) ([]
 	}
 
 	items := make([]FileSuggestion, 0, min(filesMax, len(dirents)))
-	lower := strings.ToLower(base)
+	lower := base // splitQuery already lowercased it
 	for _, de := range dirents {
 		name := de.Name()
 		if !strings.HasPrefix(strings.ToLower(name), lower) {

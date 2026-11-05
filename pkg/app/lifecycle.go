@@ -38,7 +38,7 @@ func Stop(stateDir, pidfile string, stdout, stderr io.Writer) int {
 		return 0
 	}
 	if !pidAlive(pid) {
-		_ = os.Remove(path)
+		removePidfile(path)
 		_, _ = fmt.Fprintf(stdout, "ajent-swarm is not running (stale pid file removed, pid %d)\n", pid)
 		return 0
 	}
@@ -48,14 +48,14 @@ func Stop(stateDir, pidfile string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	if waitGone(pid, stopTermWait) {
-		_ = os.Remove(path) // graceful exit races this removal on a good day
+		removePidfile(path) // graceful exit races this removal on a good day
 		_, _ = fmt.Fprintf(stdout, "ajent-swarm stopped (pid %d)\n", pid)
 		return 0
 	}
 
 	_ = signalPid(pid, syscall.SIGKILL)
 	if waitGone(pid, stopKillWait) {
-		_ = os.Remove(path) // SIGKILL leaves the file behind
+		removePidfile(path) // SIGKILL leaves the file behind
 		_, _ = fmt.Fprintf(stdout, "ajent-swarm stopped (pid %d, forced)\n", pid)
 		return 0
 	}

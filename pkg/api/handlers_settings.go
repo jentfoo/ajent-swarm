@@ -33,21 +33,21 @@ func (s *apiServer) handleSettingsSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.TitleModel == nil {
-		writeError(w, http.StatusBadRequest, "invalid_request", "titleModel is required")
+		writeError(w, http.StatusBadRequest, codeInvalidRequest, "titleModel is required")
 		return
 	}
 	model := strings.TrimSpace(*req.TitleModel)
 	if utf8.RuneCountInString(model) > 200 {
-		writeError(w, http.StatusBadRequest, "invalid_request", "titleModel is too long")
+		writeError(w, http.StatusBadRequest, codeInvalidRequest, "titleModel is too long")
 		return
 	}
 	switch err := s.fleet.SetTitleModel(r.Context(), model); {
 	case err == nil:
 		writeJSON(w, http.StatusOK, settingsReply{TitleModel: s.fleet.TitleModel()})
 	case errors.Is(err, fleet.ErrNoSettingStore):
-		writeError(w, http.StatusInternalServerError, "internal_error", err.Error())
+		writeError(w, http.StatusInternalServerError, codeInternalError, err.Error())
 	default:
-		writeError(w, http.StatusInternalServerError, "internal_error", "writing the setting failed")
+		writeError(w, http.StatusInternalServerError, codeInternalError, "writing the setting failed")
 	}
 }
 

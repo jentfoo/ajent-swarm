@@ -32,11 +32,10 @@ export interface DiffView {
   afterId: string
 }
 
-interface ToolProgressView {
+export interface ToolProgressView {
   path?: string
   bytes?: number
   lines?: number
-  done?: boolean
 }
 
 export interface ToolCallView {
@@ -338,7 +337,7 @@ function applyEvent(state: AppliedSessionState, ev: WireEvent): AppliedSessionSt
   switch (ev.event) {
     case 'entry.append': {
       const entry = decode<{ entry?: Entry }>(ev.data)?.entry
-      if (!isValidEntry(entry)) return keepSeq(state, ev.seq)
+      if (!isValidEntry(entry)) return next
       // The head follows the committed family wherever it lands.
       next.snapshot = { ...next.snapshot, head: entry.id }
       insertEntry(next, entry)
@@ -349,7 +348,7 @@ function applyEvent(state: AppliedSessionState, ev: WireEvent): AppliedSessionSt
 
     case 'branch.changed': {
       const d = decode<{ head?: string }>(ev.data)
-      if (!isValidId(d?.head)) return keepSeq(state, ev.seq)
+      if (!isValidId(d?.head)) return next
       next.snapshot = { ...next.snapshot, head: d.head }
       recomputeChain(next)
       // The visible chain must follow the branch; a head whose ancestors are
@@ -363,7 +362,7 @@ function applyEvent(state: AppliedSessionState, ev: WireEvent): AppliedSessionSt
 
     case 'activity': {
       const row = decode<{ key?: string; text?: string; rank?: number }>(ev.data)
-      if (!row || !isValidId(row.key)) return keepSeq(state, ev.seq)
+      if (!row || !isValidId(row.key)) return next
       const { key, text, rank } = row
       // Keyed family: non-empty text adds or replaces, empty text removes.
       const activity =
@@ -380,7 +379,7 @@ function applyEvent(state: AppliedSessionState, ev: WireEvent): AppliedSessionSt
 
     case 'tools': {
       const rows = decode<{ rows?: ToolState[] }>(ev.data)?.rows
-      if (rows === undefined) return keepSeq(state, ev.seq)
+      if (rows === undefined) return next
       next.snapshot = { ...next.snapshot, tools: rows }
       return next
     }
@@ -388,7 +387,7 @@ function applyEvent(state: AppliedSessionState, ev: WireEvent): AppliedSessionSt
     case 'queued': {
       // Full replacement of pending-prompt rows, oldest first.
       const rows = decode<{ rows?: QueueRow[] }>(ev.data)?.rows
-      if (rows === undefined) return keepSeq(state, ev.seq)
+      if (rows === undefined) return next
       next.snapshot = { ...next.snapshot, queuedRows: rows, queued: rows.length }
       next.pendings = reconcilePendings(next.pendings, rows, new Set())
       return next
@@ -396,7 +395,7 @@ function applyEvent(state: AppliedSessionState, ev: WireEvent): AppliedSessionSt
 
     case 'queue.dropped': {
       const d = decode<{ rows?: QueueRow[]; cause?: string }>(ev.data)
-      if (d === undefined) return keepSeq(state, ev.seq)
+      if (d === undefined) return next
       // Rows are dropped by id: secret redaction means text may be empty.
       const dropped = new Set((d.rows ?? []).map((row) => row.id))
       const rows = (next.snapshot.queuedRows ?? []).filter((row) => !dropped.has(row.id))
@@ -415,21 +414,21 @@ function applyEvent(state: AppliedSessionState, ev: WireEvent): AppliedSessionSt
 
     case 'permission': {
       const d = decode<{ mode?: string }>(ev.data)
-      if (d === undefined) return keepSeq(state, ev.seq)
+      if (d === undefined) return next
       next.snapshot = { ...next.snapshot, permission: d.mode ?? '' }
       return next
     }
 
     case 'context': {
       const d = decode<CtlState['context']>(ev.data)
-      if (d === undefined) return keepSeq(state, ev.seq)
+      if (d === undefined) return next
       next.snapshot = { ...next.snapshot, context: d }
       return next
     }
 
     case 'idle': {
       const d = decode<{ idle?: boolean }>(ev.data)
-      if (d === undefined) return keepSeq(state, ev.seq)
+      if (d === undefined) return next
       next.snapshot = { ...next.snapshot, idle: d.idle ?? false }
       return next
     }
@@ -444,7 +443,7 @@ function applyEvent(state: AppliedSessionState, ev: WireEvent): AppliedSessionSt
     case 'thinking.delta':
     case 'text.delta': {
       const delta = decode<{ delta?: string }>(ev.data)?.delta
-      if (!delta) return keepSeq(state, ev.seq)
+      if (!delta) return next
       ensureLive(next)
       const live = next.live!
       if (ev.event === 'text.delta') {
@@ -480,7 +479,7 @@ function applyEvent(state: AppliedSessionState, ev: WireEvent): AppliedSessionSt
 
     case 'diff': {
       const d = decode<{ path?: string; before?: string; after?: string }>(ev.data)
-      if (!isValidId(d?.path)) return keepSeq(state, ev.seq)
+      if (!isValidId(d?.path)) return next
       next.diffs = boundedAppend(
         next.diffs,
         {
@@ -496,7 +495,7 @@ function applyEvent(state: AppliedSessionState, ev: WireEvent): AppliedSessionSt
 
     case 'notice': {
       const d = decode<{ text?: string; level?: string; key?: string }>(ev.data)
-      if (!d?.text) return keepSeq(state, ev.seq)
+      if (!d?.text) return next
       const level: NoticeView['level'] =
         d.level === 'warn' || d.level === 'error' ? d.level : 'info'
       if (d.key) {
@@ -517,7 +516,7 @@ function applyEvent(state: AppliedSessionState, ev: WireEvent): AppliedSessionSt
 
     case 'print': {
       const markdown = decode<{ markdown?: string }>(ev.data)?.markdown
-      if (!markdown) return keepSeq(state, ev.seq)
+      if (!markdown) return next
       next.prints = boundedAppend(next.prints, { id: ev.seq, markdown }, maxPrints)
       return next
     }
@@ -533,14 +532,14 @@ function applyEvent(state: AppliedSessionState, ev: WireEvent): AppliedSessionSt
 
     case 'session.renamed': {
       const name = decode<{ name?: string }>(ev.data)?.name
-      if (!isValidId(name)) return keepSeq(state, ev.seq)
+      if (!isValidId(name)) return next
       next.snapshot = { ...next.snapshot, session: { ...next.snapshot.session, name } }
       return next
     }
 
     case 'interaction.pending': {
       const d = decode<InteractionPending>(ev.data)
-      if (!d?.id) return keepSeq(state, ev.seq)
+      if (!d?.id) return next
       const existing = next.snapshot.interactions ?? []
       const idx = existing.findIndex((dlg) => dlg.id === d.id)
       // A re-announcement updates in place; a new dialog joins the oldest-first set.
@@ -558,7 +557,7 @@ function applyEvent(state: AppliedSessionState, ev: WireEvent): AppliedSessionSt
         index?: number
         indexes?: number[]
       }>(ev.data)
-      if (!d?.id) return keepSeq(state, ev.seq)
+      if (!d?.id) return next
       next.snapshot = {
         ...next.snapshot,
         interactions: (next.snapshot.interactions ?? []).filter((dlg) => dlg.id !== d.id),
@@ -588,7 +587,7 @@ function applyEvent(state: AppliedSessionState, ev: WireEvent): AppliedSessionSt
 
     case 'seat.lost': {
       const to = decode<{ to?: string }>(ev.data)?.to
-      if (!isValidId(to)) return keepSeq(state, ev.seq)
+      if (!isValidId(to)) return next
       next.snapshot = { ...next.snapshot, seat: { held: true, holder: to, yours: false } }
       return next
     }
@@ -601,7 +600,7 @@ function applyEvent(state: AppliedSessionState, ev: WireEvent): AppliedSessionSt
 
     default:
       // Unknown events are additive changes: ignore them rather than failing.
-      return keepSeq(state, ev.seq)
+      return next
   }
 }
 
@@ -611,11 +610,11 @@ function applyStatus(next: AppliedSessionState, ev: WireEvent): AppliedSessionSt
     model?: CtlState['model']
     spinning?: boolean
   }>(ev.data)
-  if (d === undefined) return keepSeq(next, ev.seq)
+  if (d === undefined) return next
 
   if (d.segment !== undefined && d.segment !== null) {
     const seg = d.segment
-    if (!seg || !isValidId(seg.key)) return keepSeq(next, ev.seq)
+    if (!isValidId(seg.key)) return next
     const { key } = seg
     // Keyed family: non-empty text adds or replaces, empty text removes.
     const segments =
@@ -638,7 +637,7 @@ function applyStatus(next: AppliedSessionState, ev: WireEvent): AppliedSessionSt
     next.snapshot = { ...next.snapshot, spinning: d.spinning }
     return next
   }
-  return keepSeq(next, ev.seq)
+  return next
 }
 
 function applyToolEvent(next: AppliedSessionState, ev: WireEvent): AppliedSessionState {
@@ -648,7 +647,7 @@ function applyToolEvent(next: AppliedSessionState, ev: WireEvent): AppliedSessio
   switch (ev.event) {
     case 'tool.start': {
       const d = decode<{ id?: string; name?: string; input?: unknown }>(ev.data)
-      if (!isValidId(d?.id)) return keepSeq(next, ev.seq)
+      if (!isValidId(d?.id)) return next
       return withLive(
         next,
         upsertTool(live.tools, d.id!, (t) => ({
@@ -660,7 +659,7 @@ function applyToolEvent(next: AppliedSessionState, ev: WireEvent): AppliedSessio
     }
     case 'tool.output': {
       const d = decode<{ id?: string; delta?: string }>(ev.data)
-      if (!isValidId(d?.id) || !d.delta) return keepSeq(next, ev.seq)
+      if (!isValidId(d?.id) || !d.delta) return next
       return withLive(
         next,
         upsertTool(live.tools, d.id!, (t) => ({
@@ -676,22 +675,21 @@ function applyToolEvent(next: AppliedSessionState, ev: WireEvent): AppliedSessio
         path?: string
         bytes?: number
         lines?: number
-        done?: boolean
       }>(ev.data)
-      if (!isValidId(d?.id)) return keepSeq(next, ev.seq)
+      if (!isValidId(d?.id)) return next
       // Progress may name a call before its start: upsert keeps first-seen order.
       return withLive(
         next,
         upsertTool(live.tools, d.id!, (t) => ({
           ...t,
           name: t.name || d.name || '',
-          progress: { path: d.path, bytes: d.bytes, lines: d.lines, done: d.done },
+          progress: { path: d.path, bytes: d.bytes, lines: d.lines },
         })),
       )
     }
     case 'tool.result': {
       const d = decode<{ id?: string; name?: string; output?: string; error?: boolean }>(ev.data)
-      if (!isValidId(d?.id)) return keepSeq(next, ev.seq)
+      if (!isValidId(d?.id)) return next
       // Result without a start still renders the header.
       const result: NonNullable<ToolCallView['result']> = {
         output: d.output ?? '',
@@ -861,7 +859,7 @@ function drainLiveCoveredBy(state: AppliedSessionState, entry: Entry): void {
   if (!state.live || entry.type !== 'message') return
   const d = decode<MessageEntryData>(entry.data)
   const role = d?.message?.role
-  const blocks = contentBlocks(d?.message?.content)
+  const blocks = Array.isArray(d?.message?.content) ? (d.message.content as ContentBlockView[]) : []
   if (blocks.length === 0) return
 
   let live = state.live
@@ -928,10 +926,6 @@ export interface ContentBlockView {
   data?: ContentBlockData & { mediaType?: string }
 }
 
-function contentBlocks(content: unknown): ContentBlockView[] {
-  return Array.isArray(content) ? (content as ContentBlockView[]) : []
-}
-
 function textOf(block: ContentBlockView): string {
   return block.data?.text ?? ''
 }
@@ -949,14 +943,6 @@ function cloneShallow(state: AppliedSessionState): AppliedSessionState {
   next.snapshot = { ...state.snapshot }
   next.entries = state.entries // shared; mutations are idempotent under replay
   next.childIndex = state.childIndex
-  return next
-}
-
-function keepSeq(state: AppliedSessionState, seq: number): AppliedSessionState {
-  // The event consumed its number even when the payload dropped.
-  if (state.seq === seq) return state
-  const next = cloneShallow(state)
-  next.seq = seq
   return next
 }
 

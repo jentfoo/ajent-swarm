@@ -123,12 +123,16 @@ func rewindCandidates(entries []session.Entry, head string) RewindCandidates {
 			continue
 		}
 
+		picker := strings.TrimSpace(label) // labels stay one line, picker-sized
+		if runes := []rune(picker); len(runes) > candidateLabelMax {
+			picker = string(runes[:candidateLabelMax-1]) + "…"
+		}
 		c := RewindCandidate{
 			ID:       e.ID,
 			ParentID: e.ParentID,
 			Kind:     kind,
 			TS:       e.TS,
-			Label:    truncateLabel(label),
+			Label:    picker,
 			IsHead:   e.ID == head,
 		}
 		if row, ok := placement[e.ID]; ok {
@@ -156,15 +160,4 @@ func candidateText(s string) (string, bool) {
 func isUserPrompt(md session.MessageData) bool {
 	return md.Message.Role == llm.RoleUser && !md.Injected &&
 		!llm.OnlyToolResults(md.Message.Content)
-}
-
-// truncateLabel keeps labels picker-sized: one line and at most
-// candidateLabelMax runes counting the ellipsis.
-func truncateLabel(s string) string {
-	s = strings.TrimSpace(s)
-	runes := []rune(s)
-	if len(runes) <= candidateLabelMax {
-		return s
-	}
-	return string(runes[:candidateLabelMax-1]) + "…"
 }

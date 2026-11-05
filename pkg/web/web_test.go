@@ -128,26 +128,24 @@ func TestHandler(t *testing.T) {
 		assert.Equal(t, http.StatusOK, rec.Code)
 		assert.Empty(t, rec.Body.Bytes())
 	})
-}
 
-func TestContentSecurityPolicy(t *testing.T) {
-	t.Parallel()
+	t.Run("csp_hash_matches_document", func(t *testing.T) {
+		doc, err := distFS.ReadFile("dist/" + indexHTML)
+		require.NoError(t, err)
 
-	doc, err := distFS.ReadFile("dist/" + indexHTML)
-	require.NoError(t, err)
+		// recomputes the hash from the embedded document so a frontend edit that
+		// changes the inline script fails here instead of shipping a policy the
+		// browser silently refuses
+		opens := scriptOpenRe.FindAllStringSubmatch(string(doc), -1)
+		inlineOpens := bulk.SliceFilter(func(open []string) bool {
+			return !strings.Contains(open[1], "src=")
+		}, opens)
+		require.Len(t, inlineOpens, 1)
 
-	// recomputes the hash from the embedded document so a frontend edit that
-	// changes the inline script fails here instead of shipping a policy the
-	// browser silently refuses
-	opens := scriptOpenRe.FindAllStringSubmatch(string(doc), -1)
-	inlineOpens := bulk.SliceFilter(func(open []string) bool {
-		return !strings.Contains(open[1], "src=")
-	}, opens)
-	require.Len(t, inlineOpens, 1)
-
-	matches := themeScriptRe.FindAllSubmatch(doc, -1)
-	require.Len(t, matches, 1)
-	sum := sha256.Sum256(matches[0][1])
-	hash := "'sha256-" + base64.StdEncoding.EncodeToString(sum[:]) + "'"
-	assert.Contains(t, contentSecurityPolicy, hash)
+		matches := themeScriptRe.FindAllSubmatch(doc, -1)
+		require.Len(t, matches, 1)
+		sum := sha256.Sum256(matches[0][1])
+		hash := "'sha256-" + base64.StdEncoding.EncodeToString(sum[:]) + "'"
+		assert.Contains(t, contentSecurityPolicy, hash)
+	})
 }

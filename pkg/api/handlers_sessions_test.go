@@ -190,13 +190,13 @@ func TestSessionHandlers(t *testing.T) {
 
 		t.Run("empty_line_is_refused", func(t *testing.T) {
 			code, body := post[errorBody](h, base, submitRequest{Line: "   "})
-			requireCoded(h, http.StatusBadRequest, "invalid_request", code, body)
+			requireCoded(h, http.StatusBadRequest, codeInvalidRequest, code, body)
 		})
 
 		t.Run("oversize_pending_id_is_refused", func(t *testing.T) {
 			code, body := post[errorBody](h, base,
 				submitRequest{Line: "hi", PendingID: string(make([]byte, maxPendingID+1))})
-			requireCoded(h, http.StatusBadRequest, "invalid_request", code, body)
+			requireCoded(h, http.StatusBadRequest, codeInvalidRequest, code, body)
 		})
 
 		t.Run("busy_keeps_its_code", func(t *testing.T) {
@@ -296,7 +296,7 @@ func TestSessionHandlers(t *testing.T) {
 
 		t.Run("empty_head_is_refused_locally", func(t *testing.T) {
 			code, body := post[errorBody](h, path, rewindRequest{})
-			requireCoded(h, http.StatusBadRequest, "invalid_request", code, body)
+			requireCoded(h, http.StatusBadRequest, codeInvalidRequest, code, body)
 		})
 
 		t.Run("running_turn_keeps_refusal", func(t *testing.T) {
@@ -349,18 +349,18 @@ func TestSessionHandlers(t *testing.T) {
 		t.Run("two_shapes_local_400", func(t *testing.T) {
 			code, body := post[errorBody](h, path,
 				resolveRequest{DialogID: 7, Index: ptr(1), Cancel: true})
-			requireCoded(h, http.StatusBadRequest, "invalid_request", code, body)
+			requireCoded(h, http.StatusBadRequest, codeInvalidRequest, code, body)
 		})
 
 		t.Run("no_shape_local_400", func(t *testing.T) {
 			code, body := post[errorBody](h, path, resolveRequest{DialogID: 7})
-			requireCoded(h, http.StatusBadRequest, "invalid_request", code, body)
+			requireCoded(h, http.StatusBadRequest, codeInvalidRequest, code, body)
 		})
 
 		t.Run("textless_chat_local_400", func(t *testing.T) {
 			code, body := post[errorBody](h, path,
 				resolveRequest{DialogID: 7, Cancel: true, Chat: true})
-			requireCoded(h, http.StatusBadRequest, "invalid_request", code, body)
+			requireCoded(h, http.StatusBadRequest, codeInvalidRequest, code, body)
 		})
 
 		t.Run("settled_adjacent_marker", func(t *testing.T) {
@@ -562,24 +562,24 @@ func TestSessionHandlers(t *testing.T) {
 		})
 		require.Eventually(h.t, func() bool {
 			rows := h.mgr.Attention()
-			row := rows[0]
-			return len(rows) == 1 && row.OpenInteractions == 1 &&
-				row.DialogID == 3 && row.DialogPrompt == "allow write? be careful" && row.DialogAt > 0
+			return len(rows) == 1 && rows[0].OpenInteractions == 1 &&
+				rows[0].DialogID == 3 && rows[0].DialogPrompt == "allow write? be careful" &&
+				rows[0].DialogAt > 0
 		}, 2*time.Second, 5*time.Millisecond)
 
 		f.Broadcast(ctl.EventTurnEnd, ctl.TurnEndData{Stop: "end_turn"})
 		require.Eventually(h.t, func() bool {
 			rows := h.mgr.Attention()
-			row := rows[0]
-			return len(rows) == 1 && row.LastTurnEnd > 0 && !row.Running &&
-				row.LastStop == "end_turn" && row.Activity == "reading main.go"
+			return len(rows) == 1 && rows[0].LastTurnEnd > 0 && !rows[0].Running &&
+				rows[0].LastStop == "end_turn" && rows[0].Activity == "reading main.go"
 		}, 2*time.Second, 5*time.Millisecond)
 
 		t.Run("settled_drops_digest_facts", func(t *testing.T) {
 			f.Broadcast(ctl.EventInteractionSettled, ctl.InteractionSettledData{ID: 3, Kind: "decision", Answered: true})
 			require.Eventually(h.t, func() bool {
-				row := h.mgr.Attention()[0]
-				return row.OpenInteractions == 0 && row.DialogID == 0 && row.DialogPrompt == "" && row.DialogAt == 0
+				rows := h.mgr.Attention()
+				return len(rows) > 0 && rows[0].OpenInteractions == 0 &&
+					rows[0].DialogID == 0 && rows[0].DialogPrompt == "" && rows[0].DialogAt == 0
 			}, 2*time.Second, 5*time.Millisecond)
 		})
 
@@ -587,11 +587,12 @@ func TestSessionHandlers(t *testing.T) {
 			long := strings.Repeat("x", 400)
 			f.Broadcast(ctl.EventInteractionPending, ctl.InteractionPendingData{ID: 4, Prompt: long})
 			require.Eventually(h.t, func() bool {
-				row := h.mgr.Attention()[0]
-				return row.DialogID == 4
+				rows := h.mgr.Attention()
+				return len(rows) > 0 && rows[0].DialogID == 4
 			}, 2*time.Second, 5*time.Millisecond)
-			row := h.mgr.Attention()[0]
-			assert.Len(t, []rune(row.DialogPrompt), fleet.MaxDigestText+1) // the ellipsis rides along
+			rows := h.mgr.Attention()
+			require.NotEmpty(h.t, rows)
+			assert.Len(t, []rune(rows[0].DialogPrompt), fleet.MaxDigestText+1) // the ellipsis rides along
 		})
 
 		t.Run("exited_sessions_drop_out", func(t *testing.T) {

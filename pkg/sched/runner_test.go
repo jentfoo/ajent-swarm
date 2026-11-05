@@ -95,7 +95,8 @@ func (h *testHarness) scriptWatcher(run store.Run, j store.Job, frames ...[]byte
 		in <- f
 	}
 	close(in)
-	return h.sched.awaitSettled(run, j, in)
+	status := h.sched.awaitSettled(run, j, in)
+	return status.status, status.err
 }
 
 // runRow re-reads one run row's persisted state.

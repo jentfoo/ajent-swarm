@@ -3,7 +3,7 @@ import type { ReactNode } from 'react'
 
 import { useSwarm } from './swarm'
 import { createNotificationBridge } from './notifications'
-import type { NotificationBridge } from './notifications'
+import type { NotificationPermission } from './notifications'
 import { useLayoutProfile } from '../workspace/layoutProfile'
 import type { LayoutProfile, TileLayout, WorkspaceMode } from '../workspace/layoutProfile'
 import {
@@ -36,7 +36,7 @@ interface WorkspaceContextValue {
   acknowledgeItem: (item: AttentionItem) => void
 
   // Desktop notifications, permission gated.
-  notificationPermission: NotificationBridge['permission']
+  notificationPermission: NotificationPermission
   requestNotifications: () => void
 }
 
@@ -112,7 +112,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       acknowledgeDialog,
       acknowledgeTurn: ackTurn,
       acknowledgeItem,
-      notificationPermission: () => permission,
+      notificationPermission: permission,
       requestNotifications,
     }),
     [

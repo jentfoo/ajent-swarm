@@ -23,7 +23,9 @@ export function subAgentRows(activity: ActivityRow[] | undefined): ActivityRow[]
 // a status line, so "auto+w" never sits beside the mode chip saying auto+write.
 const chromeSegments = new Set(['permissions'])
 
-export function visibleSegments(segments: Segment[] | undefined): Segment[] {
+// visibleSegments drops empty text and chrome-owned keys: what the slim
+// status line renders from a snapshot's segments.
+function visibleSegments(segments: Segment[] | undefined): Segment[] {
   return (segments ?? []).filter((seg) => seg.text !== '' && !chromeSegments.has(seg.key))
 }
 
@@ -80,7 +82,8 @@ function topActivity(activity: ActivityRow[] | undefined, subs: ActivityRow[]): 
   return rows[0]?.text ?? ''
 }
 
-export function SegmentChip({ seg }: { seg: Segment }) {
+// SegmentChip paints one segment; short text wins when set.
+function SegmentChip({ seg }: { seg: Segment }) {
   return (
     <span className={`strip-segment ${seg.order < 0 ? 'muted' : ''}`} data-segment-key={seg.key}>
       {seg.short || seg.text}

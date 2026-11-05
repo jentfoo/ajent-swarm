@@ -85,6 +85,7 @@ describe('JobEditor', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals()
+    vi.useRealTimers()
   })
 
   function renderEditor(props: Partial<Parameters<typeof JobEditor>[0]> = {}) {
@@ -105,13 +106,17 @@ describe('JobEditor', () => {
     )
   }
 
+  // settlePreview flushes the debounced draft preview without wall-clock time:
+  // tests call vi.useFakeTimers() before renderEditor so the 350ms debounce
+  // timer is virtual, then advance past it here.
   async function settlePreview() {
     await act(async () => {
-      await new Promise((r) => setTimeout(r, 450)) // outlast the 350ms debounce
+      await vi.advanceTimersByTimeAsync(400) // outlast the 350ms debounce
     })
   }
 
   it('previews the next three fire times from the backend', async () => {
+    vi.useFakeTimers()
     previewReply = {
       times: ['2026-11-06T14:00:00Z', '2026-11-07T14:00:00Z', '2026-11-08T14:00:00Z'],
     }
@@ -128,6 +133,7 @@ describe('JobEditor', () => {
   })
 
   it('surfaces a workspace check from the backend next to the field', async () => {
+    vi.useFakeTimers()
     previewReply = { times: [], workspaceError: 'workspace /nope: stat failed' }
     renderEditor({ job: storedJob })
     await settlePreview()
@@ -136,6 +142,7 @@ describe('JobEditor', () => {
   })
 
   it('shows scheduling refusals from the backend', async () => {
+    vi.useFakeTimers()
     previewReply = { code: 400 }
     renderEditor({ job: storedJob })
     await settlePreview()
@@ -172,6 +179,7 @@ describe('JobEditor', () => {
   })
 
   it('edits an existing job and anchors previews at its stored creation', async () => {
+    vi.useFakeTimers()
     const onSaved = vi.fn()
     previewReply = { times: ['2026-11-07T09:00:00Z'] }
     renderEditor({ job: storedJob, onSaved })
@@ -183,6 +191,7 @@ describe('JobEditor', () => {
       dailyTime: '09:00',
     })
 
+    vi.useRealTimers() // the save flow below uses waitFor and user-event
     const user = userEvent.setup()
     await user.clear(screen.getByRole('textbox', { name: /^Name/ }))
     await user.type(screen.getByRole('textbox', { name: /^Name/ }), 'renamed')
@@ -236,26 +245,28 @@ describe('JobEditor', () => {
     })
   })
 
-  it('keeps a stored weekday set checked when editing', async () => {
+  it('keeps a stored weekday set checked when editing', () => {
     renderEditor({ job: { ...storedJob, weekdays: 'tue,thu' } })
-    await settlePreview()
 
+    // checkbox state comes from the draft, not the debounced preview; the
+    // pending timer dies with the unmount at cleanup
     expect(screen.getByRole('checkbox', { name: /Tue/ })).toBeChecked()
     expect(screen.getByRole('checkbox', { name: /Thu/ })).toBeChecked()
     expect(screen.getByRole('checkbox', { name: /Mon/ })).not.toBeChecked()
   })
 
   it('reopens a sub-minute interval in seconds and saves it unchanged', async () => {
+    vi.useFakeTimers() // keeps the pending preview debounce from firing mid-wait
     const onSaved = vi.fn()
     renderEditor({
       job: { ...storedJob, scheduleKind: 'interval', intervalSeconds: 30 },
       onSaved,
     })
-    await settlePreview()
 
     expect(screen.getByRole('spinbutton', { name: 'Every' })).toHaveValue(30)
     expect(screen.getByLabelText('Unit')).toHaveValue('seconds')
 
+    vi.useRealTimers() // the save flow below uses waitFor and user-event
     const user = userEvent.setup()
     await user.click(screen.getByRole('button', { name: 'Save changes' }))
     await waitFor(() => expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ id: 3 })))
@@ -263,6 +274,7 @@ describe('JobEditor', () => {
   })
 
   it('renders a seed draft as the initial create state', async () => {
+    vi.useFakeTimers()
     previewReply = { times: ['2026-11-10T08:30:00Z'] }
     renderEditor({
       seed: {

@@ -54,8 +54,8 @@ func TestDaemonPasswordHandoff(t *testing.T) {
 		cmd.Env = append(os.Environ(),
 			PasswordEnv+"="+loginPW,
 			"AJENT_HOME="+home)
-		out, err := cmd.CombinedOutput()
-		require.NoError(t, err, "daemon start: %s", out)
+		_, err := cmd.CombinedOutput()
+		require.NoError(t, err)
 
 		pidData, err := os.ReadFile(filepath.Join(home, swarmDirName, pidFileName))
 		require.NoError(t, err)
@@ -88,8 +88,7 @@ func TestDaemonPasswordHandoff(t *testing.T) {
 		if runtime.GOOS == "linux" {
 			envData, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/environ")
 			require.NoError(t, err)
-			assert.Contains(t, string(envData), PasswordEnv+"="+loginPW,
-				"the parent must pass the resolved value through the environment")
+			assert.Contains(t, string(envData), PasswordEnv+"="+loginPW)
 		}
 	})
 

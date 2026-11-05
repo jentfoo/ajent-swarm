@@ -195,6 +195,8 @@ func TestAuthHandlers(t *testing.T) {
 }
 
 func TestSecureCookie(t *testing.T) {
+	t.Parallel()
+
 	t.Run("secure_through_proxy_header", func(t *testing.T) {
 		server, client := newTestAPI(t)
 		base := server.URL

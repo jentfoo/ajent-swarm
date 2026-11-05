@@ -10,9 +10,6 @@ import (
 	"github.com/jentfoo/ajent/pkg/ctl"
 )
 
-// TestMailboxCall pins the call contract against a stopped actor: accepted
-// calls fail fast once done closes instead of waiting on the caller's ctx,
-// which may be detached bookkeeping that never cancels.
 func TestMailboxCall(t *testing.T) {
 	t.Parallel()
 

@@ -113,14 +113,10 @@ func TestHub(t *testing.T) {
 		require.Equal(t, ctl.EventToolOutput, second.env.Event.Name)
 
 		var da, db ctl.ToolOutputData
-		for _, tc := range []struct {
-			fr   frame
-			dst  *ctl.ToolOutputData
-			want string
-		}{{first, &da, "a1"}, {second, &db, "b1"}} {
-			require.NoError(t, json.Unmarshal(tc.fr.env.Event.Data, tc.dst))
-			assert.Equal(t, tc.want, tc.dst.Delta)
-		}
+		require.NoError(t, json.Unmarshal(first.env.Event.Data, &da))
+		assert.Equal(t, "a1", da.Delta)
+		require.NoError(t, json.Unmarshal(second.env.Event.Data, &db))
+		assert.Equal(t, "b1", db.Delta)
 	})
 
 	t.Run("slow_reader_dropped_not_blocking", func(t *testing.T) {

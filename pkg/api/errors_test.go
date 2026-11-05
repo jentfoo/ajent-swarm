@@ -23,6 +23,8 @@ func TestStatusForControl(t *testing.T) {
 }
 
 func TestErrors(t *testing.T) {
+	t.Parallel()
+
 	t.Run("coded_errors_keep_their_code", func(t *testing.T) {
 		w := httptest.NewRecorder()
 		handled := writeControlError(w, ctl.Errf(ctl.CodeBusy, "queue is full"))

@@ -37,9 +37,7 @@ describe('ModelSelectOptions', () => {
         <ModelSelectOptions models={[model('local-tuned'), model('anthropic/sonnet', 'sonnet')]} />
       </select>,
     )
-    const loose = screen
-      .getAllByRole('option')
-      .filter((o) => o.closest('optgroup') === null)
+    const loose = screen.getAllByRole('option').filter((o) => o.closest('optgroup') === null)
     expect(loose.map((o) => o.textContent)).toEqual(['local-tuned'])
   })
 })

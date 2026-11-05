@@ -37,9 +37,17 @@ func TestSession(t *testing.T) {
 		svc, _, _ := newTestAuth(t)
 		ctx := t.Context()
 
-		for _, token := range []string{"", "garbage"} {
-			_, _, err := svc.Session(ctx, token)
-			assert.ErrorIs(t, err, ErrInvalidSession)
+		for _, tc := range []struct {
+			name  string
+			token string
+		}{
+			{name: "empty_token", token: ""},
+			{name: "garbage_token", token: "garbage"},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				_, _, err := svc.Session(ctx, tc.token)
+				assert.ErrorIs(t, err, ErrInvalidSession)
+			})
 		}
 	})
 

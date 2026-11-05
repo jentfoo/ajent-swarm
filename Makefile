@@ -91,7 +91,7 @@ test-all: | embed-stubs
 # builds the binary and exercises daemon mode end to end; guarded so unit
 # runs stay hermetic (see docs/phases/02-service-skeleton.md)
 test-integration: | embed-stubs
-	AJENT_SWARM_INTEGRATION=1 go test -count=1 -run 'TestDaemonLifecycle' ./pkg/app
+	AJENT_SWARM_INTEGRATION=1 go test -count=1 -run 'TestDaemon' ./pkg/app
 
 # builds ajent and exercises the phase 04 launch path against it; guarded so
 # unit runs stay hermetic (see docs/phases/04-launch-resume.md)

@@ -143,14 +143,11 @@ func TestContentSecurityPolicy(t *testing.T) {
 	inlineOpens := bulk.SliceFilter(func(open []string) bool {
 		return !strings.Contains(open[1], "src=")
 	}, opens)
-	require.Len(t, inlineOpens, 1,
-		"index.html must carry exactly one inline script (theme-bootstrap)")
+	require.Len(t, inlineOpens, 1)
 
 	matches := themeScriptRe.FindAllSubmatch(doc, -1)
-	require.Len(t, matches, 1,
-		"update contentSecurityPolicy in web.go when the script changes")
+	require.Len(t, matches, 1)
 	sum := sha256.Sum256(matches[0][1])
 	hash := "'sha256-" + base64.StdEncoding.EncodeToString(sum[:]) + "'"
-	assert.Contains(t, contentSecurityPolicy, hash,
-		"theme-bootstrap changed: update contentSecurityPolicy in web.go")
+	assert.Contains(t, contentSecurityPolicy, hash)
 }

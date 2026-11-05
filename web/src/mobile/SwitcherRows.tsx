@@ -6,7 +6,7 @@ import { sessions as sessionAPI } from '../api/endpoints'
 import { useResume } from '../hooks/useResume'
 import { useSwarm } from '../providers/swarm'
 import { useWorkspace } from '../providers/workspace'
-import { SettingsSheet } from './SettingsSheet'
+import { SettingsScreen } from './SettingsScreen'
 import { useLongPress } from './useLongPress'
 import { groupSwitcherRows } from './switcher'
 import type { SwitcherRow } from './switcher'
@@ -56,7 +56,7 @@ export function SwitcherRows({
       {renaming !== null && <RenameEditor row={renaming} onDone={() => setRenaming(null)} />}
       {/* one pushed settings screen, rebound to whichever row was tapped */}
       {settingsId !== null && (
-        <SettingsSheet sessionId={settingsId} open onClose={() => setSettingsId(null)} />
+        <SettingsScreen sessionId={settingsId} open onClose={() => setSettingsId(null)} />
       )}
     </div>
   )

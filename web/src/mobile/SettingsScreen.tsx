@@ -2,9 +2,10 @@ import type { ReactElement } from 'react'
 
 import { SettingsMenu } from '../session/SettingsMenu'
 
-// SettingsSheet is the pushed full-screen agent settings panel for the session
-// it was opened from: the shared settings.get/settings.set menu, no picker.
-export function SettingsSheet({
+// SettingsScreen is the pushed full-screen agent settings panel for the
+// session it was opened from: the shared settings.get/settings.set menu, no
+// picker. Swarm's own global settings live on the /m/settings route instead.
+export function SettingsScreen({
   sessionId,
   open,
   onClose,
@@ -22,7 +23,7 @@ export function SettingsSheet({
         </button>
         <h2>Agent settings</h2>
       </header>
-      <div className="settings-sheet-body">
+      <div className="settings-screen-body">
         <SettingsMenu sessionId={sessionId} />
       </div>
     </div>

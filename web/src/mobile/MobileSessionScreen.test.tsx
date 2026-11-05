@@ -555,6 +555,12 @@ describe('MobileSessionScreen', () => {
     expect(screen.getByText('Allow write access?')).toBeInTheDocument()
   })
 
+  it('shares the desktop phase sentences in the connecting banner', async () => {
+    renderScreen()
+    await openSocket() // opened but silent: no init yet, so still connecting
+    expect(await screen.findByText('Connecting to the session stream…')).toBeInTheDocument()
+  })
+
   it('shows the edge swipe hint until one gesture retires it', async () => {
     const view = renderScreen()
     const ws = await openSocket()
@@ -756,13 +762,13 @@ describe('MobileSessionScreen', () => {
     const user = userEvent.setup()
     await user.type(await screen.findByLabelText('Prompt'), 'alpha draft')
 
-    // the tools sheet and the model menu stand open over the first session
+    // the tools panel and the model menu stand open over the first session
     await user.click(screen.getByRole('button', { name: 'Open tools panel' }))
     expect(await screen.findByRole('dialog', { name: 'Tools' })).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /sonnet/ }))
     expect(await screen.findByRole('menuitem', { name: /sonnet/ })).toBeInTheDocument()
 
-    // the swap presents the other session fresh: sheet and menu closed, and a
+    // the swap presents the other session fresh: panel and menu closed, and a
     // draft typed for the first session is not sitting in the composer
     await user.click(screen.getByRole('button', { name: 'go other' }))
     act(() => {

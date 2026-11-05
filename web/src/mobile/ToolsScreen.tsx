@@ -5,7 +5,7 @@ import { ApiError } from '../api/client'
 import { sessions as sessionAPI } from '../api/endpoints'
 import type { CtlState, ToolState } from '../api/types'
 
-// ToolsSheet is the pushed full-screen tools panel: snapshot rows with their
+// ToolsScreen is the pushed full-screen tools panel: snapshot rows with their
 // sources, toggled through tools.set. Each toggle submits the complete desired
 // set — a free replacement before the run's first prompt, enable-only after,
 // where upstream keeps names left out unchanged and refusals surface as toasts.
@@ -15,7 +15,7 @@ import type { CtlState, ToolState } from '../api/types'
 // and an externally flipped tool is never masked by stale intent. The readOnly
 // flag is permission metadata, never a toggle lock; rows an already-dispatched
 // run cannot release render disabled like on desktop.
-export function ToolsSheet({
+export function ToolsScreen({
   sessionId,
   snap,
   open,

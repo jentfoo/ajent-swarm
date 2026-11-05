@@ -12,6 +12,11 @@ const dismissThreshold = 96
 // inside the scrollable body, so tall content never fights the gesture. The
 // sheet tracks the keyboard inset itself: ancestor padding cannot move a
 // position:fixed panel, so the backdrop shrinks from the bottom instead.
+//
+// Mobile overlays follow one convention: draggable sheets for lightweight
+// pickers over the session (switcher, rewind), pushed full-screen *Screen
+// panels (tools, settings), and desktop-style centered modals for tiny forms
+// shared with desktop.
 export function BottomSheet({
   open,
   onClose,

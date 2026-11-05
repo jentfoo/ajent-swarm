@@ -4,10 +4,10 @@ import { useParams } from 'react-router'
 import { ApiError } from '../api/client'
 import { sessions as sessionAPI } from '../api/endpoints'
 import { useSessionChannel } from '../hooks/useSessionChannel'
-import type { SessionPhase } from '../stream/swarmStream'
 import { useWorkspace } from '../providers/workspace'
 import { Composer } from '../session/Composer'
 import { placedAboveNotice, useComposerDraft } from '../session/useComposerDraft'
+import { phaseText } from '../session/phases'
 import { DialogDock } from '../session/DialogDock'
 import { Notices } from '../session/Notices'
 import { QueuedPrompts } from '../session/QueuedPrompts'
@@ -214,17 +214,4 @@ function SeatBadge({ sessionId, state }: { sessionId: string; state: AppliedSess
       {`take control: ${seat.holder || 'held'}`}
     </button>
   )
-}
-
-function phaseText(phase: SessionPhase): string {
-  switch (phase) {
-    case 'connecting':
-      return 'Connecting to the session stream…'
-    case 'resyncing':
-      return 'Connection was interrupted; resnapshotting…'
-    case 'lost':
-      return 'The session is not reachable right now. It will reappear when its control socket serves again.'
-    default:
-      return ''
-  }
 }

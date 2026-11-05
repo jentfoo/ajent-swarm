@@ -4,7 +4,7 @@ import type { ReactNode } from 'react'
 import { useSwarm } from '../providers/swarm'
 import { useWorkspace } from '../providers/workspace'
 import { useAuth } from '../providers/auth'
-import { useMediaQuery } from '../hooks/useMediaQuery'
+import { mobileLayout, useMediaQuery } from '../hooks/useMediaQuery'
 import { ChildState } from '../api/types'
 import type { SessionStatus } from '../api/types'
 import { GlobalSettingsMenu } from './GlobalSettingsMenu'
@@ -26,7 +26,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const { needsInputCount, profile, setMode, notificationPermission, requestNotifications } =
     useWorkspace()
   const auth = useAuth()
-  const mobile = useMediaQuery('(max-width: 48rem)')
+  const mobile = useMediaQuery(mobileLayout)
   const location = useLocation()
   const navigate = useNavigate()
 

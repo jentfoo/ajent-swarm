@@ -2,7 +2,7 @@ import { Navigate, Route, Routes, useLocation } from 'react-router'
 import type { ReactElement } from 'react'
 
 import { useAuth } from './providers/auth'
-import { useMediaQuery } from './hooks/useMediaQuery'
+import { mobileLayout, useMediaQuery } from './hooks/useMediaQuery'
 import AppShell from './shell/AppShell'
 import MobileShell from './mobile/MobileShell'
 import MobileHome from './mobile/MobileHome'
@@ -28,7 +28,7 @@ import WorkspaceRoute from './screens/WorkspaceRoute'
 export default function AuthGate(): ReactElement {
   const { status } = useAuth()
   const location = useLocation()
-  const mobile = useMediaQuery('(max-width: 48rem)')
+  const mobile = useMediaQuery(mobileLayout)
 
   if (status === 'loading') {
     return <div className="auth-screen muted">Loading…</div>

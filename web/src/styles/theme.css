@@ -137,7 +137,9 @@ main.content {
   overflow-y: auto; /* pages scroll inside the shell, never the window */
 }
 
-/* mobile chrome swaps navigation to a bottom bar */
+/* mobile chrome swaps navigation to a bottom bar.
+   Every (max-width: 48rem) below is the same breakpoint as
+   hooks/useMediaQuery.ts's mobileLayout; change both together. */
 .mobile-nav {
   display: none;
 }
@@ -1614,14 +1616,17 @@ label {
   flex-shrink: 0;
 }
 
-/* touch dialogs: full-width stacked cards, big answer buttons */
+/* touch dialogs: full-width stacked cards, big answer buttons; every
+   tappable button in a card meets the 44px floor */
 .dialog-dock.touch {
   padding: calc(var(--unit) * 2) calc(var(--unit) * 3);
 }
+.dialog-card.touch button {
+  min-height: 44px;
+}
 .dialog-card.touch .dialog-choice {
   display: block;
-  width: 100%;
-  min-height: 44px; /* against the one-line compact row on purpose */
+  width: 100%; /* against the one-line compact row on purpose */
   margin-bottom: calc(var(--unit) * 2);
   text-align: center;
 }
@@ -1637,7 +1642,9 @@ label {
   flex: 1;
 }
 
-/* pushed full-screen panels (tools, settings, rewind) */
+/* pushed full-screen panels (tools, settings); named *Screen components,
+   beside draggable BottomSheets for lightweight pickers and centered modals
+   for tiny shared forms */
 .pushed-screen {
   position: fixed;
   inset: 0;
@@ -1646,7 +1653,9 @@ label {
   display: flex;
   flex-direction: column;
   overflow-y: auto;
-  padding-bottom: env(safe-area-inset-bottom, 0px);
+  /* safe-area baseline plus the keyboard inset .mobile-session or
+     .sheet-backdrop publishes, so inputs inside scroll clear of the keyboard */
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--keyboard-inset, 0px));
 }
 .pushed-header {
   position: sticky;
@@ -1674,7 +1683,7 @@ label {
   padding-left: calc(var(--unit) * 3);
   padding-right: calc(var(--unit) * 3);
 }
-.settings-sheet-body {
+.settings-screen-body {
   padding: 0 calc(var(--unit) * 3) calc(var(--unit) * 4);
 }
 .tool-rows {
@@ -1750,7 +1759,7 @@ label {
   overflow: hidden;
 }
 .segmented button {
-  min-height: 36px;
+  min-height: 44px; /* touch target floor, like every mobile button */
   padding: 0 calc(var(--unit) * 4);
   background: transparent;
 }

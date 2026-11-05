@@ -208,7 +208,7 @@ function SecretDialogScreen({
 
   return (
     <form
-      className="card dialog-card secret-screen"
+      className="card dialog-card touch secret-screen"
       onSubmit={(ev) => {
         ev.preventDefault()
         void resolve({ dialogId: dialog.id, text })
@@ -229,7 +229,7 @@ function SecretDialogScreen({
         </button>
       </div>
       {error && <p className="error-text">{error}</p>}
-      <div style={{ display: 'flex', gap: '0.5em' }}>
+      <div className="dialog-actions">
         <button className="primary" type="submit" disabled={busy || text === ''}>
           Answer
         </button>

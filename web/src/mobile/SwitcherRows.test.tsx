@@ -15,7 +15,7 @@ import { resetLedger } from '../workspace/attention'
 // shares one editor that writes swarm storage and suppresses the tap,
 // awaiting rows never offer a check-off, live needs-input rows offer one
 // backed by the digest, and the trailing actions hit their endpoints and
-// rebind a single settings sheet without tripping the row's own gestures.
+// rebind a single pushed settings screen without tripping the row's own gestures.
 
 function row(overrides: Partial<SwitcherRow> = {}): SwitcherRow {
   return {
@@ -386,7 +386,7 @@ describe('SwitcherRows', () => {
     expect(await screen.findByTestId('session-view')).toHaveTextContent('01RESUMED000000000')
   })
 
-  it('opens one settings sheet bound to the tapped row', async () => {
+  it('opens one pushed settings screen', async () => {
     stubFacts()
     renderRows([row(), row({ sessionId: '01B', label: 'other' })])
     await screen.findByText('project')
@@ -394,7 +394,7 @@ describe('SwitcherRows', () => {
     const user = userEvent.setup()
     await user.click(screen.getAllByRole('button', { name: 'Settings' })[1]!)
 
-    // one pushed sheet, riding the tapped row's session id
+    // one pushed screen, riding the tapped row's session id
     expect(await screen.findByRole('dialog', { name: 'Agent settings' })).toBeInTheDocument()
     expect(screen.getAllByRole('dialog', { name: 'Agent settings' })).toHaveLength(1)
     await vi.waitFor(() => {

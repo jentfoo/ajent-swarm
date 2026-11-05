@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { ToolsSheet } from './ToolsSheet'
+import { ToolsScreen } from './ToolsScreen'
 import type { CtlState, ToolState } from '../api/types'
 
 // The panel toggles optimistically: every flip sends the complete desired set
@@ -61,7 +61,7 @@ function sentNames(spy: ReturnType<typeof stubFetch>): string[][] {
   return spy.mock.calls.map(([, init]) => JSON.parse(String(init?.body)).names)
 }
 
-describe('ToolsSheet', () => {
+describe('ToolsScreen', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
   })
@@ -69,13 +69,13 @@ describe('ToolsSheet', () => {
   function renderSheet(snap: CtlState, sessionId = '01S') {
     const onToast = vi.fn()
     const view = render(
-      <ToolsSheet sessionId={sessionId} snap={snap} open onClose={() => {}} onToast={onToast} />,
+      <ToolsScreen sessionId={sessionId} snap={snap} open onClose={() => {}} onToast={onToast} />,
     )
     return {
       onToast,
       rerenderWith: (next: CtlState, nextId = sessionId) =>
         view.rerender(
-          <ToolsSheet sessionId={nextId} snap={next} open onClose={() => {}} onToast={onToast} />,
+          <ToolsScreen sessionId={nextId} snap={next} open onClose={() => {}} onToast={onToast} />,
         ),
     }
   }

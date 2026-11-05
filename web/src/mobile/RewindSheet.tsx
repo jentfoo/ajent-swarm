@@ -4,14 +4,16 @@ import type { ReactElement } from 'react'
 import { ApiError } from '../api/client'
 import { sessions as sessionAPI } from '../api/endpoints'
 import type { RewindCandidate } from '../api/types'
+import { BottomSheet } from './BottomSheet'
 
 // maxRecent caps the flat list; older prompts stay reachable on desktop.
 const maxRecent = 25
 
-// RewindSheet presents rewind as a flat list of recent prompts rather than the
-// full tree. Selecting one rewinds onto it and prefills its full prompt text
-// into the composer for an edit — exactly the desktop dialog's contract, minus
-// the tree.
+// RewindSheet presents rewind as a draggable bottom sheet with a flat list of
+// recent prompts rather than the full tree, so the transcript stays visible
+// behind the picks. Selecting one rewinds onto it and prefills its full prompt
+// text into the composer for an edit — exactly the desktop dialog's contract,
+// minus the tree.
 export function RewindSheet({
   sessionId,
   open,
@@ -69,15 +71,9 @@ export function RewindSheet({
   }
 
   return (
-    <div className="pushed-screen" role="dialog" aria-label="Rewind to a recent prompt">
-      <header className="pushed-header">
-        <button type="button" onClick={onClose}>
-          ← Back
-        </button>
-        <h2>Rewind</h2>
-      </header>
-      {error && <p className="error-text">{error}</p>}
+    <BottomSheet open={open} onClose={onClose} label="Rewind">
       <div className="rewind-list">
+        {error && <p className="error-text">{error}</p>}
         {recent.length === 0 && !error && <p className="muted">No prompts to rewind to.</p>}
         {recent.map((c) => (
           <button
@@ -96,6 +92,6 @@ export function RewindSheet({
           </button>
         ))}
       </div>
-    </div>
+    </BottomSheet>
   )
 }

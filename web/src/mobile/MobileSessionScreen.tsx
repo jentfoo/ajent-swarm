@@ -8,6 +8,7 @@ import { sessionBusy } from '../state/eventApplier'
 import { Composer } from '../session/Composer'
 import { placedAboveNotice, useComposerDraft } from '../session/useComposerDraft'
 import { Notices } from '../session/Notices'
+import { phaseText } from '../session/phases'
 import { QueuedPrompts } from '../session/QueuedPrompts'
 import { ModeMenu } from '../session/StatusHeader'
 import { StatusBar } from '../session/StatusBar'
@@ -18,9 +19,9 @@ import { useWorkspace } from '../providers/workspace'
 import { BottomSheet } from './BottomSheet'
 import { ModelChip } from './ModelChip'
 import { RewindSheet } from './RewindSheet'
-import { SettingsSheet } from './SettingsSheet'
+import { SettingsScreen } from './SettingsScreen'
 import { SwitcherRows } from './SwitcherRows'
-import { ToolsSheet } from './ToolsSheet'
+import { ToolsScreen } from './ToolsScreen'
 import { TouchDialogDock } from './TouchDialogDock'
 import { dismissSwipeHint, swipeHintSeen } from './swipeHint'
 import { useSwitcherRows } from './useSwitcherRows'
@@ -202,7 +203,7 @@ function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElemen
       )}
       {phase !== 'live' && phase !== 'ended' && (
         <div className="banner info" role="status">
-          Returning to the app will refresh what you see here.
+          {phaseText(phase)}
         </div>
       )}
 
@@ -244,14 +245,14 @@ function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElemen
       />
       <StatusBar snap={snap} live={state.live} />
 
-      <ToolsSheet
+      <ToolsScreen
         sessionId={sessionId}
         snap={snap}
         open={showTools}
         onClose={() => setShowTools(false)}
         onToast={pushToast}
       />
-      <SettingsSheet
+      <SettingsScreen
         sessionId={sessionId}
         open={showSettings}
         onClose={() => setShowSettings(false)}

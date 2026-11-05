@@ -1,6 +1,8 @@
 package web
 
 import (
+	"crypto/sha256"
+	"encoding/base64"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -8,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-analyze/bulk"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -15,6 +18,12 @@ import (
 // assetRefRe pulls the absolute asset references out of the served document,
 // so the test tracks whatever the build emitted instead of pinned names.
 var assetRefRe = regexp.MustCompile(`(?:src|href)="(/[^"]+)"`)
+
+// scriptOpenRe matches every opening <script ...> tag in the document.
+var scriptOpenRe = regexp.MustCompile(`<script([^>]*)>`)
+
+// themeScriptRe captures the body of the inline theme-bootstrap script.
+var themeScriptRe = regexp.MustCompile(`(?s)<script id="theme-bootstrap">(.*?)</script>`)
 
 func TestHandler(t *testing.T) {
 	t.Parallel()
@@ -82,6 +91,35 @@ func TestHandler(t *testing.T) {
 		}
 	})
 
+	t.Run("csp_scoped_to_documents", func(t *testing.T) {
+		tests := []struct {
+			name    string
+			path    string
+			wantCSP bool
+		}{
+			{name: "root_document", path: "/", wantCSP: true},
+			{name: "direct_index_request", path: "/index.html", wantCSP: true},
+			{name: "spa_route_fallback", path: "/sessions/abc", wantCSP: true},
+			{name: "directory_style_route", path: "/sessions/", wantCSP: true},
+			{name: "asset_skips_policy", path: "/favicon.svg"},
+			{name: "missing_asset_skips_policy", path: "/nope.js"},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, tt.path, nil)
+				rec := httptest.NewRecorder()
+				handler.ServeHTTP(rec, req)
+
+				csp := rec.Header().Get("Content-Security-Policy")
+				if tt.wantCSP {
+					assert.Equal(t, contentSecurityPolicy, csp)
+				} else {
+					assert.Empty(t, csp)
+				}
+			})
+		}
+	})
+
 	t.Run("head_carries_no_body", func(t *testing.T) {
 		req := httptest.NewRequestWithContext(t.Context(), http.MethodHead, "/", nil)
 		rec := httptest.NewRecorder()
@@ -90,4 +128,29 @@ func TestHandler(t *testing.T) {
 		assert.Equal(t, http.StatusOK, rec.Code)
 		assert.Empty(t, rec.Body.Bytes())
 	})
+}
+
+func TestContentSecurityPolicy(t *testing.T) {
+	t.Parallel()
+
+	doc, err := distFS.ReadFile("dist/" + indexHTML)
+	require.NoError(t, err)
+
+	// recomputes the hash from the embedded document so a frontend edit that
+	// changes the inline script fails here instead of shipping a policy the
+	// browser silently refuses
+	opens := scriptOpenRe.FindAllStringSubmatch(string(doc), -1)
+	inlineOpens := bulk.SliceFilter(func(open []string) bool {
+		return !strings.Contains(open[1], "src=")
+	}, opens)
+	require.Len(t, inlineOpens, 1,
+		"index.html must carry exactly one inline script (theme-bootstrap)")
+
+	matches := themeScriptRe.FindAllSubmatch(doc, -1)
+	require.Len(t, matches, 1,
+		"update contentSecurityPolicy in web.go when the script changes")
+	sum := sha256.Sum256(matches[0][1])
+	hash := "'sha256-" + base64.StdEncoding.EncodeToString(sum[:]) + "'"
+	assert.Contains(t, contentSecurityPolicy, hash,
+		"theme-bootstrap changed: update contentSecurityPolicy in web.go")
 }

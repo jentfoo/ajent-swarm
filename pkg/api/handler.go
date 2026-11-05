@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/jentfoo/ajent-swarm/pkg/auth"
@@ -48,9 +49,10 @@ const (
 	loginWindow          = 5 * time.Minute
 )
 
-// Handler builds the full HTTP handler: request logging and panic recovery
-// around an API subtree gated by auth, plus the SPA at root. Static assets
-// stay reachable so the login page can render in every bootstrap state.
+// Handler builds the full HTTP handler: security headers, request logging
+// and panic recovery around an API subtree gated by auth, plus the SPA at
+// root. Static assets stay reachable so the login page can render in every
+// bootstrap state.
 func Handler(cfg Config) http.Handler {
 	srv := &apiServer{
 		auth:                 cfg.Auth,
@@ -142,7 +144,23 @@ func Handler(cfg Config) http.Handler {
 	root.Handle("/api/", cfg.Auth.Middleware(exemptFromAuth)(apiMux))
 	root.Handle("/", web.Handler())
 
-	return logRequests(cfg.Log)(recoverPanics(cfg.Log)(root))
+	return logRequests(cfg.Log)(recoverPanics(cfg.Log)(securityHeaders(root)))
+}
+
+// securityHeaders sets the baseline protection headers on every response.
+// API results carry session state and transcripts, so they also opt out of
+// caching; static assets keep default cacheability for their hashed names.
+func securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("Referrer-Policy", "no-referrer")
+		h.Set("X-Frame-Options", "DENY")
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			h.Set("Cache-Control", "no-store")
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // exemptFromAuth lists the requests the gate lets through once a password

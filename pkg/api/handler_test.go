@@ -63,3 +63,42 @@ func TestHandler(t *testing.T) {
 		})
 	})
 }
+
+func TestSecurityHeaders(t *testing.T) {
+	t.Parallel()
+
+	t.Run("baseline_on_api_and_static", func(t *testing.T) {
+		server, client := newTestAPI(t)
+		base := server.URL
+
+		tests := []struct {
+			name string
+			path string
+		}{
+			{name: "api_error_response", path: "/api/sessions"}, // 401 without login
+			{name: "static_document", path: "/"},
+			{name: "static_asset", path: "/favicon.svg"},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				resp := call(t, client, base, http.MethodGet, tt.path, nil)
+				assert.Equal(t, "nosniff", resp.Header.Get("X-Content-Type-Options"))
+				assert.Equal(t, "no-referrer", resp.Header.Get("Referrer-Policy"))
+				assert.Equal(t, "DENY", resp.Header.Get("X-Frame-Options"))
+			})
+		}
+	})
+
+	t.Run("api_responses_are_no_store", func(t *testing.T) {
+		server, client := newTestAPI(t)
+		base := server.URL
+		bootstrapAndLogin(t, client, base)
+
+		resp := call(t, client, base, http.MethodGet, "/api/sessions", nil)
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+		assert.Equal(t, "no-store", resp.Header.Get("Cache-Control"))
+
+		static := call(t, client, base, http.MethodGet, "/", nil)
+		assert.Empty(t, static.Header.Get("Cache-Control"))
+	})
+}

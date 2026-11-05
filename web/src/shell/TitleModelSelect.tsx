@@ -3,7 +3,7 @@ import type { ReactElement } from 'react'
 
 import { models as modelsAPI, settings as settingsAPI } from '../api/endpoints'
 import type { ModelState } from '../api/types'
-import { providerGroups } from '../ui/modelGroups'
+import { ModelSelectOptions } from '../ui/ModelSelectOptions'
 
 // TitleModelSelect is the swarm-level session titling model picker. The
 // options are the union of live sessions' model registries, grouped per
@@ -35,7 +35,6 @@ export function TitleModelSelect(): ReactElement {
   }, [])
 
   const available = options.some((m) => m.key === stored)
-  const { groups, loose } = providerGroups(options)
 
   const pick = async (model: string) => {
     setBusy(true)
@@ -60,21 +59,7 @@ export function TitleModelSelect(): ReactElement {
         onChange={(ev) => void pick(ev.target.value)}
       >
         <option value="">Session model (default)</option>
-        {groups.map((g) => (
-          <optgroup key={g.provider} label={g.provider}>
-            {g.models.map((m) => (
-              <option key={m.key} value={m.key}>
-                {m.short || m.key}
-              </option>
-            ))}
-          </optgroup>
-        ))}
-        {/* no provider prefix: render the full key ungrouped */}
-        {loose.map((m) => (
-          <option key={m.key} value={m.key}>
-            {m.key}
-          </option>
-        ))}
+        <ModelSelectOptions models={options} />
         {/* a stored-but-missing model stays visible until retitled or dropped */}
         {stored !== '' && !available && <option value={stored}>{stored} (missing)</option>}
       </select>

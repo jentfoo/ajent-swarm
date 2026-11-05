@@ -4,7 +4,7 @@ import type { ReactElement } from 'react'
 import { ApiError } from '../api/client'
 import { sessions as sessionAPI } from '../api/endpoints'
 import type { ModelState, SettingRow } from '../api/types'
-import { providerGroups } from '../ui/modelGroups'
+import { ModelSelectOptions } from '../ui/ModelSelectOptions'
 
 // hiddenSettingKeys are rows other chat chrome owns: tools live behind the
 // /tools buttons and mode lives in the header dropdown, so neither repeats as
@@ -142,8 +142,8 @@ const modelSettingKey = 'model'
 
 // ModelSettingRow lists models.get's registry for this session and applies
 // the chosen key through the same settings.set path as every other row.
-// Options group per provider through the one shared rule, the same tiered
-// layout the chat model button and the titling select render.
+// Options render through the shared ModelSelectOptions, the same tiered
+// layout every model select and the chat model button use.
 function ModelSettingRow({
   row,
   sessionId,
@@ -168,7 +168,6 @@ function ModelSettingRow({
     }
   }, [sessionId])
 
-  const { groups, loose } = providerGroups(registry)
   return (
     <div className="setting-row text" data-setting-key={row.key}>
       <span className="setting-label">{row.label}</span>
@@ -180,21 +179,7 @@ function ModelSettingRow({
         {!registry.some((m) => m.key === draft) && draft !== '' && (
           <option value={draft}>{draft}</option>
         )}
-        {groups.map((g) => (
-          <optgroup key={g.provider} label={g.provider}>
-            {g.models.map((m) => (
-              <option key={m.key} value={m.key}>
-                {m.short || m.key}
-              </option>
-            ))}
-          </optgroup>
-        ))}
-        {/* no provider prefix: render the full key ungrouped */}
-        {loose.map((m) => (
-          <option key={m.key} value={m.key}>
-            {m.key}
-          </option>
-        ))}
+        <ModelSelectOptions models={registry} />
       </select>
     </div>
   )

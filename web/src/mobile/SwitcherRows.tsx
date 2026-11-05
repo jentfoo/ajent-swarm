@@ -1,9 +1,9 @@
 import { Fragment, useState } from 'react'
 import type { FormEvent, ReactElement } from 'react'
-import { useNavigate } from 'react-router'
 
 import { ApiError } from '../api/client'
-import { fleet as fleetAPI, sessions as sessionAPI } from '../api/endpoints'
+import { sessions as sessionAPI } from '../api/endpoints'
+import { useResume } from '../hooks/useResume'
 import { useSwarm } from '../providers/swarm'
 import { useWorkspace } from '../providers/workspace'
 import { SettingsSheet } from './SettingsSheet'
@@ -136,37 +136,21 @@ function RowActions({
   onSettings: () => void
 }) {
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
+  const [stopError, setStopError] = useState('')
   const { refreshSessions } = useSwarm()
-  const navigate = useNavigate()
+  const { resume, resumingId, error } = useResume()
   const ended = row.status === 'ended'
 
   const stop = async () => {
     setBusy(true)
-    setError('')
+    setStopError('')
     try {
       await sessionAPI.stop(row.sessionId)
       await refreshSessions() // rows re-badge now, not on the next poll
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Stop failed.')
+      setStopError(err instanceof ApiError ? err.message : 'Stop failed.')
     } finally {
       setBusy(false)
-    }
-  }
-
-  const resume = async () => {
-    setBusy(true)
-    setError('')
-    try {
-      const res = await fleetAPI.launch({
-        workspace: row.workspace!, // guarded by the render below, ended rows only
-        mode: 'resume',
-        target: row.sessionId,
-      })
-      navigate(`/s/${encodeURIComponent(res.sessionId)}`)
-    } catch (err) {
-      setBusy(false)
-      setError(err instanceof ApiError ? err.message : 'Resume failed.')
     }
   }
 
@@ -181,8 +165,12 @@ function RowActions({
       </button>
       {ended ? (
         row.workspace && (
-          <button type="button" onClick={() => void resume()} disabled={busy}>
-            {busy ? 'Resuming…' : 'Resume'}
+          <button
+            type="button"
+            disabled={resumingId !== null}
+            onClick={() => void resume(row.workspace!, row.sessionId)}
+          >
+            {resumingId === row.sessionId ? 'Resuming…' : 'Resume'}
           </button>
         )
       ) : (
@@ -195,7 +183,7 @@ function RowActions({
           </button>
         </>
       )}
-      {error && <span className="error-text">{error}</span>}
+      {(error || stopError) && <span className="error-text">{error || stopError}</span>}
     </div>
   )
 }

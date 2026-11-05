@@ -1,0 +1,122 @@
+import { renderHook, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+import { useLaunchFacts } from './useLaunchFacts'
+import { SwarmProvider } from '../providers/swarm'
+import { MockWebSocket } from '../test/mockWebSocket'
+
+// The launch-facts hook under the real provider stack with fetch stubs shaped
+// like the Go handlers answer: workspaces union live before saved keeping
+// first sight, model rows collapse onto one sorted entry per key, and refused
+// reads leave that section empty instead of throwing.
+
+function modelRow(sessionId: string, key: string) {
+  return { sessionId, current: { key, short: '', window: 0, caps: {} } }
+}
+
+describe('useLaunchFacts', () => {
+  let sockets: MockWebSocket[]
+
+  beforeEach(() => {
+    localStorage.clear()
+    vi.stubGlobal(
+      'WebSocket',
+      class extends MockWebSocket {
+        constructor(url: string) {
+          super(url)
+          sockets.push(this)
+        }
+      },
+    )
+    sockets = []
+  })
+
+  afterEach(() => {
+    sockets = []
+    vi.unstubAllGlobals()
+  })
+
+  function renderFacts() {
+    return renderHook(() => useLaunchFacts(), {
+      wrapper: ({ children }) => <SwarmProvider>{children}</SwarmProvider>,
+    })
+  }
+
+  it('unions workspaces live before saved keeping first sight', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string | URL) => {
+        const path = String(url).split('?')[0]
+        if (path === '/api/sessions') {
+          return Response.json([
+            { sessionId: '01A', state: 'online', workspace: '/live/one' },
+            { sessionId: '01B', state: 'online', workspace: '/live/two' },
+          ])
+        }
+        if (path === '/api/saved-sessions') {
+          return Response.json([
+            { id: '02A', target: '02A', workspace: '/saved/three' },
+            // a saved row revisiting a live workspace must not duplicate it
+            { id: '02B', target: '02B', workspace: '/live/one' },
+          ])
+        }
+        if (path === '/api/models') return Response.json([])
+        if (path === '/api/attention') return Response.json([])
+        throw new Error(`unexpected fetch ${String(url)}`)
+      }),
+    )
+
+    const { result } = renderFacts()
+
+    await waitFor(() => expect(result.current.saved).toHaveLength(2))
+    expect(result.current.workspaceOptions).toEqual(['/live/one', '/live/two', '/saved/three'])
+  })
+
+  it('collapses model rows onto one sorted entry per key', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string | URL) => {
+        const path = String(url).split('?')[0]
+        if (path === '/api/models') {
+          return Response.json([
+            modelRow('01A', 'openai/gpt-5'),
+            modelRow('01B', 'anthropic/x'),
+            // a second live session on the same model lists it once
+            modelRow('01C', 'openai/gpt-5'),
+          ])
+        }
+        if (path === '/api/sessions' || path === '/api/attention') return Response.json([])
+        if (path === '/api/saved-sessions') return Response.json([])
+        throw new Error(`unexpected fetch ${String(url)}`)
+      }),
+    )
+
+    const { result } = renderFacts()
+
+    await waitFor(() => expect(result.current.models).toHaveLength(2))
+    expect(result.current.models.map((m) => m.key)).toEqual(['anthropic/x', 'openai/gpt-5'])
+  })
+
+  it('survives refused listings beside live workspaces', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string | URL) => {
+        const path = String(url).split('?')[0]
+        if (path === '/api/models' || path === '/api/saved-sessions') {
+          return Response.json({ error: 'internal_error' }, { status: 500 })
+        }
+        if (path === '/api/sessions') {
+          return Response.json([{ sessionId: '01A', state: 'online', workspace: '/live/one' }])
+        }
+        if (path === '/api/attention') return Response.json([])
+        throw new Error(`unexpected fetch ${String(url)}`)
+      }),
+    )
+
+    const { result } = renderFacts()
+
+    await waitFor(() => expect(result.current.workspaceOptions).toEqual(['/live/one']))
+    expect(result.current.models).toEqual([])
+    expect(result.current.saved).toEqual([])
+  })
+})

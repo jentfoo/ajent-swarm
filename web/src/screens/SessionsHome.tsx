@@ -1,16 +1,19 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router'
 
 import { ApiError } from '../api/client'
-import { fleet, models as modelsAPI, sessions as sessionAPI } from '../api/endpoints'
-import type { LaunchRequest, SavedSession, SessionStatus } from '../api/types'
+import { fleet, sessions as sessionAPI } from '../api/endpoints'
+import type { LaunchRequest, SessionStatus } from '../api/types'
 import { ChildState, childEnded } from '../api/types'
+import { useLaunchFacts } from '../hooks/useLaunchFacts'
+import { useResume } from '../hooks/useResume'
 import { useSwarm } from '../providers/swarm'
 import { useAuth } from '../providers/auth'
 import { AgentSettingsMenu } from '../session/AgentSettingsMenu'
 import { RenameControl } from '../session/RenameControl'
 import { displayName, shortID, tildePath } from '../session/names'
+import { ModelSelectOptions } from '../ui/ModelSelectOptions'
 
 // SessionsHome is the live instance grid: state, workspace and seat badges
 // beside quick actions per session, with a compact launch panel. Checkboxes
@@ -207,31 +210,21 @@ function StopButton({ sessionId }: { sessionId: string }) {
   )
 }
 
-// ResumeButton relaunches an exited swarm child by its session id, the same
-// headless `--resume id` path launch uses.
+// ResumeButton relaunches an exited swarm child by its session id through the
+// shared resume path, the same headless `--resume id` launch uses.
 function ResumeButton({ status: s }: { status: SessionStatus }) {
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
-  const navigate = useNavigate()
+  const { resume, resumingId, error } = useResume()
 
   if (!s.workspace) return null // resume needs the working directory back
 
-  const resume = async () => {
-    setBusy(true)
-    setError('')
-    try {
-      const req: LaunchRequest = { workspace: s.workspace!, mode: 'resume', target: s.sessionId }
-      const res = await fleet.launch(req)
-      navigate(`/s/${encodeURIComponent(res.sessionId)}`)
-    } catch (err) {
-      setBusy(false)
-      setError(err instanceof ApiError ? err.message : 'Resume failed.')
-    }
-  }
-
   return (
     <>
-      <button type="button" className="primary" onClick={() => void resume()} disabled={busy}>
+      <button
+        type="button"
+        className="primary"
+        disabled={resumingId !== null}
+        onClick={() => void resume(s.workspace!, s.sessionId)}
+      >
         Resume
       </button>
       {error && <span className="error-text">{error}</span>}
@@ -241,42 +234,9 @@ function ResumeButton({ status: s }: { status: SessionStatus }) {
 
 function LaunchPanel({ home }: { home?: string }) {
   const navigate = useNavigate()
-  const { sessions } = useSwarm()
-
-  // Workspaces come from every session we have seen, live or saved, most
-  // recently used first; the custom entry reveals a free-text input.
-  const [saved, setSaved] = useState<SavedSession[]>([])
-  const [models, setModels] = useState<string[]>([])
-  useEffect(() => {
-    let alive = true
-    fleet
-      .saved()
-      .then((rows) => alive && setSaved(rows))
-      .catch(() => {})
-    return () => {
-      alive = false
-    }
-  }, [])
-  useEffect(() => {
-    let alive = true
-    modelsAPI
-      .list()
-      .then((rows) => {
-        if (!alive) return
-        setModels([...new Set(rows.map((r) => r.current.key))].sort())
-      })
-      .catch(() => {})
-    return () => {
-      alive = false
-    }
-  }, [])
-  const workspaceOptions = useMemo(() => {
-    const seen: string[] = []
-    for (const s of [...sessions, ...saved]) {
-      if (s.workspace && !seen.includes(s.workspace)) seen.push(s.workspace)
-    }
-    return seen
-  }, [sessions, saved])
+  // One launch-facts source: workspaces from live and saved sessions, the
+  // deduped model listing and the saved rows the resume target matches against.
+  const { saved, models, workspaceOptions } = useLaunchFacts()
 
   const [workspaceChoice, setWorkspaceChoice] = useState('') // '' = custom
   const [customWorkspace, setCustomWorkspace] = useState('')
@@ -355,11 +315,7 @@ function LaunchPanel({ home }: { home?: string }) {
           Model
           <select value={model} onChange={(ev) => setModel(ev.target.value)}>
             <option value="">ajent default</option>
-            {models.map((m) => (
-              <option key={m} value={m}>
-                {m}
-              </option>
-            ))}
+            <ModelSelectOptions models={models} />
           </select>
         </label>
       </div>

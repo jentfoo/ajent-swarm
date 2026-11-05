@@ -2,11 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 
 import { ApiError } from '../api/client'
-import { fleet, jobsApi, models as modelsApi, runsApi, tools as toolsApi } from '../api/endpoints'
-import type { Job, Run, SavedSession, ToolState } from '../api/types'
+import { jobsApi, runsApi, tools as toolsApi } from '../api/endpoints'
+import type { Job, Run, ToolState } from '../api/types'
+import { useLaunchFacts } from '../hooks/useLaunchFacts'
 import { usePoll } from '../hooks/usePoll'
 import { useAuth } from '../providers/auth'
-import { useSwarm } from '../providers/swarm'
 import { tildePath } from '../session/names'
 import { JobEditor } from '../jobs/JobEditor'
 import { duplicateDraft } from '../jobs/jobDraft'
@@ -212,8 +212,8 @@ export default function JobsHome() {
 }
 
 // EditorWithFacts gathers the picker facts the editor suggests from: known
-// workspaces across live and saved sessions, model keys and tool rows from
-// live ones.
+// workspaces across live and saved sessions via the shared launch-facts hook,
+// model keys and tool rows from live ones.
 function EditorWithFacts({
   job,
   seed,
@@ -225,33 +225,8 @@ function EditorWithFacts({
   onClose: () => void
   onSaved: (job: Job | undefined) => Promise<void>
 }) {
-  const { sessions } = useSwarm()
-  const [savedRows, setSavedRows] = useState<SavedSession[]>([])
-  const [models, setModels] = useState<string[]>([])
+  const { models, workspaceOptions } = useLaunchFacts()
   const [toolOptions, setToolOptions] = useState<ToolState[]>([])
-
-  // Suggestion sources load once; the live listing joins at render time.
-  useEffect(() => {
-    let alive = true
-    fleet
-      .saved()
-      .then((rows) => alive && setSavedRows(rows))
-      .catch(() => {}) // best effort
-    return () => {
-      alive = false
-    }
-  }, [])
-
-  useEffect(() => {
-    let alive = true
-    modelsApi
-      .list()
-      .then((rows) => alive && setModels([...new Set(rows.map((r) => r.current.key))].sort()))
-      .catch(() => {})
-    return () => {
-      alive = false
-    }
-  }, [])
 
   useEffect(() => {
     let alive = true
@@ -264,20 +239,14 @@ function EditorWithFacts({
     }
   }, [])
 
-  const workspaces = useMemo(() => {
-    const seen: string[] = []
-    for (const s of [...sessions, ...savedRows]) {
-      if (s.workspace && !seen.includes(s.workspace)) seen.push(s.workspace)
-    }
-    return seen
-  }, [sessions, savedRows])
-
+  // The editor suggests model keys through its free-text datalist; browsers
+  // only offer plain options there, so grouping stays in the select pickers.
   return (
     <JobEditor
       job={job}
       seed={seed}
-      workspaces={workspaces}
-      models={models}
+      workspaces={workspaceOptions}
+      models={models.map((m) => m.key)}
       toolOptions={toolOptions}
       onSaved={onSaved}
       onCancel={onClose}

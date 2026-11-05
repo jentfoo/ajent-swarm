@@ -1,12 +1,15 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 
-import { ApiError } from '../api/client'
-import { fleet as fleetAPI, models as modelsAPI } from '../api/endpoints'
+import { fleet as fleetAPI } from '../api/endpoints'
 import type { SavedSession } from '../api/types'
+import { ApiError } from '../api/client'
+import { useLaunchFacts } from '../hooks/useLaunchFacts'
+import { useResume } from '../hooks/useResume'
 import { useAuth } from '../providers/auth'
 import { useSwarm } from '../providers/swarm'
 import { displayName, tildePath } from '../session/names'
+import { ModelSelectOptions } from '../ui/ModelSelectOptions'
 import { SwitcherRows } from './SwitcherRows'
 import type { SwitcherRow } from './switcher'
 import { useSwitcherRows } from './useSwitcherRows'
@@ -78,37 +81,12 @@ function NewSessionSection() {
 
 // LaunchForm mirrors the desktop launch panel: workspace suggestions drawn
 // from every seen session most-recent-first with a custom free-text reveal,
-// model choices from the models listing, and saved-session rows for resume
-// showing title or path, recency and message count.
+// model choices grouped per provider through the shared options body, and
+// saved-session rows for resume showing title or path, recency and message
+// count.
 function LaunchForm({ onLaunched }: { onLaunched: (sessionId: string) => void | Promise<void> }) {
   const { home } = useAuth()
-  const { sessions } = useSwarm()
-
-  // One saved listing feeds the workspace suggestions and the resume rows.
-  const [saved, setSaved] = useState<SavedSession[]>([])
-  const [models, setModels] = useState<string[]>([])
-  useEffect(() => {
-    let alive = true
-    fleetAPI
-      .saved()
-      .then((rows) => alive && setSaved(rows))
-      .catch(() => {})
-    modelsAPI
-      .list()
-      .then((rows) => alive && setModels([...new Set(rows.map((r) => r.current.key))].sort()))
-      .catch(() => {})
-    return () => {
-      alive = false
-    }
-  }, [])
-
-  const workspaceOptions = useMemo(() => {
-    const seen: string[] = []
-    for (const s of [...sessions, ...saved]) {
-      if (s.workspace && !seen.includes(s.workspace)) seen.push(s.workspace)
-    }
-    return seen
-  }, [sessions, saved])
+  const { saved, models, workspaceOptions } = useLaunchFacts()
 
   const [workspaceChoice, setWorkspaceChoice] = useState('') // '' = custom reveal
   const [customWorkspace, setCustomWorkspace] = useState('')
@@ -163,11 +141,7 @@ function LaunchForm({ onLaunched }: { onLaunched: (sessionId: string) => void | 
         Model
         <select value={model} onChange={(ev) => setModel(ev.target.value)}>
           <option value="">ajent default</option>
-          {models.map((m) => (
-            <option key={m} value={m}>
-              {m}
-            </option>
-          ))}
+          <ModelSelectOptions models={models} />
         </select>
       </label>
       {error && <p className="error-text">{error}</p>}
@@ -186,9 +160,10 @@ function LaunchForm({ onLaunched }: { onLaunched: (sessionId: string) => void | 
   )
 }
 
-// SavedResume lists recorded sessions for resume. Rows show title or tilde
-// path, recency and message count; newer-format recordings are marked blocked
-// and refuse instead of launching into a guaranteed failure.
+// SavedResume lists recorded sessions for resume, riding the shared resume
+// path. Rows show title or tilde path, recency and message count; newer-format
+// recordings are marked blocked and refuse instead of launching into a
+// guaranteed failure.
 function SavedResume({
   home,
   saved,
@@ -198,34 +173,21 @@ function SavedResume({
   saved: SavedSession[]
   onResumed: (sessionId: string) => void | Promise<void>
 }) {
-  const [busyId, setBusyId] = useState<string | null>(null)
-  const [error, setError] = useState('')
+  const [missing, setMissing] = useState('')
+  const { resume, resumingId, error } = useResume(onResumed)
 
-  const resume = async (row: SavedSession) => {
-    if (busyId !== null) return
+  const start = (row: SavedSession) => {
     if (!row.workspace) {
-      setError('No recorded workspace for this session; launch manually.')
+      setMissing('No recorded workspace for this session; launch manually.')
       return
     }
-    setBusyId(row.id)
-    setError('')
-    try {
-      const res = await fleetAPI.launch({
-        workspace: row.workspace,
-        mode: 'resume',
-        target: row.target,
-      })
-      await onResumed(res.sessionId)
-    } catch (err) {
-      setBusyId(null)
-      setError(err instanceof ApiError ? err.message : 'Resume failed.')
-    }
+    void resume(row.workspace, row.target)
   }
 
   return (
     <div className="saved-resume" aria-label="Saved sessions">
       <h3>Resume a saved session</h3>
-      {error && <p className="error-text">{error}</p>}
+      {(missing || error) && <p className="error-text">{missing || error}</p>}
       {saved.length === 0 && <p className="muted">Nothing recorded yet.</p>}
       {saved.map((row) => {
         const label = displayName(
@@ -245,10 +207,10 @@ function SavedResume({
             </span>
             <button
               type="button"
-              disabled={row.blocked || !row.workspace || busyId !== null}
-              onClick={() => void resume(row)}
+              disabled={row.blocked || !row.workspace || resumingId !== null}
+              onClick={() => start(row)}
             >
-              {busyId === row.id ? 'Resuming…' : 'Resume'}
+              {resumingId === row.target ? 'Resuming…' : 'Resume'}
             </button>
           </div>
         )

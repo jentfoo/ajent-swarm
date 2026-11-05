@@ -153,6 +153,12 @@ export const ChildState = {
   Gone: 'gone',
 } as const
 
+// childEnded reports whether a child state means the session no longer
+// serves. Gone covers a run the service itself no longer sees at all.
+export function childEnded(state: string): boolean {
+  return state === ChildState.Exited || state === ChildState.Gone
+}
+
 export interface ChildFrame {
   type: 'child'
   sessionId: string

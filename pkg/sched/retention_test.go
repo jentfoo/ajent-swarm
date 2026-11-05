@@ -20,9 +20,7 @@ func quietLogger() *slog.Logger {
 func TestRetention(t *testing.T) {
 	t.Parallel()
 
-	t.Run("prune child logs by age", func(t *testing.T) {
-		t.Parallel()
-
+	t.Run("prune_child_logs_by_age", func(t *testing.T) {
 		dir := t.TempDir()
 		fresh := filepath.Join(dir, "100.log")
 		stale := filepath.Join(dir, "200.log")
@@ -50,9 +48,7 @@ func TestRetention(t *testing.T) {
 		assert.DirExists(t, filepath.Join(dir, "500.dir.log"))
 	})
 
-	t.Run("rotate child logs over cap", func(t *testing.T) {
-		t.Parallel()
-
+	t.Run("rotate_child_logs_over_cap", func(t *testing.T) {
 		dir := t.TempDir()
 		path := filepath.Join(dir, "4242.log")
 		require.NoError(t, os.WriteFile(path, []byte(strings.Repeat("x", 64)), 0o600))
@@ -71,9 +67,7 @@ func TestRetention(t *testing.T) {
 		assert.Len(t, txt, 64)
 	})
 
-	t.Run("zero cap and missing dir", func(t *testing.T) {
-		t.Parallel()
-
+	t.Run("zero_cap_and_missing_dir", func(t *testing.T) {
 		dir := t.TempDir()
 		path := filepath.Join(dir, "4242.log")
 		require.NoError(t, os.WriteFile(path, []byte(strings.Repeat("x", 64)), 0o600))

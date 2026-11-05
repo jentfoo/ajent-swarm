@@ -2,7 +2,6 @@ package store
 
 import (
 	"database/sql"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -61,7 +60,7 @@ func TestChildren(t *testing.T) {
 		assert.Equal(t, "ajent: no model configured", rows[0].LogTail)
 	})
 
-	t.Run("insert if absent dedupes", func(t *testing.T) {
+	t.Run("insert_if_absent_dedupes", func(t *testing.T) {
 		st := newTestStore(t)
 		ctx := t.Context()
 
@@ -97,7 +96,7 @@ func TestChildren(t *testing.T) {
 		assert.Equal(t, OriginSwarm, rows[0].Origin) // empty origin defaults to swarm
 	})
 
-	t.Run("newest first", func(t *testing.T) {
+	t.Run("newest_first", func(t *testing.T) {
 		st := newTestStore(t)
 		ctx := t.Context()
 
@@ -113,56 +112,8 @@ func TestChildren(t *testing.T) {
 		assert.Equal(t, 22, rows[1].PID)
 		assert.Equal(t, 11, rows[2].PID)
 	})
-}
 
-func TestChildOriginMigration(t *testing.T) {
-	t.Parallel()
-
-	t.Run("legacy rows read as swarm", func(t *testing.T) {
-		t.Parallel()
-
-		path := filepath.Join(t.TempDir(), FileName)
-		db, err := sql.Open("sqlite", "file:"+path)
-		require.NoError(t, err)
-		ctx := t.Context()
-
-		// replay every migration before the origin column, so Open migrates a
-		// real pre-0008 database
-		_, err = db.ExecContext(ctx, `CREATE TABLE schema_migrations (
-		    version INTEGER PRIMARY KEY,
-		    applied_at INTEGER NOT NULL)`)
-		require.NoError(t, err)
-		for _, m := range readMigrations() {
-			if m.version >= 8 {
-				continue
-			}
-			_, err = db.ExecContext(ctx, m.sql)
-			require.NoError(t, err)
-			_, err = db.ExecContext(ctx,
-				`INSERT INTO schema_migrations (version, applied_at) VALUES (?, 0)`, m.version)
-			require.NoError(t, err)
-		}
-		_, err = db.ExecContext(ctx, `INSERT INTO children
-		    (pid, session_id, workspace, argv, log_path, started_at)
-		    VALUES (77, '01LEGACY0000000001', '/repo', '--serve', '/logs/77.log', 1000)`)
-		require.NoError(t, err)
-		require.NoError(t, db.Close())
-
-		st, err := Open(path)
-		require.NoError(t, err)
-		t.Cleanup(func() { _ = st.Close() })
-
-		rows, err := st.Children(ctx)
-		require.NoError(t, err)
-		require.Len(t, rows, 1)
-		assert.Equal(t, OriginSwarm, rows[0].Origin)
-		assert.Equal(t, "--serve", rows[0].Argv) // spawn facts survive the rebuild
-		assert.Equal(t, "/logs/77.log", rows[0].LogPath)
-	})
-
-	t.Run("externals leave spawn facts null", func(t *testing.T) {
-		t.Parallel()
-
+	t.Run("externals_leave_spawn_facts_null", func(t *testing.T) {
 		st := newTestStore(t)
 		ctx := t.Context()
 

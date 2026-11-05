@@ -12,7 +12,7 @@ import (
 func TestSession(t *testing.T) {
 	t.Parallel()
 
-	t.Run("validates a fresh token", func(t *testing.T) {
+	t.Run("validates_a_fresh_token", func(t *testing.T) {
 		svc, _, _ := newTestAuth(t)
 		ctx := t.Context()
 		require.NoError(t, svc.EnsureUser(ctx, "jent"))
@@ -33,7 +33,7 @@ func TestSession(t *testing.T) {
 		require.ErrorIs(t, err, ErrInvalidSession)
 	})
 
-	t.Run("rejects empty and unknown tokens", func(t *testing.T) {
+	t.Run("rejects_empty_and_unknown_tokens", func(t *testing.T) {
 		svc, _, _ := newTestAuth(t)
 		ctx := t.Context()
 
@@ -43,7 +43,7 @@ func TestSession(t *testing.T) {
 		}
 	})
 
-	t.Run("expires past ttl", func(t *testing.T) {
+	t.Run("expires_past_ttl", func(t *testing.T) {
 		svc, _, clock := newTestAuth(t, WithSessionTTL(time.Hour, time.Hour))
 		ctx := t.Context()
 		require.NoError(t, svc.EnsureUser(ctx, "jent"))
@@ -61,7 +61,7 @@ func TestSession(t *testing.T) {
 		assert.Equal(t, Principal{}, p)
 	})
 
-	t.Run("slides on use", func(t *testing.T) {
+	t.Run("slides_on_use", func(t *testing.T) {
 		svc, _, clock := newTestAuth(t, WithSessionTTL(2*time.Hour, time.Hour))
 		ctx := t.Context()
 		require.NoError(t, svc.EnsureUser(ctx, "jent"))
@@ -92,7 +92,7 @@ func TestSession(t *testing.T) {
 		assert.True(t, renewed)
 	})
 
-	t.Run("cookie shape", func(t *testing.T) {
+	t.Run("cookie_shape", func(t *testing.T) {
 		svc, _, _ := newTestAuth(t)
 
 		c := svc.SessionCookie("rawtoken")

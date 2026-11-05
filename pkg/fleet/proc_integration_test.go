@@ -66,33 +66,41 @@ func TestFleetLaunchIntegration(t *testing.T) {
 	env.m.Start(t.Context())
 	t.Cleanup(env.m.Stop)
 
-	res, err := env.m.Launch(t.Context(), LaunchRequest{Workspace: ws, Mode: LaunchNew})
-	require.NoError(t, err)
-	require.NotEmpty(t, res.SessionID)
-	assert.Equal(t, ws, res.Workspace)
+	var res LaunchResult
+	t.Run("launch_attaches_and_holds_seat", func(t *testing.T) {
+		out, err := env.m.Launch(t.Context(), LaunchRequest{Workspace: ws, Mode: LaunchNew})
+		require.NoError(t, err)
+		require.NotEmpty(t, out.SessionID)
+		assert.Equal(t, ws, out.Workspace)
+		res = out
 
-	// the fleet attaches, holds the seat, and the log lives under its name
-	require.Eventually(t, func() bool {
-		st, ok := rowFor(env.m.Sessions(), res.SessionID)
-		return ok && st.State == ChildOnline && st.SpawnedBy == SpawnedBySwarm && st.SeatOurs
-	}, 15*time.Second, testPoll)
-	_, err = os.Stat(filepath.Join(home, "children",
-		res.SessionID+"-"+strconv.Itoa(res.PID)+logSuffix))
-	require.NoError(t, err)
+		// the fleet attaches, holds the seat, and the log lives under its name
+		require.Eventually(t, func() bool {
+			st, ok := rowFor(env.m.Sessions(), res.SessionID)
+			return ok && st.State == ChildOnline && st.SpawnedBy == SpawnedBySwarm && st.SeatOurs
+		}, 15*time.Second, testPoll)
+		_, err = os.Stat(filepath.Join(home, "children",
+			res.SessionID+"-"+strconv.Itoa(res.PID)+logSuffix))
+		require.NoError(t, err)
+	})
 
-	// submit is refused: swarm holds the seat, so an outside controller
-	// attaches as an observer and every write answers observer
-	assertSubmitRefused(t, res.SessionID, res.PID)
+	t.Run("observer_submit_is_refused", func(t *testing.T) {
+		// submit is refused: swarm holds the seat, so an outside controller
+		// attaches as an observer and every write answers observer
+		assertSubmitRefused(t, res.SessionID, res.PID)
+	})
 
-	// the stop path ends the child and reaps it cleanly
-	require.NoError(t, env.m.StopSession(t.Context(), res.SessionID))
-	require.Eventually(t, func() bool {
-		st, ok := rowFor(env.m.Sessions(), res.SessionID)
-		return ok && st.State == ChildExited && st.ExitCode != nil && *st.ExitCode == 0
-	}, 15*time.Second, testPoll)
-	assert.True(t, pidGone(res.PID))
+	t.Run("stop_exits_and_reaps", func(t *testing.T) {
+		// the stop path ends the child and reaps it cleanly
+		require.NoError(t, env.m.StopSession(t.Context(), res.SessionID))
+		require.Eventually(t, func() bool {
+			st, ok := rowFor(env.m.Sessions(), res.SessionID)
+			return ok && st.State == ChildExited && st.ExitCode != nil && *st.ExitCode == 0
+		}, 15*time.Second, testPoll)
+		assert.True(t, pidGone(res.PID))
+	})
 
-	t.Run("external session joins as external", func(t *testing.T) {
+	t.Run("external_session_joins_as_external", func(t *testing.T) {
 		cmd := exec.Command(bin, "--serve") //nolint:noctx // the test owns the process lifetime directly
 		cmd.Dir = ws
 		require.NoError(t, cmd.Start())
@@ -163,7 +171,7 @@ func assertSubmitRefused(t *testing.T, sessionID string, pid int) {
 	events := make(chan ctl.Event, 64)
 	go conn.Serve(func(ev ctl.Event) { events <- ev })
 
-	cctx, cancel := context.WithTimeout(context.Background(), client.CallWait)
+	cctx, cancel := context.WithTimeout(t.Context(), client.CallWait)
 	err = conn.Submit(cctx, ctl.SubmitParams{Line: "hello"})
 	cancel()
 	require.Error(t, err)

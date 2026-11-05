@@ -11,7 +11,7 @@ import (
 func TestTokens(t *testing.T) {
 	t.Parallel()
 
-	t.Run("create rejects duplicates", func(t *testing.T) {
+	t.Run("create_rejects_duplicates", func(t *testing.T) {
 		s := newTestStore(t)
 		ctx := t.Context()
 		now := time.Unix(1_700_000_000, 0)
@@ -25,7 +25,7 @@ func TestTokens(t *testing.T) {
 		require.ErrorIs(t, err, ErrConflict)
 	})
 
-	t.Run("list order", func(t *testing.T) {
+	t.Run("list_order", func(t *testing.T) {
 		s := newTestStore(t)
 		ctx := t.Context()
 		now := time.Unix(1_700_000_000, 0)
@@ -44,7 +44,7 @@ func TestTokens(t *testing.T) {
 		assert.Zero(t, out[0].LastUsed)
 	})
 
-	t.Run("lookup by hash", func(t *testing.T) {
+	t.Run("lookup_by_hash", func(t *testing.T) {
 		s := newTestStore(t)
 		ctx := t.Context()
 		now := time.Unix(1_700_000_000, 0)
@@ -58,7 +58,7 @@ func TestTokens(t *testing.T) {
 		require.ErrorIs(t, err, ErrNotFound)
 	})
 
-	t.Run("touch usage", func(t *testing.T) {
+	t.Run("touch_usage", func(t *testing.T) {
 		s := newTestStore(t)
 		ctx := t.Context()
 		now := time.Unix(1_700_000_000, 0)

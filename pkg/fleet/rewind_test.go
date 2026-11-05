@@ -28,6 +28,8 @@ func prompt(t *testing.T, id, parent, text string) session.Entry {
 		session.MessageData{Message: llm.Text(llm.RoleUser, text)})
 }
 func TestRewind(t *testing.T) {
+	t.Parallel()
+
 	t.Run("candidates", func(t *testing.T) {
 		cases := []struct {
 			name    string
@@ -38,10 +40,10 @@ func TestRewind(t *testing.T) {
 			isHead  string
 		}{
 			{
-				name: "empty tree yields none",
+				name: "empty_tree_yields_none",
 			},
 			{
-				name: "user prompts re-send and assistants keep themselves",
+				name: "prompts_resend_assistants_keep",
 				entries: []session.Entry{
 					prompt(t, "u1", "", "hello"),
 					mustEntry(t, "a2", "u1", session.TypeMessage,
@@ -51,19 +53,19 @@ func TestRewind(t *testing.T) {
 				wantKds: map[string]string{"u1": CandidateUser, "a2": CandidateAssistant},
 			},
 			{
-				name: "tool result carriers stay out",
+				name: "tool_result_carriers_stay_out",
 				entries: []session.Entry{mustEntry(t, "r1", "", session.TypeMessage,
 					session.MessageData{Message: llm.Message{Role: llm.RoleUser, Content: llm.BlockList{
 						llm.ToolResultBlock{CallID: "c1"},
 					}}})},
 			},
 			{
-				name: "injected context stays out",
+				name: "injected_context_stays_out",
 				entries: []session.Entry{mustEntry(t, "i1", "", session.TypeMessage,
 					session.MessageData{Injected: true, Message: llm.Text(llm.RoleUser, "context")})},
 			},
 			{
-				name: "compaction targets are allowed with their summary",
+				name: "compaction_targets_allowed",
 				entries: []session.Entry{
 					mustEntry(t, "c1", "", session.TypeCompaction, session.CompactionData{Summary: "early context"}),
 				},
@@ -71,14 +73,14 @@ func TestRewind(t *testing.T) {
 				wantKds: map[string]string{"c1": CandidateCompaction},
 			},
 			{
-				name: "other entry types refuse upstream so they never list",
+				name: "other_types_refused_upstream",
 				entries: []session.Entry{
 					mustEntry(t, "n1", "", session.TypeNotice, session.NoticeData{Message: "n"}),
 					{ID: "s0", Type: session.TypeSession},
 				},
 			},
 			{
-				name: "current head is marked",
+				name: "current_head_is_marked",
 				entries: []session.Entry{
 					prompt(t, "u1", "", "hello"),
 					mustEntry(t, "a2", "u1", session.TypeMessage,
@@ -112,8 +114,8 @@ func TestRewind(t *testing.T) {
 		}
 	})
 
-	t.Run("candidate labels", func(t *testing.T) {
-		t.Run("long labels truncate with an ellipsis", func(t *testing.T) {
+	t.Run("candidate_labels", func(t *testing.T) {
+		t.Run("labels_truncate_ellipsis", func(t *testing.T) {
 			long := strings.Repeat("x", candidateLabelMax+50)
 			res := rewindCandidates([]session.Entry{prompt(t, "u1", "", long)}, "")
 			require.Len(t, res.Candidates, 1)
@@ -123,14 +125,14 @@ func TestRewind(t *testing.T) {
 			assert.True(t, strings.HasSuffix(label, "…"))
 		})
 
-		t.Run("labels trim their whitespace", func(t *testing.T) {
+		t.Run("labels_trim_their_whitespace", func(t *testing.T) {
 			res := rewindCandidates([]session.Entry{prompt(t, "u1", "", "  padded\nlines  ")}, "")
 			require.Len(t, res.Candidates, 1)
 			assert.Equal(t, "padded\nlines", res.Candidates[0].Label)
 		})
 	})
 
-	t.Run("tree placement", func(t *testing.T) {
+	t.Run("tree_placement", func(t *testing.T) {
 		// one trunk turn plus an abandoned fork: the second prompt branches off u1
 		entries := []session.Entry{
 			prompt(t, "u1", "", "first"),
@@ -153,15 +155,15 @@ func TestRewind(t *testing.T) {
 		assert.Equal(t, "├── ", byID["a2"].Guide)
 	})
 
-	t.Run("candidate text", func(t *testing.T) {
-		t.Run("user prompts carry full text", func(t *testing.T) {
+	t.Run("candidate_text", func(t *testing.T) {
+		t.Run("user_prompts_carry_full_text", func(t *testing.T) {
 			res := rewindCandidates([]session.Entry{prompt(t, "u1", "", "  the whole prompt ")}, "")
 			require.Len(t, res.Candidates, 1)
 			assert.Equal(t, "  the whole prompt ", res.Candidates[0].Text)
 			assert.False(t, res.Candidates[0].Truncated)
 		})
 
-		t.Run("oversized text truncates with the flag", func(t *testing.T) {
+		t.Run("oversized_text_flagged", func(t *testing.T) {
 			res := rewindCandidates([]session.Entry{
 				prompt(t, "u1", "", strings.Repeat("x", rewindTextMax+10)),
 			}, "")
@@ -170,7 +172,7 @@ func TestRewind(t *testing.T) {
 			assert.True(t, res.Candidates[0].Truncated)
 		})
 
-		t.Run("assistant rows carry no text", func(t *testing.T) {
+		t.Run("assistant_rows_carry_no_text", func(t *testing.T) {
 			res := rewindCandidates([]session.Entry{
 				mustEntry(t, "a1", "", session.TypeMessage,
 					session.MessageData{Message: llm.Text(llm.RoleAssistant, "reply")}),

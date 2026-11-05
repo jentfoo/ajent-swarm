@@ -10,7 +10,7 @@ import (
 func TestAuth(t *testing.T) {
 	t.Parallel()
 
-	t.Run("ensure user", func(t *testing.T) {
+	t.Run("ensure_user", func(t *testing.T) {
 		svc, _, _ := newTestAuth(t)
 		ctx := t.Context()
 
@@ -22,7 +22,7 @@ func TestAuth(t *testing.T) {
 		assert.Equal(t, "jent", svc.username)
 	})
 
-	t.Run("set password", func(t *testing.T) {
+	t.Run("set_password", func(t *testing.T) {
 		svc, _, _ := newTestAuth(t)
 		ctx := t.Context()
 		require.NoError(t, svc.EnsureUser(ctx, "jent"))
@@ -44,7 +44,7 @@ func TestAuth(t *testing.T) {
 		assert.ErrorIs(t, err, ErrInvalidCredentials)
 	})
 
-	t.Run("set password without user", func(t *testing.T) {
+	t.Run("set_password_without_user", func(t *testing.T) {
 		svc, _, _ := newTestAuth(t)
 		err := svc.SetPassword(t.Context(), "x")
 		assert.ErrorContains(t, err, "no user row")
@@ -55,11 +55,11 @@ func TestAuth(t *testing.T) {
 		ctx := t.Context()
 		require.NoError(t, svc.EnsureUser(ctx, "jent"))
 
-		t.Run("required before seeding", func(t *testing.T) {
+		t.Run("required_before_seeding", func(t *testing.T) {
 			assert.True(t, svc.BootstrapRequired())
 		})
 
-		t.Run("sets the first password", func(t *testing.T) {
+		t.Run("sets_the_first_password", func(t *testing.T) {
 			require.NoError(t, svc.Bootstrap(ctx, "hunter2"))
 			assert.False(t, svc.BootstrapRequired())
 
@@ -67,7 +67,7 @@ func TestAuth(t *testing.T) {
 			assert.NoError(t, err)
 		})
 
-		t.Run("refuses later attempts", func(t *testing.T) {
+		t.Run("refuses_later_attempts", func(t *testing.T) {
 			err := svc.Bootstrap(ctx, "again")
 			require.ErrorIs(t, err, ErrAlreadyBootstrapped)
 
@@ -89,10 +89,10 @@ func TestAuth(t *testing.T) {
 			password string
 			wantErr  error
 		}{
-			{name: "valid credentials", username: "jent", password: "hunter2"},
-			{name: "unknown user", username: "nobody", password: "hunter2", wantErr: ErrInvalidCredentials},
-			{name: "wrong password", username: "jent", password: "nope", wantErr: ErrInvalidCredentials},
-			{name: "empty password", username: "jent", password: "", wantErr: ErrInvalidCredentials},
+			{name: "valid_credentials", username: "jent", password: "hunter2"},
+			{name: "unknown_user", username: "nobody", password: "hunter2", wantErr: ErrInvalidCredentials},
+			{name: "wrong_password", username: "jent", password: "nope", wantErr: ErrInvalidCredentials},
+			{name: "empty_password", username: "jent", password: "", wantErr: ErrInvalidCredentials},
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {

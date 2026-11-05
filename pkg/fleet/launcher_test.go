@@ -195,7 +195,7 @@ func rowFor(rows []Status, sessionID string) (Status, bool) {
 	return Status{}, false
 }
 func TestLauncher(t *testing.T) {
-	t.Run("child exits before serving", func(t *testing.T) {
+	t.Run("child_exits_before_serving", func(t *testing.T) {
 		env := newLaunchEnv(t, false)
 		t.Setenv("STUB_CHILD_MODE", "exit")
 		ws := launchWorkspace(t, env.home)
@@ -213,7 +213,7 @@ func TestLauncher(t *testing.T) {
 		assert.Empty(t, env.m.Sessions())
 	})
 
-	t.Run("await deadline keeps child running", func(t *testing.T) {
+	t.Run("await_deadline_keeps_child_running", func(t *testing.T) {
 		env := newLaunchEnv(t, true) // the shutdown flag must take the stray down
 		t.Setenv("STUB_CHILD_MODE", "block")
 		ws := launchWorkspace(t, env.home)
@@ -234,7 +234,7 @@ func TestLauncher(t *testing.T) {
 		assert.True(t, pidGone(pid))
 	})
 
-	t.Run("adopts record and stops", func(t *testing.T) {
+	t.Run("adopts_record_and_stops", func(t *testing.T) {
 		env := newLaunchEnv(t, false)
 		const sid = "01STUBSERVE0000001"
 		t.Setenv("STUB_CHILD_MODE", "serve")
@@ -272,7 +272,7 @@ func TestLauncher(t *testing.T) {
 		assert.Equal(t, -1, *rec.ExitCode) // SIGTERM ended it
 	})
 
-	t.Run("children outlive and readopt", func(t *testing.T) {
+	t.Run("children_outlive_and_readopt", func(t *testing.T) {
 		env := newLaunchEnv(t, false) // the default: children outlive the manager
 		const sid = "01STUBORPHAN00001"
 		t.Setenv("STUB_CHILD_MODE", "serve")
@@ -313,7 +313,7 @@ func TestLauncher(t *testing.T) {
 		assert.Equal(t, "stopped by swarm", rec.ExitNote)
 	})
 
-	t.Run("sessions spawned by external", func(t *testing.T) {
+	t.Run("sessions_spawned_by_external", func(t *testing.T) {
 		env := newLaunchEnv(t, false)
 		stub := fleettest.New(t, env.home, fleettest.Options{SessionID: "01STUBEXT00000001"})
 		stub.WriteRegistry(t, os.Getpid(), time.Now())
@@ -324,7 +324,7 @@ func TestLauncher(t *testing.T) {
 		}, 3*time.Second, testPoll)
 	})
 
-	t.Run("stop escalates to kill", func(t *testing.T) {
+	t.Run("stop_escalates_to_kill", func(t *testing.T) {
 		env := newLaunchEnv(t, false)
 		const sid = "01STUBTERM00000001"
 		t.Setenv("STUB_CHILD_MODE", "termproof") // TERM cannot stop this one
@@ -348,13 +348,13 @@ func TestLauncher(t *testing.T) {
 		assert.Equal(t, "signal: killed", rec.ExitNote)
 	})
 
-	t.Run("stop unknown session", func(t *testing.T) {
+	t.Run("stop_unknown_session", func(t *testing.T) {
 		env := newLaunchEnv(t, false)
 		err := env.m.StopSession(t.Context(), "01NOPE")
 		require.ErrorIs(t, err, ErrUnknownSession)
 	})
 
-	t.Run("launch not configured", func(t *testing.T) {
+	t.Run("launch_not_configured", func(t *testing.T) {
 		testutil.IsolateHome(t)
 		m := New(Options{Log: testLogger(), Discover: func() ([]ctl.Instance, error) { return nil, nil }})
 		m.Start(t.Context())
@@ -363,7 +363,7 @@ func TestLauncher(t *testing.T) {
 		_, err := m.Launch(t.Context(), LaunchRequest{Workspace: t.TempDir()})
 		require.ErrorContains(t, err, "launching is not configured")
 	})
-	t.Run("adopt marks dead and readopts live", func(t *testing.T) {
+	t.Run("adopt_dead_readopt_live", func(t *testing.T) {
 		home := testutil.IsolateHome(t)
 
 		ws := launchWorkspace(t, home)
@@ -410,7 +410,7 @@ func TestLauncher(t *testing.T) {
 		m.Start(t.Context())
 		t.Cleanup(m.Stop)
 
-		t.Run("dead child marked exited", func(t *testing.T) {
+		t.Run("dead_child_marked_exited", func(t *testing.T) {
 			require.Eventually(t, func() bool {
 				_, ok := rowFor(m.Sessions(), "01ADOPTDEAD0000001")
 				return ok
@@ -426,7 +426,7 @@ func TestLauncher(t *testing.T) {
 			assert.Equal(t, "not running when the service started", row.ExitNote)
 		})
 
-		t.Run("live orphan readopted as owned", func(t *testing.T) {
+		t.Run("live_orphan_readopted_as_owned", func(t *testing.T) {
 			require.Eventually(t, func() bool {
 				live, ok := rowFor(m.Sessions(), liveID)
 				return ok && live.SpawnedBy == SpawnedBySwarm && live.Argv == "--serve --session daily"

@@ -649,14 +649,6 @@ label {
   color: var(--danger);
 }
 
-.blocks > div {
-  padding: calc(var(--unit) * 2) 0;
-  border-bottom: 1px solid var(--border);
-}
-.block-role {
-  font-size: var(--fs-small);
-  color: var(--muted);
-}
 .block-notice.info {
   color: var(--text);
 }

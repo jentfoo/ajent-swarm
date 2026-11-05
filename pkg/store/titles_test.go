@@ -11,7 +11,7 @@ import (
 func TestSessionTitles(t *testing.T) {
 	t.Parallel()
 
-	t.Run("set and get", func(t *testing.T) {
+	t.Run("set_and_get", func(t *testing.T) {
 		st := newTestStore(t)
 
 		require.NoError(t, st.SetSessionTitle(t.Context(), "01A", "fix login flow"))
@@ -21,7 +21,7 @@ func TestSessionTitles(t *testing.T) {
 		assert.Equal(t, map[string]string{"01A": "fix login flow"}, titles)
 	})
 
-	t.Run("upsert and clear", func(t *testing.T) {
+	t.Run("upsert_and_clear", func(t *testing.T) {
 		st := newTestStore(t)
 		ctx := t.Context()
 
@@ -38,7 +38,7 @@ func TestSessionTitles(t *testing.T) {
 		assert.Empty(t, titles)
 	})
 
-	t.Run("clips long input", func(t *testing.T) {
+	t.Run("clips_long_input", func(t *testing.T) {
 		st := newTestStore(t)
 
 		long := strings.Repeat("x", maxTitleRunes+50)
@@ -49,7 +49,7 @@ func TestSessionTitles(t *testing.T) {
 		assert.Len(t, titles["01A"], maxTitleRunes)
 	})
 
-	t.Run("requires id", func(t *testing.T) {
+	t.Run("requires_id", func(t *testing.T) {
 		st := newTestStore(t)
 
 		err := st.SetSessionTitle(t.Context(), "  ", "title")

@@ -25,8 +25,7 @@ func atZone(t *testing.T, name, clock string) time.Time {
 func TestSchedule(t *testing.T) {
 	t.Parallel()
 
-	t.Run("interval anchors on creation", func(t *testing.T) {
-		t.Parallel()
+	t.Run("interval_anchors_on_creation", func(t *testing.T) {
 		created := atZone(t, "UTC", "2025-05-01 12:00:00")
 		s := schedule{Kind: store.ScheduleInterval, Interval: 30 * time.Minute}
 
@@ -51,8 +50,7 @@ func TestSchedule(t *testing.T) {
 		}
 	})
 
-	t.Run("daily wall clock", func(t *testing.T) {
-		t.Parallel()
+	t.Run("daily_wall_clock", func(t *testing.T) {
 		loc := "America/New_York"
 		s := schedule{Kind: store.ScheduleDaily, DailyTime: "09:00", Loc: mustLoc(t, loc)}
 		created := atZone(t, loc, "2025-05-01 08:00:00")
@@ -76,8 +74,7 @@ func TestSchedule(t *testing.T) {
 		}
 	})
 
-	t.Run("daily dst edges", func(t *testing.T) {
-		t.Parallel()
+	t.Run("daily_dst_edges", func(t *testing.T) {
 		loc := "America/New_York"
 		s := schedule{Kind: store.ScheduleDaily, DailyTime: "02:30", Loc: mustLoc(t, loc)}
 
@@ -96,8 +93,7 @@ func TestSchedule(t *testing.T) {
 		assert.Equal(t, "07:30", next.UTC().Format("15:04")) // = 02:30 EST
 	})
 
-	t.Run("parse daily time", func(t *testing.T) {
-		t.Parallel()
+	t.Run("parse_daily_time", func(t *testing.T) {
 		tests := []struct {
 			name  string
 			raw   string
@@ -129,8 +125,7 @@ func TestSchedule(t *testing.T) {
 		}
 	})
 
-	t.Run("initial next per kind", func(t *testing.T) {
-		t.Parallel()
+	t.Run("initial_next_per_kind", func(t *testing.T) {
 		now := atZone(t, "UTC", "2025-05-01 12:00:00")
 
 		t.Run("once_keeps_its_slot", func(t *testing.T) {
@@ -143,7 +138,7 @@ func TestSchedule(t *testing.T) {
 			assert.True(t, next.Equal(slot))
 		})
 
-		t.Run("interval_first_fire_one_interval_out", func(t *testing.T) {
+		t.Run("interval_first_fire_out", func(t *testing.T) {
 			j := sampleJob(store.ScheduleInterval)
 			j.CreatedAt = now
 			j.IntervalSeconds = 600
@@ -152,7 +147,7 @@ func TestSchedule(t *testing.T) {
 			assert.True(t, next.Equal(now.Add(10*time.Minute)))
 		})
 
-		t.Run("daily_first_fire_is_next_wall_clock", func(t *testing.T) {
+		t.Run("daily_first_fire_next", func(t *testing.T) {
 			j := sampleJob(store.ScheduleDaily)
 			j.CreatedAt = now
 			j.DailyTime = "09:00"
@@ -163,9 +158,7 @@ func TestSchedule(t *testing.T) {
 		})
 	})
 
-	t.Run("validate job", func(t *testing.T) {
-		t.Parallel()
-
+	t.Run("validate_job", func(t *testing.T) {
 		tests := []struct {
 			name    string
 			mutate  func(j *store.Job)
@@ -224,8 +217,7 @@ func TestSchedule(t *testing.T) {
 		}
 	})
 
-	t.Run("validate normalizes defaults", func(t *testing.T) {
-		t.Parallel()
+	t.Run("validate_normalizes_defaults", func(t *testing.T) {
 		j := sampleJob(store.ScheduleInterval)
 		j.Name = "  nightly  "
 		j.Workspace = t.TempDir()
@@ -239,10 +231,10 @@ func TestSchedule(t *testing.T) {
 		j.SessionTarget = " 01ABC "
 		j.SpawnMode = "resume"
 		require.NoError(t, ValidateJob(&j))
+		assert.Equal(t, "01ABC", j.SessionTarget) // targets trim like names do
 	})
 
-	t.Run("preview interval anchors", func(t *testing.T) {
-		t.Parallel()
+	t.Run("preview_interval_anchors", func(t *testing.T) {
 		j := sampleJob(store.ScheduleInterval)
 		j.IntervalSeconds = 1800
 		j.CreatedAt = atZone(t, "UTC", "2025-05-01 12:00:00")
@@ -257,8 +249,7 @@ func TestSchedule(t *testing.T) {
 		assert.Equal(t, "2025-05-02 11:00", times[2].UTC().Format("2006-01-02 15:04"))
 	})
 
-	t.Run("preview daily dst", func(t *testing.T) {
-		t.Parallel()
+	t.Run("preview_daily_dst", func(t *testing.T) {
 		loc := "America/New_York"
 		j := sampleJob(store.ScheduleDaily)
 		j.DailyTime = "02:30"
@@ -289,8 +280,7 @@ func TestSchedule(t *testing.T) {
 		})
 	})
 
-	t.Run("preview once and errors", func(t *testing.T) {
-		t.Parallel()
+	t.Run("preview_once_and_errors", func(t *testing.T) {
 		now := atZone(t, "UTC", "2025-05-01 12:00:00")
 
 		t.Run("once_answers_its_slot", func(t *testing.T) {
@@ -333,9 +323,7 @@ func TestSchedule(t *testing.T) {
 		})
 	})
 
-	t.Run("check workspace", func(t *testing.T) {
-		t.Parallel()
-
+	t.Run("check_workspace", func(t *testing.T) {
 		t.Run("directory_passes", func(t *testing.T) {
 			require.NoError(t, CheckWorkspace(t.TempDir()))
 		})
@@ -344,9 +332,7 @@ func TestSchedule(t *testing.T) {
 		})
 	})
 
-	t.Run("parse weekdays", func(t *testing.T) {
-		t.Parallel()
-
+	t.Run("parse_weekdays", func(t *testing.T) {
 		t.Run("empty_means_every_day", func(t *testing.T) {
 			days, err := parseWeekdays("")
 			require.NoError(t, err)
@@ -374,8 +360,7 @@ func TestSchedule(t *testing.T) {
 		})
 	})
 
-	t.Run("daily with weekdays", func(t *testing.T) {
-		t.Parallel()
+	t.Run("daily_with_weekdays", func(t *testing.T) {
 		// 2025-05-01 is a Thursday; the restriction keeps mondays only
 		s := schedule{Kind: store.ScheduleDaily, DailyTime: "09:00",
 			Loc: mustLoc(t, "UTC"), Weekdays: []time.Weekday{time.Monday}}
@@ -398,8 +383,7 @@ func TestSchedule(t *testing.T) {
 		assert.Equal(t, "2025-05-12 09:00", next.Format("2006-01-02 15:04"))
 	})
 
-	t.Run("interval with weekdays", func(t *testing.T) {
-		t.Parallel()
+	t.Run("interval_with_weekdays", func(t *testing.T) {
 		// slots anchored hourly from thursday noon; only fridays may fire
 		created := atZone(t, "UTC", "2025-05-01 12:00:00")
 		s := schedule{Kind: store.ScheduleInterval, Interval: time.Hour,
@@ -419,9 +403,7 @@ func TestSchedule(t *testing.T) {
 		assert.Equal(t, "2025-05-09 00:00", next.Format("2006-01-02 15:04"))
 	})
 
-	t.Run("validate tools", func(t *testing.T) {
-		t.Parallel()
-
+	t.Run("validate_tools", func(t *testing.T) {
 		t.Run("custom_off_clears_tools", func(t *testing.T) {
 			j := sampleJob(store.ScheduleInterval)
 			j.Workspace = t.TempDir()
@@ -440,7 +422,7 @@ func TestSchedule(t *testing.T) {
 			assert.Equal(t, "builtin:read,web_search", j.Tools)
 		})
 
-		t.Run("custom_on_empty_runs_tool_less", func(t *testing.T) {
+		t.Run("custom_empty_runs_toolless", func(t *testing.T) {
 			j := sampleJob(store.ScheduleInterval)
 			j.Workspace = t.TempDir()
 			j.ToolsCustom = true // an empty list is a valid tool-less set
@@ -463,9 +445,7 @@ func TestSchedule(t *testing.T) {
 		})
 	})
 
-	t.Run("validate trigger fields", func(t *testing.T) {
-		t.Parallel()
-
+	t.Run("validate_trigger_fields", func(t *testing.T) {
 		tests := []struct {
 			name    string
 			mutate  func(j *store.Job)
@@ -514,8 +494,7 @@ func TestSchedule(t *testing.T) {
 		})
 	})
 
-	t.Run("weekdays default zone", func(t *testing.T) {
-		t.Parallel()
+	t.Run("weekdays_default_zone", func(t *testing.T) {
 		// interval schedules carry no Loc of their own; the weekday check must not
 		// panic on a nil location and answers in server-local time instead
 		created := time.Date(2025, 5, 1, 12, 0, 0, 0, time.Local) // a thursday

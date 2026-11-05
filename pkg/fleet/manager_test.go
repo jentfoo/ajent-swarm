@@ -98,18 +98,21 @@ type frame struct {
 	env wire
 }
 
-// readFrame pulls one frame; a stall fails through the timeout.
+// readFrame pulls one frame; a stall fails through the Eventually window.
 func readFrame(t *testing.T, in <-chan []byte) frame {
 	t.Helper()
-	select {
-	case b := <-in:
-		var f wire
-		require.NoError(t, json.Unmarshal(b, &f))
-		return frame{raw: b, env: f}
-	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for a frame")
-		return frame{}
-	}
+	var b []byte
+	require.Eventually(t, func() bool {
+		select {
+		case b = <-in:
+			return true
+		default:
+			return false
+		}
+	}, 2*time.Second, time.Millisecond)
+	var f wire
+	require.NoError(t, json.Unmarshal(b, &f))
+	return frame{raw: b, env: f}
 }
 
 // expectFrame drains frames until one of the wanted type arrives.
@@ -179,7 +182,7 @@ func waitForState(t *testing.T, m *Manager, sessionID, state string) {
 	}, 2*time.Second, testPoll)
 }
 func TestManager(t *testing.T) {
-	t.Run("attaches and serves init", func(t *testing.T) {
+	t.Run("attaches_and_serves_init", func(t *testing.T) {
 		m, home := newTestFleet(t, nil)
 		f := fleettest.New(t, home, fleettest.Options{SessionID: "01STUBSESSION00000000", Name: "fleet-test"})
 		first, second := stubEntries()
@@ -212,8 +215,8 @@ func TestManager(t *testing.T) {
 		assert.Equal(t, ctl.EventIdle, ev.env.Event.Name)
 	})
 
-	t.Run("seat policy", func(t *testing.T) {
-		t.Run("owned force claims seat", func(t *testing.T) {
+	t.Run("seat_policy", func(t *testing.T) {
+		t.Run("owned_force_claims_seat", func(t *testing.T) {
 			m, home := newTestFleet(t, func(inst ctl.Instance) bool { return inst.SessionID == "01OWNED00000000000" })
 			f := fleettest.New(t, home, fleettest.Options{SessionID: "01OWNED00000000000"})
 			f.WriteRegistry(t, os.Getpid(), time.Now())
@@ -222,7 +225,7 @@ func TestManager(t *testing.T) {
 			assert.Equal(t, holderName, f.SeatHolder())
 		})
 
-		t.Run("external sessions stay observers", func(t *testing.T) {
+		t.Run("external_sessions_stay_observers", func(t *testing.T) {
 			m, home := newTestFleet(t, nil)
 			f := fleettest.New(t, home, fleettest.Options{SessionID: "01EXTERNAL00000000"})
 			f.WriteRegistry(t, os.Getpid(), time.Now())
@@ -232,7 +235,7 @@ func TestManager(t *testing.T) {
 		})
 	})
 
-	t.Run("force claims once", func(t *testing.T) {
+	t.Run("force_claims_once", func(t *testing.T) {
 		m, home := newTestFleet(t, nil)
 		f := fleettest.New(t, home, fleettest.Options{SessionID: "01TAKECTRL00000000"})
 		f.WriteRegistry(t, os.Getpid(), time.Now())
@@ -248,7 +251,7 @@ func TestManager(t *testing.T) {
 		assert.Equal(t, holderName, f.SeatHolder())
 	})
 
-	t.Run("surfaces seat held", func(t *testing.T) {
+	t.Run("surfaces_seat_held", func(t *testing.T) {
 		m, home := newTestFleet(t, nil)
 		f := fleettest.New(t, home, fleettest.Options{SessionID: "01REFUSED000000000", Refuses: true})
 		f.WriteRegistry(t, os.Getpid(), time.Now())
@@ -261,7 +264,7 @@ func TestManager(t *testing.T) {
 		assert.Equal(t, ctl.CodeSeatHeld, wire.Code) // the UI renders the holder from this
 	})
 
-	t.Run("exit ends tracking cleanly", func(t *testing.T) {
+	t.Run("exit_ends_tracking_cleanly", func(t *testing.T) {
 		m, home := newTestFleet(t, nil)
 		f := fleettest.New(t, home, fleettest.Options{SessionID: "01EXITING00000000"})
 		first, second := stubEntries()
@@ -288,7 +291,7 @@ func TestManager(t *testing.T) {
 			60*time.Millisecond, testPoll)
 	})
 
-	t.Run("reconnect resnapshots without duplicates", func(t *testing.T) {
+	t.Run("reconnect_resnapshots_without_duplicates", func(t *testing.T) {
 		m, home := newTestFleet(t, nil)
 		f := fleettest.New(t, home, fleettest.Options{SessionID: "01DROPPING0000000"})
 		first, second := stubEntries()
@@ -312,7 +315,7 @@ func TestManager(t *testing.T) {
 		assert.Len(t, page, 2) // backfill plus overlapping live appends dedupe by id
 	})
 
-	t.Run("follows a restarted instance", func(t *testing.T) {
+	t.Run("follows_a_restarted_instance", func(t *testing.T) {
 		m, home := newTestFleet(t, nil)
 		old := fleettest.New(t, home, fleettest.Options{SessionID: "01RESTART00000000"})
 		first, second := stubEntries()
@@ -344,7 +347,7 @@ func TestManager(t *testing.T) {
 		assert.Equal(t, ctl.EventIdle, ev.env.Event.Name)
 	})
 
-	t.Run("never dials dead record", func(t *testing.T) {
+	t.Run("never_dials_dead_record", func(t *testing.T) {
 		m, home := newTestFleet(t, nil)
 
 		// a record whose pid is provably dead and old enough to judge: discovery
@@ -362,13 +365,13 @@ func TestManager(t *testing.T) {
 			60*time.Millisecond, testPoll)
 	})
 
-	t.Run("unknown session subscribe fails fast", func(t *testing.T) {
+	t.Run("unknown_session_subscribe_fails_fast", func(t *testing.T) {
 		m, _ := newTestFleet(t, nil)
 		_, err := m.Subscribe("01NOBODY00000000000", func([]byte) {}, func() {})
 		require.ErrorIs(t, err, ErrUnknownSession)
 	})
 
-	t.Run("two viewers see identical state", func(t *testing.T) {
+	t.Run("two_viewers_see_identical_state", func(t *testing.T) {
 		m, home := newTestFleet(t, nil)
 		f := fleettest.New(t, home, fleettest.Options{SessionID: "01TWOWATCH0000000", Name: "two"})
 		first, second := stubEntries()
@@ -418,7 +421,7 @@ func exitedRec(id string, pid int, at time.Time) ChildRecord {
 }
 
 func TestSessions(t *testing.T) {
-	t.Run("keeps exited pinned", func(t *testing.T) {
+	t.Run("keeps_exited_pinned", func(t *testing.T) {
 		m := New(Options{Log: testLogger()})
 		now := time.Now()
 		for _, rec := range []ChildRecord{
@@ -446,7 +449,7 @@ func TestSessions(t *testing.T) {
 		assert.Equal(t, "01EXITOLD0000000000", rows[2].SessionID)
 	})
 
-	t.Run("caps exited at four", func(t *testing.T) {
+	t.Run("caps_exited_at_four", func(t *testing.T) {
 		m := New(Options{Log: testLogger()})
 		now := time.Now()
 		for i := range 6 {
@@ -462,7 +465,7 @@ func TestSessions(t *testing.T) {
 		assert.Equal(t, "D-session-padding0", rows[maxExitedPinned-1].SessionID)
 	})
 
-	t.Run("hides replaced exited rows", func(t *testing.T) {
+	t.Run("hides_replaced_exited_rows", func(t *testing.T) {
 		m := New(Options{Log: testLogger()})
 		now := time.Now()
 		old := &childProc{rec: exitedRec("01SESSIONREUSED0000", 4401, now.Add(-time.Hour))}
@@ -480,7 +483,7 @@ func TestSessions(t *testing.T) {
 		assert.Equal(t, ChildOnline, rows[0].State) // the live instance owns the row
 	})
 
-	t.Run("external rows read as external", func(t *testing.T) {
+	t.Run("external_rows_read_as_external", func(t *testing.T) {
 		m := New(Options{Log: testLogger()})
 		now := time.Now()
 		m.externals[4601] = ChildRecord{
@@ -502,7 +505,7 @@ func TestSessions(t *testing.T) {
 		assert.Empty(t, st.LogPath)
 	})
 
-	t.Run("live row ignores stale record", func(t *testing.T) {
+	t.Run("live_row_ignores_stale_record", func(t *testing.T) {
 		m := New(Options{Log: testLogger()})
 		now := time.Now()
 		// an older instance's exited record beside its resumed replacement
@@ -534,8 +537,6 @@ func TestSessions(t *testing.T) {
 }
 
 func TestExternalRetention(t *testing.T) {
-	t.Parallel()
-
 	inst := ctl.Instance{
 		SessionID:   "01EXTRETAIN00000001",
 		SessionName: "daily-driver",
@@ -546,9 +547,7 @@ func TestExternalRetention(t *testing.T) {
 		Socket:      "/nonexistent/external.sock",
 	}
 
-	t.Run("gains row at first sighting", func(t *testing.T) {
-		t.Parallel()
-
+	t.Run("gains_row_at_first_sighting", func(t *testing.T) {
 		cs := newFakeChildStore()
 		live := true
 		m := externalFleet(t, cs, func() ([]ctl.Instance, error) {
@@ -585,9 +584,7 @@ func TestExternalRetention(t *testing.T) {
 		require.Len(t, rows, 1)
 	})
 
-	t.Run("drop marks the row exited", func(t *testing.T) {
-		t.Parallel()
-
+	t.Run("drop_marks_the_row_exited", func(t *testing.T) {
 		cs := newFakeChildStore()
 		live := true
 		m := externalFleet(t, cs, func() ([]ctl.Instance, error) {
@@ -616,9 +613,7 @@ func TestExternalRetention(t *testing.T) {
 		assert.Nil(t, rec.ExitCode)
 	})
 
-	t.Run("running external survives restart", func(t *testing.T) {
-		t.Parallel()
-
+	t.Run("running_external_survives_restart", func(t *testing.T) {
 		cs := newFakeChildStore()
 		live := func() ([]ctl.Instance, error) { return []ctl.Instance{inst}, nil }
 
@@ -643,9 +638,7 @@ func TestExternalRetention(t *testing.T) {
 		require.Len(t, rows, 1)
 	})
 
-	t.Run("shutdown pass skips marking", func(t *testing.T) {
-		t.Parallel()
-
+	t.Run("shutdown_pass_skips_marking", func(t *testing.T) {
 		cs := newFakeChildStore()
 		live := true
 		m := externalFleet(t, cs, func() ([]ctl.Instance, error) {
@@ -671,54 +664,55 @@ func TestExternalRetention(t *testing.T) {
 }
 
 func TestLastBusyAt(t *testing.T) {
-	t.Parallel()
 	m := New(Options{Log: testLogger()})
+	actor := func(lastTurnEnd int64, running bool) *sessionActor {
+		live := &sessionActor{}
+		live.key.sessionID = "01BUSYSESSION0000000"
+		live.status.Store(&Status{
+			SessionID:   live.key.sessionID,
+			State:       ChildOnline,
+			served:      true, // attached and streaming at least once
+			LastTurnEnd: lastTurnEnd,
+			Running:     running,
+		})
+		m.actors[actorKey{sessionID: live.key.sessionID, token: "t"}] = live
+		return live
+	}
 
-	// an empty fleet has never been busy
-	assert.True(t, m.LastBusyAt().IsZero())
-
-	now := time.Now()
-	live := &sessionActor{}
-	live.key.sessionID = "01BUSYSESSION0000000"
-	live.status.Store(&Status{
-		SessionID:   live.key.sessionID,
-		State:       ChildOnline,
-		served:      true, // attached and streaming at least once
-		LastTurnEnd: now.Add(-time.Minute).UnixMilli(),
+	t.Run("empty_fleet_never_busy", func(t *testing.T) {
+		assert.True(t, m.LastBusyAt().IsZero())
 	})
-	m.actors[actorKey{sessionID: live.key.sessionID, token: "t"}] = live
 
-	// a turn that ended a minute ago reads as busy
-	assert.False(t, m.LastBusyAt().IsZero())
-
-	// a long-quiet session stops counting once its turn end ages out of memory
-	live.status.Store(&Status{
-		SessionID:   live.key.sessionID,
-		State:       ChildOnline,
-		served:      true,
-		LastTurnEnd: now.Add(-time.Hour).UnixMilli(),
+	t.Run("recent_turn_end_busy", func(t *testing.T) {
+		now := time.Now()
+		actor(now.Add(-time.Minute).UnixMilli(), false)
+		assert.False(t, m.LastBusyAt().IsZero())
 	})
-	busy := m.LastBusyAt()
-	assert.False(t, busy.IsZero())
-	assert.LessOrEqual(t, busy.UnixMilli(), now.Add(-time.Hour).UnixMilli())
 
-	// an actively working session is busy right now
-	live.status.Store(&Status{
-		SessionID: live.key.sessionID,
-		State:     ChildOnline,
-		served:    true,
-		Running:   true,
+	t.Run("aged_turn_end_still_busy", func(t *testing.T) {
+		// a long-quiet session stops counting once its turn end ages out of memory
+		now := time.Now()
+		actor(now.Add(-time.Hour).UnixMilli(), false)
+		busy := m.LastBusyAt()
+		assert.False(t, busy.IsZero())
+		assert.LessOrEqual(t, busy.UnixMilli(), now.Add(-time.Hour).UnixMilli())
 	})
-	assert.Equal(t, time.Now().Round(time.Second), m.LastBusyAt().Round(time.Second))
 
-	// an exited actor is never busy
-	live.status.Store(&Status{
-		SessionID: live.key.sessionID,
-		State:     ChildExited,
-		served:    true,
-		Running:   true, // stale flag beside a terminal state still means ended
+	t.Run("running_actor_busy_now", func(t *testing.T) {
+		actor(time.Now().Add(-time.Hour).UnixMilli(), true)
+		assert.WithinDuration(t, time.Now(), m.LastBusyAt(), time.Second)
 	})
-	assert.True(t, m.LastBusyAt().IsZero())
+
+	t.Run("exited_actor_never_busy", func(t *testing.T) {
+		live := actor(time.Now().Add(-time.Hour).UnixMilli(), true)
+		live.status.Store(&Status{
+			SessionID: live.key.sessionID,
+			State:     ChildExited,
+			served:    true,
+			Running:   true, // stale flag beside a terminal state still means ended
+		})
+		assert.True(t, m.LastBusyAt().IsZero())
+	})
 }
 
 func expectRaw(t *testing.T, in <-chan []byte, want string) []byte {

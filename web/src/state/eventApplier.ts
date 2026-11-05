@@ -33,7 +33,6 @@ export interface DiffView {
 }
 
 interface ToolProgressView {
-  name?: string
   path?: string
   bytes?: number
   lines?: number
@@ -113,6 +112,12 @@ interface ChainInfo {
   ids: string[]
   rooted: boolean // false means older history exists beyond what we hold
   oldestId: string // '' when empty; paging uses it as its before cursor
+}
+
+// sessionBusy reports whether a session is mid-turn or parked at a spinner:
+// running tracks turn events while spinning reconciles only via snapshots.
+export function sessionBusy(snapshot: CtlState): boolean {
+  return snapshot.running || snapshot.spinning
 }
 
 export interface AppliedSessionState {
@@ -206,12 +211,14 @@ function zeroUsage() {
 
 // --- payload decoders; malformed payloads drop rather than corrupting state ---
 
-interface MessageEntryData {
+// MessageEntryData is a committed 'message' entry's data shape, decoded by
+// the reducer (queueIds) and transcript derivation (role, content, stop,
+// injected/replayed marking) alike.
+export interface MessageEntryData {
   message?: { role?: string; content?: unknown }
   stop?: string
   injected?: boolean
   replayed?: boolean
-  origin?: string
   queueIds?: string[]
 }
 

@@ -13,65 +13,67 @@ import (
 	fleettest "github.com/jentfoo/ajent-swarm/pkg/fleet/fleettest"
 )
 
+func TestSplitQuery(t *testing.T) {
+	t.Parallel()
+
+	cwd := "/home/you/project"
+	cases := []struct {
+		name          string
+		query         string
+		wantDir       string
+		wantBase      string
+		wantRelPrefix string
+	}{
+		{
+			name:          "empty_completes_the_working_directory",
+			query:         "",
+			wantDir:       cwd,
+			wantBase:      "",
+			wantRelPrefix: "",
+		},
+		{
+			name:          "bare_prefix_matches_in_cwd",
+			query:         "ma",
+			wantDir:       cwd,
+			wantBase:      "ma",
+			wantRelPrefix: "",
+		},
+		{
+			name:          "directory_path_completes_inside_it",
+			query:         "src/",
+			wantDir:       filepath.Join(cwd, "src"),
+			wantBase:      "",
+			wantRelPrefix: "src/",
+		},
+		{
+			name:          "partial_prefix_under_directory",
+			query:         "src/ma",
+			wantDir:       filepath.Join(cwd, "src"),
+			wantBase:      "ma",
+			wantRelPrefix: "src/",
+		},
+		{
+			name:          "absolute_paths_pass_through",
+			query:         "/etc/ng",
+			wantDir:       "/etc",
+			wantBase:      "ng",
+			wantRelPrefix: "/etc/",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir, base, relPrefix := splitQuery(cwd, tc.query)
+			assert.Equal(t, tc.wantDir, dir)
+			assert.Equal(t, tc.wantBase, base)
+			assert.Equal(t, tc.wantRelPrefix, relPrefix)
+		})
+	}
+}
+
 func TestFiles(t *testing.T) {
-	t.Run("split query", func(t *testing.T) {
-		cwd := "/home/you/project"
-		cases := []struct {
-			name          string
-			query         string
-			wantDir       string
-			wantBase      string
-			wantRelPrefix string
-		}{
-			{
-				name:          "empty completes the working directory",
-				query:         "",
-				wantDir:       cwd,
-				wantBase:      "",
-				wantRelPrefix: "",
-			},
-			{
-				name:          "bare prefix matches in cwd",
-				query:         "ma",
-				wantDir:       cwd,
-				wantBase:      "ma",
-				wantRelPrefix: "",
-			},
-			{
-				name:          "directory path completes inside it",
-				query:         "src/",
-				wantDir:       filepath.Join(cwd, "src"),
-				wantBase:      "",
-				wantRelPrefix: "src/",
-			},
-			{
-				name:          "partial name under a directory keeps the typed prefix",
-				query:         "src/ma",
-				wantDir:       filepath.Join(cwd, "src"),
-				wantBase:      "ma",
-				wantRelPrefix: "src/",
-			},
-			{
-				name:          "absolute paths pass through",
-				query:         "/etc/ng",
-				wantDir:       "/etc",
-				wantBase:      "ng",
-				wantRelPrefix: "/etc/",
-			},
-		}
-		for _, tc := range cases {
-			t.Run(tc.name, func(t *testing.T) {
-				dir, base, relPrefix := splitQuery(cwd, tc.query)
-				assert.Equal(t, tc.wantDir, dir)
-				assert.Equal(t, tc.wantBase, base)
-				assert.Equal(t, tc.wantRelPrefix, relPrefix)
-			})
-		}
-	})
+	// not parallel: newTestFleet pins the ajent home env var
 
-	t.Run("manager files", func(t *testing.T) {
-		// not parallel: newTestFleet pins the ajent home env var
-
+	t.Run("manager_files", func(t *testing.T) {
 		root := t.TempDir()
 		require.NoError(t, os.MkdirAll(filepath.Join(root, "src", "inner"), 0o700))
 		require.NoError(t, os.WriteFile(filepath.Join(root, "main.go"), []byte("x"), 0o600))
@@ -87,12 +89,12 @@ func TestFiles(t *testing.T) {
 		f.WriteRegistry(t, os.Getpid(), time.Now())
 		waitForState(t, m, f.SessionID(), ChildOnline)
 
-		t.Run("unknown session is refused", func(t *testing.T) {
+		t.Run("unknown_session_is_refused", func(t *testing.T) {
 			_, err := m.Files(t.Context(), "01NOBODY00000000", "")
 			assert.ErrorIs(t, err, ErrUnknownSession)
 		})
 
-		t.Run("empty query lists the cwd, hidden entries quiet", func(t *testing.T) {
+		t.Run("empty_query_lists_cwd", func(t *testing.T) {
 			items, err := m.Files(t.Context(), f.SessionID(), "")
 			require.NoError(t, err)
 			fragments := make([]string, 0, len(items))
@@ -102,14 +104,14 @@ func TestFiles(t *testing.T) {
 			assert.ElementsMatch(t, []string{"main.go", "src/"}, fragments)
 		})
 
-		t.Run("hidden entries surface when asked for", func(t *testing.T) {
+		t.Run("hidden_entries_when_asked", func(t *testing.T) {
 			items, err := m.Files(t.Context(), f.SessionID(), ".")
 			require.NoError(t, err)
 			assert.Len(t, items, 1)
 			assert.Equal(t, ".hidden", items[0].Path)
 		})
 
-		t.Run("prefix narrows and directories keep the slash", func(t *testing.T) {
+		t.Run("prefix_narrows_keep_slash", func(t *testing.T) {
 			items, err := m.Files(t.Context(), f.SessionID(), "sr")
 			require.NoError(t, err)
 			require.Len(t, items, 1)
@@ -122,7 +124,7 @@ func TestFiles(t *testing.T) {
 			assert.Equal(t, "src/inner/", inner[0].Path)
 		})
 
-		t.Run("unreadable directory answers empty", func(t *testing.T) {
+		t.Run("unreadable_directory_answers_empty", func(t *testing.T) {
 			items, err := m.Files(t.Context(), f.SessionID(), "nowhere/")
 			require.NoError(t, err)
 			assert.Empty(t, items)

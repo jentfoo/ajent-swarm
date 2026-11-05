@@ -165,12 +165,12 @@ func promptEntry(t *testing.T, id, parent, text string) fleettest.Entry {
 		session.MessageData{Message: llm.Text(llm.RoleUser, text)})
 }
 func TestSessionHandlers(t *testing.T) {
-	t.Run("submit handler", func(t *testing.T) {
+	t.Run("submit_handler", func(t *testing.T) {
 		h := newSessionAPI(t)
 		f := h.addSession("01SUBMIT00000000000", fleettest.Options{})
 		base := "/api/sessions/" + f.SessionID() + "/submit"
 
-		t.Run("success echoes the pending row id", func(t *testing.T) {
+		t.Run("echoes_pending_row_id", func(t *testing.T) {
 			code, res := post[submitReply](h, base,
 				submitRequest{Line: "explain this diff", PendingID: "c1"})
 			require.Equal(t, http.StatusAccepted, code)
@@ -182,56 +182,56 @@ func TestSessionHandlers(t *testing.T) {
 			assert.Equal(t, "c1", sent[0].PendingID) // the correlation rides upstream
 		})
 
-		t.Run("mints a pending id when absent", func(t *testing.T) {
+		t.Run("mints_pending_id_when_absent", func(t *testing.T) {
 			code, res := post[submitReply](h, base, submitRequest{Line: "again"})
 			require.Equal(t, http.StatusAccepted, code)
 			assert.NotEmpty(t, res.PendingID)
 		})
 
-		t.Run("empty line is refused", func(t *testing.T) {
+		t.Run("empty_line_is_refused", func(t *testing.T) {
 			code, body := post[errorBody](h, base, submitRequest{Line: "   "})
 			requireCoded(h, http.StatusBadRequest, "invalid_request", code, body)
 		})
 
-		t.Run("oversize pending id is refused", func(t *testing.T) {
+		t.Run("oversize_pending_id_is_refused", func(t *testing.T) {
 			code, body := post[errorBody](h, base,
 				submitRequest{Line: "hi", PendingID: string(make([]byte, maxPendingID+1))})
 			requireCoded(h, http.StatusBadRequest, "invalid_request", code, body)
 		})
 
-		t.Run("busy keeps its code", func(t *testing.T) {
+		t.Run("busy_keeps_its_code", func(t *testing.T) {
 			f.Refuse(ctl.MethodSubmit, ctl.CodeBusy, "prompt queue is full")
 			code, body := post[errorBody](h, base, submitRequest{Line: "hi"})
 			requireCoded(h, http.StatusConflict, ctl.CodeBusy, code, body)
 		})
 
-		t.Run("unknown session is 404 before dialing", func(t *testing.T) {
+		t.Run("unknown_session_404_first", func(t *testing.T) {
 			code, body := post[errorBody](h, "/api/sessions/01NOBODY00000000/submit",
 				submitRequest{Line: "hi"})
 			requireCoded(h, http.StatusNotFound, "session_not_found", code, body)
 		})
 	})
 
-	t.Run("interrupt handler", func(t *testing.T) {
+	t.Run("interrupt_handler", func(t *testing.T) {
 		h := newSessionAPI(t)
 		f := h.addSession("01INTERRUPT0000000", fleettest.Options{})
 		path := "/api/sessions/" + f.SessionID() + "/interrupt"
 
-		t.Run("names what stopped", func(t *testing.T) {
+		t.Run("names_what_stopped", func(t *testing.T) {
 			f.Result(ctl.MethodInterrupt, ctl.InterruptResult{Stopped: "shell"})
 			code, res := post[interruptReply](h, path, nil)
 			require.Equal(t, http.StatusOK, code)
 			assert.Equal(t, "shell", res.Stopped)
 		})
 
-		t.Run("empty when nothing ran", func(t *testing.T) {
+		t.Run("empty_when_nothing_ran", func(t *testing.T) {
 			f.Result(ctl.MethodInterrupt, ctl.InterruptResult{})
 			code, res := post[interruptReply](h, path, nil)
 			require.Equal(t, http.StatusOK, code)
 			assert.Empty(t, res.Stopped)
 		})
 
-		t.Run("a held seat is never displaced", func(t *testing.T) {
+		t.Run("held_seat_never_displaced", func(t *testing.T) {
 			held := h.newStub("01HELDSEAT00000000", fleettest.Options{Refuses: true})
 			h.serve(held)
 
@@ -241,19 +241,19 @@ func TestSessionHandlers(t *testing.T) {
 		})
 	})
 
-	t.Run("mode handler", func(t *testing.T) {
+	t.Run("mode_handler", func(t *testing.T) {
 		h := newSessionAPI(t)
 		f := h.addSession("01MODE0000000000000", fleettest.Options{})
 		path := "/api/sessions/" + f.SessionID() + "/mode"
 		f.Result(ctl.MethodModeCycle, ctl.ModeResult{Mode: "auto"})
 
-		t.Run("cycles forward with no body", func(t *testing.T) {
+		t.Run("cycles_forward_with_no_body", func(t *testing.T) {
 			code, res := post[ctl.ModeResult](h, path, nil)
 			require.Equal(t, http.StatusOK, code)
 			assert.Equal(t, "auto", res.Mode)
 		})
 
-		t.Run("back reaches upstream", func(t *testing.T) {
+		t.Run("back_reaches_upstream", func(t *testing.T) {
 			code, _ := post[ctl.ModeResult](h, path, map[string]bool{"back": true})
 			require.Equal(t, http.StatusOK, code)
 
@@ -263,7 +263,7 @@ func TestSessionHandlers(t *testing.T) {
 			assert.True(t, sent[1].Back)
 		})
 
-		t.Run("named mode jumps through upstream mode.set", func(t *testing.T) {
+		t.Run("named_mode_upstream_set", func(t *testing.T) {
 			before := len(f.Received())
 			f.Result(ctl.MethodModeSet, ctl.ModeResult{Mode: "allow-all"})
 			code, res := post[ctl.ModeResult](h, path, map[string]string{"mode": "allow-all"})
@@ -278,13 +278,13 @@ func TestSessionHandlers(t *testing.T) {
 		})
 	})
 
-	t.Run("rewind handler", func(t *testing.T) {
+	t.Run("rewind_handler", func(t *testing.T) {
 		h := newSessionAPI(t)
 		f := h.addSession("01REWIND00000000000", fleettest.Options{})
 		path := "/api/sessions/" + f.SessionID() + "/rewind"
 		f.Result(ctl.MethodRewind, ctl.RewindResult{Head: "m1"})
 
-		t.Run("reports the new head", func(t *testing.T) {
+		t.Run("reports_the_new_head", func(t *testing.T) {
 			code, res := post[rewindReply](h, path, rewindRequest{Head: "m1"})
 			require.Equal(t, http.StatusOK, code)
 			assert.Equal(t, "m1", res.Head)
@@ -294,30 +294,30 @@ func TestSessionHandlers(t *testing.T) {
 			assert.Equal(t, "m1", sent[0].Head)
 		})
 
-		t.Run("empty head is refused locally", func(t *testing.T) {
+		t.Run("empty_head_is_refused_locally", func(t *testing.T) {
 			code, body := post[errorBody](h, path, rewindRequest{})
 			requireCoded(h, http.StatusBadRequest, "invalid_request", code, body)
 		})
 
-		t.Run("a running turn keeps its refusal", func(t *testing.T) {
+		t.Run("running_turn_keeps_refusal", func(t *testing.T) {
 			f.Refuse(ctl.MethodRewind, ctl.CodeUnavailable, "a running turn owns the loop")
 			code, body := post[errorBody](h, path, rewindRequest{Head: "m1"})
 			requireCoded(h, http.StatusConflict, ctl.CodeUnavailable, code, body)
 		})
 
-		t.Run("unknown head is not found", func(t *testing.T) {
+		t.Run("unknown_head_is_not_found", func(t *testing.T) {
 			f.Refuse(ctl.MethodRewind, ctl.CodeNotFound, "no such entry")
 			code, body := post[errorBody](h, path, rewindRequest{Head: "gone"})
 			requireCoded(h, http.StatusNotFound, ctl.CodeNotFound, code, body)
 		})
 	})
 
-	t.Run("resolve handler", func(t *testing.T) {
+	t.Run("resolve_handler", func(t *testing.T) {
 		h := newSessionAPI(t)
 		f := h.addSession("01RESOLVE000000000", fleettest.Options{})
 		path := "/api/sessions/" + f.SessionID() + "/resolve"
 
-		t.Run("index shape passes through", func(t *testing.T) {
+		t.Run("index_shape_passes_through", func(t *testing.T) {
 			code, res := post[resolveReply](h, path, resolveRequest{DialogID: 7, Index: ptr(2)})
 			require.Equal(t, http.StatusOK, code)
 			assert.False(t, res.Settled)
@@ -329,7 +329,7 @@ func TestSessionHandlers(t *testing.T) {
 			assert.Equal(t, 2, *sent[0].Index)
 		})
 
-		t.Run("indexes shape passes through", func(t *testing.T) {
+		t.Run("indexes_shape_passes_through", func(t *testing.T) {
 			code, _ := post[resolveReply](h, path,
 				resolveRequest{DialogID: 8, Indexes: &[]int{1, 3}})
 			require.Equal(t, http.StatusOK, code)
@@ -340,55 +340,55 @@ func TestSessionHandlers(t *testing.T) {
 			assert.Equal(t, []int{1, 3}, *sent[1].Indexes)
 		})
 
-		t.Run("cancel resolves plainly", func(t *testing.T) {
+		t.Run("cancel_resolves_plainly", func(t *testing.T) {
 			code, res := post[resolveReply](h, path, resolveRequest{DialogID: 9, Cancel: true})
 			require.Equal(t, http.StatusOK, code)
 			assert.False(t, res.Settled)
 		})
 
-		t.Run("two shapes are a local bad request", func(t *testing.T) {
+		t.Run("two_shapes_local_400", func(t *testing.T) {
 			code, body := post[errorBody](h, path,
 				resolveRequest{DialogID: 7, Index: ptr(1), Cancel: true})
 			requireCoded(h, http.StatusBadRequest, "invalid_request", code, body)
 		})
 
-		t.Run("no shape is a local bad request", func(t *testing.T) {
+		t.Run("no_shape_local_400", func(t *testing.T) {
 			code, body := post[errorBody](h, path, resolveRequest{DialogID: 7})
 			requireCoded(h, http.StatusBadRequest, "invalid_request", code, body)
 		})
 
-		t.Run("chat without text is a local bad request", func(t *testing.T) {
+		t.Run("textless_chat_local_400", func(t *testing.T) {
 			code, body := post[errorBody](h, path,
 				resolveRequest{DialogID: 7, Cancel: true, Chat: true})
 			requireCoded(h, http.StatusBadRequest, "invalid_request", code, body)
 		})
 
-		t.Run("settled is success adjacent with a marker", func(t *testing.T) {
+		t.Run("settled_adjacent_marker", func(t *testing.T) {
 			f.Refuse(ctl.MethodResolve, ctl.CodeSettled, "first answer won")
 			code, res := post[resolveReply](h, path, resolveRequest{DialogID: 7, Cancel: true})
 			require.Equal(t, http.StatusOK, code)
 			assert.True(t, res.Settled)
 		})
 
-		t.Run("unknown dialog is not found", func(t *testing.T) {
+		t.Run("unknown_dialog_is_not_found", func(t *testing.T) {
 			f.Refuse(ctl.MethodResolve, ctl.CodeNotFound, "never seen")
 			code, body := post[errorBody](h, path, resolveRequest{DialogID: 99, Cancel: true})
 			requireCoded(h, http.StatusNotFound, ctl.CodeNotFound, code, body)
 		})
 	})
 
-	t.Run("recall handler", func(t *testing.T) {
+	t.Run("recall_handler", func(t *testing.T) {
 		h := newSessionAPI(t)
 		f := h.addSession("01RECALL00000000000", fleettest.Options{})
 		path := "/api/sessions/" + f.SessionID() + "/recall"
 
-		t.Run("empty result when nothing queued", func(t *testing.T) {
+		t.Run("empty_result_when_nothing_queued", func(t *testing.T) {
 			code, res := post[ctl.RecallResult](h, path, nil)
 			require.Equal(t, http.StatusOK, code)
 			assert.Empty(t, res.ID)
 		})
 
-		t.Run("popped row echoes whole", func(t *testing.T) {
+		t.Run("popped_row_echoes_whole", func(t *testing.T) {
 			f.Result(ctl.MethodQueueRecall, ctl.RecallResult{ID: "c1", Text: "queued prompt"})
 			code, res := post[ctl.RecallResult](h, path, nil)
 			require.Equal(t, http.StatusOK, code)
@@ -396,14 +396,14 @@ func TestSessionHandlers(t *testing.T) {
 			assert.Equal(t, "queued prompt", res.Text)
 		})
 
-		t.Run("unavailable refusal passes through", func(t *testing.T) {
+		t.Run("unavailable_refusal_passes_through", func(t *testing.T) {
 			f.Refuse(ctl.MethodQueueRecall, ctl.CodeUnavailable, "run still starting")
 			code, body := post[errorBody](h, path, nil)
 			requireCoded(h, http.StatusConflict, ctl.CodeUnavailable, code, body)
 		})
 	})
 
-	t.Run("snapshot handler", func(t *testing.T) {
+	t.Run("snapshot_handler", func(t *testing.T) {
 		h := newSessionAPI(t)
 		f := h.newStub("01SNAPSHOT00000000", fleettest.Options{})
 		f.SetSnapshot(ctl.State{
@@ -412,7 +412,7 @@ func TestSessionHandlers(t *testing.T) {
 		})
 		h.serve(f)
 
-		t.Run("matches the reconciled state", func(t *testing.T) {
+		t.Run("matches_the_reconciled_state", func(t *testing.T) {
 			code, st := get[fleet.StampedState](h, "/api/sessions/"+f.SessionID()+"/snapshot")
 			require.Equal(t, http.StatusOK, code)
 			assert.Equal(t, "p/m", st.Model.Key)
@@ -429,13 +429,13 @@ func TestSessionHandlers(t *testing.T) {
 			assert.Equal(t, string(want), string(got))
 		})
 
-		t.Run("unknown session is not found", func(t *testing.T) {
+		t.Run("unknown_session_is_not_found", func(t *testing.T) {
 			code, _ := get[fleet.StampedState](h, "/api/sessions/01NOBODY00000000/snapshot")
 			assert.Equal(t, http.StatusNotFound, code)
 		})
 	})
 
-	t.Run("snapshot under concurrent reads", func(t *testing.T) {
+	t.Run("snapshot_under_concurrent_reads", func(t *testing.T) {
 		h := newSessionAPI(t)
 		f := h.addSession("01SNAPCONC00000000", fleettest.Options{})
 
@@ -495,7 +495,7 @@ func TestSessionHandlers(t *testing.T) {
 		}
 	})
 
-	t.Run("candidates handler", func(t *testing.T) {
+	t.Run("candidates_handler", func(t *testing.T) {
 		h := newSessionAPI(t)
 
 		f := h.newStub("01CANDIDS00000000", fleettest.Options{})
@@ -542,7 +542,7 @@ func TestSessionHandlers(t *testing.T) {
 		requireCoded(h, http.StatusNotFound, "session_not_found", code, body)
 	})
 
-	t.Run("attention handler", func(t *testing.T) {
+	t.Run("attention_handler", func(t *testing.T) {
 		h := newSessionAPI(t)
 		f := h.newStub("01ATTENTION0000000", fleettest.Options{})
 		f.SetSnapshot(ctl.State{
@@ -575,7 +575,7 @@ func TestSessionHandlers(t *testing.T) {
 				row.LastStop == "end_turn" && row.Activity == "reading main.go"
 		}, 2*time.Second, 5*time.Millisecond)
 
-		t.Run("settled dialogs drop their digest facts", func(t *testing.T) {
+		t.Run("settled_drops_digest_facts", func(t *testing.T) {
 			f.Broadcast(ctl.EventInteractionSettled, ctl.InteractionSettledData{ID: 3, Kind: "decision", Answered: true})
 			require.Eventually(h.t, func() bool {
 				row := h.mgr.Attention()[0]
@@ -583,7 +583,7 @@ func TestSessionHandlers(t *testing.T) {
 			}, 2*time.Second, 5*time.Millisecond)
 		})
 
-		t.Run("digest text caps at one bounded line", func(t *testing.T) {
+		t.Run("digest_caps_one_line", func(t *testing.T) {
 			long := strings.Repeat("x", 400)
 			f.Broadcast(ctl.EventInteractionPending, ctl.InteractionPendingData{ID: 4, Prompt: long})
 			require.Eventually(h.t, func() bool {
@@ -594,20 +594,20 @@ func TestSessionHandlers(t *testing.T) {
 			assert.Len(t, []rune(row.DialogPrompt), fleet.MaxDigestText+1) // the ellipsis rides along
 		})
 
-		t.Run("exited sessions drop out", func(t *testing.T) {
+		t.Run("exited_sessions_drop_out", func(t *testing.T) {
 			f.Exit("all done")
 			require.Eventually(h.t, func() bool { return len(h.mgr.Attention()) == 0 },
 				2*time.Second, 5*time.Millisecond)
 		})
 	})
 
-	t.Run("models handler", func(t *testing.T) {
+	t.Run("models_handler", func(t *testing.T) {
 		h := newSessionAPI(t)
 		f := h.newStub("01MODELS0000000000", fleettest.Options{})
 		f.SetSnapshot(ctl.State{Model: ctl.ModelState{Key: "z/small", Short: "Zed Small"}})
 		h.serve(f)
 
-		t.Run("listing reads each snapshot", func(t *testing.T) {
+		t.Run("listing_reads_each_snapshot", func(t *testing.T) {
 			code, rows := get[[]fleet.ModelRow](h, "/api/models")
 			require.Equal(t, http.StatusOK, code)
 			require.Len(t, rows, 1)
@@ -615,7 +615,7 @@ func TestSessionHandlers(t *testing.T) {
 			assert.Equal(t, "z/small", rows[0].Current.Key)
 		})
 
-		t.Run("unknown session is not found", func(t *testing.T) {
+		t.Run("unknown_session_is_not_found", func(t *testing.T) {
 			resp := call(h.t, h.client, h.server.URL, http.MethodGet,
 				"/api/sessions/01NOBODY00000000/models", nil)
 			assert.Equal(t, http.StatusNotFound, resp.StatusCode)

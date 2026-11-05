@@ -79,7 +79,9 @@ func postAttachment(t *testing.T, client *http.Client, baseURL, sessionID string
 	return resp, out
 }
 func TestSessionAttachments(t *testing.T) {
-	t.Run("upload stores bytes under state dir", func(t *testing.T) {
+	t.Parallel()
+
+	t.Run("upload_stores_bytes", func(t *testing.T) {
 		server, client, dir := newTestAPIWithAttachments(t)
 		bootstrapAndLogin(t, client, server.URL)
 
@@ -104,7 +106,7 @@ func TestSessionAttachments(t *testing.T) {
 		assert.True(t, strings.HasPrefix(sessionDir, dir))
 	})
 
-	t.Run("drops hostile names", func(t *testing.T) {
+	t.Run("drops_hostile_names", func(t *testing.T) {
 		server, client, _ := newTestAPIWithAttachments(t)
 		bootstrapAndLogin(t, client, server.URL)
 
@@ -122,7 +124,7 @@ func TestSessionAttachments(t *testing.T) {
 		assert.Equal(t, "01-ABC_2", sanitizeAttachmentName("../01-ABC_2/"))
 	})
 
-	t.Run("rejects bad requests", func(t *testing.T) {
+	t.Run("rejects_bad_requests", func(t *testing.T) {
 		server, client, _ := newTestAPIWithAttachments(t)
 		bootstrapAndLogin(t, client, server.URL)
 
@@ -136,7 +138,7 @@ func TestSessionAttachments(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 	})
 
-	t.Run("name keeps only extension", func(t *testing.T) {
+	t.Run("name_keeps_only_extension", func(t *testing.T) {
 		now := time.Now()
 		name := attachmentName(now, "shot.PNG")
 		assert.Regexp(t, `^\d{8}-\d{6}-[0-9a-f]{16}\.PNG$`, name)
@@ -146,7 +148,7 @@ func TestSessionAttachments(t *testing.T) {
 		assert.Equal(t, "png", sanitizeAttachmentExt(".p/n/g?."))
 	})
 
-	t.Run("sanitize empty edge cases", func(t *testing.T) {
+	t.Run("sanitize_empty_edge_cases", func(t *testing.T) {
 		for _, in := range []string{"", ".", "..", "/"} {
 			assert.Empty(t, sanitizeAttachmentName(in))
 		}

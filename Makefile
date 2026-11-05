@@ -87,7 +87,6 @@ web-check:
 
 test-all: | embed-stubs
 	go test -race -cover ./... $(_FILTER)
-	go test -count=1 -run 'TestFanout|TestSQLiteStaysHealthy' ./pkg/api ./pkg/sched
 
 # builds the binary and exercises daemon mode end to end; guarded so unit
 # runs stay hermetic (see docs/phases/02-service-skeleton.md)

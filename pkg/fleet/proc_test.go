@@ -12,7 +12,9 @@ import (
 )
 
 func TestProc(t *testing.T) {
-	t.Run("launch argv", func(t *testing.T) {
+	t.Parallel()
+
+	t.Run("launch_argv", func(t *testing.T) {
 		tests := []struct {
 			name string
 			req  LaunchRequest
@@ -46,7 +48,7 @@ func TestProc(t *testing.T) {
 		}
 	})
 
-	t.Run("command prefix", func(t *testing.T) {
+	t.Run("command_prefix", func(t *testing.T) {
 		tests := []struct {
 			name   string
 			prefix string
@@ -85,7 +87,7 @@ func TestProc(t *testing.T) {
 		}
 	})
 
-	t.Run("shell quote through sh", func(t *testing.T) {
+	t.Run("shell_quote_through_sh", func(t *testing.T) {
 		// the quoting contract, proven against a real shell: every hostile arg
 		// must survive as one literal word
 		args := []string{"", "plain", `two words`, `$HOME`, "`whoami`", "a'b\"c",
@@ -101,7 +103,7 @@ func TestProc(t *testing.T) {
 		assert.Equal(t, strings.Join(args, "\n")+"\n", string(out))
 	})
 
-	t.Run("launch validate", func(t *testing.T) {
+	t.Run("launch_validate", func(t *testing.T) {
 		dir := t.TempDir()
 		file := filepath.Join(dir, "not-a-dir")
 		require.NoError(t, os.WriteFile(file, nil, 0o600))

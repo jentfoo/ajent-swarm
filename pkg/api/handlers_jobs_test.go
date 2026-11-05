@@ -36,16 +36,18 @@ type scriptRunner struct {
 	watched   chan struct{} // closed when the run's watcher subscribes
 
 	block chan struct{}
+	ctx   context.Context // launch ctx, canceled with the test
 }
 
-func (r *scriptRunner) Launch(_ context.Context, _ fleet.LaunchRequest) (fleet.LaunchResult, error) {
+func (r *scriptRunner) Launch(ctx context.Context, _ fleet.LaunchRequest) (fleet.LaunchResult, error) {
 	r.mu.Lock()
 	gate := r.block
+	r.ctx = ctx
 	r.mu.Unlock()
 	if gate != nil {
 		select {
 		case <-gate:
-		case <-time.After(5 * time.Second):
+		case <-ctx.Done(): // cleanup closed the gate or canceled the run
 		}
 	}
 	return fleet.LaunchResult{SessionID: r.session}, nil
@@ -69,7 +71,7 @@ func (r *scriptRunner) Submit(_ context.Context, _ string, params ctl.SubmitPara
 func (r *scriptRunner) playLanding(pid string) {
 	select { // a run that never subscribed has no landing to deliver
 	case <-r.watched:
-	case <-time.After(5 * time.Second):
+	case <-r.ctx.Done():
 		return
 	}
 
@@ -250,7 +252,9 @@ func (env *schedEnv) releaseLaunches() {
 	}
 }
 func TestJobHandlers(t *testing.T) {
-	t.Run("job crud", func(t *testing.T) {
+	t.Parallel()
+
+	t.Run("job_crud", func(t *testing.T) {
 		env, client := newSchedEnv(t)
 
 		t.Run("create_validates_and_schedules", func(t *testing.T) {
@@ -360,7 +364,7 @@ func TestJobHandlers(t *testing.T) {
 			assert.False(t, j.NextRunAt.Equal(*created.NextRunAt))
 		})
 
-		t.Run("delete_removes_job_but_keeps_runs", func(t *testing.T) {
+		t.Run("delete_keeps_runs", func(t *testing.T) {
 			created := env.createJob(t, client, "doomed", nil)
 			done := env.fireAndWait(t, client, created.ID)
 
@@ -387,7 +391,7 @@ func TestJobHandlers(t *testing.T) {
 		})
 	})
 
-	t.Run("manual fire endpoint", func(t *testing.T) {
+	t.Run("manual_fire_endpoint", func(t *testing.T) {
 		env, client := newSchedEnv(t)
 
 		created := env.createJob(t, client, "fired", map[string]any{
@@ -439,7 +443,7 @@ func TestJobHandlers(t *testing.T) {
 		})
 	})
 
-	t.Run("runs listing endpoint", func(t *testing.T) {
+	t.Run("runs_listing_endpoint", func(t *testing.T) {
 		env, client := newSchedEnv(t)
 
 		a := env.createJob(t, client, "job-a", nil)
@@ -485,7 +489,7 @@ func TestJobHandlers(t *testing.T) {
 		})
 	})
 
-	t.Run("route rejects wrong method", func(t *testing.T) {
+	t.Run("route_rejects_wrong_method", func(t *testing.T) {
 		env, client := newSchedEnv(t)
 
 		code, _ := callJSON[struct{}](t, client, env.server.URL,
@@ -499,7 +503,7 @@ func TestJobHandlers(t *testing.T) {
 		assert.Equal(t, http.StatusNotFound, code)
 	})
 
-	t.Run("preview endpoint", func(t *testing.T) {
+	t.Run("preview_endpoint", func(t *testing.T) {
 		env, client := newSchedEnv(t)
 
 		t.Run("interval_slots_march", func(t *testing.T) {
@@ -577,7 +581,7 @@ func TestJobHandlers(t *testing.T) {
 		})
 	})
 
-	t.Run("empty lists encode arrays", func(t *testing.T) {
+	t.Run("empty_lists_encode_arrays", func(t *testing.T) {
 		// run history with nothing recorded must answer [] not null: the UI's
 		// filter selects and table renders read plain arrays off these endpoints
 		env, client := newSchedEnv(t)

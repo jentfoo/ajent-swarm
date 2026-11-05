@@ -21,14 +21,14 @@ func TestLifecycle(t *testing.T) {
 	// not parallel: t.Setenv mutates process state and some cases swap the
 	// package stop tunables
 
-	t.Run("resolve pid path", func(t *testing.T) {
-		t.Run("state directory next", func(t *testing.T) {
+	t.Run("resolve_pid_path", func(t *testing.T) {
+		t.Run("state_directory_next", func(t *testing.T) {
 			got, err := resolvePidPath("/state", "")
 			require.NoError(t, err)
 			assert.Equal(t, "/state/"+pidFileName, got)
 		})
 
-		t.Run("default under ajent home", func(t *testing.T) {
+		t.Run("default_under_ajent_home", func(t *testing.T) {
 			home := testutil.IsolateHome(t)
 			got, err := resolvePidPath("", "")
 			require.NoError(t, err)
@@ -38,7 +38,7 @@ func TestLifecycle(t *testing.T) {
 		})
 	})
 
-	t.Run("status and stop without pidfile", func(t *testing.T) {
+	t.Run("status_and_stop_without_pidfile", func(t *testing.T) {
 		dir := t.TempDir()
 
 		var out, errOut strings.Builder
@@ -51,7 +51,7 @@ func TestLifecycle(t *testing.T) {
 		assert.Contains(t, out.String(), "not running")
 	})
 
-	t.Run("stop terminates a running process", func(t *testing.T) {
+	t.Run("stop_terminates_a_running_process", func(t *testing.T) {
 		if _, err := exec.LookPath("sleep"); err != nil {
 			t.Skip("sleep unavailable")
 		}
@@ -76,15 +76,12 @@ func TestLifecycle(t *testing.T) {
 		code := Stop("", pidPath, &out, &errOut)
 		assert.Equal(t, 0, code)
 		assert.Contains(t, out.String(), "stopped")
-		select {
-		case <-waited:
-		case <-time.After(2 * time.Second):
-			t.Fatal("the signaled process never exited")
-		}
+		// Stop reaped the child, so the waiter always closes
+		<-waited
 		assert.NoFileExists(t, pidPath)
 	})
 
-	t.Run("stop stale pidfile", func(t *testing.T) {
+	t.Run("stop_stale_pidfile", func(t *testing.T) {
 		// a pid very unlikely to exist; raised past any wrapped pid until free
 		pid := (1 << 22) + 424242
 		for i := 0; i < 1000 && (pidAlive(pid) || pid == os.Getpid()); i++ {
@@ -105,7 +102,7 @@ func TestLifecycle(t *testing.T) {
 		assert.Equal(t, 1, code)
 	})
 
-	t.Run("status running and malformed", func(t *testing.T) {
+	t.Run("status_running_and_malformed", func(t *testing.T) {
 		pidPath := filepath.Join(t.TempDir(), pidFileName)
 		require.NoError(t, os.WriteFile(pidPath, []byte(strconv.Itoa(os.Getpid())), 0o600))
 

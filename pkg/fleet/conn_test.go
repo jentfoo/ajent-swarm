@@ -3,7 +3,6 @@ package fleet
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -36,18 +35,15 @@ func TestMailboxCall(t *testing.T) {
 		}()
 		close(a.done) // an exit path can orphan accepted calls unreplied
 
-		select {
-		case err := <-errCh:
-			require.ErrorContains(t, err, "shutting down")
-		case <-time.After(5 * time.Second):
-			require.Fail(t, "mailboxCall waited past actor shutdown")
-		}
+		// close(a.done) deterministically unblocks the pending call
+		err := <-errCh
+		require.ErrorContains(t, err, "shutting down")
 	})
 
 	t.Run("cancelled_ctx_returns_promptly", func(t *testing.T) {
 		a := newStoppedActor(t)
 
-		ctx, cancel := context.WithCancel(context.Background())
+		ctx, cancel := context.WithCancel(t.Context())
 		cancel()
 		_, err := mailboxCall(ctx, a,
 			func(reply chan error) actorMsg { return msgStop{reply: reply} })

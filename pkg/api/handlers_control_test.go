@@ -15,7 +15,7 @@ import (
 )
 
 func TestSessionControl(t *testing.T) {
-	t.Run("models endpoint", func(t *testing.T) {
+	t.Run("models_endpoint", func(t *testing.T) {
 		h := newSessionAPI(t)
 		f := h.addSession("01MODELS00000000000", fleettest.Options{})
 		f.Result(ctl.MethodModelsGet, ctl.ModelsData{
@@ -34,7 +34,7 @@ func TestSessionControl(t *testing.T) {
 		assert.Equal(t, http.StatusNotFound, code)
 	})
 
-	t.Run("model set endpoint", func(t *testing.T) {
+	t.Run("model_set_endpoint", func(t *testing.T) {
 		h := newSessionAPI(t)
 		f := h.addSession("01MODELSET0000000000", fleettest.Options{})
 		f.Result(ctl.MethodModelSet, ctl.ModelSetResult{
@@ -61,7 +61,7 @@ func TestSessionControl(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, code)
 	})
 
-	t.Run("tools endpoint", func(t *testing.T) {
+	t.Run("tools_endpoint", func(t *testing.T) {
 		h := newSessionAPI(t)
 		f := h.addSession("01TOOLS000000000000", fleettest.Options{})
 		f.Result(ctl.MethodToolsSet, ctl.ToolsSetResult{Rows: []ctl.ToolState{
@@ -85,7 +85,7 @@ func TestSessionControl(t *testing.T) {
 		assert.JSONEq(t, `{"names":["read_file"]}`, string(setReq.Params))
 	})
 
-	t.Run("settings endpoints", func(t *testing.T) {
+	t.Run("settings_endpoints", func(t *testing.T) {
 		h := newSessionAPI(t)
 		f := h.addSession("01SETTINGS0000000000", fleettest.Options{})
 		f.Result(ctl.MethodSettingsGet, ctl.SettingsData{Rows: []ctl.SettingRow{
@@ -115,7 +115,7 @@ func TestSessionControl(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, code)
 	})
 
-	t.Run("title writes swarm storage", func(t *testing.T) {
+	t.Run("title_writes_swarm_storage", func(t *testing.T) {
 		h := newSessionAPI(t)
 		f := h.addSession("01TITLEDROW0000000", fleettest.Options{})
 
@@ -159,7 +159,7 @@ func TestSessionControl(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest, code)
 	})
 
-	t.Run("title without store refused", func(t *testing.T) {
+	t.Run("title_without_store_refused", func(t *testing.T) {
 		// a manager without a title store refuses renames loudly at the API too
 		mgr := fleet.New(fleet.Options{
 			Log:      testLogger(),

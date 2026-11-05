@@ -21,9 +21,7 @@ func TestHandler(t *testing.T) {
 
 	handler := Handler()
 
-	t.Run("serves documents and assets", func(t *testing.T) {
-		t.Parallel()
-
+	t.Run("serves_documents_and_assets", func(t *testing.T) {
 		tests := []struct {
 			name       string
 			path       string
@@ -32,18 +30,16 @@ func TestHandler(t *testing.T) {
 			wantType   string // expected Content-Type prefix, empty to skip
 			wantBody   string // substring of the body when set
 		}{
-			{name: "root serves index", path: "/", wantStatus: 200, wantType: "text/html", wantBody: "<!doctype html>"},
-			{name: "spa route falls back", path: "/sessions/abc", wantStatus: 200, wantType: "text/html", wantBody: "<!doctype html>"},
-			{name: "directory style spa route", path: "/sessions/", wantStatus: 200, wantType: "text/html", wantBody: "<!doctype html>"},
-			{name: "favicon served", path: "/favicon.svg", wantStatus: 200, wantType: "image/svg"},
-			{name: "missing asset not found", path: "/nope.js", wantStatus: 404},
-			{name: "traversal stays contained", path: "/../pkg/auth/auth.go", wantStatus: 404},
-			{name: "post rejected", path: "/", method: http.MethodPost, wantStatus: 405},
+			{name: "root_serves_index", path: "/", wantStatus: 200, wantType: "text/html", wantBody: "<!doctype html>"},
+			{name: "spa_route_falls_back", path: "/sessions/abc", wantStatus: 200, wantType: "text/html", wantBody: "<!doctype html>"},
+			{name: "directory_style_spa_route", path: "/sessions/", wantStatus: 200, wantType: "text/html", wantBody: "<!doctype html>"},
+			{name: "favicon_served", path: "/favicon.svg", wantStatus: 200, wantType: "image/svg"},
+			{name: "missing_asset_not_found", path: "/nope.js", wantStatus: 404},
+			{name: "traversal_stays_contained", path: "/../pkg/auth/auth.go", wantStatus: 404},
+			{name: "post_rejected", path: "/", method: http.MethodPost, wantStatus: 405},
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				t.Parallel()
-
 				method := tt.method
 				if method == "" {
 					method = http.MethodGet
@@ -65,9 +61,7 @@ func TestHandler(t *testing.T) {
 		}
 	})
 
-	t.Run("document asset references resolve", func(t *testing.T) {
-		t.Parallel()
-
+	t.Run("document_asset_references_resolve", func(t *testing.T) {
 		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
@@ -88,9 +82,7 @@ func TestHandler(t *testing.T) {
 		}
 	})
 
-	t.Run("head carries no body", func(t *testing.T) {
-		t.Parallel()
-
+	t.Run("head_carries_no_body", func(t *testing.T) {
 		req := httptest.NewRequestWithContext(t.Context(), http.MethodHead, "/", nil)
 		rec := httptest.NewRecorder()
 		Handler().ServeHTTP(rec, req)

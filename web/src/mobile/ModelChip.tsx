@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { ApiError } from '../api/client'
 import { sessions as sessionAPI } from '../api/endpoints'
 import type { CtlState, ModelState } from '../api/types'
+import { sessionBusy } from '../state/eventApplier'
 import { ModelMenuItems } from '../ui/ModelMenuItems'
 import { Spinner } from '../session/Spinner'
 
@@ -29,7 +30,7 @@ export function ModelChip({
     active: string
   } | null>(null)
   const [busy, setBusy] = useState(false) // a model.set is in flight
-  const working = snap.running || snap.spinning
+  const working = sessionBusy(snap)
   const menuRef = useRef<HTMLSpanElement>(null)
 
   useEffect(() => {

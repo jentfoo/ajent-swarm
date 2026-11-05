@@ -288,7 +288,7 @@ func (a *sessionActor) prepare(conn *client.Conn, hello ctl.Hello) error {
 	a.inst.PID = hello.PID
 	a.transcript = hello.TranscriptPath
 	if a.mgr.ownedInstance(a.inst) { // spawned by swarm: force-claim as holder swarm
-		cctx, cancel := context.WithTimeout(a.ctx, client.CallWait)
+		cctx, cancel := a.callWait()
 		defer cancel()
 		if _, err := conn.ClaimSeat(cctx, holderName, true); err != nil {
 			return fmt.Errorf("force claim seat: %w", err)
@@ -511,7 +511,7 @@ func (a *sessionActor) handleTakeControl(msg msgTakeControl) {
 		msg.reply <- notReady()
 		return
 	}
-	cctx, cancel := context.WithTimeout(a.ctx, client.CallWait)
+	cctx, cancel := a.callWait()
 	defer cancel()
 	if _, err := a.conn.ClaimSeat(cctx, holderName, true); err != nil {
 		msg.reply <- err // seat-held keeps its holder name for the UI
@@ -534,7 +534,7 @@ func (a *sessionActor) handleStop(msg msgStop) {
 		msg.reply <- err // seat-held names its holder
 		return
 	}
-	cctx, cancel := context.WithTimeout(a.ctx, client.CallWait)
+	cctx, cancel := a.callWait()
 	defer cancel()
 	msg.reply <- a.conn.Submit(cctx, ctl.SubmitParams{Line: stopLine})
 }

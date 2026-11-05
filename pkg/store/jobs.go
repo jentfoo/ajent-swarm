@@ -55,27 +55,27 @@ type Job struct {
 	Workspace           string     `json:"workspace"`
 	CommandPrefix       string     `json:"commandPrefix,omitempty"`
 	Prompt              string     `json:"prompt,omitempty"`
-	SpawnMode           string     `json:"spawnMode"` // fleet launch mode: new, resume, continue, session
+	SpawnMode           string     `json:"spawnMode"` // new, resume, continue or session
 	SessionTarget       string     `json:"sessionTarget,omitempty"`
 	Model               string     `json:"model,omitempty"`
 	Permission          string     `json:"permission,omitempty"`
-	Tools               string     `json:"tools,omitempty"` // comma list of enabled tool names; custom sets only
-	ToolsCustom         bool       `json:"toolsCustom"`     // off keeps the launched session's default set
+	Tools               string     `json:"tools,omitempty"` // enabled tool names
+	ToolsCustom         bool       `json:"toolsCustom"`     // off keeps the launch defaults
 	Enabled             bool       `json:"enabled"`
 	ScheduleKind        string     `json:"scheduleKind"` // once, interval or daily
 	IntervalSeconds     int        `json:"intervalSeconds,omitempty"`
 	DailyTime           string     `json:"dailyTime,omitempty"` // HH:MM wall clock in TZ
 	TZ                  string     `json:"tz,omitempty"`        // IANA name; empty means server local
-	Weekdays            string     `json:"weekdays,omitempty"`  // comma list of sun..sat; empty = every day
+	Weekdays            string     `json:"weekdays,omitempty"`  // sun..sat; empty = every day
 	NextRunAt           *time.Time `json:"nextRunAt"`
 	OnMissed            string     `json:"onMissed"`
 	Overlap             string     `json:"overlap"`
 	TimeoutMinutes      int        `json:"timeoutMinutes,omitempty"`
 	KeepAlive           bool       `json:"keepAlive"`
-	RunWhenIdle         bool       `json:"runWhenIdle"`                   // hold fires until the fleet is quiet
-	IdleMaxDelaySeconds int        `json:"idleMaxDelaySeconds,omitempty"` // past this wait the fire skips; 0 waits forever
-	TriggerCommand      string     `json:"triggerCommand,omitempty"`      // shell gate run before each launch
-	TriggerOn           string     `json:"triggerOn,omitempty"`           // success (exit zero) or error (non-zero)
+	RunWhenIdle         bool       `json:"runWhenIdle"`                   // fire only when idle
+	IdleMaxDelaySeconds int        `json:"idleMaxDelaySeconds,omitempty"` // idle wait cap; 0=forever
+	TriggerCommand      string     `json:"triggerCommand,omitempty"`      // pre-launch shell gate
+	TriggerOn           string     `json:"triggerOn,omitempty"`           // success (zero) or error
 	CreatedAt           time.Time  `json:"createdAt"`
 }
 

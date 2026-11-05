@@ -19,7 +19,7 @@ import (
 )
 
 func TestNamer(t *testing.T) {
-	t.Run("sanitize session title", func(t *testing.T) {
+	t.Run("sanitize_session_title", func(t *testing.T) {
 		cases := []struct {
 			name string
 			in   string
@@ -47,7 +47,7 @@ func TestNamer(t *testing.T) {
 		}
 	})
 
-	t.Run("titles from first prompt", func(t *testing.T) {
+	t.Run("titles_from_first_prompt", func(t *testing.T) {
 		store := newTitleMemStore()
 		owned := func(inst ctl.Instance) bool { return inst.SessionID == "01AUTOTITLE0000000" }
 		bin, _ := fakeNamerBin(t)
@@ -86,8 +86,8 @@ func TestNamer(t *testing.T) {
 		}
 	})
 
-	t.Run("adopted session auto titles", func(t *testing.T) {
-		t.Run("names from backfill", func(t *testing.T) {
+	t.Run("adopted_session_auto_titles", func(t *testing.T) {
+		t.Run("names_from_backfill", func(t *testing.T) {
 			store := newTitleMemStore()
 			bin, runs := fakeNamerBin(t)
 			m, home := newTestFleetWithTitlesAndBin(t, store, bin, nil)
@@ -121,7 +121,7 @@ func TestNamer(t *testing.T) {
 			}
 		})
 
-		t.Run("stored title skips run", func(t *testing.T) {
+		t.Run("stored_title_skips_run", func(t *testing.T) {
 			store := newTitleMemStore()
 			bin, runs := fakeNamerBin(t)
 			m, home := newTestFleetWithTitlesAndBin(t, store, bin, nil)
@@ -139,7 +139,7 @@ func TestNamer(t *testing.T) {
 			require.Never(t, func() bool { return runs() > 0 }, 60*time.Millisecond, testPoll)
 		})
 
-		t.Run("no prompt waits for append", func(t *testing.T) {
+		t.Run("no_prompt_waits_for_append", func(t *testing.T) {
 			store := newTitleMemStore()
 			bin, runs := fakeNamerBin(t)
 			m, home := newTestFleetWithTitlesAndBin(t, store, bin, nil)
@@ -169,7 +169,7 @@ func TestNamer(t *testing.T) {
 		})
 	})
 
-	t.Run("skipped without bin", func(t *testing.T) {
+	t.Run("skipped_without_bin", func(t *testing.T) {
 		store := newTitleMemStore()
 		m, home := newTestFleetWithTitles(t, store)
 

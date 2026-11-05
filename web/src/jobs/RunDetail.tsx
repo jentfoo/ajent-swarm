@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router'
 
-import type { Run, SessionStatus } from '../api/types'
+import { childEnded, type Run, type SessionStatus } from '../api/types'
 import { useSwarm } from '../providers/swarm'
 import { runStatusClass, formatDuration, formatTimestamp } from './schedule'
 import { TranscriptPreview } from './TranscriptPreview'
@@ -85,7 +85,7 @@ function RunSessionFacts({
   showTranscript: boolean
   onShowTranscript: () => void
 }) {
-  const live = status !== undefined && status.state !== 'exited' && status.state !== 'gone'
+  const live = status !== undefined && !childEnded(status.state)
   return (
     <>
       <h3>Session</h3>

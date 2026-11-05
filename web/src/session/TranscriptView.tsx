@@ -114,11 +114,9 @@ export function TranscriptView({
     const el = scrollRef.current
     if (!el) return
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < stickGap
-    // Only a genuine upward scroll disengages autoscroll. Every other
-    // above-the-gap reading is a transient of programmatic adjustment or
-    // content growth: thinking blocks expanding and collapsing and the
-    // virtualizer compensating both move scrollTop mid-pin, and treating
-    // those as user scrolls is what used to drop the follow mid-stream.
+    // Only a genuine upward scroll disengages autoscroll: programmatic
+    // adjustments (thinking blocks expanding and collapsing, the virtualizer
+    // compensating) also move scrollTop above the gap without user intent.
     if (atBottom) {
       setStuck(true)
     } else if (el.scrollTop < lastTopRef.current) {

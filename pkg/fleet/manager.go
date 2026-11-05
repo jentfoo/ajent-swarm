@@ -782,16 +782,11 @@ func childStatus(rec ChildRecord) Status {
 		PID:       rec.PID,
 		State:     ChildReconnecting,
 		Detail:    "waiting for its control socket",
-		SpawnedBy: rec.spawnedBy(),
-		Argv:      rec.Argv,
-		LogPath:   rec.LogPath,
-		ExitCode:  rec.ExitCode,
-		LogTail:   rec.LogTail,
 	}
+	decorateChild(&st, rec)
 	if !rec.ExitedAt.IsZero() {
 		st.State = ChildExited
 		st.Detail = rec.ExitNote
-		st.ExitedAt = rec.ExitedAt.UnixMilli()
 	}
 	return st
 }

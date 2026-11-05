@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { ReactElement } from 'react'
 
 import type { CtlState } from '../api/types'
+import { sessionBusy } from '../state/eventApplier'
 import type { LiveTurn } from '../state/eventApplier'
 
 // The TUI's working glyph: the same braille frames at the same cadence, so
@@ -16,7 +17,7 @@ type SpinState = 'idle' | 'wait' | 'stream' | 'tool'
 // what a stale live buffer paints, and while working the buffer only refines
 // the color (tool first, then streamed output, then wait).
 export function spinnerState(snap: CtlState, live?: LiveTurn | null): SpinState {
-  if (!snap.running && !snap.spinning) return 'idle'
+  if (!sessionBusy(snap)) return 'idle'
   const toolRunning = (live?.tools ?? []).some((t) => t.result === undefined && !t.closed)
   if (toolRunning) return 'tool'
   if (live && (live.thinking !== '' || live.text !== '')) return 'stream'

@@ -11,7 +11,7 @@ import (
 func TestAuthSessions(t *testing.T) {
 	t.Parallel()
 
-	t.Run("create and get", func(t *testing.T) {
+	t.Run("create_and_get", func(t *testing.T) {
 		s := newTestStore(t)
 		ctx := t.Context()
 		now := time.Unix(1_700_000_000, 0)
@@ -31,7 +31,7 @@ func TestAuthSessions(t *testing.T) {
 		require.ErrorIs(t, err, ErrNotFound)
 	})
 
-	t.Run("touch slides expiry", func(t *testing.T) {
+	t.Run("touch_slides_expiry", func(t *testing.T) {
 		s := newTestStore(t)
 		ctx := t.Context()
 		now := time.Unix(1_700_000_000, 0)
@@ -74,7 +74,7 @@ func TestAuthSessions(t *testing.T) {
 		require.NoError(t, s.DeleteAuthSession(ctx, "aaaa"))
 	})
 
-	t.Run("delete expired", func(t *testing.T) {
+	t.Run("delete_expired", func(t *testing.T) {
 		s := newTestStore(t)
 		ctx := t.Context()
 		now := time.Unix(1_700_000_000, 0)

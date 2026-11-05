@@ -55,7 +55,7 @@ func (s *titleMemStore) snapshot() map[string]string {
 	return maps.Clone(s.titles)
 }
 func TestTitles(t *testing.T) {
-	t.Run("manager titles", func(t *testing.T) {
+	t.Run("manager_titles", func(t *testing.T) {
 		store := newTitleMemStore()
 		m, home := newTestFleetWithTitles(t, store)
 
@@ -77,7 +77,7 @@ func TestTitles(t *testing.T) {
 		assert.Empty(t, rows[0].Title)
 	})
 
-	t.Run("titles survive restart", func(t *testing.T) {
+	t.Run("titles_survive_restart", func(t *testing.T) {
 		store := newTitleMemStore()
 		m := New(Options{Log: testLogger(), TitleStore: store})
 		ctx, cancel := context.WithCancel(t.Context())
@@ -94,13 +94,13 @@ func TestTitles(t *testing.T) {
 		assert.Equal(t, "couch session", m2.titleFor("01TITLED0000000000"))
 	})
 
-	t.Run("titles require store", func(t *testing.T) {
+	t.Run("titles_require_store", func(t *testing.T) {
 		m := New(Options{Log: testLogger()})
 		err := m.SetTitle(t.Context(), "01A", "x")
 		require.ErrorIs(t, err, ErrNoTitleStore)
 	})
 
-	t.Run("set title validation", func(t *testing.T) {
+	t.Run("set_title_validation", func(t *testing.T) {
 		store := newTitleMemStore()
 		m := New(Options{Log: testLogger(), TitleStore: store})
 		ctx := t.Context()

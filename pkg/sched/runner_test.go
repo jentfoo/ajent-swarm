@@ -106,7 +106,7 @@ func (h *testHarness) runRow(id int64) store.Run {
 	return run
 }
 func TestRunner(t *testing.T) {
-	t.Run("settles on landing then idle", func(t *testing.T) {
+	t.Run("settles_on_landing_then_idle", func(t *testing.T) {
 		h := newHarness(t, nil)
 		j := sampleJob(store.ScheduleOnce)
 		run := h.seedRun(h.addJob("watch", nil))
@@ -120,7 +120,7 @@ func TestRunner(t *testing.T) {
 		assert.Empty(t, note)
 	})
 
-	t.Run("records awaiting input", func(t *testing.T) {
+	t.Run("records_awaiting_input", func(t *testing.T) {
 		// a dialog that stays open parks the row for the UI to see, until its
 		// bounded timeout lands
 		h := newHarness(t, func(o *Options) { o.RunTimeoutDefault = 30 * time.Millisecond })
@@ -147,7 +147,7 @@ func TestRunner(t *testing.T) {
 		assert.Equal(t, store.RunOK, status)
 	})
 
-	t.Run("landing via init entries", func(t *testing.T) {
+	t.Run("landing_via_init_entries", func(t *testing.T) {
 		h := newHarness(t, nil)
 		j := sampleJob(store.ScheduleOnce)
 		run := h.seedRun(h.addJob("watch", nil))
@@ -161,7 +161,7 @@ func TestRunner(t *testing.T) {
 		assert.Equal(t, store.RunOK, status)
 	})
 
-	t.Run("init settles a landed idle session", func(t *testing.T) {
+	t.Run("init_settles_landed_idle", func(t *testing.T) {
 		h := newHarness(t, nil)
 		j := sampleJob(store.ScheduleOnce)
 		run := h.seedRun(h.addJob("watch", nil))
@@ -178,7 +178,7 @@ func TestRunner(t *testing.T) {
 		assert.Empty(t, note)
 	})
 
-	t.Run("fails on prompt drop", func(t *testing.T) {
+	t.Run("fails_on_prompt_drop", func(t *testing.T) {
 		h := newHarness(t, nil)
 		j := sampleJob(store.ScheduleOnce)
 		run := h.seedRun(h.addJob("watch", nil))
@@ -191,7 +191,7 @@ func TestRunner(t *testing.T) {
 		assert.Contains(t, note, "interrupt")
 	})
 
-	t.Run("fails on early exit", func(t *testing.T) {
+	t.Run("fails_on_early_exit", func(t *testing.T) {
 		h := newHarness(t, nil)
 		j := sampleJob(store.ScheduleOnce)
 		run := h.seedRun(h.addJob("watch", nil))
@@ -212,7 +212,7 @@ func TestRunner(t *testing.T) {
 		assert.Equal(t, store.RunOK, status)
 	})
 
-	t.Run("timeout notes", func(t *testing.T) {
+	t.Run("timeout_notes", func(t *testing.T) {
 		h := newHarness(t, func(o *Options) { o.RunTimeoutDefault = 30 * time.Millisecond })
 		j := sampleJob(store.ScheduleOnce)
 
@@ -235,7 +235,7 @@ func TestRunner(t *testing.T) {
 		})
 	})
 
-	t.Run("ignores unrelated traffic", func(t *testing.T) {
+	t.Run("ignores_unrelated_traffic", func(t *testing.T) {
 		h := newHarness(t, func(o *Options) { o.RunTimeoutDefault = 30 * time.Millisecond })
 		j := sampleJob(store.ScheduleOnce)
 		run := h.seedRun(h.addJob("watch", nil))
@@ -250,7 +250,7 @@ func TestRunner(t *testing.T) {
 		assert.Equal(t, store.RunTimeout, status) // our landing never came
 	})
 
-	t.Run("fails when submit never lands", func(t *testing.T) {
+	t.Run("fails_when_submit_never_lands", func(t *testing.T) {
 		h := newHarness(t, func(o *Options) { o.RunTimeoutDefault = 50 * time.Millisecond })
 		j := sampleJob(store.ScheduleOnce)
 		run := h.seedRun(h.addJob("watch", nil))
@@ -267,7 +267,7 @@ func TestRunner(t *testing.T) {
 		assert.Contains(t, note, "never accepted")
 	})
 
-	t.Run("applies custom tools before submit", func(t *testing.T) {
+	t.Run("applies_custom_tools_before_submit", func(t *testing.T) {
 		h := newHarness(t, nil)
 		id := h.fireWithTools("tooled", " web_search , builtin:read ")
 		h.start(t.Context())
@@ -285,7 +285,7 @@ func TestRunner(t *testing.T) {
 		assert.Equal(t, []string{"tools", "submit"}, ops)
 	})
 
-	t.Run("default job never touches tools", func(t *testing.T) {
+	t.Run("default_job_never_touches_tools", func(t *testing.T) {
 		h := newHarness(t, nil)
 		id := h.addJob("default-tools", func(j *store.Job) {
 			j.Prompt = "run the checks"
@@ -302,7 +302,7 @@ func TestRunner(t *testing.T) {
 		assert.Empty(h.t, toolsSets) // session defaults stay untouched
 	})
 
-	t.Run("tools set failure fails the run", func(t *testing.T) {
+	t.Run("tools_failure_fails_run", func(t *testing.T) {
 		h := newHarness(t, nil)
 		h.runner.toolsSetErr = errors.New("no tool gate on this session") // not retriable
 		id := h.fireWithTools("tooled-broken", "builtin:read")
@@ -318,7 +318,7 @@ func TestRunner(t *testing.T) {
 		assert.Empty(h.t, submits)
 	})
 
-	t.Run("submit retries through refusals", func(t *testing.T) {
+	t.Run("submit_retries_through_refusals", func(t *testing.T) {
 		h := newHarness(t, nil)
 		// a resumed session whose old dialog is still open refuses briefly
 		h.runner.submitFailN = 2
@@ -342,7 +342,7 @@ func TestRunner(t *testing.T) {
 		assert.NotEmpty(t, got.SessionID)
 	})
 
-	t.Run("end to end through fleet", func(t *testing.T) {
+	t.Run("end_to_end_through_fleet", func(t *testing.T) {
 		// one run against a real manager and stub server, so the watcher consumes
 		// genuinely encoded frames from a live actor; not parallel, since it pins
 		// AJENT_HOME for the process-wide discovery default
@@ -383,7 +383,7 @@ func TestRunner(t *testing.T) {
 		assert.True(t, strings.HasPrefix(submits[1], "/exit")) // swarm's stop line
 	})
 
-	t.Run("parks at dialog through fleet", func(t *testing.T) {
+	t.Run("parks_at_dialog_through_fleet", func(t *testing.T) {
 		// the awaiting_input transition against a stub holding a dialog open: the
 		// row parks for the UI to see instead of failing; not parallel (AJENT_HOME)
 		env, _ := newE2ESched(t, nil)

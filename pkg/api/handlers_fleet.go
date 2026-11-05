@@ -1,11 +1,9 @@
 package api
 
 import (
-	"errors"
 	"net/http"
 	"strconv"
 
-	"github.com/jentfoo/ajent-swarm/pkg/fleet"
 	"github.com/jentfoo/ajent/pkg/ctl"
 )
 
@@ -26,12 +24,11 @@ func (s *apiServer) handleSessionEntries(w http.ResponseWriter, r *http.Request)
 	}
 	entries, cursor, err := s.fleet.Entries(r.Context(), r.PathValue("id"), r.URL.Query().Get("before"), limit)
 	switch {
-	case errors.Is(err, fleet.ErrUnknownSession):
-		writeError(w, http.StatusNotFound, "session_not_found", "")
-	case err != nil:
-		writeError(w, http.StatusInternalServerError, "internal_error", "reading entries failed")
-	default:
+	case err == nil:
 		writeJSON(w, http.StatusOK, entriesPage{Entries: entries, Cursor: cursor})
+	case writeCommandFailure(w, err):
+	default:
+		writeError(w, http.StatusInternalServerError, "internal_error", "")
 	}
 }
 

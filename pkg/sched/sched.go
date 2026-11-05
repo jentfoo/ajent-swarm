@@ -309,7 +309,7 @@ func (s *Scheduler) FireNow(ctx context.Context, jobID int64) (store.Run, error)
 
 	s.log.Info("manual fire", "job", j.Name)
 	s.wg.Add(1)
-	go s.execute(run, j) //nolint:contextcheck // runs outlive the request ctx; execute binds its own contexts
+	go s.execute(run, j) //nolint:contextcheck // runs outlive the caller's ctx
 	return run, nil
 }
 

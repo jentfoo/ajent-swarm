@@ -4,6 +4,7 @@ import type * as React from 'react'
 import { ApiError } from '../api/client'
 import { sessions as sessionAPI } from '../api/endpoints'
 import type { CtlState, ModelState } from '../api/types'
+import { sessionBusy } from '../state/eventApplier'
 import { MenuPopover } from '../ui/MenuPopover'
 import { ModelMenuItems } from '../ui/ModelMenuItems'
 import { shortID } from './names'
@@ -31,7 +32,7 @@ export function StatusHeader({
   children?: React.ReactNode
 }) {
   const [busy, setBusy] = useState(false)
-  const working = snap.running || snap.spinning
+  const working = sessionBusy(snap)
 
   const interrupt = async () => {
     setBusy(true)

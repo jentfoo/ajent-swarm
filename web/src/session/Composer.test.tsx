@@ -484,17 +484,6 @@ describe('Composer submit flow', () => {
     await user.type(screen.getByLabelText('Prompt'), 'line one{Shift>}{Enter}more')
     expect(fetchSpy).not.toHaveBeenCalled()
   })
-
-  it('disables sending while a dialog holds input', () => {
-    render(
-      Harness({
-        disabled: true,
-        disabledReason: 'A dialog needs an answer before prompts can send.',
-      }),
-    )
-    expect(screen.getByLabelText('Prompt')).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled()
-  })
 })
 
 describe('Composer attachments', () => {

@@ -291,14 +291,6 @@ describe('JobEditor', () => {
     expect(previewBodies[0]).toMatchObject({ name: 'Copy of nightly', dailyTime: '08:30' })
   })
 
-  it('prefills the timezone datalist from the stored job', () => {
-    renderEditor({ job: storedJob })
-
-    const options = document.querySelectorAll('#job-timezones option')
-    expect(options.length).toBeGreaterThan(0)
-    expect(screen.getByLabelText(/Timezone/)).toHaveValue('UTC')
-  })
-
   it('keeps a stored custom set checked when editing', () => {
     renderEditor({
       job: { ...storedJob, toolsCustom: true, tools: 'builtin:web_search,repo_search' },

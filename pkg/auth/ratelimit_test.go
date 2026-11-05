@@ -11,7 +11,7 @@ import (
 func TestFailLimiter(t *testing.T) {
 	t.Parallel()
 
-	t.Run("allows within budget", func(t *testing.T) {
+	t.Run("allows_within_budget", func(t *testing.T) {
 		now := time.Unix(0, 0)
 		l := NewFailLimiter(3, time.Minute)
 		l.now = func() time.Time { return now }
@@ -39,7 +39,7 @@ func TestFailLimiter(t *testing.T) {
 		assert.True(t, l.Allow("a"))
 	})
 
-	t.Run("spray stays bounded", func(t *testing.T) {
+	t.Run("spray_stays_bounded", func(t *testing.T) {
 		now := time.Unix(0, 0)
 		l := NewFailLimiter(1, time.Minute)
 		l.now = func() time.Time { return now }
@@ -52,7 +52,7 @@ func TestFailLimiter(t *testing.T) {
 		assert.Len(t, l.wins, limiterMaxTracked)
 	})
 
-	t.Run("retry after", func(t *testing.T) {
+	t.Run("retry_after", func(t *testing.T) {
 		now := time.Unix(0, 0)
 		l := NewFailLimiter(1, time.Minute)
 		l.now = func() time.Time { return now }
@@ -65,7 +65,7 @@ func TestFailLimiter(t *testing.T) {
 		assert.Equal(t, time.Duration(0), l.RetryAfter("k"))
 	})
 
-	t.Run("prune keeps map bounded", func(t *testing.T) {
+	t.Run("prune_keeps_map_bounded", func(t *testing.T) {
 		now := time.Unix(0, 0)
 		l := NewFailLimiter(1, time.Minute)
 		l.now = func() time.Time { return now }

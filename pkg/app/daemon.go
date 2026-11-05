@@ -61,8 +61,7 @@ func daemonize(opts Options, argv []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
-	// no deadline on purpose: the child outlives this process by design and
-	// its readiness is bounded separately below
+	// no deadline: the child owns its lifetime; readiness is bounded below
 	cmd := exec.Command(exe, argv...) //nolint:noctx // detached daemon child, lifetime owned by itself
 	cmd.Env = append(os.Environ(),
 		daemonChildEnv+"=1",

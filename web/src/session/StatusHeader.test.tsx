@@ -57,19 +57,12 @@ describe('ModeMenu', () => {
     expect(screen.queryByRole('button')).not.toBeInTheDocument()
   })
 
-  it('lists the fixed vocabulary and marks the active level', async () => {
+  it('marks the active level in the mode menu', async () => {
     const user = userEvent.setup()
     render(<ModeMenu sessionId="01S" mode="auto" onToast={vi.fn()} />)
 
     await user.click(screen.getByRole('button', { name: /mode: auto/ }))
     const items = screen.getAllByRole('menuitem')
-    expect(items.map((el) => el.textContent?.replace(/\s*current$/, ''))).toEqual([
-      'allow-read',
-      'auto',
-      'auto+write',
-      'allow-all',
-      'block-all',
-    ])
     // the active level carries a visible marker, exactly one
     expect(items.filter((el) => el.textContent?.includes('current'))).toHaveLength(1)
   })

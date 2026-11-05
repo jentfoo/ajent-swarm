@@ -28,7 +28,7 @@ func (a settingsStore) SetSetting(ctx context.Context, key, value string) error 
 }
 
 func TestSettingsHandlers(t *testing.T) {
-	t.Run("global settings endpoints", func(t *testing.T) {
+	t.Run("global_settings_endpoints", func(t *testing.T) {
 		h := newSessionAPI(t)
 
 		code, got := get[struct {
@@ -62,7 +62,7 @@ func TestSettingsHandlers(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, code)
 	})
 
-	t.Run("model options endpoint", func(t *testing.T) {
+	t.Run("model_options_endpoint", func(t *testing.T) {
 		h := newSessionAPI(t)
 		f := h.addSession("01MODELOPTS000000000", fleettest.Options{})
 		f.Result(ctl.MethodModelsGet, ctl.ModelsData{
@@ -82,7 +82,7 @@ func TestSettingsHandlers(t *testing.T) {
 		assert.Equal(t, "haiku", got[0].Short)
 	})
 
-	t.Run("tool options endpoint", func(t *testing.T) {
+	t.Run("tool_options_endpoint", func(t *testing.T) {
 		h := newSessionAPI(t)
 		// snapshots seed each actor's view at attach, so they precede serving; the
 		// two sessions share one tool name, which the union must collapse
@@ -113,7 +113,7 @@ func TestSettingsHandlers(t *testing.T) {
 		assert.Equal(t, "web_search", got[2].Name)
 	})
 
-	t.Run("model lists empty fleet body", func(t *testing.T) {
+	t.Run("model_lists_empty_fleet_body", func(t *testing.T) {
 		h := newSessionAPI(t)
 
 		for _, path := range []string{"/api/models", "/api/models/options", "/api/tools/options"} {

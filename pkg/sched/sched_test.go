@@ -53,7 +53,7 @@ func newFakeRunner() *fakeRunner {
 	return &fakeRunner{sessionID: "01RUNFAKESESSION00"}
 }
 
-func (f *fakeRunner) Launch(_ context.Context, req fleet.LaunchRequest) (fleet.LaunchResult, error) {
+func (f *fakeRunner) Launch(ctx context.Context, req fleet.LaunchRequest) (fleet.LaunchResult, error) {
 	f.mu.Lock()
 	f.launches = append(f.launches, req)
 	gate := f.blockLaunch
@@ -62,7 +62,7 @@ func (f *fakeRunner) Launch(_ context.Context, req fleet.LaunchRequest) (fleet.L
 	if gate != nil {
 		select {
 		case <-gate:
-		case <-time.After(5 * time.Second):
+		case <-ctx.Done(): // cleanup closed the gate or canceled the run
 		}
 	}
 	if f.launchErr != nil {
@@ -296,7 +296,7 @@ func (h *testHarness) requireNoRefire(jobID int64) {
 	}, noRefireWindow, 20*time.Millisecond)
 }
 func TestScheduler(t *testing.T) {
-	t.Run("fires interval job once", func(t *testing.T) {
+	t.Run("fires_interval_job_once", func(t *testing.T) {
 		h := newHarness(t, nil)
 		h.start(t.Context())
 
@@ -317,7 +317,7 @@ func TestScheduler(t *testing.T) {
 		assert.True(t, j.NextRunAt.After(run.StartedAt))
 	})
 
-	t.Run("survives restart without double firing", func(t *testing.T) {
+	t.Run("survives_restart_without_double_firing", func(t *testing.T) {
 		h := newHarness(t, nil)
 		ctx := t.Context()
 
@@ -338,7 +338,7 @@ func TestScheduler(t *testing.T) {
 		assert.Len(t, h.runRows(id), 1)
 	})
 
-	t.Run("missed policy skips", func(t *testing.T) {
+	t.Run("missed_policy_skips", func(t *testing.T) {
 		h := newHarness(t, func(o *Options) { o.MissedGrace = time.Second })
 		h.start(t.Context())
 
@@ -356,7 +356,7 @@ func TestScheduler(t *testing.T) {
 		assert.True(t, j.NextRunAt.After(run.StartedAt))
 	})
 
-	t.Run("missed policy fires late", func(t *testing.T) {
+	t.Run("missed_policy_fires_late", func(t *testing.T) {
 		h := newHarness(t, func(o *Options) { o.MissedGrace = time.Second })
 		h.start(t.Context())
 
@@ -374,7 +374,7 @@ func TestScheduler(t *testing.T) {
 		assert.True(t, next.After(run.StartedAt))
 	})
 
-	t.Run("once job fires and clears", func(t *testing.T) {
+	t.Run("once_job_fires_and_clears", func(t *testing.T) {
 		h := newHarness(t, func(o *Options) { o.MissedGrace = time.Second })
 		h.start(t.Context())
 
@@ -400,7 +400,7 @@ func TestScheduler(t *testing.T) {
 		assert.Contains(t, skipped.Error, "one-shot missed")
 	})
 
-	t.Run("global run limit", func(t *testing.T) {
+	t.Run("global_run_limit", func(t *testing.T) {
 		gate := make(chan struct{})
 		h := newHarness(t, func(o *Options) { o.MaxConcurrent = 1 })
 		h.runner.blockLaunch = gate
@@ -423,7 +423,7 @@ func TestScheduler(t *testing.T) {
 		assert.Contains(t, run.Error, "global run limit")
 	})
 
-	t.Run("manual fire works for disabled jobs", func(t *testing.T) {
+	t.Run("manual_fire_disabled_job", func(t *testing.T) {
 		h := newHarness(t, nil)
 		h.start(t.Context())
 
@@ -457,7 +457,7 @@ func TestScheduler(t *testing.T) {
 		assert.Contains(t, stopped, "01RUNFAKESESSION00")
 	})
 
-	t.Run("manual fire refuses when overlapping", func(t *testing.T) {
+	t.Run("manual_fire_refuses_when_overlapping", func(t *testing.T) {
 		gate := make(chan struct{})
 		h := newHarness(t, nil)
 		h.runner.blockLaunch = gate
@@ -475,7 +475,7 @@ func TestScheduler(t *testing.T) {
 		require.ErrorIs(t, err, store.ErrLiveRun)
 	})
 
-	t.Run("launch failure records reason", func(t *testing.T) {
+	t.Run("launch_failure_records_reason", func(t *testing.T) {
 		h := newHarness(t, nil)
 		h.runner.launchErr = errors.New("spawn ajent: binary missing")
 		h.start(t.Context())
@@ -495,9 +495,10 @@ func TestScheduler(t *testing.T) {
 		assert.True(t, next.After(run.StartedAt))
 	})
 
-	t.Run("nudge fires enabled job promptly", func(t *testing.T) {
+	t.Run("nudge_fires_enabled_job_promptly", func(t *testing.T) {
 		h := newHarness(t, nil)
 		id := h.addJob("nudged", func(j *store.Job) {
+			j.IntervalSeconds = 3600 // no cadence refire may race the row count
 			slot := time.Now().Add(10 * time.Millisecond)
 			j.NextRunAt = &slot
 		})
@@ -522,7 +523,7 @@ func TestScheduler(t *testing.T) {
 			10*time.Second, 10*time.Millisecond)
 	})
 
-	t.Run("run when idle waits for quiet", func(t *testing.T) {
+	t.Run("run_when_idle_waits_quiet", func(t *testing.T) {
 		h := newHarness(t, nil)
 		// the fleet is busy right now: nothing may fire while the window holds
 		h.runner.mu.Lock()
@@ -551,7 +552,7 @@ func TestScheduler(t *testing.T) {
 		require.NotNil(t, h.jobByID(id).NextRunAt)
 	})
 
-	t.Run("idle past delay cap skips", func(t *testing.T) {
+	t.Run("idle_past_delay_cap_skips", func(t *testing.T) {
 		h := newHarness(t, nil)
 		h.runner.mu.Lock()
 		h.runner.busyAt = time.Now() // busy for the whole test
@@ -574,7 +575,7 @@ func TestScheduler(t *testing.T) {
 		require.NotNil(t, h.jobByID(id).NextRunAt)
 	})
 
-	t.Run("idle without cap never skips", func(t *testing.T) {
+	t.Run("idle_without_cap_never_skips", func(t *testing.T) {
 		h := newHarness(t, nil)
 		h.runner.mu.Lock()
 		h.runner.busyAt = time.Now().Add(-2 * time.Hour) // idle already: fires at once
@@ -590,7 +591,7 @@ func TestScheduler(t *testing.T) {
 		h.waitForRun(id, store.RunOK)
 	})
 
-	t.Run("trigger command gate", func(t *testing.T) {
+	t.Run("trigger_command_gate", func(t *testing.T) {
 		t.Run("success_gate_runs_on_zero", func(t *testing.T) {
 			h := newHarness(t, nil)
 			slot := time.Now().Add(10 * time.Millisecond)

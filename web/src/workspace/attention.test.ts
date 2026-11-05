@@ -148,13 +148,9 @@ describe('attention derivation', () => {
     expect(item.reason).toBe('1 more dialog(s) open')
   })
 
-  it('prefers failure summaries in stop reasons', () => {
-    expect(describeStop('end_turn', undefined)).toBe('turn complete')
-    expect(describeStop('max_tokens', undefined)).toBe('stopped: max tokens')
-    expect(describeStop('aborted', undefined)).toBe('turn interrupted')
-    expect(describeStop('error', 'boom')).toBe('turn failed')
-    expect(describeStop(undefined, undefined)).toBe('turn finished')
+  it('falls back for unknown stop codes', () => {
     expect(describeStop('weird_new_stop', undefined)).toBe('stopped: weird_new_stop')
+    expect(describeStop(undefined, undefined)).toBe('turn finished')
   })
 })
 

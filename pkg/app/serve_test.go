@@ -22,7 +22,7 @@ func quietLogger() *slog.Logger {
 func TestServe(t *testing.T) {
 	// not parallel: t.Setenv mutates process state
 
-	t.Run("daemon log copytruncates", func(t *testing.T) {
+	t.Run("daemon_log_copytruncates", func(t *testing.T) {
 		// the daemon child's inherited stderr rides the log file its parent
 		// opened, so startLogRotation copytruncates it on a cadence
 		t.Setenv(daemonChildEnv, "1")
@@ -50,7 +50,7 @@ func TestServe(t *testing.T) {
 		assert.Len(t, one, 96)
 	})
 
-	t.Run("disabled cap leaves files alone", func(t *testing.T) {
+	t.Run("disabled_cap_leaves_files_alone", func(t *testing.T) {
 		dir := t.TempDir()
 		logPath := filepath.Join(dir, logFileName)
 		require.NoError(t, os.WriteFile(logPath, []byte(strings.Repeat("x", 96)), 0o600))
@@ -64,7 +64,7 @@ func TestServe(t *testing.T) {
 		assert.NoFileExists(t, logPath+".1")
 	})
 
-	t.Run("foreground child logs copytruncate", func(t *testing.T) {
+	t.Run("foreground_child_logs_copytruncate", func(t *testing.T) {
 		dir := t.TempDir()
 		childrenDir := filepath.Join(dir, childrenDirName)
 		require.NoError(t, os.Mkdir(childrenDir, 0o700))

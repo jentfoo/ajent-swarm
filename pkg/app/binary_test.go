@@ -34,27 +34,27 @@ func TestBinary(t *testing.T) {
 		wantErr string
 	}{
 		{
-			name:    "reports version",
+			name:    "reports_version",
 			body:    `echo "ajent version v9.9.9"`,
 			wantVer: "v9.9.9",
 		},
 		{
-			name:    "devel build still parses",
+			name:    "devel_build_still_parses",
 			body:    `echo "ajent version devel"`,
 			wantVer: "devel",
 		},
 		{
-			name:    "fails loudly on nonzero exit",
+			name:    "fails_loudly_on_nonzero_exit",
 			body:    `exit 3`,
 			wantErr: "--version",
 		},
 		{
-			name:    "fails loudly without output",
+			name:    "fails_loudly_without_output",
 			body:    `exit 0`,
 			wantErr: "no usable --version output",
 		},
 		{
-			name:    "missing binary names the flag",
+			name:    "missing_binary_names_the_flag",
 			bin:     filepath.Join(dir, "absent"),
 			wantErr: "--ajent-bin",
 		},

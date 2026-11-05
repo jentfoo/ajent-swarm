@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams } from 'react-router'
 
 import { sessions as sessionAPI } from '../api/endpoints'
 import { ApiError } from '../api/client'
+import { sessionBusy } from '../state/eventApplier'
 import { Composer } from '../session/Composer'
 import { placedAboveNotice, useComposerDraft } from '../session/useComposerDraft'
 import { Notices } from '../session/Notices'
@@ -116,7 +117,7 @@ function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElemen
 
   const dialogs = snap.interactions ?? []
   const composerDisabled = phase !== 'live' || dialogs.length > 0
-  const working = snap.running || snap.spinning
+  const working = sessionBusy(snap)
   const disabledReason =
     dialogs.length > 0
       ? 'A dialog needs an answer before prompts can send.'

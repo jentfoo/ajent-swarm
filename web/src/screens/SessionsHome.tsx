@@ -5,7 +5,7 @@ import { Link, useNavigate } from 'react-router'
 import { ApiError } from '../api/client'
 import { fleet, models as modelsAPI, sessions as sessionAPI } from '../api/endpoints'
 import type { LaunchRequest, SavedSession, SessionStatus } from '../api/types'
-import { ChildState } from '../api/types'
+import { ChildState, childEnded } from '../api/types'
 import { useSwarm } from '../providers/swarm'
 import { useAuth } from '../providers/auth'
 import { AgentSettingsMenu } from '../session/AgentSettingsMenu'
@@ -92,14 +92,9 @@ function SessionCard({
   selected: boolean
   onSelect: () => void
 }) {
-  const stateClass =
-    s.state === ChildState.Online
-      ? 'ok'
-      : s.state === ChildState.Exited || s.state === ChildState.Gone
-        ? 'danger'
-        : 'warn'
+  const stateClass = s.state === ChildState.Online ? 'ok' : childEnded(s.state) ? 'danger' : 'warn'
   const label = displayName(s, home)
-  const ended = s.state === ChildState.Exited || s.state === ChildState.Gone
+  const ended = childEnded(s.state)
 
   return (
     <div className={`card session-card ${ended ? 'ended' : ''}`}>
@@ -167,7 +162,7 @@ function SessionCard({
 // own: /exit first, then SIGTERM and SIGKILL for swarm children; external
 // sessions end through /exit alone.
 function ActionsBar({ status: s }: { status: SessionStatus }) {
-  const ended = s.state === ChildState.Exited || s.state === ChildState.Gone
+  const ended = childEnded(s.state)
   return (
     <div style={{ display: 'flex', gap: '0.5em', marginTop: '0.4em', flexWrap: 'wrap' }}>
       <Link to={`/focused?session=${encodeURIComponent(s.sessionId)}`}>

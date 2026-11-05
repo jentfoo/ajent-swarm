@@ -26,7 +26,9 @@ func emptyView() *view {
 	return buildView(ctl.State{Session: ctl.Session{ID: "s1"}, Head: "h0"}, nil, 10)
 }
 func TestView(t *testing.T) {
-	t.Run("watermark drops", func(t *testing.T) {
+	t.Parallel()
+
+	t.Run("watermark_drops", func(t *testing.T) {
 		cases := []struct {
 			name string
 			seq  uint64
@@ -51,7 +53,7 @@ func TestView(t *testing.T) {
 		}
 	})
 
-	t.Run("entry append dedupe and head", func(t *testing.T) {
+	t.Run("entry_append_dedupe_and_head", func(t *testing.T) {
 		a := ctl.Entry{ID: "a", Type: string(session.TypeMessage)}
 		b := ctl.Entry{ID: "b", ParentID: "a", Type: string(session.TypeSession)}
 		c := ctl.Entry{ID: "c", ParentID: "b", Type: string(session.TypeMessage)}
@@ -62,20 +64,20 @@ func TestView(t *testing.T) {
 		}, 10)
 		require.Len(t, v.entries, 2)
 
-		t.Run("overlap applies once", func(t *testing.T) {
+		t.Run("overlap_applies_once", func(t *testing.T) {
 			v.apply(seqEvent(ctl.EventEntryAppend, 11, ctl.EntryData{Entry: b}))
 			assert.Len(t, v.entries, 2) // no duplicate from backfill overlap
 			assert.Equal(t, "b", v.head)
 		})
 
-		t.Run("fresh append extends the branch", func(t *testing.T) {
+		t.Run("fresh_append_extends_the_branch", func(t *testing.T) {
 			v.apply(seqEvent(ctl.EventEntryAppend, 12, ctl.EntryData{Entry: c}))
 			require.Len(t, v.entries, 3)
 			assert.Equal(t, "c", v.head)
 		})
 	})
 
-	t.Run("only committed family moves head", func(t *testing.T) {
+	t.Run("only_committed_family_moves_head", func(t *testing.T) {
 		v := emptyView()
 		v.apply(seqEvent(ctl.EventStatus, 11, ctl.StatusData{
 			Model: &ctl.ModelState{Key: "p/m"},
@@ -86,8 +88,8 @@ func TestView(t *testing.T) {
 		assert.Equal(t, "h1", v.head)
 	})
 
-	t.Run("keyed families", func(t *testing.T) {
-		t.Run("status segments replace and remove by key", func(t *testing.T) {
+	t.Run("keyed_families", func(t *testing.T) {
+		t.Run("status_segments_by_key", func(t *testing.T) {
 			v := emptyView()
 			v.apply(seqEvent(ctl.EventStatus, 11, ctl.StatusData{
 				Segment: &ctl.Segment{Key: "k1", Text: "one", Order: 1},
@@ -107,7 +109,7 @@ func TestView(t *testing.T) {
 			assert.Equal(t, "k2", segs[0].Key)
 		})
 
-		t.Run("activity rows replace and remove by key", func(t *testing.T) {
+		t.Run("activity_rows_by_key", func(t *testing.T) {
 			v := emptyView()
 			v.apply(seqEvent(ctl.EventActivity, 11, ctl.ActivityRow{Key: "a1", Text: "one", Rank: 2}))
 			v.apply(seqEvent(ctl.EventActivity, 12, ctl.ActivityRow{Key: "a1", Text: "one replaced", Rank: 2}))
@@ -123,7 +125,7 @@ func TestView(t *testing.T) {
 			assert.Equal(t, "a2", rows[0].Key)
 		})
 
-		t.Run("queued replaces wholesale and drops resolve by id", func(t *testing.T) {
+		t.Run("queued_replaces_by_id", func(t *testing.T) {
 			v := emptyView()
 			v.apply(seqEvent(ctl.EventQueued, 11, ctl.QueuedData{Rows: []ctl.QueueRow{
 				{ID: "c1", Text: "one"}, {ID: "c2", Text: "two"},
@@ -139,7 +141,7 @@ func TestView(t *testing.T) {
 			assert.Equal(t, 1, v.snapshot().Queued) // the count follows the rows
 		})
 
-		t.Run("tools replace wholesale", func(t *testing.T) {
+		t.Run("tools_replace_wholesale", func(t *testing.T) {
 			v := emptyView()
 			v.apply(seqEvent(ctl.EventTools, 11, ctl.ToolsData{Rows: []ctl.ToolState{
 				{Name: "bash", Enabled: true},
@@ -150,7 +152,7 @@ func TestView(t *testing.T) {
 		})
 	})
 
-	t.Run("interactions lifecycle", func(t *testing.T) {
+	t.Run("interactions_lifecycle", func(t *testing.T) {
 		v := emptyView()
 		pending := ctl.InteractionPendingData{ID: 7, Kind: "confirm", Prompt: "allow?"}
 		v.apply(seqEvent(ctl.EventInteractionPending, 11, pending))
@@ -168,7 +170,7 @@ func TestView(t *testing.T) {
 		assert.Empty(t, v.dialogSeen) // the seen ledger prunes with its dialog
 	})
 
-	t.Run("oldest dialog and activity preview", func(t *testing.T) {
+	t.Run("oldest_dialog_and_activity_preview", func(t *testing.T) {
 		v := emptyView()
 		dlg, at := v.oldestDialog()
 		assert.Zero(t, dlg.ID)
@@ -192,7 +194,7 @@ func TestView(t *testing.T) {
 		assert.Equal(t, "second", v.activityPreview())
 	})
 
-	t.Run("resnapshot clears dialogs", func(t *testing.T) {
+	t.Run("resnapshot_clears_dialogs", func(t *testing.T) {
 		// dialog ids never survive a reconnect: the rebuilt view lists only what
 		// the new snapshot lists
 		v := buildView(ctl.State{
@@ -204,7 +206,7 @@ func TestView(t *testing.T) {
 		assert.Empty(t, fresh.interactions)
 	})
 
-	t.Run("seat lost records holder", func(t *testing.T) {
+	t.Run("seat_lost_records_holder", func(t *testing.T) {
 		v := emptyView()
 		v.seat = ctl.SeatState{Held: true, Holder: holderName, Yours: true}
 		v.apply(seqEvent(ctl.EventSeatLost, 11, ctl.SeatLostData{From: holderName, To: "human"}))
@@ -215,7 +217,7 @@ func TestView(t *testing.T) {
 		assert.False(t, seat.Yours) // displaced without probing, never re-forcing
 	})
 
-	t.Run("turn lifecycle tracks running and end", func(t *testing.T) {
+	t.Run("turn_lifecycle_running_end", func(t *testing.T) {
 		v := emptyView()
 		assert.False(t, v.running)
 
@@ -234,8 +236,8 @@ func TestView(t *testing.T) {
 		assert.Equal(t, "context full", v.lastStopErr)
 	})
 
-	t.Run("init tail bounds and cursor", func(t *testing.T) {
-		t.Run("short history is complete", func(t *testing.T) {
+	t.Run("init_tail_bounds_and_cursor", func(t *testing.T) {
+		t.Run("short_history_is_complete", func(t *testing.T) {
 			v := emptyView()
 			for i, id := range []string{"a", "b", "c"} {
 				v.appendEntry(ctl.Entry{ID: id, TS: int64(i)})
@@ -246,7 +248,7 @@ func TestView(t *testing.T) {
 			assert.Equal(t, "a", entries[0].ID) // oldest first
 		})
 
-		t.Run("count bound leaves a cursor", func(t *testing.T) {
+		t.Run("count_bound_leaves_a_cursor", func(t *testing.T) {
 			v := emptyView()
 			for i := range initMaxEntries + 50 {
 				id := fmt.Sprintf("e%05d", i)
@@ -263,20 +265,20 @@ func TestView(t *testing.T) {
 		})
 	})
 
-	t.Run("page entries", func(t *testing.T) {
+	t.Run("page_entries", func(t *testing.T) {
 		v := emptyView()
 		for _, id := range []string{"e1", "e2", "e3", "e4"} {
 			v.appendEntry(ctl.Entry{ID: id})
 		}
 
-		t.Run("before walks backwards oldest first", func(t *testing.T) {
+		t.Run("before_walks_backwards_oldest_first", func(t *testing.T) {
 			page, cursor := v.pageEntries("e3", 10)
 			require.Len(t, page, 2)
 			assert.Equal(t, "e1", page[0].ID)
 			assert.Empty(t, cursor) // reached the start
 		})
 
-		t.Run("limit bounds and reports continuation", func(t *testing.T) {
+		t.Run("limit_bounds_and_reports_continuation", func(t *testing.T) {
 			page, cursor := v.pageEntries("e4", 2)
 			require.Len(t, page, 2) // the newest entries older than e4
 			assert.Equal(t, "e2", page[0].ID)
@@ -288,14 +290,14 @@ func TestView(t *testing.T) {
 			assert.Empty(t, tailCursor)
 		})
 
-		t.Run("unknown cursor is an empty page", func(t *testing.T) {
+		t.Run("unknown_cursor_empty_page", func(t *testing.T) {
 			page, cursor := v.pageEntries("missing", 10)
 			assert.Empty(t, page)
 			assert.Empty(t, cursor)
 		})
 	})
 
-	t.Run("init defers image bodies", func(t *testing.T) {
+	t.Run("init_defers_image_bodies", func(t *testing.T) {
 		md := session.MessageData{Message: llm.Message{
 			Role: llm.RoleUser,
 			Content: llm.BlockList{

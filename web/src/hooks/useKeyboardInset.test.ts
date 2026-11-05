@@ -56,4 +56,3 @@ describe('useKeyboardInset', () => {
     expect(result.current).toBe(0)
   })
 })
-

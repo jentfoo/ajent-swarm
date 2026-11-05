@@ -35,7 +35,7 @@ func acquireEventually(t *testing.T, dir string) *instanceLock {
 func TestInstance(t *testing.T) {
 	// not parallel: the state dir case isolates AJENT_HOME via t.Setenv
 
-	t.Run("lock refuses second holder", func(t *testing.T) {
+	t.Run("lock_refuses_second_holder", func(t *testing.T) {
 		dir := t.TempDir()
 		pidPath := filepath.Join(dir, pidFileName)
 		require.NoError(t, os.WriteFile(pidPath, []byte("4242\n"), 0o600))
@@ -53,7 +53,7 @@ func TestInstance(t *testing.T) {
 		t.Cleanup(func() { _ = lock2.Close() })
 	})
 
-	t.Run("lock without pidfile names the directory", func(t *testing.T) {
+	t.Run("lock_names_the_directory", func(t *testing.T) {
 		dir := t.TempDir()
 		lock := acquireEventually(t, dir)
 		t.Cleanup(func() { _ = lock.Close() })
@@ -63,13 +63,13 @@ func TestInstance(t *testing.T) {
 		assert.Contains(t, err.Error(), dir)
 	})
 
-	t.Run("lock missing directory", func(t *testing.T) {
+	t.Run("lock_missing_directory", func(t *testing.T) {
 		_, err := acquireInstanceLock(filepath.Join(t.TempDir(), "absent"))
 		require.Error(t, err)
 		assert.NotErrorIs(t, err, errLocked)
 	})
 
-	t.Run("write pidfile", func(t *testing.T) {
+	t.Run("write_pidfile", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), pidFileName)
 		require.NoError(t, os.WriteFile(path, []byte("99999\n"), 0o600))
 
@@ -80,7 +80,7 @@ func TestInstance(t *testing.T) {
 		assert.Equal(t, os.Getpid(), mustAtoi(t, string(data)))
 	})
 
-	t.Run("remove pidfile", func(t *testing.T) {
+	t.Run("remove_pidfile", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), pidFileName)
 		removePidfile(path) // already gone is fine
 
@@ -91,7 +91,7 @@ func TestInstance(t *testing.T) {
 		assert.True(t, os.IsNotExist(err))
 	})
 
-	t.Run("state dir defaults under ajent home", func(t *testing.T) {
+	t.Run("state_dir_under_home", func(t *testing.T) {
 		home := testutil.IsolateHome(t)
 
 		dir, warn, err := ensureStateDir("")
@@ -104,7 +104,7 @@ func TestInstance(t *testing.T) {
 		assert.Zero(t, fi.Mode().Perm()&0o077)
 	})
 
-	t.Run("state dir custom", func(t *testing.T) {
+	t.Run("state_dir_custom", func(t *testing.T) {
 		custom := filepath.Join(t.TempDir(), "elsewhere", "swarm")
 		dir, warn, err := ensureStateDir(custom)
 		require.NoError(t, err)
@@ -116,7 +116,7 @@ func TestInstance(t *testing.T) {
 		assert.Zero(t, fi.Mode().Perm()&0o077)
 	})
 
-	t.Run("state dir tightens loose permissions", func(t *testing.T) {
+	t.Run("state_dir_tightens_loose_permissions", func(t *testing.T) {
 		custom := filepath.Join(t.TempDir(), "loose")
 		require.NoError(t, os.MkdirAll(custom, 0o755))
 

@@ -20,7 +20,9 @@ func ent(id, parent string, ts int64) session.Entry {
 	return session.Entry{ID: id, ParentID: parent, Type: session.TypeMessage, TS: ts}
 }
 func TestTranscript(t *testing.T) {
-	t.Run("recorded tip", func(t *testing.T) {
+	t.Parallel()
+
+	t.Run("recorded_tip", func(t *testing.T) {
 		tests := []struct {
 			name    string
 			entries []session.Entry
@@ -54,7 +56,7 @@ func TestTranscript(t *testing.T) {
 		}
 	})
 
-	t.Run("recorded tip over written file", func(t *testing.T) {
+	t.Run("recorded_tip_over_written_file", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "transcript.jsonl")
 		now := time.Now().UnixMilli()
 		rows := []session.Entry{
@@ -63,21 +65,21 @@ func TestTranscript(t *testing.T) {
 			ent("live", "b", now+8), // the branch that kept appending
 		}
 
-		t.Run("empty file yields no branch", func(t *testing.T) {
+		t.Run("empty_file_yields_no_branch", func(t *testing.T) {
 			require.NoError(t, os.WriteFile(path, nil, 0o600))
 			entries, _, err := session.Read(path)
 			require.NoError(t, err)
 			assert.Empty(t, recordedTip(entries))
 		})
 
-		t.Run("fork loses to newer leaf", func(t *testing.T) {
+		t.Run("fork_loses_to_newer_leaf", func(t *testing.T) {
 			writeTranscriptFixture(t, path, rows...)
 			entries, _, err := session.Read(path)
 			require.NoError(t, err)
 			assert.Equal(t, "live", recordedTip(entries))
 		})
 
-		t.Run("torn tail skipped", func(t *testing.T) {
+		t.Run("torn_tail_skipped", func(t *testing.T) {
 			writeTranscriptFixture(t, path, rows...)
 			f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
 			require.NoError(t, err)
@@ -91,7 +93,7 @@ func TestTranscript(t *testing.T) {
 		})
 	})
 
-	t.Run("page branch", func(t *testing.T) {
+	t.Run("page_branch", func(t *testing.T) {
 		branch := chain(5)
 		tests := []struct {
 			name       string
@@ -120,7 +122,7 @@ func TestTranscript(t *testing.T) {
 		}
 	})
 
-	t.Run("page branch bytes bound", func(t *testing.T) {
+	t.Run("page_branch_bytes_bound", func(t *testing.T) {
 		huge := ent("huge", "e1", 3)
 		huge.Data = json.RawMessage(`"` + strings.Repeat("x", initMaxBytes+1) + `"`)
 		branch := append(chain(2), huge) // the walk starts at the newest entry
@@ -131,7 +133,7 @@ func TestTranscript(t *testing.T) {
 		assert.Equal(t, "huge", cursor)
 	})
 
-	t.Run("find saved row", func(t *testing.T) {
+	t.Run("find_saved_row", func(t *testing.T) {
 		rows := []session.Listed{
 			{Info: session.Info{Path: "/w1/alpha", ID: "01AAAA", Name: "alpha"}, Workspace: "/w1"},
 			{Info: session.Info{Path: "/w2/shared", ID: "01AABB", Name: "shared"}, Workspace: "/w2"},

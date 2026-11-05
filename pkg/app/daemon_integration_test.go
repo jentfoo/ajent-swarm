@@ -3,7 +3,6 @@
 package app
 
 import (
-	"context"
 	"net"
 	"net/http"
 	"os"
@@ -43,32 +42,34 @@ func TestDaemonLifecycle(t *testing.T) {
 	home := t.TempDir()
 	port := freeTCPPort(t)
 
-	cmd := exec.CommandContext(ctx, bin, "--daemon", "--port", port, "--host", "127.0.0.1")
-	cmd.Env = append(os.Environ(), "AJENT_HOME="+home)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("daemonize failed: %v\n%s", err, out)
-	} else {
-		assert.Contains(t, string(out), "daemon started")
-	}
-
 	base := "http://127.0.0.1:" + port
 	pidPath := filepath.Join(home, swarmDirName, pidFileName)
 
-	// the login-gated placeholder answers with the bootstrap-required marker
-	require.Eventually(t, func() bool {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/api/me", nil)
-		if err != nil {
-			return false
+	t.Run("daemon_starts_and_answers", func(t *testing.T) {
+		cmd := exec.CommandContext(ctx, bin, "--daemon", "--port", port, "--host", "127.0.0.1")
+		cmd.Env = append(os.Environ(), "AJENT_HOME="+home)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("daemonize failed: %v\n%s", err, out)
+		} else {
+			assert.Contains(t, string(out), "daemon started")
 		}
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			return false
-		}
-		defer func() { _ = resp.Body.Close() }()
-		return resp.StatusCode == http.StatusServiceUnavailable
-	}, 10*time.Second, 50*time.Millisecond)
 
-	t.Run("pidfile and log under the ajent home", func(t *testing.T) {
+		// the login-gated placeholder answers with the bootstrap-required marker
+		require.Eventually(t, func() bool {
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/api/me", nil)
+			if err != nil {
+				return false
+			}
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				return false
+			}
+			_ = resp.Body.Close()
+			return resp.StatusCode == http.StatusServiceUnavailable
+		}, 10*time.Second, 50*time.Millisecond)
+	})
+
+	t.Run("pidfile_and_log_placement", func(t *testing.T) {
 		data, err := os.ReadFile(pidPath)
 		require.NoError(t, err)
 		pid := mustAtoi(t, string(data))
@@ -79,7 +80,7 @@ func TestDaemonLifecycle(t *testing.T) {
 		assert.Positive(t, info.Size())
 	})
 
-	t.Run("sigterm shuts down cleanly", func(t *testing.T) {
+	t.Run("sigterm_shuts_down_cleanly", func(t *testing.T) {
 		data, err := os.ReadFile(pidPath)
 		require.NoError(t, err)
 		pid := mustAtoi(t, string(data))
@@ -108,10 +109,11 @@ func TestDaemonLifecycle(t *testing.T) {
 func freeTCPPort(t *testing.T) string {
 	t.Helper()
 	var lc net.ListenConfig
-	ln, err := lc.Listen(context.Background(), "tcp", "127.0.0.1:0")
+	ln, err := lc.Listen(t.Context(), "tcp", "127.0.0.1:0")
 	require.NoError(t, err)
-	defer func() { _ = ln.Close() }()
-	return strconv.Itoa(ln.Addr().(*net.TCPAddr).Port)
+	port := ln.Addr().(*net.TCPAddr).Port
+	_ = ln.Close() // released before return, so the daemon can bind it
+	return strconv.Itoa(port)
 }
 
 // processAlive reports whether a pid still answers signal zero.

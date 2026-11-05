@@ -13,7 +13,7 @@ import (
 func TestLogrotate(t *testing.T) {
 	t.Parallel()
 
-	t.Run("writer rotates at cap", func(t *testing.T) {
+	t.Run("writer_rotates_at_cap", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "swarm.log")
 		w, err := NewWriter(path, 40, 2)
 		require.NoError(t, err)
@@ -41,7 +41,7 @@ func TestLogrotate(t *testing.T) {
 		assert.NoFileExists(t, path+".3")
 	})
 
-	t.Run("writer zero cap disables rotation", func(t *testing.T) {
+	t.Run("writer_zero_cap_disables_rotation", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "swarm.log")
 		w, err := NewWriter(path, 0, 2)
 		require.NoError(t, err)
@@ -52,7 +52,7 @@ func TestLogrotate(t *testing.T) {
 		assert.NoFileExists(t, path+".1")
 	})
 
-	t.Run("write after close", func(t *testing.T) {
+	t.Run("write_after_close", func(t *testing.T) {
 		w, err := NewWriter(filepath.Join(t.TempDir(), "swarm.log"), 10, 1)
 		require.NoError(t, err)
 		require.NoError(t, w.Close())
@@ -62,7 +62,7 @@ func TestLogrotate(t *testing.T) {
 		assert.NoError(t, w.Close())
 	})
 
-	t.Run("truncate rotate over cap", func(t *testing.T) {
+	t.Run("truncate_rotate_over_cap", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "child.log")
 		old := strings.Repeat("o", 50)
 		require.NoError(t, os.WriteFile(path, []byte(old), 0o600))
@@ -77,7 +77,7 @@ func TestLogrotate(t *testing.T) {
 		assert.Equal(t, old, string(got))
 	})
 
-	t.Run("truncate under cap and missing", func(t *testing.T) {
+	t.Run("truncate_under_cap_and_missing", func(t *testing.T) {
 		dir := t.TempDir()
 		path := filepath.Join(dir, "child.log")
 		require.NoError(t, os.WriteFile(path, []byte("small"), 0o600))
@@ -91,7 +91,7 @@ func TestLogrotate(t *testing.T) {
 		assert.NoError(t, TruncateRotate(filepath.Join(dir, "absent.log"), 1, 1))
 	})
 
-	t.Run("truncate shifts archives", func(t *testing.T) {
+	t.Run("truncate_shifts_archives", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "child.log")
 		require.NoError(t, os.WriteFile(path, []byte(strings.Repeat("n", 40)), 0o600))
 		require.NoError(t, os.WriteFile(path+".1", []byte("first"), 0o600))
@@ -112,7 +112,7 @@ func TestLogrotate(t *testing.T) {
 		assert.Empty(t, live)
 	})
 
-	t.Run("truncate zero cap", func(t *testing.T) {
+	t.Run("truncate_zero_cap", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "child.log")
 		require.NoError(t, os.WriteFile(path, []byte(strings.Repeat("n", 40)), 0o600))
 
@@ -122,7 +122,7 @@ func TestLogrotate(t *testing.T) {
 		assert.Len(t, got, 40)
 	})
 
-	t.Run("truncate zero backups", func(t *testing.T) {
+	t.Run("truncate_zero_backups", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "child.log")
 		require.NoError(t, os.WriteFile(path, []byte(strings.Repeat("n", 40)), 0o600))
 		require.NoError(t, os.WriteFile(path+".1", []byte("stale"), 0o600))

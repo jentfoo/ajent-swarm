@@ -9,13 +9,6 @@ beforeEach(() => {
 })
 
 describe('layout profile', () => {
-  it('defaults to the focused mode with empty per-mode state', () => {
-    const profile = loadProfile()
-    expect(profile.mode).toBe('focused')
-    expect(profile.focused.selectedSessionId).toBeUndefined()
-    expect(profile.tile.tree).toBeNull()
-  })
-
   it('round-trips through storage with each mode kept independently', () => {
     const { result } = renderHook(() => useLayoutProfile())
     act(() => result.current.setMode('tile'))

@@ -10,7 +10,7 @@ import (
 func TestUsers(t *testing.T) {
 	t.Parallel()
 
-	t.Run("upsert password", func(t *testing.T) {
+	t.Run("upsert_password", func(t *testing.T) {
 		s := newTestStore(t)
 		ctx := t.Context()
 
@@ -23,7 +23,7 @@ func TestUsers(t *testing.T) {
 		assert.Equal(t, "$2a$12$second", u.PasswordHash)
 	})
 
-	t.Run("get user", func(t *testing.T) {
+	t.Run("get_user", func(t *testing.T) {
 		s := newTestStore(t)
 		ctx := t.Context()
 		require.NoError(t, s.UpsertUserPassword(ctx, "jent", ""))
@@ -36,7 +36,7 @@ func TestUsers(t *testing.T) {
 		require.ErrorIs(t, err, ErrNotFound)
 	})
 
-	t.Run("sole user", func(t *testing.T) {
+	t.Run("sole_user", func(t *testing.T) {
 		s := newTestStore(t)
 		ctx := t.Context()
 		require.NoError(t, s.UpsertUserPassword(ctx, "jent", "$2a$12$hash"))
@@ -46,7 +46,7 @@ func TestUsers(t *testing.T) {
 		assert.Equal(t, User{Username: "jent", PasswordHash: "$2a$12$hash"}, u)
 	})
 
-	t.Run("usable credential", func(t *testing.T) {
+	t.Run("usable_credential", func(t *testing.T) {
 		s := newTestStore(t)
 		ctx := t.Context()
 

@@ -13,7 +13,7 @@ import (
 )
 
 func TestSessionCommands(t *testing.T) {
-	t.Run("route session commands", func(t *testing.T) {
+	t.Run("route_session_commands", func(t *testing.T) {
 		m, home := newTestFleet(t, nil)
 		f := fleettest.New(t, home, fleettest.Options{SessionID: "01CMDS000000000000"})
 		f.Result(ctl.MethodInterrupt, ctl.InterruptResult{Stopped: "turn"})
@@ -22,14 +22,14 @@ func TestSessionCommands(t *testing.T) {
 		f.WriteRegistry(t, os.Getpid(), time.Now())
 		waitForState(t, m, f.SessionID(), ChildOnline)
 
-		t.Run("unknown session is refused before dialing", func(t *testing.T) {
+		t.Run("unknown_session_refused", func(t *testing.T) {
 			ctx := t.Context()
 			require.ErrorIs(t, m.Submit(ctx, "01NOBODY00000000", ctl.SubmitParams{Line: "hi"}), ErrUnknownSession)
 			_, err := m.Interrupt(ctx, "01NOBODY00000000")
 			require.ErrorIs(t, err, ErrUnknownSession)
 		})
 
-		t.Run("first write lazily claims the seat", func(t *testing.T) {
+		t.Run("first_write_claims_seat", func(t *testing.T) {
 			require.Empty(t, f.SeatHolder()) // external sessions attach as observers
 			require.NoError(t, m.Submit(t.Context(), f.SessionID(), ctl.SubmitParams{Line: "hi"}))
 			assert.Equal(t, holderName, f.SeatHolder())
@@ -43,13 +43,13 @@ func TestSessionCommands(t *testing.T) {
 			assert.Equal(t, 1, claims)
 		})
 
-		t.Run("interrupt carries what stopped", func(t *testing.T) {
+		t.Run("interrupt_carries_what_stopped", func(t *testing.T) {
 			stopped, err := m.Interrupt(t.Context(), f.SessionID())
 			require.NoError(t, err)
 			assert.Equal(t, "turn", stopped)
 		})
 
-		t.Run("snapshot serves the reconciled state", func(t *testing.T) {
+		t.Run("snapshot_serves_the_reconciled_state", func(t *testing.T) {
 			st, err := m.Snapshot(t.Context(), f.SessionID())
 			require.NoError(t, err)
 			assert.Equal(t, "p/m", st.Model.Key)
@@ -57,7 +57,7 @@ func TestSessionCommands(t *testing.T) {
 		})
 	})
 
-	t.Run("snapshot carries event watermark", func(t *testing.T) {
+	t.Run("snapshot_carries_event_watermark", func(t *testing.T) {
 		m, home := newTestFleet(t, nil)
 		f := fleettest.New(t, home, fleettest.Options{SessionID: "01SNAPSEQ00000000"})
 		f.SetSnapshot(ctl.State{})
@@ -83,7 +83,7 @@ func TestSessionCommands(t *testing.T) {
 		assert.Greater(t, snap.Seq, early.Seq)
 	})
 
-	t.Run("surface refusals", func(t *testing.T) {
+	t.Run("surface_refusals", func(t *testing.T) {
 		m, home := newTestFleet(t, nil)
 		f := fleettest.New(t, home, fleettest.Options{SessionID: "01CMDREJECT00000", Refuses: true})
 		f.WriteRegistry(t, os.Getpid(), time.Now())
@@ -101,7 +101,7 @@ func TestSessionCommands(t *testing.T) {
 		assert.Equal(t, ctl.CodeSeatHeld, wire.Code)
 	})
 
-	t.Run("scripted refusals", func(t *testing.T) {
+	t.Run("scripted_refusals", func(t *testing.T) {
 		m, home := newTestFleet(t, nil)
 		f := fleettest.New(t, home, fleettest.Options{SessionID: "01CMDBUSY00000000"})
 		f.Refuse(ctl.MethodSubmit, ctl.CodeBusy, "prompt queue is full")

@@ -20,9 +20,7 @@ func newTestStore(t *testing.T) *Store {
 func TestOpen(t *testing.T) {
 	t.Parallel()
 
-	t.Run("migrations apply twice", func(t *testing.T) {
-		t.Parallel()
-
+	t.Run("migrations_apply_twice", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), FileName)
 		first, err := Open(path)
 		require.NoError(t, err)
@@ -41,9 +39,7 @@ func TestOpen(t *testing.T) {
 		assert.NoError(t, err)
 	})
 
-	t.Run("writes survive reopen", func(t *testing.T) {
-		t.Parallel()
-
+	t.Run("writes_survive_reopen", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), FileName)
 		first, err := Open(path)
 		require.NoError(t, err)

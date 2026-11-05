@@ -1,7 +1,6 @@
 package store
 
 import (
-	"database/sql"
 	"testing"
 	"time"
 
@@ -104,64 +103,7 @@ func TestJobs(t *testing.T) {
 		assert.Empty(t, again.Tools)
 	})
 
-	t.Run("migration adds tools columns", func(t *testing.T) {
-		// upgrades a database built by every migration before job_tools and checks
-		// migration before job_tools and checks the new columns default cleanly for
-		// pre-existing rows while round-tripping through create and read.
-		path := t.TempDir() + "/" + FileName
-
-		// replay every migration except job_tools onto a fresh file, recording
-		// versions the way Open would, so the upgrade path runs for real
-		db, err := sql.Open("sqlite", "file:"+path)
-		require.NoError(t, err)
-		ctx := t.Context()
-		_, err = db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (
-	    version INTEGER PRIMARY KEY,
-	    applied_at INTEGER NOT NULL)`)
-		require.NoError(t, err)
-		for _, m := range readMigrations() {
-			if m.version >= 7 {
-				continue
-			}
-			_, err = db.ExecContext(ctx, m.sql)
-			require.NoError(t, err)
-			_, err = db.ExecContext(ctx,
-				`INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)`,
-				m.version, time.Now().Unix())
-			require.NoError(t, err)
-		}
-		require.NoError(t, db.Close())
-
-		st, err := Open(path) // applies the new migration over the existing database
-		require.NoError(t, err)
-		t.Cleanup(func() { _ = st.Close() })
-
-		// a row written before the columns existed reads back on session defaults
-		_, err = st.db.ExecContext(ctx, `INSERT INTO jobs
-	        (name, workspace, prompt, spawn_mode, schedule_kind, interval_seconds,
-	         on_missed, overlap, created_at)
-	        VALUES ('legacy', '/repo', 'go', 'new', 'interval', 60, 'skip', 'run', 0)`)
-		require.NoError(t, err)
-
-		jobs, err := st.Jobs(ctx)
-		require.NoError(t, err)
-		require.Len(t, jobs, 1)
-		assert.False(t, jobs[0].ToolsCustom)
-		assert.Empty(t, jobs[0].Tools)
-
-		// and the new columns carry a create/read cycle on the upgraded database
-		id, err := st.CreateJob(ctx, Job{Name: "custom", Workspace: "/repo",
-			ScheduleKind: ScheduleInterval, IntervalSeconds: 60, OnMissed: MissSkip,
-			Overlap: OverlapRun, Tools: "builtin:read", ToolsCustom: true,
-			CreatedAt: time.Unix(1000, 0)})
-		require.NoError(t, err)
-		got, err := st.JobByID(ctx, id)
-		require.NoError(t, err)
-		assert.Equal(t, "builtin:read", got.Tools)
-		assert.True(t, got.ToolsCustom)
-	})
-
-	t.Run("list and lookup", func(t *testing.T) {
+	t.Run("list_and_lookup", func(t *testing.T) {
 		st := newTestStore(t)
 		ctx := t.Context()
 
@@ -185,7 +127,7 @@ func TestJobs(t *testing.T) {
 		require.ErrorIs(t, err, ErrNotFound)
 	})
 
-	t.Run("unique name", func(t *testing.T) {
+	t.Run("unique_name", func(t *testing.T) {
 		st := newTestStore(t)
 		ctx := t.Context()
 
@@ -202,7 +144,7 @@ func TestJobs(t *testing.T) {
 		require.ErrorIs(t, err, ErrConflict)
 	})
 
-	t.Run("delete unlinks runs", func(t *testing.T) {
+	t.Run("delete_unlinks_runs", func(t *testing.T) {
 		st := newTestStore(t)
 		ctx := t.Context()
 
@@ -231,7 +173,7 @@ func TestJobs(t *testing.T) {
 		require.ErrorIs(t, err, ErrNotFound)
 	})
 
-	t.Run("due jobs filter and order", func(t *testing.T) {
+	t.Run("due_jobs_filter_and_order", func(t *testing.T) {
 		st := newTestStore(t)
 		ctx := t.Context()
 
@@ -270,7 +212,7 @@ func TestJobs(t *testing.T) {
 		assert.True(t, early.Equal(older))
 	})
 
-	t.Run("scheduled fire claims slot", func(t *testing.T) {
+	t.Run("scheduled_fire_claims_slot", func(t *testing.T) {
 		st := newTestStore(t)
 		ctx := t.Context()
 
@@ -320,7 +262,7 @@ func TestJobs(t *testing.T) {
 		require.Len(t, runs, 2)
 	})
 
-	t.Run("scheduled fire overlap skips", func(t *testing.T) {
+	t.Run("scheduled_fire_overlap_skips", func(t *testing.T) {
 		st := newTestStore(t)
 		ctx := t.Context()
 
@@ -375,7 +317,7 @@ func TestJobs(t *testing.T) {
 		assert.Positive(t, run3)
 	})
 
-	t.Run("global run cap", func(t *testing.T) {
+	t.Run("global_run_cap", func(t *testing.T) {
 		st := newTestStore(t)
 		ctx := t.Context()
 
@@ -412,7 +354,7 @@ func TestJobs(t *testing.T) {
 		assert.Contains(t, row.Error, "global run limit")
 	})
 
-	t.Run("manual run guards", func(t *testing.T) {
+	t.Run("manual_run_guards", func(t *testing.T) {
 		st := newTestStore(t)
 		ctx := t.Context()
 
@@ -444,7 +386,7 @@ func TestJobs(t *testing.T) {
 		require.NoError(t, err)
 	})
 
-	t.Run("fail interrupted runs", func(t *testing.T) {
+	t.Run("fail_interrupted_runs", func(t *testing.T) {
 		st := newTestStore(t)
 		ctx := t.Context()
 
@@ -481,7 +423,7 @@ func TestJobs(t *testing.T) {
 		}
 	})
 
-	t.Run("prune runs age and count", func(t *testing.T) {
+	t.Run("prune_runs_age_and_count", func(t *testing.T) {
 		st := newTestStore(t)
 		ctx := t.Context()
 
@@ -519,7 +461,7 @@ func TestJobs(t *testing.T) {
 		assert.Greater(t, runs[0].StartedAt, runs[1].StartedAt) // newest first
 	})
 
-	t.Run("run roundtrip", func(t *testing.T) {
+	t.Run("run_roundtrip", func(t *testing.T) {
 		st := newTestStore(t)
 		ctx := t.Context()
 

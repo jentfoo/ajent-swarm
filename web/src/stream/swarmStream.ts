@@ -344,9 +344,9 @@ export class SwarmStream {
       }
       case 'error': {
         // A refused subscribe or sync means the wire subscription is gone
-        // while a view still holds the session: retry under backoff, so one
-        // the fleet does not track yet (a just-resumed child) joins as soon
-        // as its actor appears.
+        // while a view still holds the session: retry under backoff, so a
+        // session the fleet does not track yet (a just-resumed child) joins
+        // as soon as its actor appears.
         if ('sessionId' in frame && typeof frame.sessionId === 'string') {
           if (resubscribeCodes.has(frame.code)) this.scheduleResubscribe(frame.sessionId)
           this.dispatch(frame.sessionId, frame)

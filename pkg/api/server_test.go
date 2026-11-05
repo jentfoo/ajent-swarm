@@ -11,7 +11,9 @@ import (
 )
 
 func TestServe(t *testing.T) {
-	t.Run("shuts down cleanly", func(t *testing.T) {
+	t.Parallel()
+
+	t.Run("shuts_down_cleanly", func(t *testing.T) {
 		svc := newTestService(t)
 		var lc net.ListenConfig
 		ln, err := lc.Listen(t.Context(), "tcp", "127.0.0.1:0")
@@ -26,7 +28,7 @@ func TestServe(t *testing.T) {
 		assert.NoError(t, <-serveErr)
 	})
 
-	t.Run("reports listener failure", func(t *testing.T) {
+	t.Run("reports_listener_failure", func(t *testing.T) {
 		var lc net.ListenConfig
 		ln, err := lc.Listen(t.Context(), "tcp", "127.0.0.1:0")
 		require.NoError(t, err)

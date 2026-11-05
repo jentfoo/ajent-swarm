@@ -39,10 +39,10 @@ func newGate(t *testing.T) (*Service, http.Handler) {
 func TestMiddleware(t *testing.T) {
 	t.Parallel()
 
-	t.Run("pending gate marks every route", func(t *testing.T) {
+	t.Run("pending_gate_marks_every_route", func(t *testing.T) {
 		_, handler := newGate(t)
 
-		t.Run("bootstrap required everywhere", func(t *testing.T) {
+		t.Run("bootstrap_required_everywhere", func(t *testing.T) {
 			for _, path := range []string{"/api/secret", "/api/me"} {
 				req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil)
 				rec := httptest.NewRecorder()
@@ -55,7 +55,7 @@ func TestMiddleware(t *testing.T) {
 			}
 		})
 
-		t.Run("bootstrap endpoint passes while pending", func(t *testing.T) {
+		t.Run("bootstrap_endpoint_passes_while_pending", func(t *testing.T) {
 			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, BootstrapPath, nil)
 			rec := httptest.NewRecorder()
 			handler.ServeHTTP(rec, req)
@@ -64,12 +64,12 @@ func TestMiddleware(t *testing.T) {
 		})
 	})
 
-	t.Run("after bootstrap", func(t *testing.T) {
+	t.Run("after_bootstrap", func(t *testing.T) {
 		svc, handler := newGate(t)
 		ctx := t.Context()
 		require.NoError(t, svc.SetPassword(ctx, "hunter2"))
 
-		t.Run("anonymous request refused", func(t *testing.T) {
+		t.Run("anonymous_request_refused", func(t *testing.T) {
 			req := httptest.NewRequestWithContext(ctx, http.MethodGet, "/api/secret", nil)
 			rec := httptest.NewRecorder()
 			handler.ServeHTTP(rec, req)
@@ -77,15 +77,7 @@ func TestMiddleware(t *testing.T) {
 			assert.Equal(t, http.StatusUnauthorized, rec.Code)
 		})
 
-		t.Run("exempt status route passes anonymously", func(t *testing.T) {
-			req := httptest.NewRequestWithContext(ctx, http.MethodGet, "/api/me", nil)
-			rec := httptest.NewRecorder()
-			handler.ServeHTTP(rec, req)
-
-			assert.Equal(t, http.StatusUnauthorized, rec.Code)
-		})
-
-		t.Run("session cookie authenticates", func(t *testing.T) {
+		t.Run("session_cookie_authenticates", func(t *testing.T) {
 			token, err := svc.Login(ctx, "jent", "hunter2")
 			require.NoError(t, err)
 
@@ -97,7 +89,7 @@ func TestMiddleware(t *testing.T) {
 			assert.Equal(t, http.StatusNoContent, rec.Code)
 		})
 
-		t.Run("stale cookie with fresh bearer authenticates", func(t *testing.T) {
+		t.Run("fresh_bearer_authenticates", func(t *testing.T) {
 			badCookie := &http.Cookie{Name: SessionCookieName, Value: "expired"}
 			req := httptest.NewRequestWithContext(ctx, http.MethodGet, "/api/secret", nil)
 			req.AddCookie(badCookie)

@@ -8,7 +8,6 @@ import (
 	"syscall"
 )
 
-// signalPid sends sig to pid.
 func signalPid(pid int, sig syscall.Signal) error {
 	return syscall.Kill(pid, sig)
 }

@@ -12,7 +12,7 @@
 // hideLiveToolIds drops committed calls whose live card has not retired yet,
 // the handoff that keeps streamed content painting once while it runs.
 import type { Entry } from '../api/types'
-import type { ContentBlockView } from './eventApplier'
+import type { ContentBlockView, MessageEntryData } from './eventApplier'
 
 export interface ImageView {
   mediaType: string
@@ -52,13 +52,6 @@ export type DerivedBlock =
   | { kind: 'compaction'; id: string }
   | { kind: 'notice'; id: string; level: 'info' | 'warn' | 'error'; text: string }
   | { kind: 'unknown'; id: string; type: string }
-
-interface MessageDataView {
-  message?: { role?: string; content?: unknown }
-  stop?: string
-  injected?: boolean
-  replayed?: boolean
-}
 
 export function deriveBlocks(
   chainIds: readonly string[],
@@ -124,7 +117,7 @@ function deriveMessage(
   pendingCalls: Map<string, ToolCallInfo>,
   hideLiveToolIds: ReadonlySet<string>,
 ): DerivedBlock | undefined {
-  const d = (entry.data ?? {}) as MessageDataView
+  const d = (entry.data ?? {}) as MessageEntryData
   const role = d.message?.role
   const blocks = Array.isArray(d.message?.content) ? (d.message!.content as ContentBlockView[]) : []
 

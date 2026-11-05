@@ -55,7 +55,7 @@ func (s *settingsMemStore) snapshot() map[string]string {
 	return out
 }
 func TestSettings(t *testing.T) {
-	t.Run("title model roundtrip", func(t *testing.T) {
+	t.Run("title_model_roundtrip", func(t *testing.T) {
 		store := newSettingsMemStore()
 		bin, _ := fakeNamerBin(t)
 		m, _ := newTestFleetWithSettings(t, store, bin)
@@ -71,7 +71,7 @@ func TestSettings(t *testing.T) {
 		assert.Empty(t, store.snapshot()) // clearing removes the row
 	})
 
-	t.Run("title model needs store", func(t *testing.T) {
+	t.Run("title_model_needs_store", func(t *testing.T) {
 		testutil.IsolateHome(t)
 		m := New(Options{Log: testLogger(), PollInterval: testPoll,
 			BackoffBase: testBackoff, BackoffMax: testBackoffHi})
@@ -85,7 +85,7 @@ func TestSettings(t *testing.T) {
 		assert.ErrorIs(t, m.SetTitleModel(t.Context(), "m"), ErrNoSettingStore)
 	})
 
-	t.Run("namer runs configured model", func(t *testing.T) {
+	t.Run("namer_runs_configured_model", func(t *testing.T) {
 		logPath := filepath.Join(t.TempDir(), "namer-args.log")
 		store := newSettingsMemStore()
 		m, home := newTestFleetWithSettings(t, store, argsNamerBin(t, logPath, false))
@@ -99,7 +99,7 @@ func TestSettings(t *testing.T) {
 		assert.Equal(t, map[string]string{SettingKeyTitleModel: "namer-model"}, store.snapshot())
 	})
 
-	t.Run("namer falls back to default", func(t *testing.T) {
+	t.Run("namer_falls_back_to_default", func(t *testing.T) {
 		logPath := filepath.Join(t.TempDir(), "namer-args.log")
 		store := newSettingsMemStore()
 		m, home := newTestFleetWithSettings(t, store, argsNamerBin(t, logPath, true))

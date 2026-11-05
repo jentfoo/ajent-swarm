@@ -3,7 +3,7 @@
 // rank like the desktop rail and carry the section they render under, with
 // the last four exited swarm children kept in a trailing Recent section so a
 // fresh exit stays one tap from resume.
-import type { SessionStatus } from '../api/types'
+import { childEnded, type SessionStatus } from '../api/types'
 import type { AttentionItem } from '../workspace/attention'
 
 // maxExitedRows caps the ended tail; older runs stay reachable through saved
@@ -61,7 +61,7 @@ export function buildSwitcherRows(
   const alive: AliveRow[] = []
   const exited: SwitcherRow[] = []
   for (const s of sessions) {
-    if (isEnded(s)) {
+    if (childEnded(s.state)) {
       exited.push({
         sessionId: s.sessionId,
         label: labelFor(s),
@@ -147,12 +147,6 @@ function compareAlive(a: AliveRow, b: AliveRow): number {
   if (a.cls === 0) return a.since - b.since // dialogs: oldest wait first
   if (a.cls === 1) return b.since - a.since // completions: newest first
   return a.row.sessionId.localeCompare(b.row.sessionId)
-}
-
-// isEnded reports a session whose run finished; gone means the service no
-// longer sees it at all, which reads as ended for switching purposes.
-function isEnded(s: SessionStatus): boolean {
-  return s.state === 'exited' || s.state === 'gone'
 }
 
 function statusOf(s: SessionStatus, item: AttentionItem | undefined): SwitcherStatus {

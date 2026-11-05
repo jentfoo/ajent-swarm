@@ -106,7 +106,7 @@ func writeSavedFixtures(t *testing.T, home string) savedFixture {
 	return fix
 }
 func TestLaunchHandlers(t *testing.T) {
-	t.Run("saved sessions listing", func(t *testing.T) {
+	t.Run("saved_sessions_listing", func(t *testing.T) {
 		server, client, home := newLaunchAPI(t)
 		fix := writeSavedFixtures(t, home)
 
@@ -128,7 +128,7 @@ func TestLaunchHandlers(t *testing.T) {
 		assert.Equal(t, fix.plainID, rows[1].Target) // unnamed rows resume by id
 	})
 
-	t.Run("saved entries pages", func(t *testing.T) {
+	t.Run("saved_entries_pages", func(t *testing.T) {
 		server, client, home := newLaunchAPI(t)
 		fix := writeSavedFixtures(t, home)
 
@@ -163,7 +163,7 @@ func TestLaunchHandlers(t *testing.T) {
 		})
 	})
 
-	t.Run("saved entries refuse blocked format", func(t *testing.T) {
+	t.Run("saved_entries_refuse_blocked_format", func(t *testing.T) {
 		server, client, home := newLaunchAPI(t)
 		dir := filepath.Join(home, "sessions", "proj")
 		require.NoError(t, os.MkdirAll(dir, 0o700))
@@ -184,10 +184,10 @@ func TestLaunchHandlers(t *testing.T) {
 		assert.Equal(t, http.StatusConflict, code)
 	})
 
-	t.Run("launch and stop handlers", func(t *testing.T) {
+	t.Run("launch_and_stop_handlers", func(t *testing.T) {
 		server, client, _ := newLaunchAPI(t)
 
-		t.Run("invalid launch is 400", func(t *testing.T) {
+		t.Run("invalid_launch_is_400", func(t *testing.T) {
 			// refused before any process work; the fleet here has no launch
 			// wiring, so nothing else could succeed either
 			code, _ := callJSON[struct{}](t, client, server.URL, http.MethodPost, "/api/sessions",
@@ -195,7 +195,7 @@ func TestLaunchHandlers(t *testing.T) {
 			assert.Equal(t, http.StatusBadRequest, code)
 		})
 
-		t.Run("unknown stop is 404", func(t *testing.T) {
+		t.Run("unknown_stop_is_404", func(t *testing.T) {
 			code, _ := callJSON[struct{}](t, client, server.URL,
 				http.MethodPost, "/api/sessions/01NOPE/stop", nil)
 			assert.Equal(t, http.StatusNotFound, code)

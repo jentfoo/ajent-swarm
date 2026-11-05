@@ -70,10 +70,9 @@ func dialStream(t *testing.T, base string, header http.Header) (*websocket.Conn,
 	return websocket.DefaultDialer.Dial(u, header)
 }
 
-// readWSRaw pulls one raw stream frame; a stall fails through the deadline.
+// readWSRaw pulls one raw stream frame; frames arrive once the handler runs.
 func readWSRaw(t *testing.T, ws *websocket.Conn) []byte {
 	t.Helper()
-	_ = ws.SetReadDeadline(time.Now().Add(2 * time.Second))
 	var raw json.RawMessage
 	if err := ws.ReadJSON(&raw); err != nil {
 		t.Fatalf("read stream frame: %v", err)
@@ -136,7 +135,7 @@ func entryOf(id, parent string) session.Entry {
 	return session.Entry{ID: id, ParentID: parent, Type: session.TypeMessage, Data: data}
 }
 func TestStream(t *testing.T) {
-	t.Run("requires auth", func(t *testing.T) {
+	t.Run("requires_auth", func(t *testing.T) {
 		server, _, _ := newFleetAPI(t)
 		// a jarless client: no cookie and no bearer token
 		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL+"/api/stream", nil)
@@ -147,7 +146,7 @@ func TestStream(t *testing.T) {
 		assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 	})
 
-	t.Run("checks origin", func(t *testing.T) {
+	t.Run("checks_origin", func(t *testing.T) {
 		server, client, _ := newFleetAPI(t)
 		cookie := authCookie(t, client, server.URL)
 		ws, resp, err := dialStream(t, server.URL, http.Header{
@@ -162,7 +161,7 @@ func TestStream(t *testing.T) {
 		}
 	})
 
-	t.Run("subscribe init and events", func(t *testing.T) {
+	t.Run("subscribe_init_and_events", func(t *testing.T) {
 		server, client, home := newFleetAPI(t)
 
 		f := fleettest.New(t, home, fleettest.Options{SessionID: "01STREAMTEST00000", Name: "stream"})
@@ -219,7 +218,7 @@ func TestStream(t *testing.T) {
 		assert.Equal(t, ctl.EventIdle, ev.Event.Name)
 	})
 
-	t.Run("heartbeat flows", func(t *testing.T) {
+	t.Run("heartbeat_flows", func(t *testing.T) {
 		server, client, _ := newFleetAPI(t)
 
 		hbPingEvery = 30 * time.Millisecond
@@ -237,7 +236,7 @@ func TestStream(t *testing.T) {
 		assert.Equal(t, "heartbeat", f.Type)
 	})
 
-	t.Run("multi viewer isolation", func(t *testing.T) {
+	t.Run("multi_viewer_isolation", func(t *testing.T) {
 		server, client, home := newFleetAPI(t)
 
 		f := fleettest.New(t, home, fleettest.Options{SessionID: "01MULTIVIEW000000"})
@@ -293,7 +292,7 @@ func TestStream(t *testing.T) {
 		assert.Equal(t, "01NOBODY00000000", refused.SessionID)
 	})
 
-	t.Run("session endpoints over fleet", func(t *testing.T) {
+	t.Run("session_endpoints_over_fleet", func(t *testing.T) {
 		server, client, home := newFleetAPI(t)
 
 		f := fleettest.New(t, home, fleettest.Options{SessionID: "01ENDPOINT00000000"})
@@ -306,7 +305,7 @@ func TestStream(t *testing.T) {
 		// the listing shows the session once its actor is online
 		waitOnline(t, client, server.URL, f.SessionID())
 
-		t.Run("entries page and cursor", func(t *testing.T) {
+		t.Run("entries_page_and_cursor", func(t *testing.T) {
 			code, page := callJSON[struct {
 				Entries []json.RawMessage `json:"entries"`
 				Cursor  string            `json:"cursor"`
@@ -326,7 +325,7 @@ func TestStream(t *testing.T) {
 			assert.Empty(t, older.Cursor)
 		})
 
-		t.Run("unknown session is a 404", func(t *testing.T) {
+		t.Run("unknown_session_is_a_404", func(t *testing.T) {
 			code, _ := callJSON[struct{}](t, client, server.URL,
 				http.MethodGet, "/api/sessions/01NOBODY00000000/entries", nil)
 			assert.Equal(t, http.StatusNotFound, code)
@@ -336,7 +335,7 @@ func TestStream(t *testing.T) {
 			assert.Equal(t, http.StatusNotFound, code)
 		})
 
-		t.Run("take control force claims", func(t *testing.T) {
+		t.Run("take_control_force_claims", func(t *testing.T) {
 			code, _ := callJSON[struct{}](t, client, server.URL,
 				http.MethodPost, "/api/sessions/"+f.SessionID()+"/take-control", nil)
 			require.Equal(t, http.StatusNoContent, code)

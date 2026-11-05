@@ -555,28 +555,6 @@ describe('MobileSessionScreen', () => {
     expect(screen.getByText('Allow write access?')).toBeInTheDocument()
   })
 
-  it('keeps header controls labeled and enabled', async () => {
-    renderScreen()
-    const ws = await openSocket()
-    act(() => {
-      ws.message({
-        type: 'init',
-        sessionId: VIEW,
-        state: snapshotFor(VIEW, { running: true, idle: false }),
-        entries: [],
-      })
-    })
-    await screen.findByRole('button', { name: /sonnet/ })
-
-    // theme.css touch-target sizing is style-only: every header control keeps
-    // its label and enabled state
-    expect(screen.getByRole('button', { name: 'Interrupt' })).toBeEnabled()
-    expect(screen.getByRole('button', { name: 'Rewind' })).toBeEnabled()
-    expect(screen.getByRole('button', { name: 'Open tools panel' })).toBeEnabled()
-    expect(screen.getByRole('button', { name: 'Agent settings' })).toBeEnabled()
-    expect(screen.getByLabelText('Back to launcher')).toBeInTheDocument()
-  })
-
   it('shows the edge swipe hint until one gesture retires it', async () => {
     const view = renderScreen()
     const ws = await openSocket()

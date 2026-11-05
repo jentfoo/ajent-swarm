@@ -11,7 +11,7 @@ import (
 func TestToken(t *testing.T) {
 	t.Parallel()
 
-	t.Run("create rejects duplicate names", func(t *testing.T) {
+	t.Run("create_rejects_duplicate_names", func(t *testing.T) {
 		svc, _, _ := newTestAuth(t)
 		ctx := t.Context()
 		require.NoError(t, svc.EnsureUser(ctx, "jent"))
@@ -45,7 +45,7 @@ func TestToken(t *testing.T) {
 		assert.ErrorIs(t, err, ErrInvalidSession)
 	})
 
-	t.Run("usage slides slowly", func(t *testing.T) {
+	t.Run("usage_slides_slowly", func(t *testing.T) {
 		svc, st, clock := newTestAuth(t)
 		ctx := t.Context()
 		require.NoError(t, svc.EnsureUser(ctx, "jent"))
@@ -101,18 +101,18 @@ func TestToken(t *testing.T) {
 		assert.False(t, removed)
 	})
 
-	t.Run("validate name", func(t *testing.T) {
+	t.Run("validate_name", func(t *testing.T) {
 		tests := []struct {
 			name    string
 			token   string
 			wantErr bool
 		}{
 			{name: "letters", token: "ci"},
-			{name: "mixed safe chars", token: "laptop.v2_3-a"},
+			{name: "mixed_safe_chars", token: "laptop.v2_3-a"},
 			{name: "empty", token: "", wantErr: true},
 			{name: "spaces", token: "my token", wantErr: true},
 			{name: "slash", token: "a/b", wantErr: true},
-			{name: "too long", token: string(make([]byte, 65)), wantErr: true},
+			{name: "too_long", token: string(make([]byte, 65)), wantErr: true},
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {

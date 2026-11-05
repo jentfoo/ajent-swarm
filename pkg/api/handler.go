@@ -22,17 +22,13 @@ const (
 	pathMe    = "/api/me"
 )
 
-// Config wires the API handler to its collaborators. Auth and Fleet are
-// always required; Sched backs the jobs routes and AttachmentsDir receives
-// composer uploads, so those routes answer 500 until they are provided.
-
 // Config wires the API handler to its collaborators; all fields are required.
 type Config struct {
 	Auth                 *auth.Service
 	Fleet                *fleet.Manager   // session listing, streams and commands
 	Sched                *sched.Scheduler // job CRUD, manual fires and run history
 	AttachmentsDir       string           // where composer uploads land for @-reference submits
-	AllowRemoteBootstrap bool             // --allow-remote-bootstrap: non-loopback may set the first password
+	AllowRemoteBootstrap bool             // non-loopback may set the first password
 	Log                  *slog.Logger
 }
 

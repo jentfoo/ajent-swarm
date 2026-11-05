@@ -122,7 +122,7 @@ func (a *sessionActor) ensureWriteSeat() error {
 	if a.view.seat.Yours {
 		return nil
 	}
-	cctx, cancel := context.WithTimeout(a.ctx, client.CallWait)
+	cctx, cancel := a.callWait()
 	defer cancel()
 	if _, err := a.conn.ClaimSeat(cctx, holderName, false); err != nil {
 		return err

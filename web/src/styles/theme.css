@@ -1367,6 +1367,9 @@ label {
 .mobile-content {
   padding: calc(var(--unit) * 3);
   max-width: none;
+  /* pull-to-refresh plays in the launcher's own dead overscroll; containing it
+     here keeps the browser's page-level refresh from stealing the gesture */
+  overscroll-behavior-y: contain;
 }
 
 /* launcher and switcher rows: large targets with status beside the label */

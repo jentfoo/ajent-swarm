@@ -1,4 +1,4 @@
-import { renderHook, waitFor } from '@testing-library/react'
+import { act, renderHook, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { useLaunchFacts } from './useLaunchFacts'
@@ -118,5 +118,55 @@ describe('useLaunchFacts', () => {
     await waitFor(() => expect(result.current.workspaceOptions).toEqual(['/live/one']))
     expect(result.current.models).toEqual([])
     expect(result.current.saved).toEqual([])
+  })
+
+  it('replaces saved rows on refresh', async () => {
+    let recorded = [{ id: '02A', target: '02A', workspace: '/saved/three' }]
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string | URL) => {
+        const path = String(url).split('?')[0]
+        if (path === '/api/saved-sessions') return Response.json(recorded)
+        if (path === '/api/models' || path === '/api/attention') return Response.json([])
+        if (path === '/api/sessions') return Response.json([])
+        throw new Error(`unexpected fetch ${String(url)}`)
+      }),
+    )
+
+    const { result } = renderFacts()
+    await waitFor(() => expect(result.current.saved).toHaveLength(1))
+
+    // a later recording only reaches the listing through an explicit refresh
+    recorded = [{ id: '02B', target: '02B', workspace: '/saved/four' }]
+    await act(async () => result.current.refreshSaved())
+
+    expect(result.current.saved).toEqual([{ id: '02B', target: '02B', workspace: '/saved/four' }])
+  })
+
+  it('keeps saved rows over a refused refresh', async () => {
+    let refuse = false
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string | URL) => {
+        const path = String(url).split('?')[0]
+        if (path === '/api/saved-sessions') {
+          return refuse
+            ? Response.json({ error: 'internal_error' }, { status: 500 })
+            : Response.json([{ id: '02A', target: '02A', workspace: '/saved/three' }])
+        }
+        if (path === '/api/models' || path === '/api/attention') return Response.json([])
+        if (path === '/api/sessions') return Response.json([])
+        throw new Error(`unexpected fetch ${String(url)}`)
+      }),
+    )
+
+    const { result } = renderFacts()
+    await waitFor(() => expect(result.current.saved).toHaveLength(1))
+
+    refuse = true
+    await act(async () => result.current.refreshSaved())
+
+    // the stale rows stay until a later pull or remount retries the read
+    expect(result.current.saved).toEqual([{ id: '02A', target: '02A', workspace: '/saved/three' }])
   })
 })

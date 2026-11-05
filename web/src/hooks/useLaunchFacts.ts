@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { fleet, models as modelsAPI } from '../api/endpoints'
 import type { ModelState, SavedSession } from '../api/types'
@@ -14,6 +14,9 @@ export interface LaunchFacts {
   // workspaces of every seen session, live discovery before the saved
   // listing's recency order, duplicates dropped keeping first sight
   workspaceOptions: string[]
+  // refreshSaved re-reads the recorded listing in place; pull-to-refresh uses
+  // it so a new recording shows without waiting out a remount
+  refreshSaved: () => Promise<void>
 }
 
 // useLaunchFacts gathers what the launch surfaces suggest from: known
@@ -25,12 +28,30 @@ export function useLaunchFacts(): LaunchFacts {
   const [saved, setSaved] = useState<SavedSession[]>([])
   const [models, setModels] = useState<ModelState[]>([])
 
+  // unmount flips the guard so a reply landing after it never touches state
+  const savedAliveRef = useRef(true)
+
+  const refreshSaved = useCallback(() => {
+    return fleet
+      .saved()
+      .then((rows) => {
+        if (savedAliveRef.current) setSaved(rows)
+      })
+      .catch(() => {
+        // keep the current rows; a refused read retries on the next pull
+      })
+  }, [])
+
+  useEffect(() => {
+    savedAliveRef.current = true
+    void refreshSaved()
+    return () => {
+      savedAliveRef.current = false
+    }
+  }, [refreshSaved])
+
   useEffect(() => {
     let alive = true
-    fleet
-      .saved()
-      .then((rows) => alive && setSaved(rows))
-      .catch(() => {})
     modelsAPI
       .list()
       .then((rows) => {
@@ -53,5 +74,5 @@ export function useLaunchFacts(): LaunchFacts {
     [sessions, saved],
   )
 
-  return { saved, models, workspaceOptions }
+  return { saved, models, workspaceOptions, refreshSaved }
 }

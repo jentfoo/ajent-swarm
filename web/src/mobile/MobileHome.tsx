@@ -1,10 +1,10 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 
 import { fleet as fleetAPI } from '../api/endpoints'
 import type { SavedSession } from '../api/types'
 import { ApiError } from '../api/client'
-import { useLaunchFacts } from '../hooks/useLaunchFacts'
+import { useLaunchFacts, type LaunchFacts } from '../hooks/useLaunchFacts'
 import { useResume } from '../hooks/useResume'
 import { useAuth } from '../providers/auth'
 import { useSwarm } from '../providers/swarm'
@@ -12,6 +12,7 @@ import { displayName, tildePath } from '../session/names'
 import { ModelSelectOptions } from '../ui/ModelSelectOptions'
 import { SwitcherRows } from './SwitcherRows'
 import type { SwitcherRow } from './switcher'
+import { usePullToRefresh } from './usePullToRefresh'
 import { useSwitcherRows } from './useSwitcherRows'
 
 // MobileHome is the launcher and switcher: the grouped live sessions the
@@ -21,6 +22,17 @@ import { useSwitcherRows } from './useSwitcherRows'
 export default function MobileHome() {
   const navigate = useNavigate()
   const rows = useSwitcherRows()
+  const { refreshSessions } = useSwarm()
+  const facts = useLaunchFacts()
+
+  // pull-to-refresh re-reads both listings in parallel; each keeps its own
+  // error story, so a refusal only means stale rows until the next poll.
+  const { refreshSaved } = facts
+  const refreshAll = useCallback(async () => {
+    await Promise.all([refreshSessions(), refreshSaved()])
+  }, [refreshSessions, refreshSaved])
+  const surfaceRef = useRef<HTMLDivElement>(null)
+  const refreshing = usePullToRefresh(surfaceRef, refreshAll)
 
   const open = useCallback(
     (row: SwitcherRow) => {
@@ -31,12 +43,18 @@ export default function MobileHome() {
   )
 
   return (
-    <div className="mobile-home">
+    <div className="mobile-home" ref={surfaceRef}>
+      {refreshing && (
+        <p className="muted" role="status">
+          Refreshing…
+        </p>
+      )}
+
       <section aria-label="Live sessions">
         <SwitcherRows rows={rows} onOpen={open} />
       </section>
 
-      <NewSessionSection />
+      <NewSessionSection facts={facts} />
 
       <nav className="mobile-links" aria-label="More">
         <Link to="/jobs" data-testid="link-jobs">
@@ -54,7 +72,7 @@ export default function MobileHome() {
 
 // NewSessionSection keeps the launcher collapsed until asked, so the switcher
 // stays the screen's first thing on a phone.
-function NewSessionSection() {
+function NewSessionSection({ facts }: { facts: LaunchFacts }) {
   const navigate = useNavigate()
   const { refreshSessions } = useSwarm()
 
@@ -69,6 +87,7 @@ function NewSessionSection() {
       </h2>
       {open && (
         <LaunchForm
+          facts={facts}
           onLaunched={async (id) => {
             await refreshSessions()
             navigate(`/s/${encodeURIComponent(id)}`)
@@ -84,9 +103,15 @@ function NewSessionSection() {
 // model choices grouped per provider through the shared options body, and
 // saved-session rows for resume showing title or path, recency and message
 // count.
-function LaunchForm({ onLaunched }: { onLaunched: (sessionId: string) => void | Promise<void> }) {
+function LaunchForm({
+  facts,
+  onLaunched,
+}: {
+  facts: LaunchFacts
+  onLaunched: (sessionId: string) => void | Promise<void>
+}) {
   const { home } = useAuth()
-  const { saved, models, workspaceOptions } = useLaunchFacts()
+  const { saved, models, workspaceOptions } = facts
 
   const [workspaceChoice, setWorkspaceChoice] = useState('') // '' = custom reveal
   const [customWorkspace, setCustomWorkspace] = useState('')

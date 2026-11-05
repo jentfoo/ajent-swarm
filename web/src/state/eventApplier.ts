@@ -45,6 +45,7 @@ export interface ToolCallView {
   progress?: ToolProgressView
   outputs: string[] // streamed deltas painted so far; result.output adds nothing when set
   result?: { output: string; error: boolean; fault?: string }
+  verdict?: string // permit outcome chip, e.g. 'auto allowed'
   closed?: boolean // turn ended before a result arrived; never shows "running"
 }
 
@@ -70,6 +71,13 @@ export interface NoticeView {
   text: string
   level: 'info' | 'warn' | 'error'
   at: number // wall clock of arrival; rendering expires stale lines
+}
+
+// PermitVerdict is one tool call's approval outcome, captured from upstream's
+// resolve notices so it rides its card instead of stacking above the composer.
+export interface PermitVerdict {
+  id: string // tool call id the verdict was gated against
+  text: string // chip label shown on both the live and committed cards
 }
 
 interface PrintCard {
@@ -129,6 +137,7 @@ export interface AppliedSessionState {
 
   live: LiveTurn | null
   notices: NoticeView[]
+  permitVerdicts: PermitVerdict[] // newest last, bounded; keeps chips past the handoff
   prints: PrintCard[]
   diffs: DiffView[] // newest last, bounded
   pendings: PendingSubmit[]
@@ -155,6 +164,7 @@ export type ApplierAction =
 
 // Bounds keeping the ephemeral surfaces finite across long sessions.
 const maxNotices = 50
+const maxPermitVerdicts = 50
 const maxPrints = 20
 const maxDiffs = 10
 const maxPendings = 100
@@ -170,6 +180,7 @@ export function initialSessionState(): AppliedSessionState {
     chain: { ids: [], rooted: true, oldestId: '' },
     live: null,
     notices: [],
+    permitVerdicts: [],
     prints: [],
     diffs: [],
     pendings: [],
@@ -496,6 +507,11 @@ function applyEvent(state: AppliedSessionState, ev: WireEvent): AppliedSessionSt
     case 'notice': {
       const d = decode<{ text?: string; level?: string; key?: string }>(ev.data)
       if (!d?.text) return next
+      // A permit verdict describes one call's approval, so it rides that card
+      // rather than parking above the composer. Without an open card (a lost
+      // tool.start, a mid-turn join) the line keeps its notice path instead.
+      const label = permitVerdict(d.text)
+      if (label !== undefined && attachPermitVerdict(next, label)) return next
       const level: NoticeView['level'] =
         d.level === 'warn' || d.level === 'error' ? d.level : 'info'
       if (d.key) {
@@ -602,6 +618,39 @@ function applyEvent(state: AppliedSessionState, ev: WireEvent): AppliedSessionSt
       // Unknown events are additive changes: ignore them rather than failing.
       return next
   }
+}
+
+// permitVerdict matches ajent's barrier resolve notices ("Tool auto allowed",
+// "Tool allowed for session", "Tool call allowed this time") and returns the
+// card chip label, undefined for any other notice. Matched as substrings so
+// upstream wording drift never breaks the attach.
+export function permitVerdict(text: string): string | undefined {
+  const t = text.toLowerCase()
+  if (t.includes('auto allowed')) return 'auto allowed'
+  if (t.includes('allowed for session')) return 'allowed for session'
+  if (t.includes('allowed this time')) return 'allowed this time'
+  return undefined
+}
+
+// attachPermitVerdict stamps label onto the newest call still waiting for a
+// result, since a verdict resolves inside its guard chain between start and
+// result. It also records the pairing by id so the committed card keeps the
+// chip after the live buffer retires. Reports whether an open card took it.
+function attachPermitVerdict(state: AppliedSessionState, label: string): boolean {
+  const tools = state.live?.tools
+  if (!tools) return false
+  for (let i = tools.length - 1; i >= 0; i--) {
+    if (tools[i].result !== undefined) continue
+    state.permitVerdicts = [...state.permitVerdicts, { id: tools[i].id, text: label }].slice(
+      -maxPermitVerdicts,
+    )
+    state.live = {
+      ...state.live!,
+      tools: tools.map((t, j) => (j === i ? { ...t, verdict: label } : t)),
+    }
+    return true
+  }
+  return false
 }
 
 function applyStatus(next: AppliedSessionState, ev: WireEvent): AppliedSessionState {

@@ -166,6 +166,27 @@ describe('deriveBlocks assistant shape', () => {
     // only the retired call renders; the live card covers it until handoff
     expect(callPartsOf(out[0]).map((c) => c.id)).toEqual(['done1'])
   })
+
+  it('stamps permit verdicts onto their committed calls', () => {
+    const assistant = messageEntry('01A', undefined, 'assistant', [
+      { type: 'tool_call', data: { id: 'c1', name: 'bash' } },
+    ])
+
+    // the map rides the applier state; derivation only looks up by call id
+    const verdicts = new Map([
+      ['c1', 'auto allowed'],
+      ['c9', 'never attached'],
+    ])
+    const map = new Map([assistant].map((e) => [e.id, e]))
+    const out = deriveBlocks(['01A'], map, undefined, verdicts)
+    expect(callPartsOf(out[0])).toEqual([
+      { id: 'c1', name: 'bash', verdict: 'auto allowed' },
+    ])
+
+    // no verdicts captured: cards render exactly as before
+    const bare = deriveBlocks(['01A'], map)
+    expect(callPartsOf(bare[0])).toEqual([{ id: 'c1', name: 'bash' }])
+  })
 })
 
 describe('deriveBlocks non-message entries', () => {

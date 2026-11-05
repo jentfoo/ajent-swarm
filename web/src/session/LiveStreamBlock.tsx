@@ -105,6 +105,7 @@ function LiveToolCard({
         outputs: tool.outputs,
         progress: tool.progress,
         result,
+        verdict: tool.verdict,
         closed: tool.closed,
       }}
       agents={isAgentTool(tool.name) ? agents : undefined}

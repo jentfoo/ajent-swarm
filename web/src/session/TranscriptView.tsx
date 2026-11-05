@@ -57,13 +57,20 @@ export function TranscriptView({
     [state.live?.tools],
   )
 
+  // Permit verdicts keyed by call id keep approval chips on committed cards
+  // after the live buffer retires them.
+  const verdicts = useMemo(
+    () => new Map(state.permitVerdicts.map((v) => [v.id, v.text])),
+    [state.permitVerdicts],
+  )
+
   // Derivation re-runs only when the chain object or the live tool set
   // changes; streaming deltas touch neither, so settled history renders once.
   // The entries map mutates in place with a stable identity, which is why the
   // chain is the trigger.
   const blocks = useMemo(
-    () => deriveBlocks(state.chain.ids, state.entries, hideLiveToolIds),
-    [state.chain, state.entries, hideLiveToolIds],
+    () => deriveBlocks(state.chain.ids, state.entries, hideLiveToolIds, verdicts),
+    [state.chain, state.entries, hideLiveToolIds, verdicts],
   )
 
   // Diffs anchor to the block they arrived after; a card sits inside its row

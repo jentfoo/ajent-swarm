@@ -13,6 +13,7 @@ export interface ToolCardView {
   outputs?: string[]
   progress?: ToolProgressView
   result?: ToolResultView
+  verdict?: string // permit outcome riding the card, e.g. 'auto allowed'
   closed?: boolean // the turn ended before a result arrived
 }
 
@@ -54,6 +55,7 @@ export function ToolCallCard({
           ) : (
             <span className="badge ok">done</span>
           ))}
+        {call.verdict && <span className="badge">{call.verdict}</span>}
         {body !== '' && !open && <span className="muted tool-preview">{oneLine(body)}</span>}
       </button>
       {(call.input !== undefined || open) && (

@@ -814,6 +814,71 @@ describe('applierReducer tool card state', () => {
   })
 })
 
+describe('applierReducer permit verdict notices', () => {
+  it('rides the running card instead of stacking', () => {
+    const s = apply(
+      initialSessionState(),
+      ev('turn.start', 1, { model: 'm' }),
+      ev('tool.start', 2, { id: 'c1', name: 'bash', input: '{}' }),
+      // upstream resolves the gate between this call's start and result
+      ev('notice', 3, { text: 'Tool auto allowed', level: 'info' }),
+    )
+    expect(s.notices).toHaveLength(0)
+    expect(s.live?.tools[0]?.verdict).toBe('auto allowed')
+    expect(s.permitVerdicts).toEqual([{ id: 'c1', text: 'auto allowed' }])
+  })
+
+  it('covers session and once grants too', () => {
+    let s = apply(
+      initialSessionState(),
+      ev('turn.start', 1, { model: 'm' }),
+      ev('tool.start', 2, { id: 'c1', name: 'bash', input: '{}' }),
+      ev('notice', 3, { text: 'Tool allowed for session', level: 'info' }),
+    )
+    expect(s.live?.tools[0]?.verdict).toBe('allowed for session')
+
+    s = apply(
+      s,
+      ev('tool.result', 4, { id: 'c1', output: 'ok' }),
+      ev('tool.start', 5, { id: 'c2', name: 'bash', input: '{}' }),
+      ev('notice', 6, { text: 'Tool call allowed this time', level: 'info' }),
+    )
+    expect(s.live?.tools[1]?.verdict).toBe('allowed this time')
+    expect(s.permitVerdicts).toHaveLength(2)
+  })
+
+  it('targets the newest open call in a parallel batch', () => {
+    const s = apply(
+      initialSessionState(),
+      ev('turn.start', 1, { model: 'm' }),
+      ev('tool.start', 2, { id: 'c1', name: 'read', input: '{}' }),
+      ev('tool.start', 3, { id: 'c2', name: 'bash', input: '{}' }),
+      // parallel launches race their gates, and the newest open call is the
+      // only subject a bare verdict line can name
+      ev('notice', 4, { text: 'Tool auto allowed', level: 'info' }),
+    )
+    expect(s.live?.tools[0]?.verdict).toBeUndefined()
+    expect(s.live?.tools[1]?.verdict).toBe('auto allowed')
+  })
+
+  it('falls back to a notice without an open card', () => {
+    const s = apply(initialSessionState(), ev('notice', 1, { text: 'Tool auto allowed' }))
+    expect(s.notices).toHaveLength(1)
+    expect(s.permitVerdicts).toHaveLength(0)
+  })
+
+  it('keeps unrelated notices on the notice path', () => {
+    const s = apply(
+      initialSessionState(),
+      ev('turn.start', 1, { model: 'm' }),
+      ev('tool.start', 2, { id: 'c1', name: 'bash', input: '{}' }),
+      ev('notice', 3, { text: 'Sub-agent sub-6 completed', level: 'info' }),
+    )
+    expect(s.live?.tools[0]?.verdict).toBeUndefined()
+    expect(s.notices).toHaveLength(1)
+  })
+})
+
 describe('applierReducer echo fidelity', () => {
   it('drains streamed text and thinking when the entry commits', () => {
     let s = apply(

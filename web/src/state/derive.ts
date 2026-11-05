@@ -33,6 +33,7 @@ export interface ToolCallInfo {
   name: string
   input?: unknown
   result?: ToolResultView
+  verdict?: string // permit outcome chip captured from the live stream
 }
 
 export type AssistantPart = { kind: 'text'; text: string } | { kind: 'call'; call: ToolCallInfo }
@@ -57,6 +58,7 @@ export function deriveBlocks(
   chainIds: readonly string[],
   entries: Map<string, Entry>,
   hideLiveToolIds: ReadonlySet<string> = new Set(),
+  verdicts?: ReadonlyMap<string, string>, // tool call id -> permit chip label
 ): DerivedBlock[] {
   const pendingCalls = new Map<string, ToolCallInfo>()
   const blocks: DerivedBlock[] = []
@@ -65,7 +67,7 @@ export function deriveBlocks(
     if (!entry) continue
     switch (entry.type) {
       case 'message': {
-        const block = deriveMessage(entry, pendingCalls, hideLiveToolIds)
+        const block = deriveMessage(entry, pendingCalls, hideLiveToolIds, verdicts)
         if (block) blocks.push(block)
         break
       }
@@ -116,13 +118,14 @@ function deriveMessage(
   entry: Entry,
   pendingCalls: Map<string, ToolCallInfo>,
   hideLiveToolIds: ReadonlySet<string>,
+  verdicts?: ReadonlyMap<string, string>,
 ): DerivedBlock | undefined {
   const d = (entry.data ?? {}) as MessageEntryData
   const role = d.message?.role
   const blocks = Array.isArray(d.message?.content) ? (d.message!.content as ContentBlockView[]) : []
 
   if (role === 'assistant') {
-    return deriveAssistant(entry.id, blocks, pendingCalls, hideLiveToolIds, d.stop)
+    return deriveAssistant(entry.id, blocks, pendingCalls, hideLiveToolIds, verdicts, d.stop)
   }
   if (role !== 'user') {
     // system-role messages carry no standalone shape; replay paints nothing
@@ -149,6 +152,7 @@ function deriveAssistant(
   blocks: ContentBlockView[],
   pendingCalls: Map<string, ToolCallInfo>,
   hideLiveToolIds: ReadonlySet<string>,
+  verdicts: ReadonlyMap<string, string> | undefined,
   stop?: string,
 ): DerivedBlock {
   const parts: AssistantPart[] = []
@@ -171,6 +175,8 @@ function deriveAssistant(
           name: str(block.data?.name),
           input: block.data?.input,
         }
+        const verdict = verdicts?.get(callId)
+        if (verdict !== undefined) info.verdict = verdict
         pendingCalls.set(callId, info)
         if (!hideLiveToolIds.has(callId)) parts.push({ kind: 'call', call: info })
         break

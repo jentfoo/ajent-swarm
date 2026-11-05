@@ -75,4 +75,22 @@ describe('EntryBlock assistant ordering', () => {
     )
     expect(screen.queryByText('running')).not.toBeInTheDocument()
   })
+
+  it('shows a permit verdict chip on the call card', () => {
+    render(
+      <EntryBlock
+        block={assistantBlock([
+          { kind: 'call', call: { id: 'c1', name: 'bash', verdict: 'auto allowed' } },
+        ])}
+      />,
+    )
+    expect(screen.getByText('auto allowed')).toBeInTheDocument()
+  })
+
+  it('renders no verdict chip without one', () => {
+    render(
+      <EntryBlock block={assistantBlock([{ kind: 'call', call: { id: 'c1', name: 'bash' } }])} />,
+    )
+    expect(screen.queryByText('auto allowed')).not.toBeInTheDocument()
+  })
 })

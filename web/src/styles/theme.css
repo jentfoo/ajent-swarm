@@ -1240,6 +1240,13 @@ label {
   color: var(--muted);
   font-size: var(--fs-small);
 }
+/* copy/play controls sit under the enabled toggle instead of wrapping beside it */
+.job-row-actions {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--unit) * 1);
+  margin-top: calc(var(--unit) * 1);
+}
 .editor-actions {
   display: flex;
   gap: calc(var(--unit) * 2);

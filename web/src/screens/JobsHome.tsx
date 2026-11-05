@@ -329,15 +329,17 @@ function JobRow({
             aria-label={`${job.enabled ? 'Disable' : 'Enable'} ${job.name}`}
           />
           enabled
-        </label>{' '}
-        <Link to={`/jobs/new?from=${job.id}`}>
-          <button type="button" aria-label={`Copy ${job.name}`}>
-            Copy
+        </label>
+        <div className="job-row-actions">
+          <Link to={`/jobs/new?from=${job.id}`}>
+            <button type="button" aria-label={`Copy ${job.name}`}>
+              Copy
+            </button>
+          </Link>
+          <button type="button" title="Run now" aria-label={`Run ${job.name} now`} onClick={onFire}>
+            ▶
           </button>
-        </Link>{' '}
-        <button type="button" title="Run now" aria-label={`Run ${job.name} now`} onClick={onFire}>
-          ▶
-        </button>
+        </div>
       </td>
     </tr>
   )

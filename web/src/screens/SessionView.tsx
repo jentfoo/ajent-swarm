@@ -1,27 +1,19 @@
-import { useCallback, useRef, useState } from 'react'
+import { useState } from 'react'
 import { useParams } from 'react-router'
 
-import { ApiError } from '../api/client'
-import { sessions as sessionAPI } from '../api/endpoints'
 import { useSessionChannel } from '../hooks/useSessionChannel'
 import { useWorkspace } from '../providers/workspace'
 import { Composer } from '../session/Composer'
-import { placedAboveNotice, useComposerDraft } from '../session/useComposerDraft'
 import { phaseText } from '../session/phases'
 import { DialogDock } from '../session/DialogDock'
 import { Notices } from '../session/Notices'
 import { QueuedPrompts } from '../session/QueuedPrompts'
+import { SeatBadge } from '../session/SeatBadge'
 import { StatusBar } from '../session/StatusBar'
 import { StatusHeader } from '../session/StatusHeader'
 import { TranscriptView } from '../session/TranscriptView'
 import { RewindDialog } from '../session/RewindDialog'
-import type { AppliedSessionState } from '../state/eventApplier'
-
-interface Toast {
-  id: number
-  text: string
-  level: 'info' | 'error'
-}
+import { useSessionCompose } from '../session/useSessionCompose'
 
 // SessionView is the single-session experience: slim status header with
 // controls, virtualized transcript over reconciled state, dialog dock above a
@@ -62,50 +54,23 @@ function SessionSurface({
   const { acknowledgeDialog, acknowledgeTurn } = useWorkspace()
   const snap = state.snapshot
 
-  const { draft, setDraft, prefill } = useComposerDraft(sessionId)
+  const {
+    draft,
+    setDraft,
+    placedAbove,
+    recallToEdit,
+    dialogs,
+    composerDisabled,
+    disabledReason,
+    toasts,
+    pushToast,
+  } = useSessionCompose(sessionId)
   const [showRewind, setShowRewind] = useState(false)
-
-  const [toasts, setToasts] = useState<Toast[]>([])
-  const toastID = useRef(0)
-  const pushToast = useCallback((text: string, level: 'info' | 'error' = 'info') => {
-    const id = ++toastID.current
-    setToasts((ts) => [...ts.slice(-4), { id, text, level }])
-    setTimeout(() => setToasts((ts) => ts.filter((t) => t.id !== id)), 6_000)
-  }, [])
-
-  // placedAbove surfaces a prefill that merged above an existing draft, so the
-  // arrival is noticed instead of reading as one's own text moving down.
-  const placedAbove = useCallback(
-    (text: string) => {
-      if (prefill(text)) pushToast(placedAboveNotice, 'info')
-    },
-    [prefill, pushToast],
-  )
-
-  // Editing a queued prompt pops it back into the composer through recall;
-  // secret rows refuse upstream and their toast says so.
-  const recallToEdit = useCallback(async () => {
-    try {
-      const row = await sessionAPI.recall(sessionId)
-      if (row.text) placedAbove(row.text)
-    } catch (err) {
-      pushToast(err instanceof ApiError ? err.message : 'Recall failed.', 'error')
-    }
-  }, [sessionId, pushToast, placedAbove])
-
-  // Wire refusals while a dialog holds input mirror into the composer's
-  // disabled state; every other coded refusal surfaces as a toast.
-  const dialogs = snap.interactions ?? []
-  const composerDisabled = phase !== 'live' || dialogs.length > 0
-  const disabledReason =
-    dialogs.length > 0
-      ? 'A dialog needs an answer before prompts can send.'
-      : 'The session is not reachable right now.'
 
   return (
     <div className="session-screen">
       <StatusHeader sessionId={sessionId} snap={snap} onToast={pushToast}>
-        <SeatBadge sessionId={sessionId} state={state} />
+        <SeatBadge sessionId={sessionId} seat={snap.seat} />
         <button type="button" onClick={() => setShowRewind(true)}>
           Rewind
         </button>
@@ -180,38 +145,5 @@ function SessionSurface({
         ))}
       </div>
     </div>
-  )
-}
-
-// SeatBadge is the takeover affordance for a seat another controller holds.
-// A free seat needs no claim (writes take it lazily) and one we hold needs no
-// badge, so both stay hidden and control only ever shows as contested.
-function SeatBadge({ sessionId, state }: { sessionId: string; state: AppliedSessionState }) {
-  const [busy, setBusy] = useState(false)
-  const seat = state.snapshot.seat
-
-  if (!seat.held || seat.yours) return null
-
-  const takeControl = async () => {
-    setBusy(true)
-    try {
-      await sessionAPI.takeControl(sessionId)
-    } catch {
-      // Refusals keep their holder name; the next snapshot updates the badge.
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <button
-      type="button"
-      className="badge warn seat-badge"
-      disabled={busy}
-      title={`Take control from ${seat.holder || 'another controller'}`}
-      onClick={() => void takeControl()}
-    >
-      {`take control: ${seat.holder || 'held'}`}
-    </button>
   )
 }

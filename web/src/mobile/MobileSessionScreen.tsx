@@ -6,13 +6,14 @@ import { sessions as sessionAPI } from '../api/endpoints'
 import { ApiError } from '../api/client'
 import { sessionBusy } from '../state/eventApplier'
 import { Composer } from '../session/Composer'
-import { placedAboveNotice, useComposerDraft } from '../session/useComposerDraft'
+import { SeatBadge } from '../session/SeatBadge'
 import { Notices } from '../session/Notices'
 import { phaseText } from '../session/phases'
 import { QueuedPrompts } from '../session/QueuedPrompts'
 import { ModeMenu } from '../session/StatusHeader'
 import { StatusBar } from '../session/StatusBar'
 import { TranscriptView } from '../session/TranscriptView'
+import { useSessionCompose } from '../session/useSessionCompose'
 import { useKeyboardInset, keyboardInsetStyle } from '../hooks/useKeyboardInset'
 import { useSessionChannel } from '../hooks/useSessionChannel'
 import { useWorkspace } from '../providers/workspace'
@@ -29,12 +30,6 @@ import { useSwitcherRows } from './useSwitcherRows'
 // edgeSwipePx is how far right a touch starting in the left edge zone must
 // travel to reopen the switcher sheet.
 const edgeSwipePx = 56
-
-interface Toast {
-  id: number
-  text: string
-  level: 'info' | 'error'
-}
 
 // MobileSessionScreen drives one session on a phone. The component tree stays
 // shared with desktop (TranscriptView, notices, dialogs, queue chips, Composer,
@@ -58,7 +53,17 @@ function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElemen
   const { acknowledgeDialog, acknowledgeTurn } = useWorkspace()
   const snap = state.snapshot
 
-  const { draft, setDraft, prefill } = useComposerDraft(sessionId)
+  const {
+    draft,
+    setDraft,
+    placedAbove,
+    recallToEdit,
+    dialogs,
+    composerDisabled,
+    disabledReason,
+    toasts,
+    pushToast,
+  } = useSessionCompose(sessionId)
   const [showTools, setShowTools] = useState(false)
   const [showRewind, setShowRewind] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
@@ -77,34 +82,6 @@ function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElemen
   // touch zone is only the first 24px so transcript selection never fights it.
   const edgeStart = useRef<{ x: number; y: number } | null>(null)
 
-  const [toasts, setToasts] = useState<Toast[]>([])
-  const toastID = useRef(0)
-  const pushToast = useCallback((text: string, level: 'info' | 'error' = 'info') => {
-    const id = ++toastID.current
-    setToasts((ts) => [...ts.slice(-4), { id, text, level }])
-    setTimeout(() => setToasts((ts) => ts.filter((t) => t.id !== id)), 6_000)
-  }, [])
-
-  // placedAbove surfaces a prefill that merged above an existing draft, so the
-  // arrival is noticed instead of reading as one's own text moving down.
-  const placedAbove = useCallback(
-    (text: string) => {
-      if (prefill(text)) pushToast(placedAboveNotice, 'info')
-    },
-    [prefill, pushToast],
-  )
-
-  // Editing a queued prompt pops it back into the composer through recall;
-  // failures surface through the toast stack like every other refusal.
-  const recallToEdit = useCallback(async () => {
-    try {
-      const row = await sessionAPI.recall(sessionId)
-      if (row.text) placedAbove(row.text)
-    } catch (err) {
-      pushToast(err instanceof ApiError ? err.message : 'Recall failed.', 'error')
-    }
-  }, [sessionId, pushToast, placedAbove])
-
   const interrupt = useCallback(async () => {
     setStopBusy(true)
     try {
@@ -116,13 +93,7 @@ function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElemen
     }
   }, [sessionId, pushToast])
 
-  const dialogs = snap.interactions ?? []
-  const composerDisabled = phase !== 'live' || dialogs.length > 0
   const working = sessionBusy(snap)
-  const disabledReason =
-    dialogs.length > 0
-      ? 'A dialog needs an answer before prompts can send.'
-      : 'The session is not reachable right now.'
 
   return (
     <div
@@ -168,11 +139,7 @@ function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElemen
           </button>
         )}
         <span className="spacer" />
-        <SeatClaim
-          sessionId={sessionId}
-          held={snap.seat.held && !snap.seat.yours}
-          holder={snap.seat.holder}
-        />
+        <SeatBadge sessionId={sessionId} seat={snap.seat} compact />
         <button type="button" onClick={() => setShowRewind(true)}>
           Rewind
         </button>
@@ -305,43 +272,5 @@ function SwitcherOverlay({
         }}
       />
     </BottomSheet>
-  )
-}
-
-// SeatClaim is the compact takeover affordance: shown only while someone
-// else holds the write seat, since a free seat costs nothing to use and one
-// this connection holds is not contested.
-function SeatClaim({
-  sessionId,
-  held,
-  holder,
-}: {
-  sessionId: string
-  held: boolean
-  holder?: string
-}): ReactElement | null {
-  const [busy, setBusy] = useState(false)
-  if (!held) return null
-
-  const takeControl = async () => {
-    setBusy(true)
-    try {
-      await sessionAPI.takeControl(sessionId)
-    } catch {
-      // Refusals keep their holder name; the next snapshot updates the badge.
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <button
-      type="button"
-      className="badge warn seat-claim"
-      onClick={() => void takeControl()}
-      disabled={busy}
-    >
-      {holder ? `seat: ${holder}` : 'seat held'}
-    </button>
   )
 }

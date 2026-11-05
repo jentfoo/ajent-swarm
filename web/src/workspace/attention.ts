@@ -211,6 +211,53 @@ export function deriveItem(row: AttentionRow): AttentionItem {
   }
 }
 
+// --- shared ordering ---
+
+// AttentionSort carries the facts that place an alive row. A digest item
+// qualifies as-is and a listing row without one passes only its session id,
+// ranking with working yet keeping stable name order.
+export interface AttentionSort {
+  sessionId: string
+  kind?: AttentionKind // absent shares the working class below
+  since?: number // dialog wait or turn end, within-class order
+}
+
+// Display classes in rail order. Awaiting renders under Needs input beside
+// dialogs and completions, only working sits outside it.
+export const attentionRanks = {
+  input: 0,
+  review: 1,
+  awaiting: 2,
+  working: 3,
+} as const
+
+// attentionRank classifies one row into its display class. Rows without a
+// digest share the working class so they never outrank actionable ones.
+export function attentionRank(entry: AttentionSort): number {
+  switch (entry.kind) {
+    case 'needs-input':
+      return attentionRanks.input
+    case 'needs-review':
+      return attentionRanks.review
+    case 'awaiting':
+      return attentionRanks.awaiting
+    default:
+      return attentionRanks.working
+  }
+}
+
+// compareAttention orders two rows the way rankAttention renders them: class
+// first, then dialogs by oldest wait and completions newest first, everything
+// else stable by session id. Every surface sorting alive rows consumes it.
+export function compareAttention(a: AttentionSort, b: AttentionSort): number {
+  const ra = attentionRank(a)
+  const rb = attentionRank(b)
+  if (ra !== rb) return ra - rb
+  if (ra === attentionRanks.input) return (a.since ?? 0) - (b.since ?? 0)
+  if (ra === attentionRanks.review) return (b.since ?? 0) - (a.since ?? 0)
+  return a.sessionId.localeCompare(b.sessionId)
+}
+
 // rankAttention renders the rail's two fixed sections. Needs input first:
 // dialogs by oldest wait, then unreviewed completions newest first, then idle
 // agents waiting for a prompt in stable name order so rows never reshuffle
@@ -221,15 +268,12 @@ export function rankAttention(items: readonly AttentionItem[]): {
   working: AttentionItem[]
   needsInputCount: number
 } {
-  const needsInput = items.filter((i) => i.kind === 'needs-input').sort((a, b) => a.since - b.since)
-  const needsReview = items
-    .filter((i) => i.kind === 'needs-review')
-    .sort((a, b) => b.since - a.since)
-  const byName = (a: AttentionItem, b: AttentionItem) => a.sessionId.localeCompare(b.sessionId)
+  const needsInput = items.filter((i) => i.kind === 'needs-input').sort(compareAttention)
+  const needsReview = items.filter((i) => i.kind === 'needs-review').sort(compareAttention)
   return {
     needs: [...needsInput, ...needsReview],
-    awaiting: items.filter((i) => i.kind === 'awaiting').sort(byName),
-    working: items.filter((i) => i.kind === 'working').sort(byName),
+    awaiting: items.filter((i) => i.kind === 'awaiting').sort(compareAttention),
+    working: items.filter((i) => i.kind === 'working').sort(compareAttention),
     needsInputCount: needsInput.length,
   }
 }

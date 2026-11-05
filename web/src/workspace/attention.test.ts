@@ -6,6 +6,9 @@ import {
   ackTurn,
   acknowledgeItem,
   ackedTurn,
+  attentionRank,
+  attentionRanks,
+  compareAttention,
   deriveItem,
   describeStop,
   isDialogAcked,
@@ -14,6 +17,7 @@ import {
   resetLedger,
   subscribeLedger,
 } from './attention'
+import type { AttentionSort } from './attention'
 
 function row(overrides: Partial<AttentionRow> & { sessionId: string }): AttentionRow {
   return {
@@ -177,6 +181,37 @@ describe('attention ranking', () => {
     expect(ranked.awaiting.map((i) => i.sessionId)).toEqual(['aaa-snoozing', 'zzz-snoozing'])
     expect(ranked.awaiting[1].reason).toBe('tests green')
     expect(ranked.needsInputCount).toBe(2)
+  })
+})
+
+describe('shared attention ordering', () => {
+  it('ranks kinds in rail order, digest-less rows with working', () => {
+    expect(attentionRank({ sessionId: 's', kind: 'needs-input' })).toBe(attentionRanks.input)
+    expect(attentionRank({ sessionId: 's', kind: 'needs-review' })).toBe(attentionRanks.review)
+    expect(attentionRank({ sessionId: 's', kind: 'awaiting' })).toBe(attentionRanks.awaiting)
+    expect(attentionRank({ sessionId: 's', kind: 'working' })).toBe(attentionRanks.working)
+
+    // a listing row without a digest never outranks actionable ones
+    expect(attentionRank({ sessionId: 's' })).toBe(attentionRanks.working)
+  })
+
+  it('sorts classes first, then waits within them, names otherwise', () => {
+    const rows: AttentionSort[] = [
+      { sessionId: 'zzz-busy', kind: 'working' },
+      { sessionId: 'new-dialog', kind: 'needs-input', since: 500 },
+      { sessionId: 'b-idle', kind: 'awaiting' },
+      { sessionId: 'old-turn', kind: 'needs-review', since: 100 },
+      { sessionId: 'aaa-plain' }, // digest-less ranks with working
+      { sessionId: 'old-dialog', kind: 'needs-input', since: 100 },
+    ]
+    expect([...rows].sort(compareAttention).map((r) => r.sessionId)).toEqual([
+      'old-dialog', // dialogs by oldest wait
+      'new-dialog',
+      'old-turn', // completions newest first
+      'b-idle',
+      'aaa-plain', // working class name-stable
+      'zzz-busy',
+    ])
   })
 })
 

@@ -4,7 +4,13 @@
 // the last four exited swarm children kept in a trailing Recent section so a
 // fresh exit stays one tap from resume.
 import { childEnded, type SessionStatus } from '../api/types'
-import type { AttentionItem } from '../workspace/attention'
+import {
+  attentionRank,
+  attentionRanks,
+  compareAttention,
+  type AttentionItem,
+  type AttentionSort,
+} from '../workspace/attention'
 
 // maxExitedRows caps the ended tail; older runs stay reachable through saved
 // sessions and their transcripts.
@@ -78,15 +84,15 @@ export function buildSwitcherRows(
       continue
     }
     const item = byId.get(s.sessionId)
-    const cls = attentionClass(item)
+    const entry = { sessionId: s.sessionId, kind: item?.kind, since: item?.since }
     alive.push({
-      cls,
-      since: item?.since ?? 0,
+      ...entry,
       row: {
         sessionId: s.sessionId,
         label: labelFor(s),
         status: statusOf(s, item),
-        section: cls === workingClass ? 'working' : 'needs',
+        // only the working class sits outside Needs input on the rail too
+        section: attentionRank(entry) === attentionRanks.working ? 'working' : 'needs',
         needsInput: item?.kind === 'needs-input',
         reason: item?.reason ?? '',
         queued: s.queued,
@@ -97,7 +103,7 @@ export function buildSwitcherRows(
     })
   }
 
-  alive.sort(compareAlive)
+  alive.sort(compareAttention)
   exited.sort((a, b) => (b.exitedAt ?? 0) - (a.exitedAt ?? 0))
   return [...alive.map((a) => a.row), ...exited.slice(0, maxExitedRows)]
 }
@@ -116,40 +122,11 @@ export function groupSwitcherRows(rows: readonly SwitcherRow[]): GroupedSwitcher
   })
 }
 
-// AliveRow pairs a row with its sort facts: the attention class and the
-// moment the attention state started.
-interface AliveRow {
+// AliveRow pairs a row with the sort facts the shared attention order reads:
+// rows without a digest carry only their session id, so they rank with
+// working yet stay name-stable.
+interface AliveRow extends AttentionSort {
   row: SwitcherRow
-  cls: number
-  since: number
-}
-
-const workingClass = 3 // the one attention class outside Needs input
-
-// attentionClass mirrors rankAttention's rank: dialogs, unreviewed
-// completions, then waiting agents; working and digest-less rows share the
-// working class.
-function attentionClass(item: AttentionItem | undefined): number {
-  switch (item?.kind) {
-    case 'needs-input':
-      return 0
-    case 'needs-review':
-      return 1
-    case 'awaiting':
-      return 2
-    default:
-      return workingClass
-  }
-}
-
-// compareAlive mirrors rankAttention: dialogs by oldest wait, unreviewed
-// completions newest first, the rest stable by session id, so grouping can
-// never disagree with the desktop rail.
-function compareAlive(a: AliveRow, b: AliveRow): number {
-  if (a.cls !== b.cls) return a.cls - b.cls
-  if (a.cls === 0) return a.since - b.since // dialogs: oldest wait first
-  if (a.cls === 1) return b.since - a.since // completions: newest first
-  return a.row.sessionId.localeCompare(b.row.sessionId)
 }
 
 function statusOf(s: SessionStatus, item: AttentionItem | undefined): SwitcherStatus {

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { buildSwitcherRows, groupSwitcherRows } from './switcher'
 import type { SwitcherRow } from './switcher'
+import { rankAttention } from '../workspace/attention'
 import type { AttentionItem } from '../workspace/attention'
 import { ChildState, type SessionStatus } from '../api/types'
 
@@ -183,6 +184,35 @@ describe('buildSwitcherRows', () => {
       expect(row.checkOff).toBe(false)
       expect(row.section).toBe('working')
     }
+  })
+
+  it('ranks alive rows exactly like the desktop rail', () => {
+    const attentionItems = [
+      { ...item('needs-input'), sessionId: 'a-dialog', since: 30 },
+      { ...item('awaiting'), sessionId: 'b-idle' },
+      { ...item('working'), sessionId: 'c-busy' },
+      { ...item('needs-review'), sessionId: 'd-turn', since: 50 },
+      { ...item('needs-input'), sessionId: 'e-dialog', since: 10 },
+      { ...item('needs-review'), sessionId: 'f-turn', since: 20 },
+    ]
+    const sessions = attentionItems.map((i) => session({ sessionId: i.sessionId }))
+    const rows = buildSwitcherRows(sessions, labelFor, attentionItems)
+
+    // the rail renders needs, then awaiting under Needs input, working below
+    const ranked = rankAttention(attentionItems)
+    expect(ranked.needs.map((i) => i.sessionId)).toEqual([
+      'e-dialog',
+      'a-dialog',
+      'd-turn',
+      'f-turn',
+    ])
+    expect(rows.map((r) => r.section)).toEqual([
+      ...[...ranked.needs, ...ranked.awaiting].map(() => 'needs' as const),
+      ...ranked.working.map(() => 'working' as const),
+    ])
+    expect(rows.map((r) => r.sessionId)).toEqual(
+      [...ranked.needs, ...ranked.awaiting, ...ranked.working].map((i) => i.sessionId),
+    )
   })
 
   it('carries the listing queue depth onto rows', () => {

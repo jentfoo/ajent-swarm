@@ -14,11 +14,12 @@ import type { SwitcherRow } from './switcher'
 
 // SwitcherRows renders the sheet's large touch rows grouped under the desktop
 // rail's headings (Needs input, Working, Recent): status and needs-input
-// badges beside each label, a check-off on actionable attention states (never
-// on neutral waiting or ended rows), a trailing actions area mirroring the
-// desktop card bar minus Open plus an explicit Rename, and long-press rename
-// opening the same editor. Both rename paths edit the stored swarm title
-// rather than ajent's own session names.
+// badges beside each label plus a queued-prompt count when prompts wait, a
+// check-off on actionable attention states (never on neutral waiting or ended
+// rows), a trailing actions area mirroring the desktop card bar minus Open
+// plus an explicit Rename, and long-press rename opening the same editor.
+// Both rename paths edit the stored swarm title rather than ajent's own
+// session names.
 export function SwitcherRows({
   rows,
   onOpen,
@@ -107,6 +108,7 @@ function SwitchRow({
             input
           </span>
         )}
+        {row.queued > 0 && <span className="badge">{row.queued} queued</span>}
       </span>
       <span className="switch-bottom">
         {row.reason !== '' ? <span className="muted switch-reason">{row.reason}</span> : null}

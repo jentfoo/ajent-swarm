@@ -406,6 +406,31 @@ func TestManager(t *testing.T) {
 			assert.Equal(t, ctl.EventIdle, ev.env.Event.Name)
 		}
 	})
+
+	t.Run("listing_carries_queue_depth", func(t *testing.T) {
+		m, home := newTestFleet(t, nil)
+		f := fleettest.New(t, home, fleettest.Options{SessionID: "01QUEUEDEPTH00000"})
+		f.WriteRegistry(t, os.Getpid(), time.Now())
+		waitForState(t, m, f.SessionID(), ChildOnline)
+
+		st, ok := rowFor(m.Sessions(), f.SessionID())
+		require.True(t, ok)
+		assert.Zero(t, st.Queued) // nothing queued at attach
+
+		f.Broadcast(ctl.EventQueued, ctl.QueuedData{Rows: []ctl.QueueRow{
+			{ID: "c1", Text: "first"}, {ID: "c2", Text: "second"},
+		}})
+		require.Eventually(t, func() bool {
+			st, ok := rowFor(m.Sessions(), f.SessionID())
+			return ok && st.Queued == 2 // queued replaces wholesale and the listing follows
+		}, 2*time.Second, testPoll)
+
+		f.Broadcast(ctl.EventQueueDropped, ctl.QueueDroppedData{Rows: []ctl.QueueRow{{ID: "c1"}}})
+		require.Eventually(t, func() bool {
+			st, ok := rowFor(m.Sessions(), f.SessionID())
+			return ok && st.Queued == 1
+		}, 2*time.Second, testPoll)
+	})
 }
 
 // Exited swarm children stay listed for one-click resume: the four most

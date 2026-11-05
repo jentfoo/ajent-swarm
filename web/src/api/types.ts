@@ -196,6 +196,7 @@ export interface SessionStatus {
   seatOurs: boolean
   running: boolean
   idle: boolean
+  queued: number // prompts waiting in the session's queue
   openInteractions: number
   lastTurnEnd?: number // unix milliseconds
   lastStop?: string // stop reason of the last finished turn

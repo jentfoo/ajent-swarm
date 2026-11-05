@@ -24,6 +24,7 @@ export interface SwitcherRow {
   section: SwitcherSection // desktop rail grouping, fixed at build time
   needsInput: boolean // open dialogs; badged, counts toward the attention count
   reason: string // one-line digest reason when attention knows this session
+  queued: number // prompts waiting in the session's queue; badged on launcher rows
   checkOff: boolean // a row that may be acknowledged; waiting rows refuse
   workspace?: string // carried from the listing, the resume target directory
   exitedAt?: number // unix milliseconds, ended sessions
@@ -69,6 +70,7 @@ export function buildSwitcherRows(
         section: 'ended',
         needsInput: false,
         reason: s.detail ?? '',
+        queued: 0, // waiting work cannot outlive the run
         checkOff: false,
         workspace: s.workspace,
         exitedAt: s.exitedAt,
@@ -87,6 +89,7 @@ export function buildSwitcherRows(
         section: cls === workingClass ? 'working' : 'needs',
         needsInput: item?.kind === 'needs-input',
         reason: item?.reason ?? '',
+        queued: s.queued,
         workspace: s.workspace,
         checkOff:
           item !== undefined && (item.kind === 'needs-input' || item.kind === 'needs-review'),

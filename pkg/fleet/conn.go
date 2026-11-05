@@ -60,6 +60,7 @@ type Status struct {
 	Running          bool   `json:"running"`
 	Idle             bool   `json:"idle"`
 	Spinning         bool   `json:"spinning,omitempty"`
+	Queued           int    `json:"queued"` // prompts waiting in the session's queue
 	OpenInteractions int    `json:"openInteractions"`
 	LastTurnEnd      int64  `json:"lastTurnEnd,omitempty"` // unix milliseconds
 	ExitedAt         int64  `json:"exitedAt,omitempty"`    // unix ms; ended sessions
@@ -611,6 +612,7 @@ func (a *sessionActor) refreshStatus() {
 		st.Running = a.view.running
 		st.Idle = a.view.idle
 		st.Spinning = a.view.spinning
+		st.Queued = len(a.view.queuedRows)
 		st.OpenInteractions = len(a.view.interactions)
 		st.LastTurnEnd = a.view.lastTurnEnd
 		if dlg, at := a.view.oldestDialog(); dlg.ID != 0 {

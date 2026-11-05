@@ -13,6 +13,7 @@ function session(overrides: Partial<SessionStatus> = {}): SessionStatus {
     seatOurs: false,
     running: false,
     idle: true,
+    queued: 0,
     openInteractions: 0,
     spawnedBy: 'swarm',
     ...overrides,
@@ -39,6 +40,7 @@ function row(overrides: Partial<SwitcherRow> = {}): SwitcherRow {
     section: 'working',
     needsInput: false,
     reason: '',
+    queued: 0,
     checkOff: false,
     ...overrides,
   }
@@ -181,6 +183,19 @@ describe('buildSwitcherRows', () => {
       expect(row.checkOff).toBe(false)
       expect(row.section).toBe('working')
     }
+  })
+
+  it('carries the listing queue depth onto rows', () => {
+    const rows = buildSwitcherRows(
+      [
+        session({ sessionId: '01-live', queued: 3 }),
+        session({ sessionId: '02-ended', state: ChildState.Exited, exitedAt: 1, queued: 2 }),
+      ],
+      labelFor,
+    )
+    expect(rows.find((r) => r.sessionId === '01-live')!.queued).toBe(3)
+    // waiting work cannot outlive the run
+    expect(rows.find((r) => r.sessionId === '02-ended')!.queued).toBe(0)
   })
 })
 

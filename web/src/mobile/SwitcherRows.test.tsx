@@ -25,6 +25,7 @@ function row(overrides: Partial<SwitcherRow> = {}): SwitcherRow {
     section: 'working',
     needsInput: false,
     reason: '',
+    queued: 0,
     checkOff: false,
     ...overrides,
   }
@@ -229,6 +230,16 @@ describe('SwitcherRows', () => {
       expect(ledger.dialogs['01A']['1:3']).toBeGreaterThan(0)
     })
     expect(screen.queryByRole('button', { name: /reviewed/ })).not.toBeInTheDocument()
+  })
+
+  it('badges queued prompts beside the status', async () => {
+    stubFacts()
+    renderRows([row({ sessionId: '01A', queued: 2 }), row({ sessionId: '01B', label: 'other' })])
+    await screen.findByText('project')
+
+    expect(screen.getByText('2 queued')).toBeInTheDocument()
+    // zero-state rows stay badge-less
+    expect(screen.queryByText('0 queued')).not.toBeInTheDocument()
   })
 
   it('heads each non-empty section with its count', async () => {

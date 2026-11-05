@@ -66,7 +66,10 @@ make build
 ```
 
 On first use the browser page offers a bootstrap form (loopback only) to set the
-login password for your unix username; `--password` sets it up front instead.
+login password for your unix username; `--password` does the same from the CLI:
+run it interactively and it prompts twice with echo disabled, or pair it with
+`AJENT_SWARM_PASSWORD` when stdin is not a terminal. The password never travels
+as a command line value.
 State lives under `<ajent home>/swarm/` (honoring `AJENT_HOME`), overridable via
 `--state`. Service and child logs rotate under `--log-max-mb`/`--log-backups`;
 run history prunes by `--run-retention-days` and `--run-retention-max`.
@@ -101,7 +104,9 @@ a plaintext hop. Pairing a phone is then just signing in with your unix
 username.
 
 The first password bootstrap stays loopback-restricted: open the web page once
-on the host machine and set it there, or pass `--password` at startup.
+on the host machine and set it there, or run `ajent-swarm --password` on the
+host — it prompts with echo disabled, or reads `AJENT_SWARM_PASSWORD` when
+stdin is not a terminal (see `docs/operations.md`).
 `--allow-remote-bootstrap` lifts the restriction when you truly must set the
 first password from a remote device — prefer not to; a password typed on a
 phone crosses any network you do not control.

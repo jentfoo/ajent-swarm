@@ -34,10 +34,10 @@ func TestFlags(t *testing.T) {
 					logMaxMB: 50, logBackups: 2},
 			},
 			{
-				name: "password_given",
-				argv: []string{"--password", "hunter2"},
-				want: cliFlags{port: defaultPort, host: "127.0.0.1", password: "hunter2",
-					passwordGiven: true, runRetentionDays: 30, runRetentionMax: 10000,
+				name: "password_flag",
+				argv: []string{"--password"},
+				want: cliFlags{port: defaultPort, host: "127.0.0.1", password: true,
+					runRetentionDays: 30, runRetentionMax: 10000,
 					logMaxMB: 50, logBackups: 2},
 			},
 			{
@@ -81,6 +81,16 @@ func TestFlags(t *testing.T) {
 		}{
 			{name: "unknown_flag", argv: []string{"--nope"}, wantErr: "unknown flag: --nope"},
 			{name: "help_requested", argv: []string{"--help"}, wantErr: pflag.ErrHelp.Error()},
+			{
+				name:    "stray_positional",
+				argv:    []string{"stray"},
+				wantErr: `unexpected argument "stray"`,
+			},
+			{
+				name:    "password_value_refused",
+				argv:    []string{"--password", "hunter2"},
+				wantErr: `--password no longer takes a value`,
+			},
 		}
 
 		for _, tt := range tests {
@@ -114,11 +124,6 @@ func TestFlags(t *testing.T) {
 				name:    "above_max",
 				flags:   cliFlags{port: maxPort + 1},
 				wantErr: "--port must be between 1 and 65535, not 65536",
-			},
-			{
-				name:    "empty_password_rejected",
-				flags:   cliFlags{port: defaultPort, password: "   ", passwordGiven: true},
-				wantErr: "--password must not be empty",
 			},
 			{
 				name:    "negative_retention_days",

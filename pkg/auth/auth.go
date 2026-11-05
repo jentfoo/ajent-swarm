@@ -25,6 +25,9 @@ const (
 
 	defaultTTL   = 7 * 24 * time.Hour
 	defaultSlide = time.Hour
+
+	// MaxPasswordBytes is bcrypt's hard input limit; longer inputs cannot hash.
+	MaxPasswordBytes = 72
 )
 
 // productionBcryptCost balances hash strength against login latency.
@@ -45,6 +48,8 @@ var (
 	ErrAlreadyBootstrapped = errors.New("password already set")
 	// ErrTokenNameTaken reports a token create with a used name.
 	ErrTokenNameTaken = errors.New("token name already taken")
+	// ErrPasswordTooLong reports a password past bcrypt's input limit.
+	ErrPasswordTooLong = errors.New("password exceeds the 72-byte bcrypt limit")
 )
 
 // Principal is the authenticated caller attached to request contexts.
@@ -156,6 +161,9 @@ func (s *Service) EnsureUser(ctx context.Context, username string) error {
 func (s *Service) SetPassword(ctx context.Context, password string) error {
 	if s.username == "" {
 		return errors.New("no user row; seed one before setting a password")
+	}
+	if len(password) > MaxPasswordBytes {
+		return fmt.Errorf("%w (%d bytes)", ErrPasswordTooLong, len(password))
 	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), s.bcryptCost)
 	if err != nil {

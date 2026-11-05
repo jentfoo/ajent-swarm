@@ -47,7 +47,7 @@ func run(argv []string, stdout, stderr io.Writer) int {
 		Port:                 f.port,
 		Host:                 f.host,
 		StateDir:             f.state,
-		Password:             f.password,
+		SetPassword:          f.password,
 		Daemon:               f.daemon,
 		Pidfile:              f.pidfile,
 		LogPath:              f.logPath,

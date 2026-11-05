@@ -51,6 +51,12 @@ func TestAuthHandlers(t *testing.T) {
 				http.MethodPost, "/api/auth/bootstrap", map[string]string{"password": ""})
 			assert.Equal(t, http.StatusBadRequest, code)
 
+			code, body := callJSON[map[string]string](t, client, base,
+				http.MethodPost, "/api/auth/bootstrap",
+				map[string]string{"password": strings.Repeat("x", auth.MaxPasswordBytes+1)})
+			assert.Equal(t, http.StatusBadRequest, code)
+			assert.Contains(t, body["message"], "at most 72 bytes")
+
 			code, _ = callJSON[struct{}](t, client, base,
 				http.MethodPost, "/api/auth/bootstrap", nil)
 			assert.Equal(t, http.StatusBadRequest, code)

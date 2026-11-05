@@ -91,11 +91,15 @@ func serve(opts Options, stderr io.Writer) int {
 	if err = svc.EnsureUser(ctx, username); err != nil {
 		return fail(err)
 	}
-	if opts.Password != "" {
-		if err = svc.SetPassword(ctx, opts.Password); err != nil {
+	if opts.SetPassword {
+		pw, err := resolveLoginPassword(stderr)
+		if err != nil {
 			return fail(fmt.Errorf("--password: %w", err))
 		}
-		log.Info("login password updated from --password")
+		if err = svc.SetPassword(ctx, pw); err != nil {
+			return fail(fmt.Errorf("--password: %w", err))
+		}
+		log.Info("login password updated")
 	}
 	if _, err = st.DeleteExpiredSessions(ctx, time.Now()); err != nil {
 		return fail(err)

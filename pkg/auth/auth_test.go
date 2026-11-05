@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -42,6 +43,18 @@ func TestAuth(t *testing.T) {
 		require.NoError(t, svc.SetPassword(ctx, "new-pass"))
 		_, err = svc.Login(ctx, "jent", "hunter2")
 		assert.ErrorIs(t, err, ErrInvalidCredentials)
+	})
+
+	t.Run("set_password_rejects_too_long", func(t *testing.T) {
+		svc, _, _ := newTestAuth(t)
+		ctx := t.Context()
+		require.NoError(t, svc.EnsureUser(ctx, "jent"))
+
+		err := svc.SetPassword(ctx, strings.Repeat("a", MaxPasswordBytes+1))
+		require.ErrorIs(t, err, ErrPasswordTooLong)
+
+		// the boundary value itself hashes fine
+		require.NoError(t, svc.SetPassword(ctx, strings.Repeat("a", MaxPasswordBytes)))
 	})
 
 	t.Run("set_password_without_user", func(t *testing.T) {

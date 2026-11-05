@@ -32,6 +32,16 @@ func isDaemonChild() bool {
 // daemonize spawns a detached copy of argv and waits for its startup outcome:
 // success returns promptly, failure surfaces the child's error.
 func daemonize(opts Options, argv []string, stdout, stderr io.Writer) int {
+	var handoff []string
+	if opts.SetPassword {
+		pw, err := resolveLoginPassword(stderr)
+		if err != nil {
+			_, _ = fmt.Fprintf(stderr, "ajent-swarm: --password: %v\n", err)
+			return 1
+		}
+		handoff = append(handoff, PasswordEnv+"="+pw)
+	}
+
 	dir, _, err := ensureStateDir(opts.StateDir)
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "ajent-swarm: %v\n", err)
@@ -66,6 +76,7 @@ func daemonize(opts Options, argv []string, stdout, stderr io.Writer) int {
 	cmd.Env = append(os.Environ(),
 		daemonChildEnv+"=1",
 		readyFileEnv+"="+readyPath)
+	cmd.Env = append(cmd.Env, handoff...)
 	cmd.Stdout = lf
 	cmd.Stderr = lf
 	detach(cmd)

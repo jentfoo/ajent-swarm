@@ -4,9 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"strings"
 
 	"github.com/spf13/pflag"
+
+	"github.com/jentfoo/ajent-swarm/pkg/app"
 )
 
 // defaultPort is the bind port when --port is not given.
@@ -31,7 +32,7 @@ type cliFlags struct {
 	port                 int    // --port: TCP port the control API binds
 	host                 string // --host: bind address, loopback by default
 	state                string // --state: state directory override
-	password             string // --password: seed or replace the login password
+	password             bool   // --password: prompt (or read AJENT_SWARM_PASSWORD) to set the login password
 	daemon               bool   // --daemon: run detached in the background
 	pidfile              string // --pidfile: pid file path override
 	logPath              string // --log: log file path override
@@ -43,8 +44,6 @@ type cliFlags struct {
 	runRetentionMax      int    // --run-retention-max: cap on stored run rows
 	logMaxMB             int    // --log-max-mb: rotate service and child logs past this size
 	logBackups           int    // --log-backups: rotated archives kept per log
-
-	passwordGiven bool // --password appeared, so an empty value is a usage error
 }
 
 // parseFlags parses argv (without the program name) into the command line. It
@@ -56,8 +55,8 @@ func parseFlags(argv []string) (cliFlags, error) {
 	fs.IntVar(&f.port, "port", defaultPort, "TCP port to bind the control API on")
 	fs.StringVar(&f.host, "host", "127.0.0.1", "address to bind; use 0.0.0.0 for LAN access")
 	fs.StringVar(&f.state, "state", "", "state directory (default <ajent home>/swarm)")
-	fs.StringVar(&f.password, "password", "",
-		"set the login password at startup, replacing any previous one")
+	fs.BoolVar(&f.password, "password", false,
+		"prompt to set or replace the login password (headless: pair with AJENT_SWARM_PASSWORD)")
 	fs.BoolVar(&f.daemon, "daemon", false, "run detached in the background, logging to a file")
 	fs.StringVar(&f.pidfile, "pidfile", "", "pid file path (default <state>/swarm.pid)")
 	fs.StringVar(&f.logPath, "log", "",
@@ -82,7 +81,15 @@ func parseFlags(argv []string) (cliFlags, error) {
 	if err := fs.Parse(argv); err != nil {
 		return f, err
 	}
-	f.passwordGiven = fs.Changed("password")
+	if fs.NArg() > 0 {
+		arg := fs.Arg(0)
+		if f.password {
+			return f, fmt.Errorf("unexpected argument %q: --password no longer takes a value; "+
+				"pass only --password to be prompted twice, or set %s when stdin is not a terminal",
+				arg, app.PasswordEnv)
+		}
+		return f, fmt.Errorf("unexpected argument %q", arg)
+	}
 	return f, nil
 }
 
@@ -90,9 +97,6 @@ func parseFlags(argv []string) (cliFlags, error) {
 func (f cliFlags) validate() error {
 	if f.port < minPort || f.port > maxPort {
 		return fmt.Errorf("--port must be between %d and %d, not %d", minPort, maxPort, f.port)
-	}
-	if f.passwordGiven && strings.TrimSpace(f.password) == "" {
-		return errors.New("--password must not be empty")
 	}
 	if f.runRetentionDays < 0 {
 		return errors.New("--run-retention-days must not be negative")

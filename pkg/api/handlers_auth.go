@@ -2,6 +2,7 @@ package api
 
 import (
 	"errors"
+	"fmt"
 	"math"
 	"net"
 	"net/http"
@@ -107,6 +108,10 @@ func (s *apiServer) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case errors.Is(err, auth.ErrAlreadyBootstrapped):
 		writeError(w, http.StatusConflict, "already_bootstrapped", "")
+		return
+	case errors.Is(err, auth.ErrPasswordTooLong):
+		writeError(w, http.StatusBadRequest, "invalid_request",
+			fmt.Sprintf("password must be at most %d bytes", auth.MaxPasswordBytes))
 		return
 	case err != nil:
 		writeError(w, http.StatusInternalServerError, "internal_error", "bootstrap failed")

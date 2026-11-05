@@ -10,7 +10,7 @@ type Options struct {
 	Port                 int    // TCP port the control API binds
 	Host                 string // bind address
 	StateDir             string // state directory override
-	Password             string // login password seed or replacement
+	SetPassword          bool   // --password: set the login password from a prompt or PasswordEnv
 	Daemon               bool   // run detached in the background
 	Pidfile              string // pid file path override
 	LogPath              string // log file path override

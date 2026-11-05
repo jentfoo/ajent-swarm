@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-// Toast display window and how many stay stacked as a new one arrives.
+// Toast display window in ms and how many toasts the stack holds at once.
 const toastTtlMs = 6_000
-const maxKeptToasts = 4
+const maxStackedToasts = 4
 
 export type ToastLevel = 'info' | 'error'
 
@@ -18,8 +18,8 @@ interface ToastsApi {
   pushToast: (text: string, level?: ToastLevel) => void
 }
 
-// useToasts owns one toast stack: pushes append under a cap and expire on
-// their own, so every surface shares the same lifetime rules.
+// useToasts owns one toast stack shared by every screen chrome: pushes append
+// under the cap, dropping the oldest first, and each toast expires on its own.
 export function useToasts(): ToastsApi {
   const [toasts, setToasts] = useState<ToastView[]>([])
   const nextID = useRef(0)
@@ -35,9 +35,10 @@ export function useToasts(): ToastsApi {
     }
   }, [])
 
+  // A cap-evicted toast keeps its timer, which later filters an absent id harmlessly.
   const pushToast = useCallback((text: string, level: ToastLevel = 'info') => {
     const id = ++nextID.current
-    setToasts((ts) => [...ts.slice(-maxKeptToasts), { id, text, level }])
+    setToasts((ts) => [...ts, { id, text, level }].slice(-maxStackedToasts))
     timers.current.set(
       id,
       setTimeout(() => {

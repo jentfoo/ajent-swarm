@@ -370,8 +370,8 @@ func (c *stubConn) handle(req ctl.Request) bool {
 		return c.reply(ctl.Reply{ID: req.ID, Seq: seq})
 
 	case ctl.MethodInterrupt, ctl.MethodModeCycle,
-		ctl.MethodInputSet, ctl.MethodQueueRecall, ctl.MethodRewind,
-		ctl.MethodResolve, ctl.MethodSeatYield:
+		ctl.MethodQueueRecall, ctl.MethodRewind,
+		ctl.MethodResolve:
 		if !c.requireSeat(req) {
 			return true
 		}

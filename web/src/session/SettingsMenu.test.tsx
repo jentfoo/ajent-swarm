@@ -121,20 +121,22 @@ describe('SettingsMenu', () => {
       const path = String(url).split('?')[0]
       if (path === '/api/sessions/01S/settings') {
         return Response.json({
-          rows: [{ label: 'Model', key: 'model', value: 'sonnet', editable: true }],
+          rows: [{ label: 'Model', key: 'model', value: 'anthropic/sonnet', editable: true }],
         })
       }
       if (path === '/api/sessions/01S/models') {
         return Response.json({
-          active: 'sonnet',
+          active: 'anthropic/sonnet',
           models: [
-            { key: 'sonnet', short: 'sonnet', window: 0, caps: {} },
-            { key: 'haiku', short: 'haiku', window: 0, caps: {} },
+            { key: 'anthropic/sonnet', short: 'sonnet', window: 0, caps: {} },
+            { key: 'anthropic/haiku', short: 'haiku', window: 0, caps: {} },
+            { key: 'openai/gpt-5', short: 'gpt-5', window: 0, caps: {} },
+            { key: 'local-tuned', short: '', window: 0, caps: {} },
           ],
         })
       }
       if (path === '/api/sessions/01S/setting') {
-        return Response.json({ row: { label: 'Model', key: 'model', value: 'haiku' } })
+        return Response.json({ row: { label: 'Model', key: 'model', value: 'anthropic/haiku' } })
       }
       throw new Error(`unexpected fetch ${String(url)} ${String(init?.method)}`)
     })
@@ -142,15 +144,65 @@ describe('SettingsMenu', () => {
 
     render(<SettingsMenu sessionId="01S" />)
     const select = await screen.findByRole('combobox', { name: 'Model' })
-    await waitFor(() => expect(select.querySelectorAll('option')).toHaveLength(2))
-    expect(select).toHaveValue('sonnet')
+    await waitFor(() => expect(select.querySelectorAll('option')).toHaveLength(4))
+    expect(select).toHaveValue('anthropic/sonnet')
 
     const user = userEvent.setup()
-    await user.selectOptions(select, 'haiku')
+    await user.selectOptions(select, 'anthropic/haiku')
     await vi.waitFor(() => {
       const calls = fetchSpy.mock.calls.filter(([u]) => String(u).endsWith('/setting'))
       expect(calls).toHaveLength(1)
-      expect(JSON.parse(String(calls[0]![1]?.body))).toEqual({ key: 'model', value: 'haiku' })
+      expect(JSON.parse(String(calls[0]![1]?.body))).toEqual({
+        key: 'model',
+        value: 'anthropic/haiku',
+      })
     })
+  })
+
+  it('groups model options per provider', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string | URL) => {
+        const path = String(url).split('?')[0]
+        if (path === '/api/sessions/01S/settings') {
+          return Response.json({
+            rows: [{ label: 'Model', key: 'model', value: 'anthropic/sonnet', editable: true }],
+          })
+        }
+        if (path === '/api/sessions/01S/models') {
+          return Response.json({
+            active: 'anthropic/sonnet',
+            models: [
+              { key: 'anthropic/sonnet', short: 'sonnet', window: 0, caps: {} },
+              { key: 'anthropic/haiku', short: 'haiku', window: 0, caps: {} },
+              { key: 'openai/gpt-5', short: 'gpt-5', window: 0, caps: {} },
+              { key: 'local-tuned', short: '', window: 0, caps: {} },
+            ],
+          })
+        }
+        throw new Error(`unexpected fetch ${String(url)}`)
+      }),
+    )
+
+    render(<SettingsMenu sessionId="01S" />)
+    const select = await screen.findByRole('combobox', { name: 'Model' })
+    await waitFor(() => expect(select.querySelectorAll('option')).toHaveLength(4))
+
+    // the same tiered layout the chat model button and the titling select render
+    const groups = [...select.querySelectorAll('optgroup')]
+    expect(groups.map((g) => g.getAttribute('label'))).toEqual(['anthropic', 'openai'])
+    const grouped = [...select.querySelectorAll('optgroup option')].map(
+      (o) => `${o.textContent}:${o.getAttribute('value')}`,
+    )
+    expect(grouped).toEqual([
+      'sonnet:anthropic/sonnet',
+      'haiku:anthropic/haiku',
+      'gpt-5:openai/gpt-5',
+    ])
+    // a bare key stays loose outside any group, labeled by its full key
+    const loose = [...select.querySelectorAll('option:not(optgroup option)')].map(
+      (o) => `${o.textContent}:${o.getAttribute('value')}`,
+    )
+    expect(loose).toEqual(['local-tuned:local-tuned'])
   })
 })

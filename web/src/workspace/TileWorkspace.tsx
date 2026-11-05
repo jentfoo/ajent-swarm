@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { DragEvent, PointerEvent as ReactPointerEvent } from 'react'
-import { useSearchParams } from 'react-router'
+import { useNavigate, useSearchParams } from 'react-router'
 
 import { useSwarm } from '../providers/swarm'
 import { useAuth } from '../providers/auth'
@@ -33,13 +33,15 @@ const resizeStep = 0.05
 // and mode switches never disturb the arrangement; ended sessions stay as
 // tabs with their final state until closed. An explicit ?open= list — the
 // Tile button's live set or a sessions-grid selection — retiles from scratch,
-// while a plain visit restores whatever was arranged before.
+// while a plain visit restores whatever was arranged before. Closing the last
+// pane hands the screen back to Sessions, where the next session is picked.
 
 export default function TileWorkspace() {
   const { sessions } = useSwarm()
   const auth = useAuth()
   const { profile, setTileLayout, itemFor } = useWorkspace()
   const [searchParams, setSearchParams] = useSearchParams()
+  const navigate = useNavigate()
   const { tree, focusedPaneId } = profile.tile
 
   const [showShortcuts, setShowShortcuts] = useState(false)
@@ -63,11 +65,15 @@ export default function TileWorkspace() {
     return focusedPaneId !== undefined && ids.includes(focusedPaneId) ? focusedPaneId : ids[0]
   }, [tree, focusedPaneId])
 
+  // All closes funnel through commit, so tree emptying means the last pane
+  // closed: hand off to Sessions for the next pick (the Tile button re-tiles
+  // from there).
   const commit = useCallback(
     (next: TileNode | null, focus?: string) => {
       setTileLayout({ tree: next, focusedPaneId: focus })
+      if (tree !== null && next === null) navigate('/sessions')
     },
-    [setTileLayout],
+    [navigate, setTileLayout, tree],
   )
 
   // Tiling from a request: an explicit ?open= list replaces the whole tree so

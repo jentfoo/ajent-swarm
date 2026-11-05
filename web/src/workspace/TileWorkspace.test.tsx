@@ -13,7 +13,8 @@ import type { AttentionRow } from '../api/types'
 
 // The tile surface renders the persisted tree as panes with tab strips,
 // badges backgrounded sessions whose attention rises, closes tabs through the
-// strip, and offers the picker on an empty tree.
+// strip, and navigates to Sessions once the last pane closes. An empty tile
+// screen remains only when nothing live could be tiled at all.
 const LEFT = '01LEFTSESSION00001'
 const RIGHT = '01RIGHTSESSION0001'
 
@@ -122,6 +123,11 @@ describe('TileWorkspace', () => {
             <WorkspaceProvider>
               <Routes>
                 <Route path="/tile" element={<TileWorkspace />} />
+                {/* last-pane close lands here instead of an empty tile screen */}
+                <Route
+                  path="/sessions"
+                  element={<div data-testid="sessions-screen">Sessions</div>}
+                />
               </Routes>
             </WorkspaceProvider>
           </SwarmProvider>
@@ -271,7 +277,7 @@ describe('TileWorkspace', () => {
     await waitFor(() => expect(document.querySelectorAll('[data-pane-id]')).toHaveLength(3))
   })
 
-  it('keeps an intentionally emptied workspace empty', async () => {
+  it('leaves tile mode for sessions when the last pane closes', async () => {
     localStorage.setItem(
       'swarm.workspace.v1',
       JSON.stringify({ mode: 'tile', focused: {}, tile: { tree }, focusedPaneId: 'p1' }),
@@ -283,9 +289,15 @@ describe('TileWorkspace', () => {
     const user = userEvent.setup()
     await user.click(screen.getByLabelText('Close right'))
     await waitFor(() => expect(document.querySelectorAll('[data-pane-id]')).toHaveLength(1))
+
+    // the final close hands off to Sessions instead of the empty state
     await user.click(screen.getByLabelText('Close left'))
-    await screen.findByText('No panes open.')
-    await expect(screen.findByText('No panes open.')).resolves.toBeInTheDocument()
+    expect(await screen.findByTestId('sessions-screen')).toBeInTheDocument()
+    expect(screen.queryByText('No panes open.')).not.toBeInTheDocument()
+
+    // the emptied arrangement is what persists for a later plain visit
+    const stored = JSON.parse(localStorage.getItem('swarm.workspace.v1') ?? '{}')
+    expect(stored.tile.tree).toBeNull()
   })
 
   it('opens the + picker into a body-level menu past pane clipping', async () => {

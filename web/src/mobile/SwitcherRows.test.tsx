@@ -14,7 +14,8 @@ import { resetLedger } from '../workspace/attention'
 // muted desktop-rail headings, rename via long-press or the explicit action
 // shares one editor that writes swarm storage and suppresses the tap,
 // awaiting rows never offer a check-off, live needs-input rows offer one
-// backed by the digest, and the trailing actions hit their endpoints and
+// backed by the digest, stop arms before it fires and disarms on a poll
+// re-render or sheet scroll, and the trailing actions hit their endpoints and
 // rebind a single pushed settings screen without tripping the row's own gestures.
 
 function row(overrides: Partial<SwitcherRow> = {}): SwitcherRow {
@@ -306,6 +307,10 @@ describe('SwitcherRows', () => {
 
     const user = userEvent.setup()
     await user.click(screen.getByRole('button', { name: 'Stop' }))
+    // the first click only arms, in the shared danger variant
+    const armed = screen.getByRole('button', { name: 'Stop?' })
+    expect(armed).toHaveClass('danger', 'armed')
+    await user.click(armed)
     expect(await screen.findByRole('button', { name: 'Stopping…' })).toBeDisabled()
 
     const listingGets = () =>
@@ -346,12 +351,46 @@ describe('SwitcherRows', () => {
 
     const user = userEvent.setup()
     await user.click(screen.getByRole('button', { name: 'Stop' }))
+    await user.click(screen.getByRole('button', { name: 'Stop?' }))
 
     // desktop's error-text style, rendered inline on the row
     expect(await screen.findByText('unavailable: session is shutting down')).toHaveClass(
       'error-text',
     )
     expect(screen.getByRole('button', { name: 'Stop' })).toBeEnabled()
+  })
+
+  it('resets the armed stop when a poll re-renders rows', async () => {
+    stubFacts()
+    const view = renderRows([row()])
+    await screen.findByText('project')
+
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Stop' }))
+    expect(screen.getByRole('button', { name: 'Stop?' })).toBeInTheDocument()
+
+    // a listing poll rebuilds every row object, same facts included
+    view.rerender(tree([row()]))
+    expect(screen.getByRole('button', { name: 'Stop' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Stop' }))
+    expect(screen.getByRole('button', { name: 'Stop?' })).toBeInTheDocument()
+    expect(fetchSpyCalled('/api/sessions/01A/stop')).toBe(false)
+  })
+
+  it('resets the armed stop when the sheet scrolls', async () => {
+    stubFacts()
+    const { container } = renderRows([row()])
+    await screen.findByText('project')
+
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Stop' }))
+    expect(screen.getByRole('button', { name: 'Stop?' })).toBeInTheDocument()
+
+    act(() => {
+      container.querySelector('.switcher-rows')!.dispatchEvent(new Event('scroll'))
+    })
+    expect(screen.getByRole('button', { name: 'Stop' })).toBeInTheDocument()
   })
 
   it('offers resume only on ended rows with a workspace', async () => {

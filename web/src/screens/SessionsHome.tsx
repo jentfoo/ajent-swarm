@@ -6,6 +6,7 @@ import { ApiError } from '../api/client'
 import { fleet, sessions as sessionAPI } from '../api/endpoints'
 import type { LaunchRequest, SessionStatus } from '../api/types'
 import { ChildState, childEnded } from '../api/types'
+import { useArmedConfirm } from '../hooks/useArmedConfirm'
 import { useLaunchFacts } from '../hooks/useLaunchFacts'
 import { useResume } from '../hooks/useResume'
 import { useSwarm } from '../providers/swarm'
@@ -169,9 +170,7 @@ function cardDetail(s: SessionStatus): string {
 
 // ActionsBar holds the quick actions: open, agent settings and stop for live
 // cards, resume for ended ones. The settings ☰ edits this card's session, so
-// no separate picker is needed anywhere. The stop endpoint escalates on its
-// own: /exit first, then SIGTERM and SIGKILL for swarm children; external
-// sessions end through /exit alone.
+// no separate picker is needed anywhere.
 function ActionsBar({ status: s }: { status: SessionStatus }) {
   const ended = childEnded(s.state)
   return (
@@ -191,7 +190,10 @@ function ActionsBar({ status: s }: { status: SessionStatus }) {
   )
 }
 
-// StopButton is the explicit exit control on every live card.
+// StopButton is the explicit exit control on every live card, armed before
+// it fires: the first click asks "Stop?", a second within the window stops.
+// The stop endpoint escalates on its own: /exit first, then SIGTERM and
+// SIGKILL for swarm children; external sessions end through /exit alone.
 function StopButton({ sessionId }: { sessionId: string }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -208,10 +210,18 @@ function StopButton({ sessionId }: { sessionId: string }) {
     }
   }
 
+  const confirm = useArmedConfirm(() => void stop(), { disabled: busy })
+
   return (
     <>
-      <button type="button" onClick={() => void stop()} disabled={busy}>
-        Stop
+      <button
+        type="button"
+        className={`danger${confirm.armed ? ' armed' : ''}`}
+        onClick={confirm.onClick}
+        onBlur={confirm.onBlur}
+        disabled={busy}
+      >
+        {confirm.armed ? 'Stop?' : 'Stop'}
       </button>
       {error && <span className="error-text">{error}</span>}
     </>

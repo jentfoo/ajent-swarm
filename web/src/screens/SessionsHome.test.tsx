@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -10,8 +11,8 @@ import { ChildState, type SessionStatus } from '../api/types'
 
 // The sessions grid renders over the real provider stack with fetch and
 // WebSocket stubs: cards carry shared stop wording instead of raw reasons,
-// held seats badge while free ones stay quiet, and the fact line drops
-// placeholders for whatever is actually known.
+// held seats badge while free ones stay quiet, the fact line drops
+// placeholders for whatever is actually known, and stop arms before it fires.
 
 function session(overrides: Partial<SessionStatus> = {}): SessionStatus {
   return {
@@ -29,29 +30,31 @@ function session(overrides: Partial<SessionStatus> = {}): SessionStatus {
 }
 
 let sessionsReply: SessionStatus[]
+let fetchSpy: ReturnType<typeof vi.fn>
 
 describe('SessionsHome', () => {
   beforeEach(() => {
     localStorage.clear()
     sessionsReply = [session()]
+    fetchSpy = vi.fn((url: string | URL | Request, init?: RequestInit) => {
+      const base = String(url)
+        .replace(/^https?:\/\/[^/]+/, '')
+        .split('?')[0]
+      if (base === '/api/me')
+        return Promise.resolve(Response.json({ username: 'you', via: 'cookie' }))
+      if (base === '/api/sessions' && (!init?.method || init.method === 'GET')) {
+        return Promise.resolve(Response.json(sessionsReply))
+      }
+      if (base === '/api/sessions/01A/stop') {
+        return Promise.resolve(new Response(null, { status: 204 }))
+      }
+      if (base === '/api/attention' || base === '/api/models' || base === '/api/tools/options') {
+        return Promise.resolve(Response.json([]))
+      }
+      throw new Error(`unexpected fetch ${init?.method ?? 'GET'} ${base}`)
+    })
     vi.stubGlobal('WebSocket', MockWebSocket)
-    vi.stubGlobal(
-      'fetch',
-      vi.fn((url: string | URL | Request, init?: RequestInit) => {
-        const base = String(url)
-          .replace(/^https?:\/\/[^/]+/, '')
-          .split('?')[0]
-        if (base === '/api/me')
-          return Promise.resolve(Response.json({ username: 'you', via: 'cookie' }))
-        if (base === '/api/sessions' && (!init?.method || init.method === 'GET')) {
-          return Promise.resolve(Response.json(sessionsReply))
-        }
-        if (base === '/api/attention' || base === '/api/models' || base === '/api/tools/options') {
-          return Promise.resolve(Response.json([]))
-        }
-        throw new Error(`unexpected fetch ${init?.method ?? 'GET'} ${base}`)
-      }),
-    )
+    vi.stubGlobal('fetch', fetchSpy)
   })
 
   afterEach(() => {
@@ -71,6 +74,13 @@ describe('SessionsHome', () => {
           </SwarmProvider>
         </AuthProvider>
       </MemoryRouter>,
+    )
+  }
+
+  function stopPosts(): unknown[][] {
+    return fetchSpy.mock.calls.filter(
+      ([u, init]) =>
+        String(u).split('?')[0] === '/api/sessions/01A/stop' && init?.method === 'POST',
     )
   }
 
@@ -127,5 +137,36 @@ describe('SessionsHome', () => {
     const cardA = screen.getByRole('checkbox', { name: 'Select 01A for tiling' }).closest('.card')!
     expect(cardA.querySelector('.muted')).toBeNull()
     expect(screen.getByText('repo')).toBeInTheDocument()
+  })
+
+  it('arms the card stop in the danger variant before firing', async () => {
+    renderHome()
+    const user = userEvent.setup()
+    const stop = await screen.findByRole('button', { name: 'Stop' })
+    expect(stop).toHaveClass('danger')
+
+    await user.click(stop)
+    expect(screen.getByRole('button', { name: 'Stop?' })).toHaveClass('danger', 'armed')
+    expect(stopPosts()).toHaveLength(0)
+
+    await user.click(screen.getByRole('button', { name: 'Stop?' }))
+    await vi.waitFor(() => expect(stopPosts()).toHaveLength(1))
+  })
+
+  it('disarms the card stop on blur', async () => {
+    renderHome()
+    const user = userEvent.setup()
+    const stop = await screen.findByRole('button', { name: 'Stop' })
+
+    await user.click(stop)
+    expect(screen.getByRole('button', { name: 'Stop?' })).toBeInTheDocument()
+
+    // focus moving on reads as a changed mind: the arm drops, never fires
+    await user.tab()
+    expect(screen.getByRole('button', { name: 'Stop' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Stop' }))
+    expect(screen.getByRole('button', { name: 'Stop?' })).toBeInTheDocument()
+    expect(stopPosts()).toHaveLength(0)
   })
 })

@@ -3,6 +3,7 @@ import type { ReactElement } from 'react'
 
 import { ApiError } from '../api/client'
 import { sessions as sessionAPI } from '../api/endpoints'
+import { useArmedConfirm } from '../hooks/useArmedConfirm'
 import { useResume } from '../hooks/useResume'
 import { RenameEditorModal } from '../session/RenameControl'
 import { useSwarm } from '../providers/swarm'
@@ -133,9 +134,11 @@ function SwitchRow({
 
 // RowActions is the row's trailing action area, mirroring the desktop card's
 // bar minus Open (the row itself opens): Rename on every row, Settings and
-// Stop for live rows, Resume for ended ones with a recorded workspace. It
-// swallows clicks and pointer-downs so tapping or holding an action never
-// reads as the row's own open or long-press gestures.
+// Stop for live rows, Resume for ended ones with a recorded workspace. Stop
+// carries the shared danger variant and arm/confirm guard; armed never
+// survives a scroll or a poll re-render of the row. It swallows clicks and
+// pointer-downs so tapping or holding an action never reads as the row's own
+// open or long-press gestures.
 function RowActions({
   row,
   onRename,
@@ -164,6 +167,8 @@ function RowActions({
     }
   }
 
+  const confirm = useArmedConfirm(() => void stop(), { disabled: busy, resetKey: row })
+
   return (
     <div
       className="switch-actions"
@@ -188,8 +193,14 @@ function RowActions({
           <button type="button" onClick={onSettings}>
             Settings
           </button>
-          <button type="button" onClick={() => void stop()} disabled={busy}>
-            {busy ? 'Stopping…' : 'Stop'}
+          <button
+            type="button"
+            className={`danger${confirm.armed ? ' armed' : ''}`}
+            onClick={confirm.onClick}
+            onBlur={confirm.onBlur}
+            disabled={busy}
+          >
+            {busy ? 'Stopping…' : confirm.armed ? 'Stop?' : 'Stop'}
           </button>
         </>
       )}

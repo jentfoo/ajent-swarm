@@ -225,6 +225,20 @@ button.primary {
   border-color: var(--accent);
   color: var(--accent-text);
 }
+/* destructive intent reads through weight: danger border and text, a quiet red
+   fill only on hover, so the button invites reading rather than mashing */
+button.danger {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+button.danger:hover {
+  background: color-mix(in srgb, var(--danger) 15%, var(--surface-2));
+}
+/* the armed confirm step is the one loud moment */
+button.danger.armed {
+  background: var(--danger);
+  color: #fff;
+}
 button:disabled {
   opacity: 0.55;
   cursor: default;

@@ -16,7 +16,8 @@ export function reachableSession(s: SessionStatus): boolean {
 }
 
 // Paths driving the workspace modes, where main also lets panes bleed under
-// the chrome. Elsewhere the switcher would only navigate away.
+// the chrome and the Workspace link highlights. Elsewhere the switcher would
+// only navigate away.
 const workspacePaths = new Set(['/', '/focused', '/tile'])
 
 // AppShell is the desktop chrome, mounted only above the breakpoint; AuthGate
@@ -37,6 +38,9 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const location = useLocation()
   const navigate = useNavigate()
   const workspaceRoute = workspacePaths.has(location.pathname)
+  // session views live at /s/, off the /sessions prefix, but light its link
+  const sessionsRoute =
+    location.pathname.startsWith('/sessions') || location.pathname.startsWith('/s/')
 
   const switchMode = (mode: 'focused' | 'tile') => {
     setMode(mode)
@@ -53,13 +57,10 @@ export default function AppShell({ children }: { children: ReactNode }) {
     <div className="app-shell">
       <header className="topbar">
         <nav>
-          <Link to="/" className={location.pathname === '/' ? 'active' : ''}>
+          <Link to="/" className={workspaceRoute ? 'active' : ''}>
             Workspace
           </Link>
-          <Link
-            to="/sessions"
-            className={location.pathname.startsWith('/sessions') ? 'active' : ''}
-          >
+          <Link to="/sessions" className={sessionsRoute ? 'active' : ''}>
             Sessions
           </Link>
           <Link to="/jobs" className={location.pathname.startsWith('/jobs') ? 'active' : ''}>

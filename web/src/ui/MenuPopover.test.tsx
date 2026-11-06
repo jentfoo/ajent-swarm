@@ -1,13 +1,15 @@
 import { useRef, useState } from 'react'
-import { act, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { MenuPopover, placeMenu } from './MenuPopover'
 
 // The popover portals past overflow clipping into document.body, flips or
-// clamps to stay in the viewport, and closes on Escape or an outside press.
-// jsdom has no layout: trigger and menu geometry is stubbed by class.
+// clamps to stay in the viewport, and closes on Escape or an outside press:
+// only the topmost of stacked popovers answers Escape, a press another
+// listener claimed is left alone, and closing returns focus to the element
+// focused before opening. jsdom has no layout: geometry is stubbed by class.
 
 const baseAnchor = { top: 100, bottom: 124, left: 300, right: 360 }
 const menuSize = { width: 200, height: 64 }
@@ -48,9 +50,19 @@ afterEach(() => {
 })
 
 // Harness keeps the popover open beside a trigger under an overflow-clipped
-// ancestor, the pane condition MenuPopover exists to escape.
-function Harness({ align = 'left' }: { align?: 'left' | 'right' }) {
-  const [open, setOpen] = useState(true)
+// ancestor, the pane condition MenuPopover exists to escape. startOpen=false
+// exercises the click-to-open flow so the trigger holds focus while opening;
+// label names trigger and menu together so stacked instances stay distinct.
+function Harness({
+  align = 'left',
+  startOpen = true,
+  label = 'trigger',
+}: {
+  align?: 'left' | 'right'
+  startOpen?: boolean
+  label?: string
+}) {
+  const [open, setOpen] = useState(startOpen)
   const anchorRef = useRef<HTMLButtonElement>(null)
   return (
     <div className="clip" style={{ overflow: 'hidden', padding: 8 }}>
@@ -60,13 +72,14 @@ function Harness({ align = 'left' }: { align?: 'left' | 'right' }) {
         className="popover-anchor"
         onClick={() => setOpen((v) => !v)}
       >
-        trigger
+        {label}
       </button>
       {open && (
         <MenuPopover
           anchorRef={anchorRef}
           align={align}
           role="menu"
+          aria-label={label}
           className="menu popover-menu"
           onClose={() => setOpen(false)}
         >
@@ -109,6 +122,61 @@ describe('MenuPopover', () => {
     render(<Harness />)
     await user.keyboard('{Escape}')
     expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+  })
+
+  it('answers escape only on the topmost popover', async () => {
+    // two pane menus can stack; one press unwinds exactly one layer, topmost
+    const user = userEvent.setup()
+    render(
+      <>
+        <Harness label="outer" />
+        <Harness label="inner" />
+      </>,
+    )
+
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('menu', { name: 'inner' })).not.toBeInTheDocument()
+    expect(screen.getByRole('menu', { name: 'outer' })).toBeInTheDocument()
+
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+  })
+
+  it('leaves an escape claimed elsewhere alone', () => {
+    // e.g. the composer hiding its @-menu claims the press first, and this
+    // listener registers before render so it answers before the popover's own
+    const claim = (ev: KeyboardEvent) => ev.preventDefault()
+    document.addEventListener('keydown', claim, { once: true })
+    render(<Harness />)
+
+    fireEvent.keyDown(document.body, { key: 'Escape' })
+    expect(screen.getByRole('menu')).toBeInTheDocument()
+  })
+
+  it('restores trigger focus on escape close', async () => {
+    const user = userEvent.setup()
+    render(<Harness startOpen={false} />)
+
+    await user.click(screen.getByRole('button', { name: 'trigger' }))
+    expect(screen.getByRole('menu')).toBeInTheDocument()
+
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'trigger' })).toHaveFocus()
+  })
+
+  it('restores trigger focus on outside press', async () => {
+    const user = userEvent.setup()
+    render(<Harness startOpen={false} />)
+
+    await user.click(screen.getByRole('button', { name: 'trigger' }))
+    expect(screen.getByRole('menu')).toBeInTheDocument()
+
+    // a bare pointerdown, not user.click: in a browser a real click moves
+    // focus to the pressed element, fighting the restore this asserts
+    fireEvent.pointerDown(document.body)
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'trigger' })).toHaveFocus()
   })
 
   it('repositions when the window scrolls while open', () => {

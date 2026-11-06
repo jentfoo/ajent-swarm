@@ -79,6 +79,23 @@ describe('AppShell', () => {
   }
 
   it.each([
+    ['/', 'Workspace'],
+    ['/focused', 'Workspace'],
+    ['/tile', 'Workspace'],
+    ['/sessions', 'Sessions'],
+    ['/s/01ABC0000000', 'Sessions'],
+    ['/jobs/runs', 'Jobs'],
+  ])('highlights exactly one nav link on %s', async (path, active) => {
+    await renderShell(path)
+
+    for (const name of ['Workspace', 'Sessions', 'Jobs']) {
+      const el = screen.getByRole('link', { name })
+      if (name === active) expect(el).toHaveClass('active')
+      else expect(el).not.toHaveClass('active')
+    }
+  })
+
+  it.each([
     ['root', '/'],
     ['focused', '/focused'],
     ['tile', '/tile'],

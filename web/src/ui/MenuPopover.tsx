@@ -72,8 +72,11 @@ export function popoverOpen(): boolean {
 // MenuPopover portals children into document.body as a fixed layer anchored to
 // the trigger in `anchorRef`, so no ancestor's overflow clipping can cut it
 // off. It flips above or clamps to stay in the viewport, repositions on scroll
-// and resize while open, and closes on Escape or an outside pointerdown.
-// Children keep their own menu markup; only placement lives here.
+// and resize while open, and closes on Escape or an outside pointerdown: only
+// the topmost of stacked popovers answers Escape, presses another listener
+// already claimed are left alone, and closing returns focus to the element
+// focused before opening. Children keep their own menu markup; only placement
+// lives here.
 export function MenuPopover({
   anchorRef,
   onClose,
@@ -82,6 +85,9 @@ export function MenuPopover({
   ...rest
 }: MenuPopoverProps) {
   const [placement, setPlacement] = useState<Placement | null>(null)
+  // captured once at first render on purpose: the trigger holds focus while
+  // opening, and this is the element closing hands it back to
+  const [restoreTarget] = useState(() => document.activeElement as HTMLElement | null)
   const menuRef = useRef<HTMLDivElement>(null)
 
   const measure = useCallback(() => {
@@ -135,7 +141,10 @@ export function MenuPopover({
     const menu = menuRef.current
     if (!menu) return
     openPopovers.push(menu)
+    const topmost = () => openPopovers[openPopovers.length - 1] === menu
     const onKey = (ev: KeyboardEvent) => {
+      // only the topmost layer answers, and never a press claimed elsewhere
+      if (!topmost() || ev.defaultPrevented) return
       if (ev.key === 'Escape') closeRef.current()
     }
     const onPointerDown = (ev: PointerEvent) => {
@@ -147,12 +156,15 @@ export function MenuPopover({
     document.addEventListener('keydown', onKey)
     document.addEventListener('pointerdown', onPointerDown)
     return () => {
+      // leave the stack before restoring focus, so a popover still open
+      // beneath never sees its own Escape swallowed by this close
       const at = openPopovers.indexOf(menu)
       if (at >= 0) openPopovers.splice(at, 1)
       document.removeEventListener('keydown', onKey)
       document.removeEventListener('pointerdown', onPointerDown)
+      if (restoreTarget !== null && restoreTarget.isConnected) restoreTarget.focus()
     }
-  }, [anchorRef])
+  }, [anchorRef, restoreTarget])
 
   // hidden until the first measure, so an unplaced layer never flashes at (0,0)
   return createPortal(

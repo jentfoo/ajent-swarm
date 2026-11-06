@@ -207,8 +207,8 @@ describe('FocusedWorkspace', () => {
     expect(await screen.findByText('Needs input')).toBeInTheDocument()
     expect(screen.getByText('Waiting')).toBeInTheDocument()
     expect(screen.getByText('Working')).toBeInTheDocument()
-    expect(screen.getByText('Nothing waits on you.')).toBeInTheDocument()
-    expect(screen.getByText('No busy sessions.')).toBeInTheDocument()
+    // every queue shows the same quiet note when empty
+    expect(screen.getAllByText('(empty)')).toHaveLength(3)
     expect(screen.getByText('Select a session from the rail.')).toBeInTheDocument()
   })
 

@@ -91,16 +91,12 @@ export default function FocusedWorkspace() {
   }, [cursor])
 
   // The rail's three queues in display order, titled from the shared model.
-  // Rows badge their own kind, so a queue never encodes state; the needs
-  // queue's empty note stays quiet while anything waits below it.
-  const railSections: { queue: AttentionQueue; rows: AttentionItem[]; empty: string }[] = [
-    {
-      queue: 'needs',
-      rows: needs,
-      empty: needs.length + waiting.length === 0 ? 'Nothing waits on you.' : '',
-    },
-    { queue: 'waiting', rows: waiting, empty: '' },
-    { queue: 'working', rows: working, empty: 'No busy sessions.' },
+  // Rows badge their own kind, so a queue never encodes state; every queue
+  // shows the same quiet note when empty.
+  const railSections: { queue: AttentionQueue; rows: AttentionItem[] }[] = [
+    { queue: 'needs', rows: needs },
+    { queue: 'waiting', rows: waiting },
+    { queue: 'working', rows: working },
   ]
 
   const renderRow = (item: AttentionItem) => {
@@ -156,9 +152,7 @@ export default function FocusedWorkspace() {
               {attentionSectionTitles[section.queue]}{' '}
               {section.rows.length > 0 && <span className="muted">({section.rows.length})</span>}
             </div>
-            {section.rows.length === 0 && section.empty !== '' && (
-              <div className="rail-empty muted">{section.empty}</div>
-            )}
+            {section.rows.length === 0 && <div className="rail-empty muted">(empty)</div>}
             {section.rows.map((item) => renderRow(item))}
           </div>
         ))}

@@ -16,11 +16,15 @@ export function reachableSession(s: SessionStatus): boolean {
   return s.state === ChildState.Online || s.state === ChildState.Reconnecting || s.running
 }
 
+// Paths driving the workspace modes, where main also lets panes bleed under
+// the chrome. Elsewhere the switcher would only navigate away.
+const workspacePaths = new Set(['/', '/focused', '/tile'])
+
 // AppShell is the one chrome with two variants: the desktop pane-capable bar
 // and a bottom navigation under the mobile breakpoint. The workspace mode
-// switch and the attention badge live here on desktop, the theme toggle sits
-// beside them, and the hamburger opens swarm's global settings; per-session
-// agent settings ride each session's own chrome.
+// switch (workspace routes only) and the attention badge live here on desktop,
+// the theme toggle sits beside them, and the hamburger opens swarm's global
+// settings; per-session agent settings ride each session's own chrome.
 export default function AppShell({ children }: { children: ReactNode }) {
   const { sessions, connection, theme, setTheme } = useSwarm()
   const {
@@ -34,6 +38,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const mobile = useMediaQuery(mobileLayout)
   const location = useLocation()
   const navigate = useNavigate()
+  const workspaceRoute = workspacePaths.has(location.pathname)
 
   const switchMode = (mode: 'focused' | 'tile') => {
     setMode(mode)
@@ -65,7 +70,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
     <div className="app-shell">
       <header className="topbar">
         <nav>{navLinks}</nav>
-        {!mobile && (
+        {!mobile && workspaceRoute && (
           <div className="ws-switcher" role="group" aria-label="Workspace mode">
             <button
               type="button"
@@ -135,17 +140,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
         </div>
       )}
 
-      <main
-        className={
-          location.pathname === '/' ||
-          location.pathname === '/focused' ||
-          location.pathname === '/tile'
-            ? 'content workspace-content'
-            : 'content'
-        }
-      >
-        {children}
-      </main>
+      <main className={workspaceRoute ? 'content workspace-content' : 'content'}>{children}</main>
 
       {mobile && <nav className="mobile-nav">{navLinks}</nav>}
     </div>

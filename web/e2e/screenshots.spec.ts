@@ -54,8 +54,10 @@ test('capture desktop tiling and mobile session', async ({ page, browser }) => {
   await launchAndTurn(page, 'First pane.')
   await signIn(page)
 
-  // desktop tiling: the Tile press tiles every live session into its own pane
+  // desktop tiling: from the workspace home, the Tile press tiles every live
+  // session into its own pane (the switcher only renders on workspace routes)
   await launchAndTurn(page, 'Second pane.')
+  await page.getByRole('link', { name: 'Workspace' }).click()
 
   await page.getByRole('button', { name: 'Tile' }).click()
   await expect(page.getByText('First pane.')).toBeVisible({ timeout: 15_000 })

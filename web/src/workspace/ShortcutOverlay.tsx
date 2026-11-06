@@ -14,7 +14,6 @@ const focusBindings: [string, string][] = [
 
 const tileBindings: [string, string][] = [
   ['Esc', "interrupt the focused pane's stream"],
-  ['Mod+W', 'close the focused pane'],
   ['Mod+\\', 'split right'],
   ['Mod+Shift+\\', 'split down'],
   ['Mod+Arrows', 'move pane focus'],

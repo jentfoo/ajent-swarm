@@ -271,6 +271,105 @@ describe('Composer caret and completion keys', () => {
   })
 })
 
+describe('Composer Ctrl+J newline', () => {
+  it('ctrl_j_inserts_a_newline_without_sending', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('fetch', okSubmit())
+    const onSubmit = vi.fn()
+    render(Harness({ onSubmit }))
+
+    const box = screen.getByLabelText('Prompt') as HTMLTextAreaElement
+    await user.type(box, 'line one')
+    await user.keyboard('{Control>}j{/Control}')
+
+    expect(onSubmit).not.toHaveBeenCalled()
+    expect(box.value).toBe('line one\n')
+    // typing continues below the newline like after Shift+Enter
+    await user.type(box, 'more')
+    expect(box.value).toBe('line one\nmore')
+  })
+
+  it('cmd_j_inserts_a_newline_like_ctrl', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('fetch', okSubmit())
+    render(Harness())
+
+    const box = screen.getByLabelText('Prompt') as HTMLTextAreaElement
+    await user.type(box, 'line one')
+    await user.keyboard('{Meta>}j{/Meta}')
+
+    expect(box.value).toBe('line one\n')
+  })
+
+  it('inserts_at_the_caret_and_replaces_a_selection', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('fetch', okSubmit())
+    render(Harness())
+
+    const box = screen.getByLabelText('Prompt') as HTMLTextAreaElement
+    await user.type(box, 'ab')
+    box.setSelectionRange(1, 1)
+    await user.keyboard('{Control>}j{/Control}')
+
+    expect(box.value).toBe('a\nb')
+    // the caret sits after the newline, where typing continues
+    expect(box.selectionStart).toBe(2)
+    expect(box.selectionEnd).toBe(2)
+
+    box.setSelectionRange(0, 1) // a selected range becomes the newline
+    await user.keyboard('{Control>}j{/Control}')
+    expect(box.value).toBe('\n\nb')
+    expect(box.selectionStart).toBe(1)
+  })
+
+  it('ctrl_j_stands_down_while_the_menu_is_open', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('fetch', filesFetch({ ma: [{ path: 'src/main.go' }] }))
+    render(Harness())
+
+    const box = screen.getByLabelText('Prompt') as HTMLTextAreaElement
+    await user.type(box, 'look at @ma')
+    await screen.findByRole('listbox', { name: 'Path suggestions' })
+    await user.keyboard('{Control>}j{/Control}')
+
+    // the completion owns the keyboard; no newline slipped under it
+    expect(screen.getByRole('listbox', { name: 'Path suggestions' })).toBeInTheDocument()
+    expect(box.value).toBe('look at @ma')
+  })
+
+  it('leaves_ctrl_shift_j_to_the_browser', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('fetch', okSubmit())
+    render(Harness())
+
+    // Chrome and Firefox bind Ctrl+Shift+J to DevTools, so only the bare
+    // modifier carries the newline
+    await user.type(screen.getByLabelText('Prompt'), 'draft')
+    await user.keyboard('{Control>}{Shift>}j{/Shift}{/Control}')
+
+    expect(screen.getByLabelText('Prompt')).toHaveValue('draft')
+  })
+
+  it('counts_the_newline_as_an_edit_while_a_submit_is_pending', async () => {
+    const user = userEvent.setup()
+    let accept!: (res: Response) => void
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => new Promise<Response>((r) => (accept = r))),
+    )
+    render(Harness())
+
+    await user.type(screen.getByLabelText('Prompt'), 'hello{Enter}')
+    const box = screen.getByLabelText('Prompt') as HTMLTextAreaElement
+    await user.keyboard('{Control>}j{/Control}')
+    accept(Response.json({}, { status: 202 }))
+    await act(async () => {}) // let the acceptance continuation run
+
+    // like Shift+Enter, the newline is a draft edit an acceptance must keep
+    expect(box).toHaveValue('hello\n')
+  })
+})
+
 describe('Composer touch keyboard', () => {
   // The coarse-pointer flag reads once at module scope, so the touch cases
   // re-import the module with matchMedia stubbed; every other test in this
@@ -301,6 +400,17 @@ describe('Composer touch keyboard', () => {
     await user.click(screen.getByRole('button', { name: 'Send' }))
     expect(fetchSpy).toHaveBeenCalledOnce()
     await waitFor(() => expect(box).toHaveValue(''))
+  })
+
+  it('coarse_ctrl_j_inserts_a_newline', async () => {
+    const user = userEvent.setup()
+    render(Harness({ component: await coarseComposer() }))
+
+    // the modifier newline works beside the touch Enter rule untouched
+    const box = screen.getByLabelText('Prompt') as HTMLTextAreaElement
+    await user.type(box, 'line one')
+    await user.keyboard('{Control>}j{/Control}')
+    expect(box.value).toBe('line one\n')
   })
 
   it('coarse_menu_enter_accepts_suggestion', async () => {

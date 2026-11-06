@@ -1,7 +1,9 @@
 import { render } from '@testing-library/react'
+import { useRef } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 
 import { ModalShell } from '../ui/ModalShell'
+import { MenuPopover } from '../ui/MenuPopover'
 import { useDialogAnswerKeys } from '../session/dialogKeys'
 import { useWorkspaceKeys } from './keys'
 import type { WorkspaceKeyHandlers } from './keys'
@@ -10,14 +12,28 @@ import type { WorkspaceKeyHandlers } from './keys'
 // each preventDefault claim shows up in defaultPrevented. Shifted keys carry
 // their produced character ('|') and only ev.code names the physical key.
 
-function Harness(props: WorkspaceKeyHandlers & { modal?: boolean; dialogDigits?: boolean }) {
+function Harness(
+  props: WorkspaceKeyHandlers & { modal?: boolean; popover?: boolean; dialogDigits?: boolean },
+) {
+  const anchor = useRef<HTMLButtonElement>(null)
   useWorkspaceKeys(props)
   useDialogAnswerKeys(props.dialogDigits === true, () => {})
-  if (props.modal !== true) return null
   return (
-    <ModalShell label="Test dialog" onClose={() => {}}>
-      <p>body</p>
-    </ModalShell>
+    <>
+      <button ref={anchor} type="button">
+        trigger
+      </button>
+      {props.popover === true && (
+        <MenuPopover anchorRef={anchor} onClose={() => {}}>
+          <p>menu body</p>
+        </MenuPopover>
+      )}
+      {props.modal === true && (
+        <ModalShell label="Test dialog" onClose={() => {}}>
+          <p>body</p>
+        </ModalShell>
+      )}
+    </>
   )
 }
 
@@ -91,11 +107,19 @@ describe('useWorkspaceKeys', () => {
   })
 
   it('still prevents the modifier bindings without shift', () => {
-    const handlers = { onPaneClose: vi.fn(), onFocusDirection: vi.fn() }
+    const handlers = { onSplitRight: vi.fn(), onFocusDirection: vi.fn() }
     mount(handlers)
 
-    expect(press({ key: 'w', ctrlKey: true })).toBe(true)
+    expect(press({ key: '\\', code: 'Backslash', ctrlKey: true })).toBe(true)
     expect(press({ key: 'ArrowLeft', metaKey: true })).toBe(true)
+  })
+
+  it('no longer binds mod+w to pane close', () => {
+    mount({ onNext: vi.fn(), onSplitRight: vi.fn() })
+
+    // browsers reserve Ctrl/Cmd+W for closing the tab, so pressing it closed
+    // swarm itself; pane close stays with its visible X control
+    expect(press({ key: 'w', ctrlKey: true })).toBe(false)
   })
 
   it('leaves editable targets to the browser', () => {
@@ -107,6 +131,60 @@ describe('useWorkspaceKeys', () => {
 
     expect(pressOn(input, { key: 'j' })).toBe(false)
     expect(onNext).not.toHaveBeenCalled()
+  })
+
+  it('stands down behind an open popover as well', () => {
+    const handlers = { onNext: vi.fn(), onEscape: vi.fn(), onShortcuts: vi.fn() }
+    const view = render(<Harness {...handlers} />)
+
+    // every binding rests while a menu shows, leaving keys to the popover,
+    // matching how modals hold the workspace down
+    view.rerender(<Harness {...handlers} popover />)
+    expect(press({ key: 'j' })).toBe(false)
+    expect(press({ key: '?' })).toBe(false)
+    expect(press({ key: 'Escape' })).toBe(false)
+    expect(handlers.onNext).not.toHaveBeenCalled()
+    expect(handlers.onShortcuts).not.toHaveBeenCalled()
+
+    view.rerender(<Harness {...handlers} />)
+    expect(press({ key: 'j' })).toBe(true) // bindings return once it closes
+  })
+
+  it('leaves a focused control to its own activation', () => {
+    const handlers = { onNext: vi.fn(), onOpen: vi.fn(), onReview: vi.fn() }
+    const view = mount(handlers)
+    const button = document.createElement('button')
+    view.container.appendChild(button)
+    button.focus()
+
+    // clicking a control leaves focus behind; Enter must click it again, not
+    // be swallowed by the queue shortcut on top of that activation
+    expect(pressOn(button, { key: 'Enter' })).toBe(false)
+    expect(handlers.onOpen).not.toHaveBeenCalled()
+    expect(pressOn(button, { key: 'j' })).toBe(false)
+    expect(handlers.onNext).not.toHaveBeenCalled()
+
+    const link = document.createElement('a')
+    view.container.appendChild(link)
+    expect(pressOn(link, { key: 'r' })).toBe(false)
+    expect(handlers.onReview).not.toHaveBeenCalled()
+
+    // away from the control the bindings return
+    expect(press({ key: 'j' })).toBe(true)
+    expect(handlers.onNext).toHaveBeenCalledOnce()
+  })
+
+  it('keeps plain keys over a focused role-button row', () => {
+    const handlers = { onOpen: vi.fn() }
+    const view = mount(handlers)
+    // rail rows are div[role=button] and get no native keyboard activation,
+    // so nothing double-fires; the workspace must keep answering them
+    const row = document.createElement('div')
+    row.setAttribute('role', 'button')
+    view.container.appendChild(row)
+
+    expect(pressOn(row, { key: 'Enter' })).toBe(true)
+    expect(handlers.onOpen).toHaveBeenCalledOnce()
   })
 
   it('stands down while a modal shell holds the screen', () => {

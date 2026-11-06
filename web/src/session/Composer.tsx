@@ -44,10 +44,11 @@ export interface ComposerProps {
 }
 
 // Composer is the prompt line: autosize textarea, Enter sends on fine
-// pointers and inserts a newline on touch ones (Send submits there), with a
-// client-minted pendingId for prompts (slash and shell lines submit as-is),
-// and attachments upload under swarm's state directory dropping an
-// @<abs path> reference, since submits are text-only.
+// pointers while Shift+Enter and Ctrl/Cmd+J insert newlines (touch inverts
+// Enter to a newline and Send submits), with a client-minted pendingId for
+// prompts (slash and shell lines submit as-is), and attachments upload under
+// swarm's state directory dropping an @<abs path> reference, since submits
+// are text-only.
 export function Composer({
   sessionId,
   value,
@@ -234,6 +235,29 @@ export function Composer({
           return
         default:
       }
+    }
+    // Ctrl/Cmd+J mirrors Shift+Enter's newline; Chrome, Firefox and Safari
+    // deliver the press to the page. Ctrl+Shift+J (DevTools) and AltGr stay
+    // with the browser; the @-menu and an IME mid-composition keep their keys.
+    // The caret lands through pendingSelectionRef like accept()'s.
+    if (
+      !menuOpen &&
+      (ev.ctrlKey || ev.metaKey) &&
+      !ev.altKey &&
+      !ev.shiftKey &&
+      ev.key.toLowerCase() === 'j'
+    ) {
+      if (ev.nativeEvent.isComposing) return
+      ev.preventDefault()
+      const el = ev.currentTarget
+      const start = el.selectionStart ?? value.length
+      const end = el.selectionEnd ?? value.length
+      const next = `${value.slice(0, start)}\n${value.slice(end)}`
+      pendingSelectionRef.current = { text: next, caret: start + 1 }
+      setCaret(start + 1)
+      typedSinceSend.current = true
+      onChange(next)
+      return
     }
     if (ev.key !== 'Enter' || ev.shiftKey) return
     if (ev.nativeEvent.isComposing) return // an IME mid-composition is not a send

@@ -248,12 +248,6 @@ export default function TileWorkspace() {
   )
 
   useWorkspaceKeys({
-    onPaneClose: () => {
-      if (!tree) return
-      const pane = findPane(tree, focused)
-      if (!pane) return
-      commit(closeTab(tree, pane.id, pane.active), pane.id)
-    },
     onSplitRight: () => splitFocused('row'),
     onSplitDown: () => splitFocused('column'),
     onFocusDirection: moveFocus,

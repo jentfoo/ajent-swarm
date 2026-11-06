@@ -1,13 +1,17 @@
 // Keyboard plumbing shared by both workspace modes. Plain keys drive the
 // focus queue and pane digits, mod (Ctrl/Cmd) drives tile management, Alt
 // arrows resize. Editable targets always win: typing in the composer or a
-// dialog answer must never move the workspace. An event another listener
-// already claimed (defaultPrevented) is left alone entirely, and the digits
-// rest while a focused pane's head dialog answers them itself.
+// dialog answer must never move the workspace, and every binding rests
+// behind an open modal or popover, leaving keys to what shows there. Plain
+// keys also stand down on a focused button or link so Enter activates that
+// control instead of being swallowed by a shortcut. An event another
+// listener already claimed (defaultPrevented) is left alone entirely, and
+// the digits rest while a focused pane's head dialog answers them itself.
 import { useEffect, useRef } from 'react'
 
 import { caretInInput, dialogDigitsClaimed } from '../session/dialogKeys'
 import { modalOpen } from '../ui/ModalShell'
+import { popoverOpen } from '../ui/MenuPopover'
 
 export type Direction = 'left' | 'right' | 'up' | 'down'
 
@@ -19,7 +23,6 @@ export interface WorkspaceKeyHandlers {
   onDigit?: (position: number) => void // 1..9
   onEscape?: () => void
   onShortcuts?: () => void // ?
-  onPaneClose?: () => void // mod+w
   onSplitRight?: () => void // mod+\
   onSplitDown?: () => void // mod+shift+\
   onFocusDirection?: (dir: Direction) => void // mod+arrow
@@ -40,9 +43,10 @@ export function useWorkspaceKeys(handlers: WorkspaceKeyHandlers): void {
       // an earlier listener that claimed the event wins, e.g. the viewed
       // session's Escape interrupt
       if (ev.defaultPrevented) return
-      // editable targets win; behind any open ModalShell every binding rests,
-      // leaving keys to the dialog instead of rows the backdrop hides
-      if (caretInInput(ev.target) || modalOpen()) return
+      // editable targets win; behind any open ModalShell or popover every
+      // binding rests, leaving keys to what the layer shows instead of rows
+      // and panes its backdrop hides
+      if (caretInInput(ev.target) || modalOpen() || popoverOpen()) return
       const h = ref.current
       const mod = ev.ctrlKey || ev.metaKey
 
@@ -65,10 +69,6 @@ export function useWorkspaceKeys(handlers: WorkspaceKeyHandlers): void {
           return
         }
         switch (ev.key.toLowerCase()) {
-          case 'w':
-            ev.preventDefault()
-            h.onPaneClose?.()
-            return
           case 'arrowleft':
             ev.preventDefault()
             h.onFocusDirection?.('left')
@@ -112,6 +112,11 @@ export function useWorkspaceKeys(handlers: WorkspaceKeyHandlers): void {
         }
       }
       if (mod || ev.altKey) return
+      // a focused real button or link keeps its native activation, so Enter
+      // clicks the control instead of being swallowed by a queue shortcut;
+      // role-button markup gets no native activation, keys keep answering it
+      const target = ev.target
+      if (target instanceof HTMLButtonElement || target instanceof HTMLAnchorElement) return
 
       // Plain keys preventDefault only when a handler is bound, so unclaimed
       // keys keep browser semantics like Enter activating a focused control.

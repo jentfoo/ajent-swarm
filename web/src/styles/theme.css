@@ -412,6 +412,62 @@ label {
   background: transparent !important;
 }
 
+/* raw-copy buttons: the label spans share one grid cell, so a state swap
+   never resizes the button */
+.copy-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: calc(var(--unit) * 0.5) calc(var(--unit) * 2);
+  font-size: var(--fs-small);
+  white-space: nowrap;
+}
+.copy-labels {
+  display: inline-grid;
+  grid-template-areas: 'stack';
+  justify-items: center;
+}
+.copy-labels > span {
+  grid-area: stack;
+  visibility: hidden;
+}
+.copy-labels > span[data-on='true'] {
+  visibility: visible;
+}
+
+.fence-wrap {
+  position: relative;
+}
+/* the fence is dark in both themes, so the pill matches it, not the page */
+.fence-copy {
+  position: absolute;
+  top: calc(var(--unit) * 1);
+  right: calc(var(--unit) * 1);
+  z-index: 1;
+  background: rgb(22 27 34 / 85%);
+  border-color: #30363d;
+  color: #e6edf3;
+}
+
+/* quiet copy row at the bottom of an assistant entry */
+.entry-copy {
+  margin-top: calc(var(--unit) * 1);
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--muted);
+}
+.entry-copy:hover {
+  color: var(--text);
+}
+@media (max-width: 48rem) {
+  /* phones get the theme's touch floor; neither button is hover-revealed */
+  .fence-copy,
+  .entry-copy {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
+
 /* diffs */
 .diff-card {
   border: 1px solid var(--border);

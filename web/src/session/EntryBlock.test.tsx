@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import userEvent from '@testing-library/user-event'
+import { describe, expect, it, vi } from 'vitest'
 
 import { EntryBlock } from './EntryBlock'
 import type { DerivedBlock } from '../state/derive'
@@ -17,11 +18,28 @@ function assistantBlock(parts: AssistantBlock['parts']): DerivedBlock {
 function childShapes(entry: HTMLElement): string[] {
   return Array.from(entry.children).map((el) => {
     if (el.tagName === 'DETAILS') return 'thinking'
+    if (el.tagName === 'BUTTON') return 'copy'
     const toolId = el.getAttribute('data-tool-id')
     if (toolId !== null) return `card:${toolId}`
     if (el.classList.contains('markdown')) return `text:${el.textContent}`
     return el.className
   })
+}
+
+// jsdom ships no clipboard; each file stubs it so the requirement stays
+// visible at the call sites it covers
+function stubClipboard(writeText: (text: string) => Promise<void>) {
+  const fn = vi.fn(writeText)
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: fn } })
+  return fn
+}
+
+// setup() installs user-event's own clipboard stub, so the explicit one
+// above must land after it to stay what the component writes through
+function setupCopyUser(writeText: (text: string) => Promise<void>) {
+  const user = userEvent.setup()
+  const writes = stubClipboard(writeText)
+  return { user, writes }
 }
 
 describe('EntryBlock assistant ordering', () => {
@@ -46,6 +64,7 @@ describe('EntryBlock assistant ordering', () => {
       'text:editing now',
       'card:c1',
       'text:all done',
+      'copy',
     ])
   })
 
@@ -92,5 +111,44 @@ describe('EntryBlock assistant ordering', () => {
       <EntryBlock block={assistantBlock([{ kind: 'call', call: { id: 'c1', name: 'bash' } }])} />,
     )
     expect(screen.queryByText('auto allowed')).not.toBeInTheDocument()
+  })
+})
+
+describe('EntryBlock assistant copy row', () => {
+  it('joins text parts with blank lines and skips calls and thinking', async () => {
+    const { user, writes } = setupCopyUser(async () => {})
+    render(
+      <EntryBlock
+        block={{
+          kind: 'assistant',
+          id: '01A',
+          thinking: ['private musing'],
+          parts: [
+            { kind: 'text', text: 'first part' },
+            { kind: 'call', call: { id: 'c1', name: 'bash' } },
+            { kind: 'text', text: 'second part' },
+          ],
+        }}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Copy' }))
+    expect(writes).toHaveBeenCalledWith('first part\n\nsecond part')
+  })
+
+  it('hides the copy row when the reply has no text parts', () => {
+    stubClipboard(async () => {})
+    render(
+      <EntryBlock block={assistantBlock([{ kind: 'call', call: { id: 'c1', name: 'bash' } }])} />,
+    )
+
+    expect(screen.queryByRole('button', { name: 'Copy' })).not.toBeInTheDocument()
+  })
+
+  it('renders no copy row on prompts', () => {
+    stubClipboard(async () => {})
+    render(<EntryBlock block={{ kind: 'prompt', id: '01P', text: 'do it', images: [] }} />)
+
+    expect(screen.queryByRole('button')).not.toBeInTheDocument()
   })
 })

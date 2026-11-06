@@ -1,5 +1,6 @@
 import * as React from 'react'
 
+import { CopyButton } from './CopyButton'
 import { MarkdownBlock } from './MarkdownBlock'
 import { ToolCallCard } from './ToolCallCard'
 import type { DerivedBlock, ImageView } from '../state/derive'
@@ -26,7 +27,12 @@ function EntryBlockImpl({ block }: { block: DerivedBlock }) {
           <MarkdownBlock text={block.text} />
         </div>
       )
-    case 'assistant':
+    case 'assistant': {
+      // copy payload: raw text parts joined with blank lines; thinking stays out
+      // (collapsed, not part of what the model said) and calls own their cards
+      const raw = block.parts
+        .flatMap((part) => (part.kind === 'text' ? [part.text] : []))
+        .join('\n\n')
       return (
         <div className="entry assistant" data-entry-id={block.id}>
           <span className="block-role">
@@ -50,8 +56,10 @@ function EntryBlockImpl({ block }: { block: DerivedBlock }) {
               <ToolCallCard key={part.call.id} call={part.call} />
             ),
           )}
+          {raw !== '' && <CopyButton text={raw} className="entry-copy" />}
         </div>
       )
+    }
     case 'tool-results':
       return (
         <div className="entry carrier" data-entry-id={block.id}>

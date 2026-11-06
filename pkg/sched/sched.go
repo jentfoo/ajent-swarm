@@ -10,7 +10,7 @@ import (
 	"github.com/jentfoo/ajent-swarm/pkg/store"
 )
 
-// Trigger loop defaults.
+// Scheduler defaults.
 const (
 	maxTick         = 10 * time.Second // never sleep past this, even with nothing due
 	missedGrace     = 2 * time.Minute  // a slot older than this counts as missed
@@ -200,7 +200,8 @@ func (s *Scheduler) nextWait(idleHeld bool) time.Duration {
 func (s *Scheduler) fireDue(j store.Job, now time.Time) bool {
 	slot := *j.NextRunAt
 
-	if j.RunWhenIdle && s.fleetBusy(now) {
+	lastBusy := s.runner.LastBusyAt()
+	if j.RunWhenIdle && !lastBusy.IsZero() && now.Sub(lastBusy) < idleWindow {
 		maxDelay := time.Duration(j.IdleMaxDelaySeconds) * time.Second
 		waited := now.Sub(slot)
 		if maxDelay <= 0 || waited < maxDelay {
@@ -266,16 +267,17 @@ func (s *Scheduler) fireDue(j store.Job, now time.Time) bool {
 // skipDue claims one due slot only to record a skipped run with the reason,
 // advancing the schedule like any other claim so restarts never re-decide it.
 func (s *Scheduler) skipDue(j store.Job, slot time.Time, reason string) {
+	now := time.Now()
 	var newNext *time.Time
 	if j.ScheduleKind != store.ScheduleOnce {
-		next, err := InitialNext(j, time.Now())
+		next, err := InitialNext(j, now)
 		if err != nil {
 			s.log.Error("job schedule is broken", "job", j.Name, "err", err)
 			return
 		}
 		newNext = next
 	}
-	run := s.baseRun(j, store.TriggerSchedule, time.Now())
+	run := s.baseRun(j, store.TriggerSchedule, now)
 	run.Status = store.RunSkipped
 	run.Error = reason
 	id, final, claimed, err := s.store.StartScheduledFire(s.ctx, j.ID, slot, newNext,
@@ -288,13 +290,6 @@ func (s *Scheduler) skipDue(j store.Job, slot time.Time, reason string) {
 		s.log.Info("run skipped", "job", j.Name, "reason", reason,
 			"run", id)
 	}
-}
-
-// fleetBusy reports whether any tracked session showed agent activity inside
-// the run-when-idle window.
-func (s *Scheduler) fleetBusy(now time.Time) bool {
-	last := s.runner.LastBusyAt()
-	return !last.IsZero() && now.Sub(last) < idleWindow
 }
 
 // formatDelay renders a wait for skip reasons: 90s, 45m, 2h.

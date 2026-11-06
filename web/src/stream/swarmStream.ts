@@ -324,6 +324,9 @@ export class SwarmStream {
     switch (frame.type) {
       case 'heartbeat':
         return
+      case 'event':
+        this.dispatch(frame.sessionId, frame)
+        return
       case 'init': {
         this.resubAttempts.delete(frame.sessionId)
         this.cancelResubscribe(frame.sessionId) // a live init means we got in

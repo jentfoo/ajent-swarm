@@ -71,9 +71,12 @@ func writeCommandFailure(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusNotFound, "session_not_found", "")
 		return
 	}
-	if !writeControlError(w, err) {
-		writeError(w, http.StatusInternalServerError, codeInternalError, "")
+	var ce *ctl.Error
+	if errors.As(err, &ce) {
+		writeError(w, statusForControl(ce), ce.Code, ce.Message)
+		return
 	}
+	writeError(w, http.StatusInternalServerError, codeInternalError, "")
 }
 
 // newPendingID mints the correlation a submit echoes back to its caller.

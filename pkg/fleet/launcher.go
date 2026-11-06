@@ -276,17 +276,11 @@ func (m *Manager) publishChildEvent(sessionID string, frame ChildFrame) {
 	}
 }
 
-// StopSession ends a session: /exit goes through the control connection first,
-// then children swarm spawned escalate to SIGTERM and SIGKILL on the child's
-// process group, skipping the /exit grace when no /exit landed. External
-// sessions end through /exit alone: swarm never signals a process it did not
-// spawn. The escalation always runs to completion; ctx bounds only the
-// control calls. Stopping an already-exited session succeeds quietly.
-//
-// Nothing tears UI-launched children down implicitly: no registry-watch,
-// reconnect or shutdown path stops them (KillOnExit is a documented operator
-// choice), and the scheduler's stopAfter applies only to sessions its own run
-// launched, unless the job sets KeepAlive. A session ends when someone asks.
+// StopSession ends a session: /exit through the control connection first,
+// then SIGTERM and SIGKILL for children swarm spawned; external sessions end
+// through /exit alone, since swarm never signals a process it did not spawn.
+// ctx bounds only the control calls. Stopping an already-exited session
+// succeeds quietly; no other path tears children down (KillOnExit excepted).
 func (m *Manager) StopSession(ctx context.Context, sessionID string) error {
 	a := m.route(sessionID)
 	pid := 0
@@ -365,8 +359,7 @@ func (m *Manager) awaitEnded(a *sessionActor, cp *childProc, pid int, within tim
 	timer := time.NewTimer(within)
 	defer timer.Stop()
 	for {
-		if reaped(cp) || (cp != nil && cp.adopted && pidGone(pid)) ||
-			(cp == nil && pid > 0 && pidGone(pid)) {
+		if reaped(cp) || ((cp == nil || cp.adopted) && pidGone(pid)) {
 			return true
 		}
 		if a != nil && a.status.Load().State == ChildExited {

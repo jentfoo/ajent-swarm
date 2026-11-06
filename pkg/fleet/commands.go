@@ -282,11 +282,7 @@ func (a *sessionActor) handleModelSet(msg msgSnapshotModelSet) {
 	cctx, cancel := a.callWait()
 	defer cancel()
 	res, err := a.conn.ModelSet(cctx, msg.model)
-	if err != nil {
-		msg.reply <- cmdString{err: err}
-		return
-	}
-	msg.reply <- cmdString{value: res.Model.Key}
+	msg.reply <- cmdString{value: res.Model.Key, err: err}
 }
 
 // handleToolsSet reshapes the enabled tool set through tools.set.

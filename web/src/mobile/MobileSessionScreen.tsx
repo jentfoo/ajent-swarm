@@ -40,7 +40,7 @@ const edgeSwipePx = 56
 // The content keys on sessionId, so the route reusing this screen for another
 // session presents it as a remount: that session's own draft restores from the
 // store while open sheets, menus and toasts reset instead of bleeding across
-// sessions (session-switch-state-reset.md).
+// sessions.
 export default function MobileSessionScreen(): ReactElement {
   const { sessionId = '' } = useParams()
   return <MobileSessionSurface key={sessionId} sessionId={sessionId} />
@@ -101,7 +101,7 @@ function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElemen
         // one fresh finger seeds a candidate; anything else (a second touch
         // landing mid-gesture, a pinch) kills the pending one
         const t = ev.touches[0]
-        edgeStart.current = ev.touches.length === 1 && t ? { x: t.clientX, y: t.clientY } : null
+        edgeStart.current = ev.touches.length === 1 ? { x: t.clientX, y: t.clientY } : null
       }}
       onTouchEnd={(ev) => {
         const start = edgeStart.current
@@ -110,8 +110,8 @@ function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElemen
         // a finger still down or several lifted together was never a swipe
         if (ev.touches.length > 0 || ev.changedTouches.length !== 1) return
         const end = ev.changedTouches[0]
-        const dx = (end?.clientX ?? 0) - start.x
-        const dy = Math.abs((end?.clientY ?? 0) - start.y)
+        const dx = end.clientX - start.x
+        const dy = Math.abs(end.clientY - start.y)
         // horizontal dominance keeps vertical scrolls from reading as swipes
         if (dx >= edgeSwipePx && dx > dy) {
           setSheetOpen(true)

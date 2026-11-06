@@ -39,8 +39,12 @@ beforeEach(() => {
   })
 })
 
+// the resize case pins innerHeight; restore the jsdom default between tests
+const innerHeightDesc = Object.getOwnPropertyDescriptor(window, 'innerHeight')!
+
 afterEach(() => {
   vi.restoreAllMocks()
+  Object.defineProperty(window, 'innerHeight', innerHeightDesc)
 })
 
 // Harness keeps the popover open beside a trigger under an overflow-clipped

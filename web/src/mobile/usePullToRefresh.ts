@@ -79,7 +79,7 @@ export function usePullToRefresh(
       if (startY === null || scroller === null || ev.touches.length !== 1) return
       // only the dead overscroll at the very top plays; a scrolled page is a scroll
       if (scroller.scrollTop > 0) return
-      const dy = (ev.touches[0]?.clientY ?? 0) - startY
+      const dy = ev.touches[0].clientY - startY
       furthest = Math.max(furthest, dy)
     }
     const end = () => {

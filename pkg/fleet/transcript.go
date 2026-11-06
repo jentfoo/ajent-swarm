@@ -62,10 +62,14 @@ func (m *Manager) SavedSessions() ([]SavedSession, error) {
 	out := make([]SavedSession, 0, len(rows))
 	for _, row := range rows {
 		_, isLive := live[row.ID]
+		target := row.ID // resume handle: the name, else the id
+		if row.Name != "" {
+			target = row.Name
+		}
 		out = append(out, SavedSession{
 			ID:        row.ID,
 			Name:      row.Name,
-			Target:    savedTarget(row),
+			Target:    target,
 			Workspace: row.Workspace,
 			Model:     row.Model,
 			StartedMs: unixMilli(row.Started),
@@ -156,15 +160,6 @@ func findSavedRow(rows []session.Listed, target string) (session.Listed, error) 
 		return session.Listed{}, fmt.Errorf("%w: %q names %d sessions: %s",
 			ErrAmbiguousSaved, target, len(named), strings.Join(paths, ", "))
 	}
-}
-
-// savedTarget derives the resume handle for a listing row: its name, else
-// its id.
-func savedTarget(row session.Listed) string {
-	if row.Name != "" {
-		return row.Name
-	}
-	return row.ID
 }
 
 // recordedTip derives a recorded transcript's tip at read time: among the

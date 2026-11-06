@@ -28,13 +28,11 @@ const stubWorkspace = "/repo"
 
 // Options configures one stub at creation.
 type Options struct {
-	SessionID  string
-	Name       string
-	Token      string // writer token; a fixed default when empty
-	Protocol   int    // hello protocol override; the real one when zero
-	PID        int    // hello pid override; this process when zero
-	Unrecorded bool   // recording off: backfill is an error to report
-	Refuses    bool   // attach with control always refuses, seat-held
+	SessionID string
+	Name      string
+	Token     string // writer token; a fixed default when empty
+	PID       int    // hello pid override; this process when zero
+	Refuses   bool   // attach with control always refuses, seat-held
 }
 
 // RecordedRequest is one request the stub received beside its raw params.
@@ -56,7 +54,7 @@ type Stub struct {
 	mu       sync.Mutex
 	seq      uint64 // one number space per session lifetime
 	snap     ctl.State
-	recordTo string // transcript file hello and backfill name; empty when off
+	recordTo string // transcript file hello and backfill name
 	heldBy   string // holder name while the seat is claimed, "" otherwise
 	heldConn *stubConn
 	refuse   bool
@@ -79,12 +77,9 @@ func New(t *testing.T, home string, opts Options) *Stub {
 	if opts.Token == "" {
 		opts.Token = "token1234"
 	}
-	recordTo := ""
-	if !opts.Unrecorded { // serve mode always records; start with an empty file
-		recordTo = filepath.Join(home, "transcript.jsonl")
-		if err := os.WriteFile(recordTo, nil, 0o600); err != nil {
-			t.Fatal(err)
-		}
+	recordTo := filepath.Join(home, "transcript.jsonl") // serve mode always records
+	if err := os.WriteFile(recordTo, nil, 0o600); err != nil {
+		t.Fatal(err)
 	}
 	dir := filepath.Join(home, paths.ControlDirName, opts.SessionID)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -96,10 +91,6 @@ func New(t *testing.T, home string, opts Options) *Stub {
 	}
 	t.Cleanup(func() { _ = ln.Close() })
 
-	protocol := opts.Protocol
-	if protocol == 0 {
-		protocol = ctl.Protocol
-	}
 	pid := opts.PID
 	if pid == 0 {
 		pid = os.Getpid()
@@ -111,7 +102,7 @@ func New(t *testing.T, home string, opts Options) *Stub {
 		sessionID:    opts.SessionID,
 		name:         opts.Name,
 		token:        opts.Token,
-		protocol:     protocol,
+		protocol:     ctl.Protocol,
 		recordTo:     recordTo,
 		conns:        make(map[*stubConn]struct{}),
 		refuse:       opts.Refuses,

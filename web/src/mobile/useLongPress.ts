@@ -4,7 +4,7 @@ import type { PointerEvent as ReactPointerEvent } from 'react'
 // longPressMs is the hold time before the rename affordance fires.
 const longPressMs = 500
 
-export interface LongPressHandlers {
+interface LongPressHandlers {
   pressed: boolean // true while a touch or press is held, for row styling
   onPointerDown: (ev: ReactPointerEvent) => void
   onPointerUp: () => void

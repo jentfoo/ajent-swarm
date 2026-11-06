@@ -31,8 +31,8 @@ function timezoneCandidates(): string[] {
   return (timezoneMemo = [])
 }
 
-// JobEditor is the one form for creating and editing jobs: launch facts matching
-// phase 04's launcher, then trigger — schedule plus its optional pre-run
+// JobEditor is the one form for creating and editing jobs: launch facts
+// mirroring the launcher, then trigger — schedule plus its optional pre-run
 // command — prompt, missed-run policy, timeout and keep-alive. The next three
 // fire times preview live through POST /api/jobs/preview, which also checks the
 // workspace path.
@@ -342,7 +342,7 @@ export function JobEditor({
           </p>
         )}
 
-        {(previewError ?? '') !== '' ? (
+        {previewError !== '' ? (
           <p className="error-text">{previewError}</p>
         ) : (
           previewTimes.length > 0 && (

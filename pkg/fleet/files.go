@@ -54,7 +54,7 @@ func (m *Manager) Files(ctx context.Context, sessionID string, query string) ([]
 			continue // hidden entries surface only when asked for
 		}
 		fragment := relPrefix + name
-		dirLike := de.IsDir() || de.Type()&os.ModeSymlink != 0 && isDir(filepath.Join(dir, name))
+		dirLike := de.IsDir() || (de.Type()&os.ModeSymlink != 0 && isDir(filepath.Join(dir, name)))
 		if dirLike {
 			fragment += "/"
 		}

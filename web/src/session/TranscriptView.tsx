@@ -3,8 +3,6 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 
 import { EntryBlock } from './EntryBlock'
 import { LiveStreamBlock } from './LiveStreamBlock'
-import { SubAgentChips } from './ToolCallCard'
-import { subAgentRows } from './StatusBar'
 import { DiffCard } from './DiffCard'
 import { MarkdownBlock } from './MarkdownBlock'
 import type { AppliedSessionState, DiffView } from '../state/eventApplier'
@@ -250,15 +248,11 @@ export function TranscriptView({
             </div>
           ))}
           {state.live && (
-            <>
-              {/* sub-agent jobs show as live chips before their cards open */}
-              <SubAgentChips rows={subAgentRows(state.snapshot.activity)} />
-              <LiveStreamBlock
-                live={state.live}
-                activity={state.snapshot.activity}
-                onThinkingToggle={onThinkingToggle}
-              />
-            </>
+            <LiveStreamBlock
+              live={state.live}
+              activity={state.snapshot.activity}
+              onThinkingToggle={onThinkingToggle}
+            />
           )}
         </div>
       </div>

@@ -9,7 +9,7 @@ import { parseEditInput } from './editInput'
 // ToolCardView is what a card renders: a committed call's info or the live
 // shape with its streamed outputs. Live output appends while running; once
 // deltas painted the body, result.output adds nothing.
-export interface ToolCardView {
+interface ToolCardView {
   id: string
   name?: string
   label?: string // header text overriding the tool name ('! cmd' on shell cards)

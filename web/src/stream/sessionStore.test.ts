@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { SessionStore } from './sessionStore'
 import { SwarmStream } from './swarmStream'
@@ -58,6 +58,13 @@ describe('SessionStore', () => {
       jitter: false,
     })
     store = new SessionStore(stream)
+  })
+
+  // a fresh stream per test still leaves the old one listening on document
+  // visibility, and its fake timers pending: tear both down like swarmStream.test
+  afterEach(() => {
+    stream.destroy()
+    vi.useRealTimers()
   })
 
   function openSocket(): MockWebSocket {

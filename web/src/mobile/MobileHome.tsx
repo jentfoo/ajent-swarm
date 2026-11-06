@@ -216,7 +216,7 @@ function SavedResume({
       {saved.length === 0 && <p className="muted">Nothing recorded yet.</p>}
       {saved.map((row) => {
         const label = displayName(
-          { sessionId: row.id, title: row.name, name: row.name, workspace: row.workspace },
+          { sessionId: row.id, name: row.name, workspace: row.workspace },
           home,
         )
         return (

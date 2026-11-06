@@ -32,7 +32,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .then((me) => {
         if (!alive) return
         setStatus('authed')
-        setPrincipal({ username: me.username, via: me.via, home: me.home })
+        setPrincipal({ username: me.username, home: me.home })
       })
       .catch((err: unknown) => {
         if (!alive) return
@@ -82,13 +82,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     () => ({
       status,
       username: principal.username,
-      via: principal.via,
       home: principal.home,
       login,
       bootstrap,
       logout,
     }),
-    [status, principal.username, principal.via, principal.home, login, bootstrap, logout],
+    [status, principal.username, principal.home, login, bootstrap, logout],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

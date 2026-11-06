@@ -146,11 +146,7 @@ func writeRetryAfter(w http.ResponseWriter, wait time.Duration) {
 
 // isLoopback reports whether the request arrived from a loopback peer.
 func isLoopback(r *http.Request) bool {
-	host := r.RemoteAddr
-	if h, _, err := net.SplitHostPort(host); err == nil {
-		host = h
-	}
-	ip := net.ParseIP(host)
+	ip := net.ParseIP(remoteKey(r))
 	return ip != nil && ip.IsLoopback()
 }
 

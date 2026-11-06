@@ -28,8 +28,7 @@ import { useSessionCompose } from '../session/useSessionCompose'
 //
 // The content keys on sessionId, so every host presents a swap as a remount:
 // that session's own draft restores from the store while sheets, menus, toasts
-// and scroll reset instead of bleeding across sessions
-// (session-switch-state-reset.md).
+// and scroll reset instead of bleeding across sessions.
 export default function SessionView({
   sessionId: hostedId,
   focused = true,

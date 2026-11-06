@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -112,7 +113,7 @@ func TestToken(t *testing.T) {
 			{name: "empty", token: "", wantErr: true},
 			{name: "spaces", token: "my token", wantErr: true},
 			{name: "slash", token: "a/b", wantErr: true},
-			{name: "too_long", token: string(make([]byte, 65)), wantErr: true},
+			{name: "too_long", token: strings.Repeat("a", 65), wantErr: true},
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {

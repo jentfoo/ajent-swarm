@@ -8,6 +8,7 @@ import { sessionBusy } from '../state/eventApplier'
 import { MenuPopover } from '../ui/MenuPopover'
 import { ModelMenuItems } from '../ui/ModelMenuItems'
 import { shortID } from './names'
+import { useInterruptStream } from './useInterruptStream'
 import { useSessionLabel } from './useSessionLabel'
 import { AgentSettingsMenu } from './AgentSettingsMenu'
 import { ToolsPanel } from './ToolsPanel'
@@ -33,23 +34,18 @@ export function StatusHeader({
   onToast: (text: string, level?: 'info' | 'error') => void
   children?: React.ReactNode
 }) {
-  const [busy, setBusy] = useState(false)
   const working = sessionBusy(snap)
   // identity reads the swarm listing like the rail does, so a rename lands
   // with its refresh, and the short id rides beside any real label
   const label = useSessionLabel(sessionId)
   const short = shortID(sessionId)
-
-  const interrupt = async () => {
-    setBusy(true)
-    try {
-      await sessionAPI.interrupt(sessionId)
-    } catch (err) {
-      onToast(err instanceof ApiError ? err.message : 'Interrupt failed.', 'error')
-    } finally {
-      setBusy(false)
-    }
-  }
+  // Escape stays with the workspace surface; the header only offers the button
+  const { interrupt, inFlight: busy } = useInterruptStream({
+    sessionId,
+    busy: working,
+    onToast,
+    enabled: false,
+  })
 
   return (
     <div className="session-header">
@@ -69,7 +65,7 @@ export function StatusHeader({
       <ToolsPanel sessionId={sessionId} snap={snap} onToast={onToast} />
       <ModelMenu sessionId={sessionId} snap={snap} onToast={onToast} />
       {working && (
-        <button type="button" onClick={() => void interrupt()} disabled={busy}>
+        <button type="button" onClick={interrupt} disabled={busy}>
           Interrupt
         </button>
       )}

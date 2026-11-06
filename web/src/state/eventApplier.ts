@@ -629,7 +629,7 @@ function applyEvent(state: AppliedSessionState, ev: WireEvent): AppliedSessionSt
 // "Tool allowed for session", "Tool call allowed this time") and returns the
 // card chip label, undefined for any other notice. Matched as substrings so
 // upstream wording drift never breaks the attach.
-export function permitVerdict(text: string): string | undefined {
+function permitVerdict(text: string): string | undefined {
   const t = text.toLowerCase()
   if (t.includes('auto allowed')) return 'auto allowed'
   if (t.includes('allowed for session')) return 'allowed for session'
@@ -1025,6 +1025,11 @@ interface ContentBlockData {
   name?: string
   input?: unknown
   callId?: string
+  toolName?: string
+  isError?: boolean
+  display?: string
+  content?: unknown
+  data?: string // base64 image body
 }
 
 export interface ContentBlockView {
@@ -1036,7 +1041,8 @@ function textOf(block: ContentBlockView): string {
   return block.data?.text ?? ''
 }
 
-function toolCallId(block: ContentBlockView): string | undefined {
+// toolCallId reads a block's call identity, accepting both wire spellings.
+export function toolCallId(block: ContentBlockView): string | undefined {
   const id = block.data?.callId ?? block.data?.id
   return isValidId(id) ? id : undefined
 }

@@ -13,8 +13,8 @@ export function contextLevel(used: number, windowSize: number, compact: number):
   return ''
 }
 
-// SubAgentChip rows are the sub-agent activity rows (sub-N keys upstream),
-// surfaced as chips instead of vanishing into the generic activity mix.
+// Sub-agent activity rows (sub-N keys upstream), surfaced as chips instead
+// of vanishing into the generic activity mix.
 export function subAgentRows(activity: ActivityRow[] | undefined): ActivityRow[] {
   return (activity ?? []).filter((row) => row.key.startsWith('sub-'))
 }

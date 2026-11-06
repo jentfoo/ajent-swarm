@@ -63,7 +63,7 @@ export function parseWeekdays(raw: string | undefined): WeekdayToken[] {
 }
 
 // formatWeekdays renders chosen days in canonical order, e.g. Mon, Wed, Fri.
-export function formatWeekdays(raw: string | undefined): string {
+function formatWeekdays(raw: string | undefined): string {
   const tokens = parseWeekdays(raw)
   if (tokens.length === 0 || tokens.length === 7) return ''
   return tokens.map((t) => weekdayShort[weekdayTokens.indexOf(t)]).join(', ')

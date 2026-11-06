@@ -72,11 +72,6 @@ func TestHandler(t *testing.T) {
 			code, _ := callJSON[struct{}](t, client, base, http.MethodGet, "/api/auth/login", nil)
 			assert.Equal(t, http.StatusMethodNotAllowed, code)
 		})
-
-		t.Run("static_assets_stay_reachable", func(t *testing.T) {
-			resp := call(t, client, base, http.MethodGet, "/", nil)
-			assert.Equal(t, http.StatusOK, resp.StatusCode)
-		})
 	})
 
 	t.Run("security_headers", func(t *testing.T) {

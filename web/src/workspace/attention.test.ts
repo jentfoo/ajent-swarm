@@ -13,7 +13,6 @@ import {
   describeStop,
   isDialogAcked,
   rankAttention,
-  attentionSectionTitles,
   ledgerVersionNow,
   resetLedger,
   subscribeLedger,
@@ -160,15 +159,6 @@ describe('attention derivation', () => {
 })
 
 describe('attention ranking', () => {
-  it('exports the shared section headings', () => {
-    expect(attentionSectionTitles).toEqual({
-      'needs-input': 'Needs input',
-      'needs-review': 'Ready to review',
-      awaiting: 'Waiting',
-      working: 'Working',
-    })
-  })
-
   it('orders dialogs by oldest wait, then reviews newest first', () => {
     const items = [
       deriveItem(row({ sessionId: 'old-dialog', openInteractions: 1, dialogId: 1, dialogAt: 100 })),

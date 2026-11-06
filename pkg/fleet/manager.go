@@ -299,7 +299,8 @@ func (m *Manager) diff() error {
 	}
 
 	for _, a := range stopping {
-		m.markExternalGone(a.inst)
+		// a.inst is actor-confined; the published row carries its current pid
+		m.markExternalGone(a.status.Load().PID)
 		a.stop()
 		select {
 		case <-a.done:
@@ -386,19 +387,19 @@ func (m *Manager) retainExternal(inst ctl.Instance) {
 // record left discovery: swarm never reaped that process, so the exit code
 // stays unset. A pass racing shutdown skips the marking, so a restart never
 // lists still-running externals as ended.
-func (m *Manager) markExternalGone(inst ctl.Instance) {
+func (m *Manager) markExternalGone(pid int) {
 	if m.ctx.Err() != nil {
 		return
 	}
 	m.mu.Lock()
-	rec, ok := m.externals[inst.PID]
+	rec, ok := m.externals[pid]
 	if !ok || !rec.ExitedAt.IsZero() {
 		m.mu.Unlock()
 		return
 	}
 	rec.ExitedAt = time.Now()
 	rec.ExitNote = "ended on its own"
-	m.externals[inst.PID] = rec
+	m.externals[pid] = rec
 	m.mu.Unlock()
 
 	m.persistChild(rec)
@@ -514,9 +515,6 @@ func (m *Manager) Unsubscribe(s *Subscription) {
 // Resync re-pushes the init frame for an existing subscription, so a client
 // can rebuild after losing state without resubscribing.
 func (m *Manager) Resync(s *Subscription) {
-	if s == nil {
-		return
-	}
 	sub := s.s
 	m.mu.Lock()
 	a := m.actors[sub.hostKey] // the actor serving this subscription, if any
@@ -602,17 +600,10 @@ func (m *Manager) route(sessionID string) *sessionActor {
 	return m.actorForLocked(sessionID)
 }
 
-// Sessions lists one row per known instance: live actors carry their
-// reconciled state, children add spawn facts, and children no longer tracked
-// stand alone as exited or waiting rows. Two processes serving one session —
-// resuming an already running session — list twice, told apart by pid.
-// External sessions persist a row at their first sighting, so a record
-// leaving discovery marks the row exited instead of dropping it. Records
-// without a tracked instance fold into one row per session id, the newest
-// record describing it. Alive rows sort by id then pid; ended ones follow
-// most-recent-first, keeping everything from the recent window beside a
-// pinned minimum so a day of exits never buries the grid while a
-// just-exited session stays reachable for resume.
+// Sessions lists every known session, one row each: live rows first,
+// sorted by session id then pid, followed by recently ended ones most recent
+// first. Twin instances serving one session list twice, told apart by pid;
+// external sessions keep their row after they end.
 func (m *Manager) Sessions() []Status {
 	m.mu.Lock()
 	actors := bulk.MapValuesSlice(m.actors)

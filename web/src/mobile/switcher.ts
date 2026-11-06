@@ -26,7 +26,7 @@ type SwitcherStatus = 'running' | 'waiting' | 'idle' | 'ended'
 // SwitcherSection mirrors the desktop rail's grouping: each attention kind
 // renders under its own shared heading, digest-less rows beside working, and
 // the exited tail last.
-export type SwitcherSection = AttentionKind | 'ended'
+type SwitcherSection = AttentionKind | 'ended'
 
 export interface SwitcherRow {
   sessionId: string
@@ -44,7 +44,7 @@ export interface SwitcherRow {
 
 // GroupedSwitcherRows is one rendered section: its id keys and styles the
 // block, the title heads it, and the rows keep their incoming order.
-export interface GroupedSwitcherRows {
+interface GroupedSwitcherRows {
   section: SwitcherSection
   title: string
   rows: SwitcherRow[]
@@ -94,9 +94,10 @@ export function buildSwitcherRows(
       continue
     }
     const item = digestFor(s)
-    const entry = { sessionId: s.sessionId, kind: item?.kind, since: item?.since }
     alive.push({
-      ...entry,
+      sessionId: s.sessionId,
+      kind: item?.kind,
+      since: item?.since,
       row: {
         sessionId: s.sessionId,
         pid: s.pid,

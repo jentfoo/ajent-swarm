@@ -475,15 +475,20 @@ func TestScheduler(t *testing.T) {
 
 		h.runner.mu.Lock()
 		subs := len(h.runner.submits)
-		stopped := slices.Clone(h.runner.stopped)
 		h.runner.mu.Unlock()
 		prompt := h.submittedPrompt()
 
 		// the prompt went out with the run's own pendingId, and the session was
-		// torn down because the job keeps nothing alive
+		// torn down because the job keeps nothing alive. Stop trails the terminal
+		// row finish persists, so poll until it lands
 		require.NotZero(t, subs)
 		assert.Equal(t, "run the nightly sweep", prompt)
-		assert.Contains(t, stopped, "01RUNFAKESESSION00")
+		require.Eventually(t, func() bool {
+			h.runner.mu.Lock()
+			stopped := slices.Contains(h.runner.stopped, "01RUNFAKESESSION00")
+			h.runner.mu.Unlock()
+			return stopped
+		}, settleWindow, 10*time.Millisecond)
 	})
 
 	t.Run("manual_fire_refuses_when_overlapping", func(t *testing.T) {

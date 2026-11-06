@@ -3,7 +3,7 @@ import { useMemo } from 'react'
 import type { ToolState } from '../api/types'
 import type { DraftErrors, JobDraft } from './jobDraft'
 
-// Permission startup flags, matching phase 04's launcher.
+// Startup permission flags for the launched session.
 const permissionOptions = [
   { value: '', label: 'ajent default (asks)' },
   { value: 'read-only', label: 'read-only' },

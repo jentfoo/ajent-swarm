@@ -122,10 +122,10 @@ func Handler(cfg Config) http.Handler {
 		{http.MethodDelete, "/api/tokens/{name}", srv.handleTokenDelete},
 	} {
 		apiMux.HandleFunc(rt.method+" "+rt.path, rt.handle)
-		if seen := allow[rt.path]; seen == "" {
-			allow[rt.path] = rt.method
+		if prev, ok := allow[rt.path]; ok {
+			allow[rt.path] = prev + ", " + rt.method
 		} else {
-			allow[rt.path] = seen + ", " + rt.method
+			allow[rt.path] = rt.method
 		}
 	}
 

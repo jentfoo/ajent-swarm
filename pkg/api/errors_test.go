@@ -40,8 +40,7 @@ func TestErrors(t *testing.T) {
 
 	t.Run("coded_errors_keep_their_code", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		handled := writeControlError(w, ctl.Errf(ctl.CodeBusy, "queue is full"))
-		require.True(t, handled)
+		writeCommandFailure(w, ctl.Errf(ctl.CodeBusy, "queue is full"))
 		assert.Equal(t, http.StatusConflict, w.Code)
 
 		var body errorBody
@@ -50,9 +49,9 @@ func TestErrors(t *testing.T) {
 		assert.Contains(t, body.Message, "queue is full")
 	})
 
-	t.Run("other_errors_pass_through", func(t *testing.T) {
+	t.Run("other_errors_answer_internal", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		handled := writeControlError(w, errors.New("transport lost"))
-		assert.False(t, handled)
+		writeCommandFailure(w, errors.New("transport lost"))
+		assert.Equal(t, http.StatusInternalServerError, w.Code)
 	})
 }

@@ -450,7 +450,7 @@ func TestSessionHandlers(t *testing.T) {
 		var wg sync.WaitGroup
 		for i := range readers {
 			wg.Add(1)
-			go func(i int) { // assert stays off the test goroutine
+			go func(i int) { // failures report through h.t, require stays off reader goroutines
 				defer wg.Done()
 				ready <- struct{}{}
 				for {
@@ -459,9 +459,26 @@ func TestSessionHandlers(t *testing.T) {
 						return
 					default:
 					}
-					code, st := get[ctl.State](h, "/api/sessions/"+f.SessionID()+"/snapshot")
-					if code != http.StatusOK {
-						h.t.Errorf("concurrent read answered %d", code)
+					req, err := http.NewRequestWithContext(h.t.Context(), http.MethodGet,
+						h.server.URL+"/api/sessions/"+f.SessionID()+"/snapshot", nil)
+					if err != nil {
+						h.t.Errorf("concurrent request build failed: %v", err)
+						return
+					}
+					resp, err := h.client.Do(req)
+					if err != nil {
+						h.t.Errorf("concurrent read failed: %v", err)
+						return
+					}
+					var st ctl.State
+					err = json.NewDecoder(resp.Body).Decode(&st)
+					_ = resp.Body.Close()
+					if err != nil {
+						h.t.Errorf("concurrent decode failed: %v", err)
+						return
+					}
+					if resp.StatusCode != http.StatusOK {
+						h.t.Errorf("concurrent read answered %d", resp.StatusCode)
 						return
 					}
 					seen[i] = append(seen[i], st.Queued)
@@ -480,9 +497,24 @@ func TestSessionHandlers(t *testing.T) {
 		close(stop)
 		wg.Wait()
 
-		code, st := get[ctl.State](h, "/api/sessions/"+f.SessionID()+"/snapshot")
-		require.Equal(t, http.StatusOK, code)
-		assert.Equal(t, batches, st.Queued) // the actor state every read converges on
+		// the broadcasts apply on the actor goroutine behind the reads, so the
+		// final snapshot converges asynchronously: poll until every row landed
+		var st ctl.State
+		require.Eventually(t, func() bool {
+			req, err := http.NewRequestWithContext(h.t.Context(), http.MethodGet,
+				h.server.URL+"/api/sessions/"+f.SessionID()+"/snapshot", nil)
+			if err != nil {
+				return false
+			}
+			resp, err := h.client.Do(req)
+			if err != nil {
+				return false
+			}
+			ok := resp.StatusCode == http.StatusOK &&
+				json.NewDecoder(resp.Body).Decode(&st) == nil
+			_ = resp.Body.Close()
+			return ok && st.Queued == batches
+		}, 2*time.Second, 5*time.Millisecond)
 
 		for _, seq := range seen {
 			if len(seq) == 0 { // a reader that never ran is fine

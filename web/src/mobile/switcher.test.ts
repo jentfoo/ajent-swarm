@@ -29,7 +29,6 @@ function item(kind: AttentionItem['kind'], since = 0): AttentionItem {
     since,
     pid: 1,
     running: false,
-    idle: true,
   }
 }
 

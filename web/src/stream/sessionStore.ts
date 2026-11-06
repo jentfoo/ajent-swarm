@@ -76,10 +76,9 @@ export class SessionStore {
   // answering whether a page arrived (false when the server ran dry).
   async loadOlder(sessionId: string): Promise<boolean> {
     const entry = this.entries.get(sessionId)
-    const oldest = entry?.state.chain.oldestId
-    if (!entry || oldest === undefined || oldest === '') return false
+    if (!entry || entry.state.chain.oldestId === '') return false
     try {
-      const res = await sessionAPI.entries(sessionId, oldest, pageLimit)
+      const res = await sessionAPI.entries(sessionId, entry.state.chain.oldestId, pageLimit)
       this.apply(sessionId, entry, { type: 'backfill', entries: res.entries })
       return res.entries.length > 0
     } catch {
@@ -107,19 +106,21 @@ export class SessionStore {
       state: initialSessionState(),
       refs: 0,
       listeners: new Set(),
-      unsub: this.stream.subscribe(sessionId, (frame) => {
-        if (frame.type === 'init') {
-          entry!.initTick += 1 // the rebuild invalidates any read taken before it
-          this.apply(sessionId, entry!, { type: 'init', frame })
-        } else if (frame.type === 'event') {
-          this.apply(sessionId, entry!, { type: 'event', event: frame.event })
-        }
-      }),
+      unsub: null,
       pollTimer: null,
       turnTimer: null,
       healToken: 0,
       initTick: 0,
     }
+    const e = entry
+    e.unsub = this.stream.subscribe(sessionId, (frame) => {
+      if (frame.type === 'init') {
+        e.initTick += 1 // the rebuild invalidates any read taken before it
+        this.apply(sessionId, e, { type: 'init', frame })
+      } else if (frame.type === 'event') {
+        this.apply(sessionId, e, { type: 'event', event: frame.event })
+      }
+    })
     this.entries.set(sessionId, entry)
     entry.pollTimer = setInterval(() => this.resnapshot(sessionId), resnapshotMs)
     return entry

@@ -123,8 +123,11 @@ func TestRunner(t *testing.T) {
 
 	t.Run("records_awaiting_input", func(t *testing.T) {
 		// a dialog that stays open parks the row for the UI to see, until its
-		// bounded timeout lands
-		h := newHarness(t, func(o *Options) { o.RunTimeoutDefault = 30 * time.Millisecond })
+		// bounded timeout lands. The budget runs from the row's start, so it must
+		// absorb the seeding writes on a loaded machine: a spent budget races the
+		// buffered frames in the watch select and can time out before the dialog
+		// parks the row
+		h := newHarness(t, func(o *Options) { o.RunTimeoutDefault = 250 * time.Millisecond })
 		j := sampleJob(store.ScheduleOnce)
 		run := h.seedRun(h.addJob("watch-parked", nil))
 		status, _ := h.scriptWatcher(run, j,
@@ -214,7 +217,10 @@ func TestRunner(t *testing.T) {
 	})
 
 	t.Run("timeout_notes", func(t *testing.T) {
-		h := newHarness(t, func(o *Options) { o.RunTimeoutDefault = 30 * time.Millisecond })
+		// the budget runs from the row's start, so it must absorb the seeding
+		// writes on a loaded machine: a spent budget races the buffered frames in
+		// the watch select and can time out before the dialog parks the row
+		h := newHarness(t, func(o *Options) { o.RunTimeoutDefault = 250 * time.Millisecond })
 		j := sampleJob(store.ScheduleOnce)
 
 		t.Run("parked_at_dialog", func(t *testing.T) {
@@ -367,7 +373,7 @@ func TestRunner(t *testing.T) {
 		h.waitForRun(id, store.RunOK)
 
 		h.runner.mu.Lock()
-		defer h.runner.mu.Unlock()
+		t.Cleanup(h.runner.mu.Unlock)
 		assert.Empty(h.t, h.runner.titles)
 	})
 
@@ -382,7 +388,7 @@ func TestRunner(t *testing.T) {
 		h.waitForRun(id, store.RunOK)
 
 		h.runner.mu.Lock()
-		defer h.runner.mu.Unlock()
+		t.Cleanup(h.runner.mu.Unlock)
 		assert.Empty(h.t, h.runner.titles)
 	})
 
@@ -517,8 +523,7 @@ func TestRunner(t *testing.T) {
 			if p.Line == "review the diff" {
 				submitted = true
 			} else {
-				assert.False(t, strings.HasPrefix(p.Line, "/exit"),
-					"the queued session must stay open")
+				assert.False(t, strings.HasPrefix(p.Line, "/exit"))
 			}
 		}
 		assert.True(t, submitted)

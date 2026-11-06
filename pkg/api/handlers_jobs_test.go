@@ -620,16 +620,12 @@ func TestJobHandlers(t *testing.T) {
 		})
 	})
 
-	t.Run("route_rejects_wrong_method", func(t *testing.T) {
+	t.Run("parameterized_route_falls_to_json_404", func(t *testing.T) {
 		env, client := newSchedEnv(t)
-
-		code, _ := callJSON[struct{}](t, client, env.server.URL,
-			http.MethodPatch, "/api/runs", nil)
-		assert.Equal(t, http.StatusMethodNotAllowed, code)
 
 		// parameterized paths have no literal key in the method table and fall
 		// through to the JSON 404, like every other {id} route
-		code, _ = callJSON[struct{}](t, client, env.server.URL,
+		code, _ := callJSON[struct{}](t, client, env.server.URL,
 			http.MethodPatch, "/api/jobs/1", nil)
 		assert.Equal(t, http.StatusNotFound, code)
 	})

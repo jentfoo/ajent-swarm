@@ -25,7 +25,6 @@ export interface AttentionItem {
   dialogId?: number // present on needs-input rows raised by a dialog
   turnEnd?: number // present on needs-review rows
   running: boolean
-  idle: boolean
 }
 
 // --- ledger, persisted under one versioned key ---
@@ -77,7 +76,7 @@ let storageHooked = false
 // Another tab acknowledging must not re-raise rows here: the storage event
 // re-reads the ledger so every open view shares one acknowledgment state.
 function hookStorage(): void {
-  if (storageHooked || typeof window === 'undefined') return
+  if (storageHooked) return
   storageHooked = true
   window.addEventListener('storage', (ev) => {
     if (ev.key !== null && ev.key !== storageKey) return
@@ -162,7 +161,6 @@ export function deriveItem(row: AttentionRow): AttentionItem {
     sessionId: row.sessionId,
     pid,
     running: busy,
-    idle: row.idle,
   }
 
   const dialogOpen = row.openInteractions > 0

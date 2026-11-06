@@ -145,8 +145,6 @@ func TestHub(t *testing.T) {
 		sub.mu.Unlock()
 		assert.True(t, wasDropped)
 		assert.True(t, *dropped)
-
-		sub.publishFrame([]byte("{}")) // a dropped subscription ignores further work
 	})
 
 	t.Run("child_frame_flushes_pending_delta", func(t *testing.T) {

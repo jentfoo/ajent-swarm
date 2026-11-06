@@ -532,11 +532,10 @@ func TestJobs(t *testing.T) {
 
 		base := time.Unix(10000, 0)
 		for i := range 5 {
-			runID, err := st.BeginManualRun(ctx, jobID, false, 10, Run{JobID: &jobID,
+			_, err := st.BeginManualRun(ctx, jobID, false, 10, Run{JobID: &jobID,
 				Trigger: TriggerSchedule, Status: RunOK,
 				StartedAt: base.Add(time.Duration(i) * time.Minute)})
 			require.NoError(t, err)
-			_ = runID
 		}
 
 		// the age cutoff keeps the row that starts exactly at it

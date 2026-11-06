@@ -172,7 +172,7 @@ describe('JobEditor', () => {
     expect(savedRoutes[0]).toMatchObject({ path: '/api/jobs' })
   })
 
-  it('offers no command prefix field; legacy values ride along untouched', () => {
+  it('offers no command prefix field', () => {
     renderEditor({ job: { ...storedJob, commandPrefix: 'timeout 300' } })
 
     expect(screen.queryByLabelText(/Command prefix/)).not.toBeInTheDocument()

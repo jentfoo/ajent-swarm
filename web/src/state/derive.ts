@@ -12,7 +12,7 @@
 // hideLiveToolIds drops committed calls whose live card has not retired yet,
 // the handoff that keeps streamed content painting once while it runs.
 import type { Entry } from '../api/types'
-import type { ContentBlockView, MessageEntryData } from './eventApplier'
+import { toolCallId, type ContentBlockView, type MessageEntryData } from './eventApplier'
 
 export interface ImageView {
   mediaType: string
@@ -197,14 +197,13 @@ function foldResults(
   const orphan: ToolResultView[] = []
   for (const block of blocks) {
     if (block.type !== 'tool_result') continue
-    // Both spellings exist on the wire; the live path folds by either already.
-    const callId = str(block.data?.callId) || str(block.data?.id)
+    const callId = toolCallId(block) ?? ''
     const view: ToolResultView = {
       callId,
-      toolName: optStr((block as { data?: { toolName?: string } }).data?.toolName),
+      toolName: optStr(block.data?.toolName),
       text: resultText(block),
       images: collectImages(resultContent(block)),
-      isError: (block as { data?: { isError?: boolean } }).data?.isError === true,
+      isError: block.data?.isError === true,
     }
     const call = pendingCalls.get(callId)
     if (call && !call.result) {
@@ -226,14 +225,12 @@ function isCarrier(blocks: ContentBlockView[]): boolean {
 // resultText prefers the display body history shows when it differs from what
 // the model saw, else the joined content text.
 function resultText(block: ContentBlockView): string {
-  const data = block as { data?: { display?: string; content?: unknown } }
-  if (data.data?.display !== undefined && data.data.display !== '') return data.data.display
+  if (block.data?.display !== undefined && block.data.display !== '') return block.data.display
   return joinText(resultContent(block), ['text'])
 }
 
 function resultContent(block: ContentBlockView): unknown[] {
-  const content = (block as { data?: { content?: unknown } }).data?.content
-  return Array.isArray(content) ? content : []
+  return Array.isArray(block.data?.content) ? block.data.content : []
 }
 
 function collectBlocks(blocks: readonly unknown[], types: string[]): ContentBlockView[] {
@@ -254,7 +251,7 @@ function joinText(blocks: readonly unknown[], types: string[]): string {
 function collectImages(blocks: readonly unknown[]): ImageView[] {
   return collectBlocks(blocks, ['image']).map((b) => ({
     mediaType: str(b.data?.mediaType),
-    data: optStr((b as { data?: { data?: string } }).data?.data),
+    data: optStr(b.data?.data),
   }))
 }
 

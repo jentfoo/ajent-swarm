@@ -1,21 +1,21 @@
 import { useState } from 'react'
 import type { ReactElement } from 'react'
 
-import { ApiError } from '../api/client'
-import { sessions as sessionAPI } from '../api/endpoints'
 import type { CtlState, ToolState } from '../api/types'
+import { applyToolSet, toolsWidenOnly } from '../session/toolRule'
 import { PushedScreen } from './PushedScreen'
 
 // ToolsScreen is the pushed full-screen tools panel: snapshot rows with their
-// sources, toggled through tools.set. Each toggle submits the complete desired
-// set — a free replacement before the run's first prompt, enable-only after,
-// where upstream keeps names left out unchanged and refusals surface as toasts.
-// Toggles land as local intent so quick successive flips compose instead of
-// clobbering; each records the rows it was decided against, so the next
-// full-replacement tools event settles it — a confirmed toggle reads as itself
-// and an externally flipped tool is never masked by stale intent. The readOnly
-// flag is permission metadata, never a toggle lock; rows an already-dispatched
-// run cannot release render disabled like on desktop.
+// sources, toggled through tools.set (toolRule.ts). Each toggle submits the
+// complete desired set — a free replacement before the run's first prompt,
+// enable-only after, where upstream keeps names left out unchanged and
+// refusals surface as toasts. Toggles land as local intent so quick successive
+// flips compose instead of clobbering; each records the rows it was decided
+// against, so the next full-replacement tools event settles it — a confirmed
+// toggle reads as itself and an externally flipped tool is never masked by
+// stale intent. The readOnly flag is permission metadata, never a toggle lock;
+// rows an already-dispatched run cannot release render disabled like on
+// desktop.
 export function ToolsScreen({
   sessionId,
   snap,
@@ -34,9 +34,7 @@ export function ToolsScreen({
   if (!open) return null
 
   const streamRows = snap.tools ?? []
-  // Widening only once the run dispatched a prompt; the desktop panel derives
-  // this identically so both surfaces agree at every breakpoint.
-  const widenOnly = snap.usage.turns > 0 || snap.running
+  const widenOnly = toolsWidenOnly(snap)
 
   const enabledOf = (row: ToolState) => {
     const pending = toggles[row.name]
@@ -54,28 +52,25 @@ export function ToolsScreen({
       fresh[row.name] = { wanted, seen: streamRows }
       return fresh
     })
-    try {
-      await sessionAPI.setTools(
-        sessionId,
-        streamRows
-          .map((r) => ({ name: r.name, enabled: r.name === row.name ? wanted : enabledOf(r) }))
-          .filter((r) => r.enabled)
-          .map((r) => r.name),
-      )
-      // the full-replacement tools event re-renders from the stream
-    } catch (err) {
-      // a refusal never reaches the stream, so drop this toggle's intent;
-      // acknowledged changes settle through the tools event instead
-      setToggles((prev) => {
-        const pending = prev[row.name]
-        if (pending === undefined || pending.seen !== streamRows || pending.wanted !== wanted) {
-          return prev
-        }
-        const { [row.name]: _dropped, ...rest } = prev
-        return rest
-      })
-      onToast(err instanceof ApiError ? err.message : 'Tool change refused.', 'error')
-    }
+    const landed = await applyToolSet(
+      sessionId,
+      streamRows.map((r) => ({
+        name: r.name,
+        enabled: r.name === row.name ? wanted : enabledOf(r),
+      })),
+      onToast,
+    )
+    if (landed) return
+    // a refusal never reaches the stream, so drop this toggle's intent;
+    // acknowledged changes settle through the tools event instead
+    setToggles((prev) => {
+      const pending = prev[row.name]
+      if (pending === undefined || pending.seen !== streamRows || pending.wanted !== wanted) {
+        return prev
+      }
+      const { [row.name]: _dropped, ...rest } = prev
+      return rest
+    })
   }
 
   return (

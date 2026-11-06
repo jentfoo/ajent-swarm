@@ -3,10 +3,11 @@ import type * as React from 'react'
 
 import { ApiError } from '../api/client'
 import { sessions as sessionAPI } from '../api/endpoints'
-import type { CtlState, ModelState } from '../api/types'
+import type { CtlState } from '../api/types'
 import { sessionBusy } from '../state/eventApplier'
 import { MenuPopover } from '../ui/MenuPopover'
 import { ModelMenuItems } from '../ui/ModelMenuItems'
+import { useModelMenu } from '../ui/useModelMenu'
 import { shortID } from './names'
 import { useSessionLabel } from './useSessionLabel'
 import { AgentSettingsMenu } from './AgentSettingsMenu'
@@ -130,8 +131,9 @@ export function ModeMenu({
 
 // ModelMenu lists models.get's registry exactly as the running process
 // resolved it and switches through model.set — no picker dialog to ride or
-// cancel, and no user-config persist side effect. Items render through the
-// shared grouped ModelMenuItems, the same layout the mobile chip uses.
+// cancel, and no user-config persist side effect. Fetch, pick and busy state
+// live in the shared useModelMenu controller; items render through the
+// shared grouped ModelMenuItems, the same body the mobile chip uses.
 // Refusals for unknown or ambiguous names surface as toasts with upstream's
 // message.
 function ModelMenu({
@@ -143,46 +145,8 @@ function ModelMenu({
   snap: CtlState
   onToast: (text: string, level?: 'info' | 'error') => void
 }) {
-  const [open, setOpen] = useState(false)
-  const [listing, setListing] = useState<ModelState[]>([])
-  const [active, setActive] = useState('')
-  const [busy, setBusy] = useState(false)
+  const menu = useModelMenu(sessionId, snap.model.key, onToast)
   const chipRef = useRef<HTMLButtonElement>(null)
-
-  const openMenu = useCallback(async () => {
-    if (open) {
-      setOpen(false)
-      return
-    }
-    setBusy(true)
-    try {
-      const res = await sessionAPI.models(sessionId)
-      setListing(res.models ?? [])
-      setActive(res.active || snap.model.key)
-      setOpen(true)
-    } catch (err) {
-      onToast(err instanceof ApiError ? err.message : 'Model listing failed.', 'error')
-    } finally {
-      setBusy(false)
-    }
-  }, [open, sessionId, snap.model.key, onToast])
-
-  const pick = useCallback(
-    async (key: string) => {
-      if (busy) return
-      setBusy(true)
-      try {
-        await sessionAPI.setModel(sessionId, key)
-        setOpen(false)
-        // the switch may queue behind a running turn; status.model announces it
-      } catch (err) {
-        onToast(err instanceof ApiError ? err.message : 'Model change refused.', 'error')
-      } finally {
-        setBusy(false)
-      }
-    },
-    [busy, sessionId, onToast],
-  )
 
   const label = snap.model.short || snap.model.key || 'model'
   return (
@@ -191,24 +155,19 @@ function ModelMenu({
         ref={chipRef}
         type="button"
         className="badge accent model-chip"
-        disabled={busy}
+        disabled={menu.busy}
         title="Switch model"
-        onClick={() => void openMenu()}
+        onClick={() => void menu.toggle()}
       >
         {label}
       </button>
-      {open && (
-        <MenuPopover
-          anchorRef={chipRef}
-          role="menu"
-          className="menu card"
-          onClose={() => setOpen(false)}
-        >
+      {menu.open && (
+        <MenuPopover anchorRef={chipRef} role="menu" className="menu card" onClose={menu.close}>
           <ModelMenuItems
-            models={listing}
-            active={active}
+            models={menu.models}
+            active={menu.active}
             currentKey={snap.model.key}
-            onPick={(key) => void pick(key)}
+            onPick={(key) => void menu.pick(key)}
           />
         </MenuPopover>
       )}

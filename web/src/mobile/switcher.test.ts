@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { buildSwitcherRows, groupSwitcherRows } from './switcher'
+import { buildSwitcherRows, groupSwitcherRows, switcherRoute } from './switcher'
 import type { SwitcherRow } from './switcher'
 import { rankAttention } from '../workspace/attention'
 import type { AttentionItem } from '../workspace/attention'
@@ -302,6 +302,19 @@ describe('buildSwitcherRows', () => {
     expect(rows.find((r) => r.sessionId === '01-live')!.queued).toBe(3)
     // waiting work cannot outlive the run
     expect(rows.find((r) => r.sessionId === '02-ended')!.queued).toBe(0)
+  })
+})
+
+describe('switcherRoute', () => {
+  it('routes ended rows read-only and alive rows live', () => {
+    expect(switcherRoute(row({ sessionId: '01LIVE' }))).toBe('/s/01LIVE')
+    expect(switcherRoute(row({ sessionId: '01ENDED', status: 'ended', section: 'ended' }))).toBe(
+      '/m/read/01ENDED',
+    )
+  })
+
+  it('encodes session ids onto the route', () => {
+    expect(switcherRoute(row({ sessionId: 'needs encoding' }))).toBe('/s/needs%20encoding')
   })
 })
 

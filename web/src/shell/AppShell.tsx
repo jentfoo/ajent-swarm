@@ -7,6 +7,7 @@ import { useAuth } from '../providers/auth'
 import { ChildState } from '../api/types'
 import type { SessionStatus } from '../api/types'
 import { GlobalSettingsMenu } from './GlobalSettingsMenu'
+import { ConnectionBanner } from '../ui/ConnectionBanner'
 
 // reachableSession reports whether a pane can stream the session right now:
 // connected (online) or active (reconnecting, e.g. just launched, or running).
@@ -129,13 +130,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
         </button>
       </header>
 
-      {connection !== 'open' && (
-        <div className="banner warn" role="status">
-          {connection === 'connecting'
-            ? 'Connecting to live updates…'
-            : 'Live connection lost. Reconnecting…'}
-        </div>
-      )}
+      <ConnectionBanner connection={connection} />
 
       <main className={workspaceRoute ? 'content workspace-content' : 'content'}>{children}</main>
     </div>

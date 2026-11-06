@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import type { FormEvent, ReactElement } from 'react'
 
-import { ApiError } from '../api/client'
-import { sessions } from '../api/endpoints'
-import type { InteractionPending, ResolveAnswer } from '../api/types'
+import type { InteractionPending } from '../api/types'
 import type { DialogOutcome } from '../state/eventApplier'
+import { MultiPickList, ResolvedChip, TextAnswer, useMultiPick } from './DialogBodies'
+import { useDialogResolve } from './dialogResolve'
 import { useDialogAnswerKeys } from './dialogKeys'
 import {
   denyAskOption,
@@ -12,10 +12,6 @@ import {
   noteAskOption,
   usePermitNoteAutoAnswer,
 } from './decisionNote'
-
-// Resolved chips linger a moment so an answer is visible, then leave on their
-// own: dialogs settled elsewhere never park under the dock until the cap.
-const outcomeTtlMs = 1_500
 
 // DialogDock sits above the composer and lists open dialogs oldest first.
 // Card variants key on the shape flags, never on kind: a button list for
@@ -77,47 +73,6 @@ export function DialogDock({
   )
 }
 
-// ResolvedChip self-dismisses shortly after appearing and leaves on click, so
-// an answer decided elsewhere never becomes residue. The timer is per id and
-// ignores parent re-renders; hover keeps what was picked.
-function ResolvedChip({
-  outcome,
-  onDismiss,
-}: {
-  outcome: DialogOutcome
-  onDismiss: (dialogId: number) => void
-}) {
-  const dismissRef = useRef(onDismiss)
-  useEffect(() => {
-    dismissRef.current = onDismiss
-  }, [onDismiss])
-  useEffect(() => {
-    const timer = setTimeout(() => dismissRef.current(outcome.id), outcomeTtlMs)
-    return () => clearTimeout(timer)
-  }, [outcome.id])
-
-  const detail = outcome.cancelled
-    ? 'cancelled'
-    : outcome.indexes !== undefined && outcome.indexes.length > 0
-      ? `answered: options ${outcome.indexes.map((i) => i + 1).join(', ')}`
-      : outcome.index !== undefined
-        ? `answered: option ${outcome.index + 1}`
-        : outcome.answered
-          ? 'answered'
-          : 'closed'
-  return (
-    <button
-      type="button"
-      className="card resolved-dialog"
-      role="status"
-      title={`Dialog ${outcome.id} answered elsewhere — ${detail}`}
-      onClick={() => onDismiss(outcome.id)}
-    >
-      {outcome.cancelled ? 'Dialog cancelled' : 'Dialog answered'}
-    </button>
-  )
-}
-
 // DialogCard picks one variant off the shape flags. Options answer by index,
 // multi answers by indexes with an empty list confirming no selection, text
 // answers carry chat when offered, and secrets mask their input. On permit
@@ -142,31 +97,9 @@ function DialogCard({
   // The autofocus decision pins at card mount: a stack position or dock focus
   // gained later never moves the caret, even if this card becomes the head.
   const [mayFocus] = useState(head)
-
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
-  const [picked, setPicked] = useState<number[]>([])
   const [note, setNote] = useState('')
-  const togglePicked = (i: number) =>
-    setPicked((p) => (p.includes(i) ? p.filter((x) => x !== i) : [...p, i]))
-
-  // Settled is benign: the first answer won, wherever it came from. Both a
-  // settled:true reply and a settled wire code resolve quietly.
-  const resolve = async (body: ResolveAnswer) => {
-    if (busy) return
-    setBusy(true)
-    setError('')
-    try {
-      await sessions.resolve(sessionId, body).catch((err: unknown) => {
-        if (!(err instanceof ApiError && err.code === 'settled')) throw err
-      })
-      onAnsweredLocally(dialog.id)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Resolve failed.')
-    } finally {
-      setBusy(false)
-    }
-  }
+  const { busy, error, resolve } = useDialogResolve(sessionId, dialog.id, onAnsweredLocally)
+  const { picked, toggle } = useMultiPick()
 
   const multi = dialog.multi === true && dialog.options !== undefined
   const permit = isPermitDialog(dialog) && !multi
@@ -179,7 +112,7 @@ function DialogCard({
     if (permit && noteAskOption(opt)) {
       onNoteIntent(dialog.id, note, denyAskOption(opt))
     }
-    void resolve({ dialogId: dialog.id, index: i })
+    void resolve({ index: i })
   }
   useDialogAnswerKeys(head && !multi && dialog.options !== undefined, (position) =>
     pickOption(position - 1),
@@ -194,19 +127,13 @@ function DialogCard({
           busy={busy}
           autoFocus={mayFocus}
           chat={dialog.chat === true}
-          onSend={(text) => void resolve({ dialogId: dialog.id, text, chat: dialog.chat })}
+          onSend={(text) => void resolve({ text, chat: dialog.chat })}
         />
       )}
       {dialog.text === true && dialog.secret && (
-        <SecretAnswer
-          busy={busy}
-          autoFocus={mayFocus}
-          onSend={(text) => void resolve({ dialogId: dialog.id, text })}
-        />
+        <SecretAnswer busy={busy} autoFocus={mayFocus} onSend={(text) => void resolve({ text })} />
       )}
-      {multi && (
-        <MultiChecklist options={dialog.options!} picked={picked} onToggle={togglePicked} />
-      )}
+      {multi && <MultiPickList options={dialog.options!} picked={picked} onToggle={toggle} />}
       {permit && (
         <input
           className="dialog-note"
@@ -219,89 +146,24 @@ function DialogCard({
       {/* one compact row for the whole barrier: answers plus cancel together */}
       <div className="dialog-actions">
         {multi ? (
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void resolve({ dialogId: dialog.id, indexes: picked })}
-          >
+          <button type="button" disabled={busy} onClick={() => void resolve({ indexes: picked })}>
             Confirm
           </button>
         ) : dialog.options !== undefined ? (
-          dialog.options.map((opt: string, i: number) => (
+          dialog.options.map((opt, i) => (
             <button key={i} type="button" disabled={busy} onClick={() => pickOption(i)}>
               {opt}
             </button>
           ))
         ) : null}
         <div className="dialog-cancel">
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void resolve({ dialogId: dialog.id, cancel: true })}
-          >
+          <button type="button" disabled={busy} onClick={() => void resolve({ cancel: true })}>
             Cancel
           </button>
           {error && <span className="error-text"> {error}</span>}
         </div>
       </div>
     </div>
-  )
-}
-
-// MultiChecklist is the checkbox list of a multi dialog; its Confirm lives in
-// the action row beside Cancel, so every answer stays one compact line.
-function MultiChecklist({
-  options,
-  picked,
-  onToggle,
-}: {
-  options: string[]
-  picked: number[]
-  onToggle: (index: number) => void
-}) {
-  return (
-    <div className="multipick">
-      {options.map((opt, i) => (
-        <label key={i} className="multipick-row">
-          <input type="checkbox" checked={picked.includes(i)} onChange={() => onToggle(i)} />
-          {opt}
-        </label>
-      ))}
-    </div>
-  )
-}
-function TextAnswer({
-  busy,
-  chat,
-  autoFocus,
-  onSend,
-}: {
-  busy: boolean
-  chat: boolean
-  autoFocus: boolean
-  onSend: (text: string) => void
-}) {
-  const [text, setText] = useState('')
-  const [asChat, setAsChat] = useState(false)
-  const submit = (ev: FormEvent) => {
-    ev.preventDefault()
-    if (text.trim() === '') return
-    onSend(text)
-    setText('')
-  }
-  return (
-    <form onSubmit={submit} className="dialog-text">
-      <input value={text} autoFocus={autoFocus} onChange={(ev) => setText(ev.target.value)} />
-      {chat && (
-        <label className="chat-toggle">
-          <input type="checkbox" checked={asChat} onChange={(ev) => setAsChat(ev.target.checked)} />
-          reply in my own words
-        </label>
-      )}
-      <button type="submit" disabled={busy || text.trim() === ''}>
-        Answer{chat && asChat ? ' (chat)' : ''}
-      </button>
-    </form>
   )
 }
 

@@ -3,11 +3,12 @@ import type { FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router'
 
 import { ApiError } from '../api/client'
-import { fleet, sessions as sessionAPI } from '../api/endpoints'
-import type { LaunchRequest, SessionStatus } from '../api/types'
+import { sessions as sessionAPI } from '../api/endpoints'
 import { ChildState, childEnded } from '../api/types'
+import type { SessionStatus } from '../api/types'
 import { useArmedConfirm } from '../hooks/useArmedConfirm'
 import { useLaunchFacts } from '../hooks/useLaunchFacts'
+import { useLaunchForm, type LaunchTarget } from '../hooks/useLaunchForm'
 import { useResume } from '../hooks/useResume'
 import { useSwarm } from '../providers/swarm'
 import { useAuth } from '../providers/auth'
@@ -283,53 +284,33 @@ function LaunchPanel({ home }: { home?: string }) {
   // One launch-facts source: workspaces from live and saved sessions, the
   // deduped model listing and the saved rows the resume target matches against.
   const { saved, models, workspaceOptions } = useLaunchFacts()
-
-  const [workspaceChoice, setWorkspaceChoice] = useState('') // '' = custom
-  const [customWorkspace, setCustomWorkspace] = useState('')
-  const workspace = workspaceChoice === '' ? customWorkspace : workspaceChoice
+  const form = useLaunchForm()
 
   // No mode picker: empty target launches new; a saved-session id resumes it;
   // anything else is a create-or-resume session name.
   const [target, setTarget] = useState('')
-  const launchRequest = useCallback((): LaunchRequest | string => {
-    if (workspace.trim() === '') return 'Pick the working directory to start under.'
+  const launchTarget = useCallback((): LaunchTarget => {
     const t = target.trim()
-    if (t === '') return { workspace: workspace.trim(), mode: 'new' }
+    if (t === '') return { mode: 'new' }
     const savedHit = saved.find((row) => row.id === t)
-    if (savedHit !== undefined) {
-      return { workspace: workspace.trim(), mode: 'resume', target: savedHit.target }
-    }
-    return { workspace: workspace.trim(), mode: 'session', target: t }
-  }, [workspace, target, saved])
-
-  const [model, setModel] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
+    if (savedHit !== undefined) return { mode: 'resume', target: savedHit.target }
+    return { mode: 'session', target: t }
+  }, [target, saved])
 
   const submit = async (ev: FormEvent) => {
     ev.preventDefault()
-    if (busy) return
-    const req = launchRequest()
-    if (typeof req === 'string') {
-      setError(req)
-      return
-    }
-    setBusy(true)
-    setError('')
-    try {
-      const res = await fleet.launch({ ...req, model: model.trim() === '' ? undefined : model })
-      navigate(`/s/${encodeURIComponent(res.sessionId)}`)
-    } catch (err) {
-      setBusy(false)
-      setError(err instanceof ApiError ? err.message : 'Launch failed.')
-    }
+    const id = await form.launch(launchTarget())
+    if (id !== null) navigate(`/s/${encodeURIComponent(id)}`)
   }
 
   return (
     <form className="card" onSubmit={submit} style={{ marginBottom: '1em' }}>
       <label>
         Working directory
-        <select value={workspaceChoice} onChange={(ev) => setWorkspaceChoice(ev.target.value)}>
+        <select
+          value={form.workspaceChoice}
+          onChange={(ev) => form.setWorkspaceChoice(ev.target.value)}
+        >
           <option value="">Custom path…</option>
           {workspaceOptions.map((w) => (
             <option key={w} value={w}>
@@ -338,13 +319,13 @@ function LaunchPanel({ home }: { home?: string }) {
           ))}
         </select>
       </label>
-      {workspaceChoice === '' && (
+      {form.workspaceChoice === '' && (
         <label>
           Directory path
           <input
             placeholder="/home/you/project"
-            value={customWorkspace}
-            onChange={(ev) => setCustomWorkspace(ev.target.value)}
+            value={form.customWorkspace}
+            onChange={(ev) => form.setCustomWorkspace(ev.target.value)}
           />
         </label>
       )}
@@ -359,14 +340,14 @@ function LaunchPanel({ home }: { home?: string }) {
         </label>
         <label>
           Model
-          <select value={model} onChange={(ev) => setModel(ev.target.value)}>
+          <select value={form.model} onChange={(ev) => form.setModel(ev.target.value)}>
             <option value="">ajent default</option>
             <ModelSelectOptions models={models} />
           </select>
         </label>
       </div>
-      {error && <p className="error-text">{error}</p>}
-      <button className="primary" type="submit" disabled={busy}>
+      {form.error && <p className="error-text">{form.error}</p>}
+      <button className="primary" type="submit" disabled={form.busy}>
         Launch
       </button>
     </form>

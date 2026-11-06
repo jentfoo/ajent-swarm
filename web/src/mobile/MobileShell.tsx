@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 
 import { useSwarm } from '../providers/swarm'
 import { useWorkspace } from '../providers/workspace'
+import { ConnectionBanner } from '../ui/ConnectionBanner'
 import NotificationPrompt from './NotificationPrompt'
 
 // MobileShell is the small-screen chrome: a slim top bar with the attention
@@ -28,13 +29,7 @@ export default function MobileShell({ children }: { children: ReactNode }) {
         )}
       </header>
 
-      {connection !== 'open' && (
-        <div className="banner warn" role="status">
-          {connection === 'connecting'
-            ? 'Connecting to live updates…'
-            : 'Live connection lost. Reconnecting…'}
-        </div>
-      )}
+      <ConnectionBanner connection={connection} />
 
       <NotificationPrompt />
 

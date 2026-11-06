@@ -32,6 +32,7 @@ describe('TouchDialogDock', () => {
         dialogs={[approve]}
         outcomes={[]}
         onAnsweredLocally={answered}
+        onOutcomeDismissed={() => {}}
       />,
     )
 
@@ -60,6 +61,7 @@ describe('TouchDialogDock', () => {
         dialogs={[{ id: 7, kind: 'secret', prompt: 'API key?', text: true, secret: true }]}
         outcomes={[]}
         onAnsweredLocally={() => {}}
+        onOutcomeDismissed={() => {}}
       />,
     )
 
@@ -74,7 +76,7 @@ describe('TouchDialogDock', () => {
     expect(input).toHaveAttribute('type', 'password')
   })
 
-  it('auto-dismisses answered-elsewhere chips quickly', async () => {
+  it('dismisses answered-elsewhere chips through the store, not just the view', async () => {
     vi.useFakeTimers()
     try {
       const outcome = {
@@ -83,20 +85,24 @@ describe('TouchDialogDock', () => {
         cancelled: false,
         index: 0,
       } satisfies DialogOutcome
+      const onOutcomeDismissed = vi.fn()
       render(
         <TouchDialogDock
           sessionId="01S"
           dialogs={[]}
           outcomes={[outcome]}
           onAnsweredLocally={() => {}}
+          onOutcomeDismissed={onOutcomeDismissed}
         />,
       )
 
+      // the chip reads its detail inline and leaves the store once expired,
+      // so it cannot reappear on remount
       expect(screen.getByText(/answered elsewhere/)).toBeInTheDocument()
       act(() => {
         vi.advanceTimersByTime(6_000)
       })
-      expect(screen.queryByText(/answered elsewhere/)).not.toBeInTheDocument()
+      expect(onOutcomeDismissed).toHaveBeenCalledWith(9)
     } finally {
       vi.useRealTimers()
     }
@@ -104,18 +110,19 @@ describe('TouchDialogDock', () => {
 
   it('dismisses answered-elsewhere chips on tap', async () => {
     const user = userEvent.setup()
+    const onOutcomeDismissed = vi.fn()
     render(
       <TouchDialogDock
         sessionId="01S"
         dialogs={[]}
         outcomes={[{ id: 9, answered: false, cancelled: true }]}
         onAnsweredLocally={() => {}}
+        onOutcomeDismissed={onOutcomeDismissed}
       />,
     )
 
-    const chip = screen.getByText(/answered elsewhere/)
-    await user.click(chip)
-    expect(screen.queryByText(/answered elsewhere/)).not.toBeInTheDocument()
+    await user.click(screen.getByText(/answered elsewhere/))
+    expect(onOutcomeDismissed).toHaveBeenCalledWith(9)
   })
 })
 
@@ -151,6 +158,7 @@ describe('TouchDialogDock permit note flow', () => {
         dialogs={dialogs}
         outcomes={[]}
         onAnsweredLocally={answered}
+        onOutcomeDismissed={() => {}}
       />,
     )
     const rerenderWith = (next: InteractionPending[]) =>
@@ -160,6 +168,7 @@ describe('TouchDialogDock permit note flow', () => {
           dialogs={next}
           outcomes={[]}
           onAnsweredLocally={answered}
+          onOutcomeDismissed={() => {}}
         />,
       )
     return { answered, bodies, rerenderWith }

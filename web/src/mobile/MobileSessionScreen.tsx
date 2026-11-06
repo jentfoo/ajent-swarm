@@ -23,6 +23,7 @@ import { ModelChip } from './ModelChip'
 import { RewindSheet } from './RewindSheet'
 import { SettingsScreen } from './SettingsScreen'
 import { horizontallyScrollable } from './scrollable'
+import { switcherRoute } from './switcher'
 import { SwitcherRows } from './SwitcherRows'
 import { ToolsScreen } from './ToolsScreen'
 import { TouchDialogDock } from './TouchDialogDock'
@@ -180,6 +181,7 @@ function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElemen
           dispatch({ type: 'dialogAnswered', dialogId })
           acknowledgeDialog(sessionId, dialogId)
         }}
+        onOutcomeDismissed={(dialogId) => dispatch({ type: 'outcomeDismissed', dialogId })}
       />
       <QueuedPrompts
         queuedRows={snap.queuedRows ?? []}
@@ -259,9 +261,7 @@ function SwitcherOverlay({
           onClose()
           // replacing recycles the sheet's own history entry, so back from
           // the switched session returns here rather than onto a leftover
-          if (row.status === 'ended')
-            navigate(`/m/read/${encodeURIComponent(row.sessionId)}`, { replace: true })
-          else navigate(`/s/${encodeURIComponent(row.sessionId)}`, { replace: true })
+          navigate(switcherRoute(row), { replace: true })
         }}
       />
     </BottomSheet>

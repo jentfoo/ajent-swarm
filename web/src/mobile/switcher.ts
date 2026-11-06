@@ -143,6 +143,15 @@ function capEnded(rows: readonly SwitcherRow[]): SwitcherRow[] {
   return rows.slice(0, kept)
 }
 
+// switcherRoute picks the mobile route for one switcher row: ended sessions
+// read their transcript read-only, alive ones join the live session view.
+// Every mobile surface that opens a switcher row navigates through this, so
+// the two routes can never drift apart.
+export function switcherRoute(row: SwitcherRow): string {
+  const base = row.status === 'ended' ? '/m/read/' : '/s/'
+  return `${base}${encodeURIComponent(row.sessionId)}`
+}
+
 // groupSwitcherRows slices rows into rail-ordered queues for rendering,
 // keeping each queue's incoming order rather than re-sorting, so mobile and
 // desktop can never disagree. Empty queues drop out and the ended tail

@@ -1,17 +1,17 @@
 import { useCallback, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 
-import { fleet as fleetAPI } from '../api/endpoints'
 import type { SavedSession } from '../api/types'
-import { ApiError } from '../api/client'
 import { useLaunchFacts, type LaunchFacts } from '../hooks/useLaunchFacts'
+import { useLaunchForm } from '../hooks/useLaunchForm'
 import { useResume } from '../hooks/useResume'
 import { useAuth } from '../providers/auth'
 import { useSwarm } from '../providers/swarm'
 import { displayName, tildePath } from '../session/names'
+import { relativeTime } from '../session/rewind'
 import { ModelSelectOptions } from '../ui/ModelSelectOptions'
 import { SwitcherRows } from './SwitcherRows'
-import type { SwitcherRow } from './switcher'
+import { switcherRoute, type SwitcherRow } from './switcher'
 import { usePullToRefresh } from './usePullToRefresh'
 import { useSwitcherRows } from './useSwitcherRows'
 
@@ -34,13 +34,7 @@ export default function MobileHome() {
   const surfaceRef = useRef<HTMLDivElement>(null)
   const refreshing = usePullToRefresh(surfaceRef, refreshAll)
 
-  const open = useCallback(
-    (row: SwitcherRow) => {
-      if (row.status === 'ended') navigate(`/m/read/${encodeURIComponent(row.sessionId)}`)
-      else navigate(`/s/${encodeURIComponent(row.sessionId)}`)
-    },
-    [navigate],
-  )
+  const open = useCallback((row: SwitcherRow) => navigate(switcherRoute(row)), [navigate])
 
   return (
     <div className="mobile-home" ref={surfaceRef}>
@@ -98,11 +92,11 @@ function NewSessionSection({ facts }: { facts: LaunchFacts }) {
   )
 }
 
-// LaunchForm mirrors the desktop launch panel: workspace suggestions drawn
-// from every seen session most-recent-first with a custom free-text reveal,
-// model choices grouped per provider through the shared options body, and
-// saved-session rows for resume showing title or path, recency and message
-// count.
+// LaunchForm shares the desktop launch panel's form body through
+// useLaunchForm: workspace suggestions drawn from every seen session
+// most-recent-first with a custom free-text reveal, model choices grouped per
+// provider through the shared options body, and saved-session rows for resume
+// showing title or path, recency and message count.
 function LaunchForm({
   facts,
   onLaunched,
@@ -112,37 +106,21 @@ function LaunchForm({
 }) {
   const { home } = useAuth()
   const { saved, models, workspaceOptions } = facts
-
-  const [workspaceChoice, setWorkspaceChoice] = useState('') // '' = custom reveal
-  const [customWorkspace, setCustomWorkspace] = useState('')
-  const workspace = workspaceChoice === '' ? customWorkspace : workspaceChoice
-
-  const [model, setModel] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
+  const form = useLaunchForm()
 
   const launchNew = async () => {
-    if (busy || workspace.trim() === '') return
-    setBusy(true)
-    setError('')
-    try {
-      const res = await fleetAPI.launch({
-        workspace: workspace.trim(),
-        mode: 'new',
-        model: model.trim() === '' ? undefined : model,
-      })
-      await onLaunched(res.sessionId)
-    } catch (err) {
-      setBusy(false)
-      setError(err instanceof ApiError ? err.message : 'Launch failed.')
-    }
+    const id = await form.launch({ mode: 'new' })
+    if (id !== null) await onLaunched(id)
   }
 
   return (
     <div className="card launch-form">
       <label>
         Working directory
-        <select value={workspaceChoice} onChange={(ev) => setWorkspaceChoice(ev.target.value)}>
+        <select
+          value={form.workspaceChoice}
+          onChange={(ev) => form.setWorkspaceChoice(ev.target.value)}
+        >
           <option value="">Custom path…</option>
           {workspaceOptions.map((w) => (
             <option key={w} value={w}>
@@ -151,33 +129,33 @@ function LaunchForm({
           ))}
         </select>
       </label>
-      {workspaceChoice === '' && (
+      {form.workspaceChoice === '' && (
         <label>
           Directory path
           <input
             placeholder="/home/you/project"
-            value={customWorkspace}
-            onChange={(ev) => setCustomWorkspace(ev.target.value)}
+            value={form.customWorkspace}
+            onChange={(ev) => form.setCustomWorkspace(ev.target.value)}
             data-testid="custom-workspace"
           />
         </label>
       )}
       <label>
         Model
-        <select value={model} onChange={(ev) => setModel(ev.target.value)}>
+        <select value={form.model} onChange={(ev) => form.setModel(ev.target.value)}>
           <option value="">ajent default</option>
           <ModelSelectOptions models={models} />
         </select>
       </label>
-      {error && <p className="error-text">{error}</p>}
+      {form.error && <p className="error-text">{form.error}</p>}
       <button
         className="primary"
         type="button"
-        disabled={busy || workspace.trim() === ''}
+        disabled={form.busy || form.workspace.trim() === ''}
         onClick={() => void launchNew()}
         data-testid="launch-new"
       >
-        {busy ? 'Launching…' : 'Launch'}
+        {form.busy ? 'Launching…' : 'Launch'}
       </button>
 
       <SavedResume home={home} saved={saved} onResumed={onLaunched} />
@@ -227,7 +205,7 @@ function SavedResume({
               {row.live && <span className="badge accent">live</span>}
             </span>
             <span className="muted saved-meta">
-              {tildePath(row.workspace ?? '', home) || row.target} · {relTime(row.updatedMs)} ·{' '}
+              {tildePath(row.workspace ?? '', home) || row.target} · {relativeTime(row.updatedMs)} ·{' '}
               {row.messages} message{row.messages === 1 ? '' : 's'}
             </span>
             <button
@@ -242,15 +220,4 @@ function SavedResume({
       })}
     </div>
   )
-}
-
-// relTime renders a short recency label for saved rows.
-function relTime(ms: number): string {
-  const s = Math.max(0, Date.now() - ms) / 1000
-  if (s < 60) return 'just now'
-  const m = Math.floor(s / 60)
-  if (m < 60) return `${m}m ago`
-  const h = Math.floor(m / 60)
-  if (h < 24) return `${h}h ago`
-  return `${Math.floor(h / 24)}d ago`
 }

@@ -1792,20 +1792,6 @@ label {
   position: relative;
   display: inline-flex;
 }
-.model-menu-list {
-  position: absolute;
-  top: calc(100% + var(--unit) * 1);
-  left: 0;
-  z-index: 20;
-  display: flex;
-  flex-direction: column;
-  gap: calc(var(--unit) * 1);
-  max-height: 50vh;
-  overflow-y: auto;
-}
-.model-menu-list button {
-  text-align: left;
-}
 
 /* segment chip inside a status line */
 .strip-segment {

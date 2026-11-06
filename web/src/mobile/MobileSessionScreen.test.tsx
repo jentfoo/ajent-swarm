@@ -197,6 +197,47 @@ describe('MobileSessionScreen', () => {
     )
   }
 
+  it('carries the session label between the back link and the model chip', async () => {
+    fetcher.on('/api/sessions', () =>
+      Response.json([
+        {
+          sessionId: VIEW,
+          title: 'nightly sweep',
+          state: 'online',
+          seatHeld: false,
+          seatOurs: false,
+          running: false,
+          idle: true,
+          openInteractions: 0,
+          spawnedBy: 'external',
+        },
+      ]),
+    )
+    renderScreen()
+    const ws = await openSocket()
+    act(() => {
+      ws.message({ type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
+    })
+
+    // identity leads the chrome, on the switcher's own label chain
+    const label = await screen.findByText('nightly sweep')
+    const back = screen.getByLabelText('Back to launcher')
+    const chip = screen.getByRole('button', { name: /sonnet/ })
+    expect(back.compareDocumentPosition(label) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(label.compareDocumentPosition(chip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('falls back to the short id until the listing names the session', async () => {
+    renderScreen()
+    const ws = await openSocket()
+    act(() => {
+      ws.message({ type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
+    })
+
+    // the default row carries no title, name or workspace
+    expect(await screen.findByText('01MOBILE…')).toBeInTheDocument()
+  })
+
   it('renders the compact chrome with the shared status bar', async () => {
     renderScreen()
     const ws = await openSocket()

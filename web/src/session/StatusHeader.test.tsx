@@ -3,17 +3,26 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ModeMenu, StatusHeader } from './StatusHeader'
-import type { CtlState } from '../api/types'
+import type { CtlState, SessionInfo, SessionStatus } from '../api/types'
+import { AuthProvider } from '../providers/auth'
+import { SwarmProvider } from '../providers/swarm'
+import { MockWebSocket } from '../test/mockWebSocket'
 
 // The mode menu picks straight from the fixed upstream vocabulary through
 // mode.set; a session without a gate renders no affordance at all. The header
-// carries identity: stored title (or name) beside the short session id.
+// carries identity: the swarm listing's label beside the short session id.
 
 let fetchMock: ReturnType<typeof vi.fn>
 
 beforeEach(() => {
-  fetchMock = vi.fn(async () => Response.json({ rows: [] }))
+  fetchMock = vi.fn(async (url: string | URL) => {
+    if (String(url).endsWith('/api/me')) return Response.json({ username: 'you' })
+    return Response.json([])
+  })
   vi.stubGlobal('fetch', fetchMock)
+  // SwarmProvider connects a socket on mount; a silent stand-in keeps jsdom
+  // from attempting a real one
+  vi.stubGlobal('WebSocket', MockWebSocket)
 })
 
 afterEach(() => {
@@ -22,7 +31,7 @@ afterEach(() => {
 
 function snapFor(overrides: Partial<CtlState> = {}): CtlState {
   return {
-    session: { id: '01HWYSF8G2XK', name: '' },
+    session: { id: '01HWYSF8G2XK' },
     workspace: '/w',
     cwd: '/w',
     head: '',
@@ -109,6 +118,18 @@ describe('ModeMenu', () => {
   })
 })
 
+// headerTree mounts the header inside its providers, since identity reads the
+// swarm listing like the rail does.
+function headerTree(snap: CtlState) {
+  return (
+    <AuthProvider>
+      <SwarmProvider>
+        <StatusHeader sessionId={snap.session.id} onToast={vi.fn()} snap={snap} />
+      </SwarmProvider>
+    </AuthProvider>
+  )
+}
+
 describe('ModelMenu', () => {
   // two providers plus a bare key: the grouped layout the shared items render
   const listing = {
@@ -123,18 +144,17 @@ describe('ModelMenu', () => {
 
   function renderHeader() {
     return render(
-      <StatusHeader
-        sessionId="01S"
-        onToast={vi.fn()}
-        snap={snapFor({
+      headerTree(
+        snapFor({
+          session: { id: '01S' },
           model: {
             key: 'anthropic/haiku',
             short: '',
             window: 0,
             caps: { reasoning: false, images: false, parallelToolCalls: false },
           },
-        })}
-      />,
+        }),
+      ),
     )
   }
 
@@ -146,7 +166,7 @@ describe('ModelMenu', () => {
     const user = userEvent.setup()
     fetchMock.mockImplementation(async (url: string | URL | Request) => {
       if (String(url).endsWith('/models')) return Response.json(listing)
-      return Response.json({ rows: [] })
+      return Response.json([])
     })
     renderHeader()
 
@@ -166,7 +186,7 @@ describe('ModelMenu', () => {
     const user = userEvent.setup()
     fetchMock.mockImplementation(async (url: string | URL | Request) => {
       if (String(url).endsWith('/models')) return Response.json(listing)
-      return Response.json({ rows: [] })
+      return Response.json([])
     })
     renderHeader()
 
@@ -182,7 +202,7 @@ describe('ModelMenu', () => {
     fetchMock.mockImplementation(async (url: string | URL | Request) => {
       if (String(url).endsWith('/models')) return Response.json(listing)
       if (String(url).endsWith('/model')) return Response.json({ model: 'openai/gpt-5' })
-      return Response.json({ rows: [] })
+      return Response.json([])
     })
     renderHeader()
 
@@ -201,28 +221,49 @@ describe('ModelMenu', () => {
 })
 
 describe('StatusHeader identity', () => {
-  it('shows the stored title beside the short session id', () => {
-    render(
-      <StatusHeader
-        sessionId="01HWYSF8G2XK"
-        onToast={vi.fn()}
-        snap={snapFor({ session: { id: '01HWYSF8G2XK' } })}
-      />,
-    )
-    // a nameless session shows its id alone, never duplicated
-    expect(screen.getByText('01HWYSF8G2XK')).toBeInTheDocument()
+  const ID = '01HWYSF8G2XKABCDEF'
+
+  function listingRow(overrides: Partial<SessionStatus> = {}): SessionStatus {
+    return {
+      sessionId: ID,
+      state: 'online',
+      seatHeld: false,
+      seatOurs: false,
+      running: false,
+      idle: true,
+      queued: 0,
+      openInteractions: 0,
+      spawnedBy: 'swarm',
+      ...overrides,
+    }
+  }
+
+  function renderNamed(listing: SessionStatus[], session: SessionInfo = { id: ID }) {
+    fetchMock.mockImplementation(async (url: string | URL) => {
+      if (String(url).endsWith('/api/sessions')) return Response.json(listing)
+      return Response.json([])
+    })
+    return render(headerTree(snapFor({ session })))
+  }
+
+  it('shows the listing label beside the short session id', async () => {
+    renderNamed([listingRow({ title: 'nightly sweep' })])
+
+    expect(await screen.findByText('nightly sweep')).toBeInTheDocument()
+    expect(screen.getByText('01HWYSF8…')).toHaveClass('header-session-id')
   })
 
-  it('pairs a named session with its short id', () => {
-    render(
-      <StatusHeader
-        sessionId="01HWYSF8G2XK"
-        onToast={vi.fn()}
-        snap={snapFor({ session: { id: '01HWYSF8G2XKABCDEF', name: 'nightly sweep' } })}
-      />,
-    )
-    expect(screen.getByText('nightly sweep')).toBeInTheDocument()
-    const short = screen.getAllByText(/01HWYSF8/)[0]
-    expect(short.textContent).toBe('01HWYSF8…')
+  it('prefers the listing label over the snapshot name', async () => {
+    renderNamed([listingRow({ title: 'stored title' })], { id: ID, name: 'agent name' })
+
+    expect(await screen.findByText('stored title')).toBeInTheDocument()
+    expect(screen.queryByText('agent name')).not.toBeInTheDocument()
+  })
+
+  it('shows the short id alone when no listing row exists', async () => {
+    renderNamed([])
+
+    expect(await screen.findByText('01HWYSF8…')).toBeInTheDocument()
+    expect(document.querySelector('.header-session-id')).not.toBeInTheDocument()
   })
 })

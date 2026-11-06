@@ -14,6 +14,7 @@ import { ModeMenu } from '../session/StatusHeader'
 import { StatusBar } from '../session/StatusBar'
 import { TranscriptView } from '../session/TranscriptView'
 import { useSessionCompose } from '../session/useSessionCompose'
+import { useSessionLabel } from '../session/useSessionLabel'
 import { useKeyboardInset, keyboardInsetStyle } from '../hooks/useKeyboardInset'
 import { useSessionChannel } from '../hooks/useSessionChannel'
 import { useWorkspace } from '../providers/workspace'
@@ -34,8 +35,8 @@ const edgeSwipePx = 56
 // MobileSessionScreen drives one session on a phone. The component tree stays
 // shared with desktop (TranscriptView, notices, dialogs, queue chips, Composer,
 // StatusBar); only the chrome forks: a sticky compact header collapsing to
-// model plus spinner and dialogs as stacked full-width cards above the
-// composer.
+// the session label, model chip and spinner, and dialogs as stacked
+// full-width cards above the composer.
 //
 // The content keys on sessionId, so the route reusing this screen for another
 // session presents it as a remount: that session's own draft restores from the
@@ -94,6 +95,8 @@ function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElemen
   }, [sessionId, pushToast])
 
   const working = sessionBusy(snap)
+  // the switcher's own label chain, so a rename follows the user into the view
+  const label = useSessionLabel(sessionId)
 
   return (
     <div
@@ -128,6 +131,7 @@ function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElemen
         <Link to="/" aria-label="Back to launcher" className="back-link">
           ←
         </Link>
+        <span className="session-title">{label}</span>
         <ModelChip sessionId={sessionId} snap={snap} onToast={pushToast} />
         <ModeMenu sessionId={sessionId} mode={snap.permission} onToast={pushToast} />
         {phase !== 'live' && phase !== 'ended' && (

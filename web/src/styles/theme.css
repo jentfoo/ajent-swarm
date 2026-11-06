@@ -1648,6 +1648,16 @@ label {
   align-items: center;
   justify-content: center;
 }
+/* session identity: one ellipsized label after the back link, sized by
+   leftover space so a long title truncates instead of forcing wraps */
+.mobile-session-header .session-title {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 550;
+}
 /* first-run note for the edge-swipe gesture; hint-shaped rather than
    button-shaped, wrapping onto its own line under the controls */
 .mobile-session-header .edge-swipe-hint {

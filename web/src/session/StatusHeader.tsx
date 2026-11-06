@@ -8,6 +8,7 @@ import { sessionBusy } from '../state/eventApplier'
 import { MenuPopover } from '../ui/MenuPopover'
 import { ModelMenuItems } from '../ui/ModelMenuItems'
 import { shortID } from './names'
+import { useSessionLabel } from './useSessionLabel'
 import { AgentSettingsMenu } from './AgentSettingsMenu'
 import { ToolsPanel } from './ToolsPanel'
 
@@ -15,11 +16,12 @@ import { ToolsPanel } from './ToolsPanel'
 // else. Order matches ajent's own cycle so the menu reads as a progression.
 const permissionModes = ['allow-read', 'auto', 'auto+write', 'allow-all', 'block-all']
 
-// StatusHeader is the slim chrome above the transcript: identity (stored title
-// beside the short session id) and action buttons only. Everything that reads
-// at a glance (segments, context, queue, activity) lives in the status bar
-// under the transcript. Sessions stop from the sessions tab; this header never
-// tears one down. The ☰ here carries this session's agent settings.
+// StatusHeader is the slim chrome above the transcript: identity (the shared
+// listing label beside the short session id) and action buttons only.
+// Everything that reads at a glance (segments, context, queue, activity) lives
+// in the status bar under the transcript. Sessions stop from the sessions tab;
+// this header never tears one down. The ☰ here carries this session's agent
+// settings.
 export function StatusHeader({
   sessionId,
   snap,
@@ -33,6 +35,10 @@ export function StatusHeader({
 }) {
   const [busy, setBusy] = useState(false)
   const working = sessionBusy(snap)
+  // identity reads the swarm listing like the rail does, so a rename lands
+  // with its refresh, and the short id rides beside any real label
+  const label = useSessionLabel(sessionId)
+  const short = shortID(sessionId)
 
   const interrupt = async () => {
     setBusy(true)
@@ -45,14 +51,11 @@ export function StatusHeader({
     }
   }
 
-  const label = snap.session.name || snap.session.id
   return (
     <div className="session-header">
       <h1 style={{ margin: 0, fontSize: 'inherit' }}>
         {label}
-        {snap.session.name && snap.session.name !== snap.session.id && (
-          <span className="muted mono header-session-id">{shortID(snap.session.id)}</span>
-        )}
+        {label !== short && <span className="muted mono header-session-id">{short}</span>}
       </h1>
       {working ? (
         <span className="badge accent" aria-label="running">

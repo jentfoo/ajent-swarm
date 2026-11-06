@@ -4,8 +4,8 @@
 // Three attention kinds rise from the digest plus this ledger:
 //   - needs input: open dialogs, ranked by oldest wait
 //   - needs review: an idle session after a turn end not yet acknowledged
-//   - awaiting: an idle agent waiting for its next prompt (rendered in the
-//     rail's Needs input section, but never badged or notified)
+//   - awaiting: an idle agent waiting for its next prompt (the rail's
+//     Waiting section, but never badged or notified)
 //
 // Acknowledging happens by acting (answering the dialog, submitting a prompt)
 // or an explicit check-off. The ledger persists in localStorage keyed by
@@ -222,8 +222,16 @@ export interface AttentionSort {
   since?: number // dialog wait or turn end, within-class order
 }
 
-// Display classes in rail order. Awaiting renders under Needs input beside
-// dialogs and completions, only working sits outside it.
+// attentionSectionTitles are the fixed rail headings keyed by attention kind.
+// Every surface renders them verbatim so desktop and mobile cannot drift.
+export const attentionSectionTitles: Record<AttentionKind, string> = {
+  'needs-input': 'Needs input',
+  'needs-review': 'Ready to review',
+  awaiting: 'Waiting',
+  working: 'Working',
+}
+
+// Display classes in rail order, one titled section per class.
 export const attentionRanks = {
   input: 0,
   review: 1,
@@ -258,10 +266,10 @@ export function compareAttention(a: AttentionSort, b: AttentionSort): number {
   return a.sessionId.localeCompare(b.sessionId)
 }
 
-// rankAttention renders the rail's two fixed sections. Needs input first:
-// dialogs by oldest wait, then unreviewed completions newest first, then idle
-// agents waiting for a prompt in stable name order so rows never reshuffle
-// mid-flight. Working below, also name-stable.
+// rankAttention buckets the rail's fixed sections: needs holds dialogs by
+// oldest wait then unreviewed completions newest first, awaiting and working
+// follow name-stable so rows never reshuffle mid-flight. needsInputCount
+// counts open dialogs only.
 export function rankAttention(items: readonly AttentionItem[]): {
   needs: AttentionItem[]
   awaiting: AttentionItem[]

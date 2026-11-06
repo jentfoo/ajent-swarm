@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router'
 
@@ -17,6 +17,13 @@ import { displayName, shortID, tildePath } from '../session/names'
 import { describeStop } from '../workspace/attention'
 import { ModelSelectOptions } from '../ui/ModelSelectOptions'
 
+// rowKey identifies one listing row: two processes serving one session (a
+// resume of an already running run) list twice, so id alone cannot key or
+// select them.
+function rowKey(s: SessionStatus): string {
+  return `${s.sessionId}:${s.pid ?? 0}`
+}
+
 // SessionsHome is the live instance grid: state, workspace and seat badges
 // beside quick actions per session, with a compact launch panel. Checkboxes
 // multi-select sessions for tiling; an exited card stays listed with one-click
@@ -26,19 +33,36 @@ export default function SessionsHome() {
   const auth = useAuth()
   const home = auth.home
   const [launching, setLaunching] = useState(false)
-  // selection is by session id; Open workspace tiles them directly
+  // selection is by row key; Open workspace tiles them directly
   const [selected, setSelected] = useState<string[]>([])
   const navigate = useNavigate()
 
-  const toggleSelected = useCallback((id: string) => {
-    setSelected((sel) => (sel.includes(id) ? sel.filter((s) => s !== id) : [...sel, id]))
+  // sessions listed twice carry a pid badge so the cards stay tellable apart
+  const twinIds = useMemo(() => {
+    const seen = new Set<string>()
+    const twins = new Set<string>()
+    for (const s of sessions) {
+      if (seen.has(s.sessionId)) twins.add(s.sessionId)
+      seen.add(s.sessionId)
+    }
+    return twins
+  }, [sessions])
+
+  const toggleSelected = useCallback((key: string) => {
+    setSelected((sel) => (sel.includes(key) ? sel.filter((k) => k !== key) : [...sel, key]))
   }, [])
 
   // With a selection the workspace opens tile mode seeded with exactly those
-  // sessions; without one it lands in the focused workspace as usual.
+  // sessions; without one it lands in the focused workspace as usual. Twin
+  // rows repeat their session id so both tile.
   const openWorkspace = () => {
     if (selected.length > 0) {
-      navigate(`/tile?open=${selected.map(encodeURIComponent).join(',')}`)
+      const idsOf = new Map(sessions.map((s) => [rowKey(s), s.sessionId]))
+      const ids = selected
+        .map((k) => idsOf.get(k))
+        .filter((id): id is string => id !== undefined)
+        .map(encodeURIComponent)
+      navigate(`/tile?open=${ids.join(',')}`)
       setSelected([])
       return
     }
@@ -71,11 +95,12 @@ export default function SessionsHome() {
         <div className="grid">
           {sessions.map((s) => (
             <SessionCard
-              key={s.sessionId}
+              key={rowKey(s)}
               status={s}
               home={home}
-              selected={selected.includes(s.sessionId)}
-              onSelect={() => toggleSelected(s.sessionId)}
+              twin={twinIds.has(s.sessionId)}
+              selected={selected.includes(rowKey(s))}
+              onSelect={() => toggleSelected(rowKey(s))}
             />
           ))}
         </div>
@@ -89,11 +114,13 @@ export default function SessionsHome() {
 function SessionCard({
   status: s,
   home,
+  twin,
   selected,
   onSelect,
 }: {
   status: SessionStatus
   home?: string
+  twin: boolean // another live row serves the same session id
   selected: boolean
   onSelect: () => void
 }) {
@@ -110,7 +137,7 @@ function SessionCard({
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.4em' }}>
         <input
           type="checkbox"
-          aria-label={`Select ${label} for tiling`}
+          aria-label={`Select ${label}${twin ? ` (pid ${s.pid ?? 0})` : ''} for tiling`}
           checked={selected}
           onChange={onSelect}
         />
@@ -128,6 +155,7 @@ function SessionCard({
       </div>{' '}
       <div className="chips">
         <span className={`badge ${stateClass}`}>{s.state}</span>
+        {twin && <span className="badge">pid {s.pid ?? 0}</span>}
         {s.spawnedBy === 'swarm' && <span className="badge accent">swarm</span>}
         {/* a held seat means a takeover is needed; the free default stays quiet */}
         {s.seatHeld && (

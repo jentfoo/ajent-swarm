@@ -13,9 +13,9 @@ import { useLongPress } from './useLongPress'
 import { groupSwitcherRows } from './switcher'
 import type { SwitcherRow } from './switcher'
 
-// SwitcherRows renders the sheet's large touch rows grouped under the desktop
-// rail's headings (Needs input, Working, Recent): status and needs-input
-// badges beside each label plus a queued-prompt count when prompts wait, a
+// SwitcherRows renders the sheet's large touch rows grouped under the
+// shared rail headings plus the Recent tail: status and needs-input badges
+// beside each label plus a queued-prompt count when prompts wait, a
 // check-off on actionable attention states (never on neutral waiting or ended
 // rows), a trailing actions area mirroring the desktop card bar minus Open
 // plus an explicit Rename, and long-press rename opening the same editor.
@@ -46,7 +46,8 @@ export function SwitcherRows({
           </div>
           {group.rows.map((row) => (
             <SwitchRow
-              key={row.sessionId}
+              // pid joins the key: twin instances share a session id
+              key={`${row.sessionId}:${row.pid ?? 0}`}
               row={row}
               onOpen={onOpen}
               onRename={() => setRenaming(row)}

@@ -197,7 +197,7 @@ describe('SwitcherRows', () => {
       }),
     )
 
-    renderRows([row({ status: 'waiting', section: 'needs', reason: 'waiting for a prompt' })])
+    renderRows([row({ status: 'waiting', section: 'awaiting', reason: 'waiting for a prompt' })])
     await screen.findByText('waiting')
 
     // neutral waiting badge, no actionable control beside it
@@ -216,7 +216,13 @@ describe('SwitcherRows', () => {
     )
 
     renderRows([
-      row({ section: 'needs', needsInput: true, reason: 'Allow write access?', checkOff: true }),
+      row({
+        sessionId: '01A',
+        section: 'needs-input',
+        needsInput: true,
+        reason: 'Allow write access?',
+        checkOff: true,
+      }),
       row({ sessionId: '01B', label: 'other' }),
     ])
 
@@ -246,7 +252,7 @@ describe('SwitcherRows', () => {
   it('heads each non-empty section with its count', async () => {
     stubFacts()
     const { container } = renderRows([
-      row({ sessionId: '01A', section: 'needs' }),
+      row({ sessionId: '01A', section: 'needs-input' }),
       row({ sessionId: '01B', label: 'other', section: 'working' }),
       row({ sessionId: '01C', label: 'old', status: 'ended', section: 'ended' }),
     ])
@@ -260,19 +266,20 @@ describe('SwitcherRows', () => {
   it('moves rows under the right heading as attention shifts', async () => {
     stubFacts()
     const view = renderRows([
-      row({ sessionId: '01A', status: 'waiting', section: 'needs' }),
+      row({ sessionId: '01A', status: 'waiting', section: 'awaiting' }),
       row({
         sessionId: '01B',
         label: 'other',
         needsInput: true,
         reason: 'Allow write access?',
         checkOff: true,
-        section: 'needs',
+        section: 'needs-input',
       }),
     ])
     await screen.findByText('Needs input')
-    expect(sectionOfRow(view.container, '01A')).toBe('Needs input (2)')
-    expect(sectionOfRow(view.container, '01B')).toBe('Needs input (2)')
+    // each row sits under its own shared heading
+    expect(sectionOfRow(view.container, '01A')).toBe('Waiting (1)')
+    expect(sectionOfRow(view.container, '01B')).toBe('Needs input (1)')
 
     // one session starts running while the other's dialog closes into its turn
     view.rerender(

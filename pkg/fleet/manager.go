@@ -27,8 +27,13 @@ const (
 	stopActorWait = 5 * time.Second
 )
 
-// maxExitedPinned caps listed exited children so a day of launches can't bury the grid.
-const maxExitedPinned = 4
+// Ended-row bounds for the listing: at least maxExitedPinned ended sessions
+// stay listed, and every exit inside endedKeepWindow stays too, however many
+// launched since.
+const (
+	maxExitedPinned = 4
+	endedKeepWindow = 2 * time.Hour
+)
 
 // ErrUnknownSession reports a subscribe or command naming no tracked instance.
 var ErrUnknownSession = errors.New("unknown session")
@@ -597,12 +602,16 @@ func (m *Manager) route(sessionID string) *sessionActor {
 	return m.actorForLocked(sessionID)
 }
 
-// Sessions lists one row per known session: live actors carry their
+// Sessions lists one row per known instance: live actors carry their
 // reconciled state, children add spawn facts, and children no longer tracked
-// stand alone as exited or waiting rows. External sessions persist a row at
-// their first sighting, so a record leaving discovery marks the row exited
-// instead of dropping it. Alive sessions sort by id first; ended ones follow
-// most-recent-first, capped so a day of exits never buries the grid while a
+// stand alone as exited or waiting rows. Two processes serving one session —
+// resuming an already running session — list twice, told apart by pid.
+// External sessions persist a row at their first sighting, so a record
+// leaving discovery marks the row exited instead of dropping it. Records
+// without a tracked instance fold into one row per session id, the newest
+// record describing it. Alive rows sort by id then pid; ended ones follow
+// most-recent-first, keeping everything from the recent window beside a
+// pinned minimum so a day of exits never buries the grid while a
 // just-exited session stays reachable for resume.
 func (m *Manager) Sessions() []Status {
 	m.mu.Lock()
@@ -621,30 +630,40 @@ func (m *Manager) Sessions() []Status {
 	recs := bulk.MapValuesSlice(byPID)
 	slices.SortFunc(recs, func(a, b ChildRecord) int { return b.StartedAt.Compare(a.StartedAt) })
 
-	bySession := make(map[string]*Status, len(actors)+len(recs))
+	rows := make([]*Status, 0, len(actors)+len(recs))
+	byInstancePID := make(map[int]*Status, len(actors))
+	tracked := make(map[string]struct{}, len(actors))
 	for _, a := range actors {
 		st := *a.status.Load()
 		st.SpawnedBy = SpawnedByExternal
-		bySession[st.SessionID] = &st
+		rows = append(rows, &st)
+		if st.PID > 0 {
+			byInstancePID[st.PID] = &st
+		}
+		tracked[st.SessionID] = struct{}{}
 	}
+	said := make(map[string]bool, len(recs))
 	for _, rec := range recs { // newest first: the latest record describes the session
 		if rec.SessionID == "" {
 			continue // never served: the launch error told its story
 		}
-		st, ok := bySession[rec.SessionID]
-		if ok {
-			if st.PID == rec.PID { // an actor keeps only its own spawn facts
-				decorateChild(st, rec)
-			}
+		if st, ok := byInstancePID[rec.PID]; ok && st.SessionID == rec.SessionID {
+			decorateChild(st, rec) // an actor keeps only its own spawn facts
+			continue
+		}
+		// a replaced record's session owns one row already: the tracked
+		// instance serving it now, or the newest untracked record before it
+		if _, ok := tracked[rec.SessionID]; ok || said[rec.SessionID] {
 			continue
 		}
 		row := childStatus(rec)
-		bySession[rec.SessionID] = &row
+		rows = append(rows, &row)
+		said[rec.SessionID] = true
 	}
 
-	alive := make([]Status, 0, len(bySession))
-	ended := make([]Status, 0, len(bySession))
-	for _, st := range bySession {
+	alive := make([]Status, 0, len(rows))
+	ended := make([]Status, 0, len(rows))
+	for _, st := range rows {
 		// titleFor takes the manager lock, so labels fold in here
 		st.Title = m.titleFor(st.SessionID)
 		if st.State == ChildExited || st.State == ChildGone {
@@ -653,17 +672,28 @@ func (m *Manager) Sessions() []Status {
 			alive = append(alive, *st)
 		}
 	}
-	slices.SortFunc(alive, func(a, b Status) int { return strings.Compare(a.SessionID, b.SessionID) })
+	slices.SortFunc(alive, func(a, b Status) int {
+		if c := strings.Compare(a.SessionID, b.SessionID); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.PID, b.PID) // twin instances keep a stable order
+	})
 	slices.SortFunc(ended, func(a, b Status) int {
 		if a.ExitedAt != b.ExitedAt { // most recent first
 			return cmp.Compare(b.ExitedAt, a.ExitedAt)
 		}
-		return strings.Compare(a.SessionID, b.SessionID)
+		if c := strings.Compare(a.SessionID, b.SessionID); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.PID, b.PID)
 	})
-	if len(ended) > maxExitedPinned {
-		ended = ended[:maxExitedPinned]
+	// everything from the recent window stays listed; older exits only fill
+	// up to the pinned minimum
+	kept := min(len(ended), maxExitedPinned)
+	for kept < len(ended) && time.Since(time.UnixMilli(ended[kept].ExitedAt)) <= endedKeepWindow {
+		kept++
 	}
-	return append(alive, ended...)
+	return append(alive, ended[:kept]...)
 }
 
 // MaxDigestText caps one digest reason or preview, mirroring the rewind

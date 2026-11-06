@@ -12,7 +12,7 @@ import { resetLedger } from './attention'
 import type { AttentionRow } from '../api/types'
 
 // The rail renders over the real provider stack with fetch and WebSocket
-// mocks: mixed attention rows fill both sections, acting on a row clears it,
+// mocks: mixed attention rows fill every section, acting on a row clears it,
 // and the keyboard drives the queue.
 const DIALOG = '01AAAAAAAAAAAAAA'
 const REVIEW = '01BBBBBBBBBBBBBB'
@@ -171,7 +171,7 @@ describe('FocusedWorkspace', () => {
     await screen.findByText('dialog session') // attention rows have landed
   }
 
-  it('renders mixed sections: dialogs by oldest wait, reviews, then working', async () => {
+  it('renders each attention kind under its own section', async () => {
     attention = [...attentionRows(), waitingRow()]
     renderFocused()
     await openSocket()
@@ -181,23 +181,32 @@ describe('FocusedWorkspace', () => {
     expect(rows[0]).toContain('allow write access?')
     expect(rows[1]).toContain('review session')
     expect(rows[1]).toContain('turn complete')
-    // agents waiting for a prompt sit in Needs input before the busy rows
+    // agents waiting for a prompt sit in their own Waiting section before the
+    // busy rows
     expect(rows[2]).toContain('01WAITIN…')
     expect(rows[2]).toContain('waiting for a prompt')
     expect(rows[3]).toContain('worker session')
     expect(rows[3]).toContain('reading main.go')
 
-    // section headers keep their counts: two actionable rows plus one waiting
-    expect(within(rail()).getByText('Needs input')).toBeInTheDocument()
-    expect(within(rail()).getByText(/Working/)).toBeInTheDocument()
-    expect(screen.getByText('(3)')).toBeInTheDocument()
+    // each section heads itself with the shared title and its own count
+    const headings = [...rail().querySelectorAll('.rail-section-title')].map((h) => h.textContent)
+    expect(headings).toEqual([
+      'Needs input (1)',
+      'Ready to review (1)',
+      'Waiting (1)',
+      'Working (1)',
+    ])
   })
 
   it('shows empty states when nothing lives', async () => {
     attention = []
     renderFocused()
 
-    expect(await screen.findByText('Nothing waits on you.')).toBeInTheDocument()
+    // the fixed sections still head the rail when every one is empty
+    expect(await screen.findByText('Needs input')).toBeInTheDocument()
+    expect(screen.getByText('Ready to review')).toBeInTheDocument()
+    expect(screen.getByText('Waiting')).toBeInTheDocument()
+    expect(screen.getByText('Nothing waits on you.')).toBeInTheDocument()
     expect(screen.getByText('No busy sessions.')).toBeInTheDocument()
     expect(screen.getByText('Select a session from the rail.')).toBeInTheDocument()
   })

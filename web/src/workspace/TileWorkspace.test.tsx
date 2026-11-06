@@ -277,6 +277,16 @@ describe('TileWorkspace', () => {
     await waitFor(() => expect(document.querySelectorAll('[data-pane-id]')).toHaveLength(3))
   })
 
+  it('tiles a repeated open entry as twin panes', async () => {
+    // resuming an already running session lists one id twice: the selection
+    // carries that duplication, so both instances land in their own pane
+    renderTile('/tile?open=' + LEFT + ',' + LEFT)
+
+    await waitFor(() => expect(document.querySelectorAll('[data-pane-id]')).toHaveLength(2))
+    const names = [...document.querySelectorAll('.tab-name')].map((el) => el.textContent)
+    expect(names).toEqual(['left', 'left'])
+  })
+
   it('leaves tile mode for sessions when the last pane closes', async () => {
     localStorage.setItem(
       'swarm.workspace.v1',

@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter, Route, Routes } from 'react-router'
+import { MemoryRouter, Route, Routes, useSearchParams } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import SessionsHome from './SessionsHome'
@@ -31,6 +31,13 @@ function session(overrides: Partial<SessionStatus> = {}): SessionStatus {
 
 let sessionsReply: SessionStatus[]
 let fetchSpy: ReturnType<typeof vi.fn>
+
+// TileProbe shows the open list the workspace request carried, so tests can
+// assert what a grid selection tiles without mounting the real workspace.
+function TileProbe() {
+  const [params] = useSearchParams()
+  return <div>tiled {params.get('open')}</div>
+}
 
 describe('SessionsHome', () => {
   beforeEach(() => {
@@ -69,6 +76,7 @@ describe('SessionsHome', () => {
             <Routes>
               <Route path="/" element={<SessionsHome />} />
               <Route path="/focused" element={<div>focused</div>} />
+              <Route path="/tile" element={<TileProbe />} />
               <Route path="/s/:sessionId" element={<div>session</div>} />
             </Routes>
           </SwarmProvider>
@@ -168,5 +176,29 @@ describe('SessionsHome', () => {
     await user.click(screen.getByRole('button', { name: 'Stop' }))
     expect(screen.getByRole('button', { name: 'Stop?' })).toBeInTheDocument()
     expect(stopPosts()).toHaveLength(0)
+  })
+
+  it('keeps twin instance selection apart and tiles both', async () => {
+    sessionsReply = [
+      session({ sessionId: '01A', pid: 101 }),
+      session({ sessionId: '01A', pid: 202, running: true, idle: false }),
+    ]
+    renderHome()
+    const user = userEvent.setup()
+
+    // twin rows badge their pids so the cards stay tellable apart
+    expect(await screen.findByText('pid 101')).toBeInTheDocument()
+    expect(screen.getByText('pid 202')).toBeInTheDocument()
+
+    const first = screen.getByRole('checkbox', { name: 'Select 01A (pid 101) for tiling' })
+    const second = screen.getByRole('checkbox', { name: 'Select 01A (pid 202) for tiling' })
+    await user.click(first)
+    expect(first).toBeChecked()
+    expect(second).not.toBeChecked()
+
+    // the tile request repeats the session id, once per selected instance
+    await user.click(second)
+    await user.click(screen.getByRole('button', { name: 'Open workspace' }))
+    expect(await screen.findByText('tiled 01A,01A')).toBeInTheDocument()
   })
 })

@@ -461,7 +461,29 @@ func TestManager(t *testing.T) {
 			assert.Equal(t, "01EXITOLD0000000000", rows[2].SessionID)
 		})
 
-		t.Run("caps_exited_at_four", func(t *testing.T) {
+		t.Run("lists_running_twins", func(t *testing.T) {
+			m := New(Options{Log: testLogger()})
+			// two processes serving one session: a resume of an already running run
+			for _, pid := range []int{4801, 4802} {
+				live := &sessionActor{}
+				live.key.sessionID = "01TWINRESUME000001"
+				live.status.Store(&Status{
+					SessionID: live.key.sessionID,
+					State:     ChildOnline,
+					PID:       pid,
+				})
+				m.actors[actorKey{sessionID: live.key.sessionID, token: strconv.Itoa(pid)}] = live
+			}
+
+			rows := m.Sessions()
+			require.Len(t, rows, 2)
+			// same session id twice, told apart by pid and ordered stably
+			assert.Equal(t, ChildOnline, rows[0].State)
+			assert.Equal(t, ChildOnline, rows[1].State)
+			assert.Less(t, rows[0].PID, rows[1].PID)
+		})
+
+		t.Run("keeps_every_recent_exit", func(t *testing.T) {
 			m := New(Options{Log: testLogger()})
 			now := time.Now()
 			for i := range 6 {
@@ -471,10 +493,46 @@ func TestManager(t *testing.T) {
 			}
 
 			rows := m.Sessions()
+			require.Len(t, rows, 6) // all inside the recent window, however many
+			assert.Equal(t, "A-session-padding0", rows[0].SessionID)
+		})
+
+		t.Run("caps_old_exits_at_minimum", func(t *testing.T) {
+			m := New(Options{Log: testLogger()})
+			now := time.Now()
+			for i := range 6 {
+				rec := exitedRec(
+					string(rune('A'+i))+"-session-padding0", 4301+i,
+					now.Add(-endedKeepWindow-time.Duration(i)*time.Minute))
+				m.children[rec.PID] = &childProc{rec: rec}
+			}
+
+			rows := m.Sessions()
 			require.Len(t, rows, maxExitedPinned)
 			// the newest four survive; the two oldest dropped off
 			assert.Equal(t, "A-session-padding0", rows[0].SessionID)
 			assert.Equal(t, "D-session-padding0", rows[maxExitedPinned-1].SessionID)
+		})
+
+		t.Run("keeps_recent_beyond_minimum", func(t *testing.T) {
+			m := New(Options{Log: testLogger()})
+			now := time.Now()
+			for i := range 5 { // inside the window, newest first
+				rec := exitedRec(
+					string(rune('A'+i))+"-session-recent0", 4401+i, now.Add(-time.Duration(i)*time.Minute))
+				m.children[rec.PID] = &childProc{rec: rec}
+			}
+			for i := range 2 { // well past the window
+				rec := exitedRec(
+					string(rune('M'+i))+"-session-stale00", 4501+i,
+					now.Add(-endedKeepWindow-time.Duration(i)*time.Hour))
+				m.children[rec.PID] = &childProc{rec: rec}
+			}
+
+			rows := m.Sessions()
+			require.Len(t, rows, 5) // the pinned minimum plus every newer exit
+			assert.Equal(t, "A-session-recent0", rows[0].SessionID)
+			assert.Equal(t, "E-session-recent0", rows[4].SessionID)
 		})
 
 		t.Run("hides_replaced_exited_rows", func(t *testing.T) {

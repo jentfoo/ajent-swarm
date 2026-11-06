@@ -68,12 +68,12 @@ describe('buildSwitcherRows', () => {
         { ...item('working'), sessionId: '04-working' },
       ],
     )
-    // dialogs, reviews and waiting agents share Needs input; digest-less rows
-    // stay in Working beside the busy ones
+    // each attention kind renders under its own rail heading; digest-less
+    // rows stay in Working beside the busy ones
     expect(rows.map((r) => r.section)).toEqual([
-      'needs',
-      'needs',
-      'needs',
+      'needs-input',
+      'needs-review',
+      'awaiting',
       'working',
       'working',
       'ended',
@@ -105,7 +105,13 @@ describe('buildSwitcherRows', () => {
       ],
     )
     expect(rows.map((r) => r.sessionId)).toEqual(['b', 'a', 'd', 'c'])
-    expect(groupSwitcherRows(rows)[0]!.rows.map((r) => r.sessionId)).toEqual(['b', 'a', 'd', 'c'])
+    // each kind groups under its shared heading, in rail order
+    const groups = groupSwitcherRows(rows)
+    expect(groups.map((g) => g.title)).toEqual(['Needs input', 'Ready to review'])
+    expect(groups.map((g) => g.rows.map((r) => r.sessionId))).toEqual([
+      ['b', 'a'],
+      ['d', 'c'],
+    ])
   })
 
   it('keeps dialogs ahead of reviews and waiting rows neutral', () => {
@@ -154,22 +160,90 @@ describe('buildSwitcherRows', () => {
     ])
   })
 
-  it('keeps the last four exited sessions beneath the alive ones', () => {
+  it('caps old exits beneath the alive ones', () => {
+    const stale = Date.now() - 3 * 60 * 60 * 1000
     const exited = Array.from({ length: 6 }, (_, i) =>
       session({
         sessionId: String(i),
         state: ChildState.Exited,
-        exitedAt: 1000 + i,
+        exitedAt: stale - i * 60_000,
       }),
     )
     const rows = buildSwitcherRows([session({ sessionId: 'live' }), ...exited], labelFor)
     expect(rows[0]!.sessionId).toBe('live')
     const ended = rows.filter((r) => r.section === 'ended')
-    expect(ended.map((r) => r.sessionId)).toEqual(['5', '4', '3', '2'])
+    // newest first, cut at the pinned minimum for exits past the window
+    expect(ended.map((r) => r.sessionId)).toEqual(['0', '1', '2', '3'])
 
     const endedGroup = groupSwitcherRows(rows).find((g) => g.section === 'ended')
     expect(endedGroup!.title).toBe('Recent')
-    expect(endedGroup!.rows.map((r) => r.sessionId)).toEqual(['5', '4', '3', '2'])
+    expect(endedGroup!.rows.map((r) => r.sessionId)).toEqual(['0', '1', '2', '3'])
+  })
+
+  it('keeps recent exits beyond the pinned minimum', () => {
+    const base = Date.now()
+    const exited = Array.from({ length: 6 }, (_, i) =>
+      session({
+        sessionId: String(i),
+        state: ChildState.Exited,
+        exitedAt: base - (5 - i) * 60_000, // all inside the window
+      }),
+    )
+    const rows = buildSwitcherRows(exited, labelFor)
+    const ended = rows.filter((r) => r.section === 'ended')
+    expect(ended.map((r) => r.sessionId)).toEqual(['5', '4', '3', '2', '1', '0'])
+  })
+
+  it('keeps the window tail beside older minimum rows', () => {
+    const stale = Date.now() - 3 * 60 * 60 * 1000
+    const exited = [
+      ...Array.from({ length: 5 }, (_, i) =>
+        session({
+          sessionId: `r${i}`,
+          state: ChildState.Exited,
+          exitedAt: Date.now() - (4 - i) * 60_000,
+        }),
+      ),
+      ...Array.from({ length: 2 }, (_, i) =>
+        session({ sessionId: `o${i}`, state: ChildState.Exited, exitedAt: stale - i * 60_000 }),
+      ),
+    ]
+    const rows = buildSwitcherRows(exited, labelFor)
+    // five recent exits stay whole; the pinned minimum covers the older pair
+    const ended = rows.filter((r) => r.section === 'ended')
+    expect(ended.map((r) => r.sessionId)).toEqual(['r4', 'r3', 'r2', 'r1', 'r0'])
+  })
+
+  it('lists twin instances as separate rows', () => {
+    const rows = buildSwitcherRows(
+      [
+        session({ sessionId: 'twin', pid: 101 }),
+        session({ sessionId: 'twin', pid: 102, running: true, idle: false }),
+      ],
+      labelFor,
+    )
+    expect(rows).toHaveLength(2)
+    expect(rows.map((r) => r.pid)).toEqual([101, 102])
+    expect(rows.map((r) => r.status)).toEqual(['idle', 'running'])
+  })
+
+  it('matches twin instances to their own digest', () => {
+    const rows = buildSwitcherRows(
+      [
+        session({ sessionId: 'twin', pid: 101 }),
+        session({ sessionId: 'twin', pid: 102, running: true, idle: false }),
+      ],
+      labelFor,
+      [
+        { ...item('needs-input'), sessionId: 'twin', pid: 102, since: 7 },
+        { ...item('awaiting'), sessionId: 'twin', pid: 101 },
+      ],
+    )
+    const [first, second] = rows
+    expect(first!.pid).toBe(102)
+    expect(first!.section).toBe('needs-input')
+    expect(second!.pid).toBe(101)
+    expect(second!.status).toBe('waiting')
   })
 
   it('falls back to listing facts without a digest', () => {
@@ -198,7 +272,7 @@ describe('buildSwitcherRows', () => {
     const sessions = attentionItems.map((i) => session({ sessionId: i.sessionId }))
     const rows = buildSwitcherRows(sessions, labelFor, attentionItems)
 
-    // the rail renders needs, then awaiting under Needs input, working below
+    // the sheet mirrors the rail buckets: each row renders under its own kind
     const ranked = rankAttention(attentionItems)
     expect(ranked.needs.map((i) => i.sessionId)).toEqual([
       'e-dialog',
@@ -206,10 +280,9 @@ describe('buildSwitcherRows', () => {
       'd-turn',
       'f-turn',
     ])
-    expect(rows.map((r) => r.section)).toEqual([
-      ...[...ranked.needs, ...ranked.awaiting].map(() => 'needs' as const),
-      ...ranked.working.map(() => 'working' as const),
-    ])
+    expect(rows.map((r) => r.section)).toEqual(
+      [...ranked.needs, ...ranked.awaiting, ...ranked.working].map((i) => i.kind),
+    )
     expect(rows.map((r) => r.sessionId)).toEqual(
       [...ranked.needs, ...ranked.awaiting, ...ranked.working].map((i) => i.sessionId),
     )
@@ -232,26 +305,44 @@ describe('buildSwitcherRows', () => {
 describe('groupSwitcherRows', () => {
   it('titles sections in desktop order and drops empty ones', () => {
     const groups = groupSwitcherRows([
-      row({ sessionId: '02', section: 'working' }),
-      row({ sessionId: '01', section: 'needs' }),
+      row({ sessionId: '01', section: 'needs-input' }),
+      row({ sessionId: '02', section: 'needs-review' }),
+      row({ sessionId: '03', section: 'awaiting' }),
+      row({ sessionId: '04', section: 'working' }),
     ])
-    expect(groups.map((g) => g.section)).toEqual(['needs', 'working'])
-    expect(groups.map((g) => g.title)).toEqual(['Needs input', 'Working'])
-    expect(groups.map((g) => g.rows.map((r) => r.sessionId))).toEqual([['01'], ['02']])
+    expect(groups.map((g) => g.section)).toEqual([
+      'needs-input',
+      'needs-review',
+      'awaiting',
+      'working',
+    ])
+    expect(groups.map((g) => g.title)).toEqual([
+      'Needs input',
+      'Ready to review',
+      'Waiting',
+      'Working',
+    ])
+    expect(groups.map((g) => g.rows.map((r) => r.sessionId))).toEqual([
+      ['01'],
+      ['02'],
+      ['03'],
+      ['04'],
+    ])
   })
 
   it('preserves incoming order without re-sorting', () => {
     const groups = groupSwitcherRows([
-      row({ sessionId: '03', section: 'needs' }),
-      row({ sessionId: '01', section: 'needs' }),
-      row({ sessionId: '02', section: 'needs' }),
+      row({ sessionId: '03', section: 'needs-input' }),
+      row({ sessionId: '01', section: 'needs-input' }),
+      row({ sessionId: '02', section: 'needs-input' }),
     ])
     expect(groups[0]!.rows.map((r) => r.sessionId)).toEqual(['03', '01', '02'])
   })
 
-  it('caps a hand-built ended section at four rows', () => {
+  it('caps a stale hand-built ended section at four rows', () => {
+    const stale = Date.now() - 3 * 60 * 60 * 1000
     const exited = Array.from({ length: 6 }, (_, i) =>
-      row({ sessionId: String(i), status: 'ended', section: 'ended', exitedAt: i }),
+      row({ sessionId: String(i), status: 'ended', section: 'ended', exitedAt: stale - i }),
     )
     const groups = groupSwitcherRows([row(), ...exited])
     expect(groups.map((g) => g.section)).toEqual(['working', 'ended'])

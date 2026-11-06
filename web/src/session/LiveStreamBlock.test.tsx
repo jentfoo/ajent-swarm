@@ -111,3 +111,17 @@ describe('LiveStreamBlock thinking panel', () => {
     expect(screen.queryByText('thinking…')).not.toBeInTheDocument()
   })
 })
+
+describe('LiveStreamBlock tool cards', () => {
+  it('headers a user shell card from its label', () => {
+    render(
+      <LiveStreamBlock
+        live={liveFor({
+          tools: [{ id: 'shell-1', name: 'bash', label: '! make test', shell: true, outputs: [] }],
+        })}
+      />,
+    )
+    expect(screen.getByText('! make test')).toBeInTheDocument()
+    expect(screen.queryByText('bash')).not.toBeInTheDocument()
+  })
+})

@@ -9,6 +9,8 @@
 //   - keyed families replace wholesale, empty text removes a row
 //   - dialogs are state: rebuilt from snapshots, cleared when absent
 //   - queue rows resolve by id, secret redaction respected
+//   - a user-shell card (a `!`/`!!` label) outlives its turn: snapshots keep
+//     it, the injected "User Ran:" flush retires it, a count cap bounds it
 //
 // The reducer returns new top-level state objects per action, while the entry
 // map and child index mutate in place. Every mutating operation is idempotent
@@ -41,6 +43,8 @@ export interface ToolProgressView {
 export interface ToolCallView {
   id: string
   name: string
+  label?: string // header text, kept only for user-shell cards ('! cmd')
+  shell?: boolean // a staged user `!`/`!!` run, executing outside any turn
   input?: unknown
   progress?: ToolProgressView
   outputs: string[] // streamed deltas painted so far; result.output adds nothing when set
@@ -170,6 +174,7 @@ const maxDiffs = 10
 const maxPendings = 100
 const maxDroppedRows = 20
 const maxOutcomes = 5
+const maxShellCards = 5
 
 export function initialSessionState(): AppliedSessionState {
   return {
@@ -695,16 +700,27 @@ function applyToolEvent(next: AppliedSessionState, ev: WireEvent): AppliedSessio
 
   switch (ev.event) {
     case 'tool.start': {
-      const d = decode<{ id?: string; name?: string; input?: unknown }>(ev.data)
+      const d = decode<{ id?: string; name?: string; input?: unknown; label?: string }>(ev.data)
       if (!isValidId(d?.id)) return next
-      return withLive(
-        next,
-        upsertTool(live.tools, d.id!, (t) => ({
-          ...t,
-          name: d.name ?? t.name,
-          input: d.input !== undefined ? d.input : t.input,
-        })),
-      )
+      // ajent's stager labels a staged user run with the bang typed ('! cmd')
+      const shell = typeof d.label === 'string' && d.label.startsWith('!')
+      const tools = upsertTool(live.tools, d.id!, (t) => ({
+        ...t,
+        name: d.name ?? t.name,
+        input: d.input !== undefined ? d.input : t.input,
+        label: shell ? d.label : t.label,
+        shell: shell || t.shell,
+      }))
+      // an excluded `!!` run never flushes, so lingering shell cards need a bound
+      const shells = tools.filter((t) => t.shell)
+      if (shells.length > maxShellCards) {
+        const drop = new Set(shells.slice(0, shells.length - maxShellCards).map((t) => t.id))
+        return withLive(
+          next,
+          tools.filter((t) => !drop.has(t.id)),
+        )
+      }
+      return withLive(next, tools)
     }
     case 'tool.output': {
       const d = decode<{ id?: string; delta?: string }>(ev.data)
@@ -801,11 +817,28 @@ function applyResnapshot(state: AppliedSessionState, snap: CtlState): AppliedSes
   // a missed turn.end). The commit handoff drains first: this fires ~100 ms
   // after turn.end and the poll is the backstop, so what remains is residue.
   // Drop it outright instead of sealing. Committed entries own the content
-  // from here, and kept residue would pin its panel forever.
+  // from here, and kept residue would pin its panel forever. A user-shell
+  // card is the one exception: a staged run executes outside any turn and
+  // nothing commits its output until the flush entry lands, so it survives.
   if (!snap.running && next.live !== null) {
-    next.live = null
+    next.live = shellOnlyLive(next.live)
   }
   return next
+}
+
+// shellOnlyLive strips one not-running buffer down to its user-shell cards,
+// dropping the sealed stream residue. Returns null when no shell card stays.
+function shellOnlyLive(live: LiveTurn): LiveTurn | null {
+  const tools = live.tools.filter((t) => t.shell)
+  if (tools.length === 0) return null
+  return {
+    ...live,
+    thinking: '',
+    thinkingOpen: false,
+    text: '',
+    textOpen: false,
+    tools,
+  }
 }
 
 // closeLiveTurn retires one finished turn's buffer the way ajent's own
@@ -814,11 +847,15 @@ function applyResnapshot(state: AppliedSessionState, snap: CtlState): AppliedSes
 // when nothing remains worth painting.
 function closeLiveTurn(live: LiveTurn | null): LiveTurn | null {
   if (live === null) return null
-  const tools = live.tools.map((t) => (t.result || t.closed ? t : { ...t, closed: true }))
+  // A staged shell run outlives the turn: its card neither seals nor counts
+  // the buffer empty, so it keeps painting until its own result arrives.
+  const tools = live.tools.map((t) =>
+    t.result || t.closed || t.shell ? t : { ...t, closed: true },
+  )
   const empty =
     live.text === '' &&
     live.thinking === '' &&
-    tools.every((t) => t.outputs.length === 0 && !t.result)
+    tools.every((t) => t.outputs.length === 0 && !t.result && !t.shell)
   if (empty) return null
   return {
     ...live,
@@ -938,11 +975,23 @@ function drainLiveCoveredBy(state: AppliedSessionState, entry: Entry): void {
         .filter((b) => b.type === 'tool_result' && isValidId(toolCallId(b)))
         .map((b) => toolCallId(b)!),
     )
-    if (resultIds.size > 0) {
-      const tools = live.tools.filter((t) => !resultIds.has(t.id))
-      changed = tools.length !== live.tools.length
-      live = { ...live, tools }
-    }
+    // A staged run's flush commits as an injected "User Ran: <cmd>" message:
+    // its finished cards retire, the output is transcript history now. Both
+    // sides compare on the command's first line.
+    const text = textOf(blocks[0])
+    const flushed =
+      d?.injected && text.startsWith(userRanPrefix)
+        ? firstLine(text.slice(userRanPrefix.length))
+        : undefined
+    const retired = (t: ToolCallView): boolean =>
+      (resultIds.size > 0 && resultIds.has(t.id)) ||
+      (flushed !== undefined &&
+        t.shell === true &&
+        t.result !== undefined &&
+        firstLine((t.label ?? '').replace(/^!+ /, '')) === flushed)
+    const tools = live.tools.filter((t) => !retired(t))
+    changed = tools.length !== live.tools.length
+    live = { ...live, tools }
   }
   if (!changed) return
   state.live = live
@@ -958,6 +1007,14 @@ function drainLiveCoveredBy(state: AppliedSessionState, entry: Entry): void {
 function stripSuffix(painted: string, covered: string): string {
   if (covered === '' || !painted.endsWith(covered)) return painted
   return painted.slice(0, painted.length - covered.length)
+}
+
+// userRanPrefix opens the injected message a staged run's flush commits.
+const userRanPrefix = 'User Ran: '
+
+function firstLine(text: string): string {
+  const i = text.indexOf('\n')
+  return i === -1 ? text : text.slice(0, i)
 }
 
 // --- content block helpers shared with the view's own decoding ---

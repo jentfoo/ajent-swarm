@@ -640,6 +640,19 @@ function assistantWith(content: unknown[], role = 'assistant'): Entry {
   )
 }
 
+// flushEntry builds the injected message a staged run's flush commits, the
+// shape ajent's shellUserMessage writes.
+function flushEntry(id: string, cmd: string): Entry {
+  return entry(id, undefined, 'message', {
+    message: {
+      role: 'user',
+      content: [{ type: 'text', data: { text: `User Ran: ${cmd}\n\nOutput:\nbuilt` } }],
+    },
+    injected: true,
+    replayed: true,
+  })
+}
+
 function zeroUsage() {
   return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0 }
 }
@@ -811,6 +824,106 @@ describe('applierReducer tool card state', () => {
     // the carrier arrives through a heal-by-paging backfill, not live
     s = apply(s, { type: 'backfill', entries: [carrier] })
     expect(s.live).toBeNull()
+  })
+})
+
+describe('applierReducer user shell cards', () => {
+  // shellStart builds one staged-run tool.start, transcribed from what ajent's
+  // stager publishes: a bang label with full display.
+  const shellStart = (seq: number, id: string, label: string): WireEvent =>
+    ev('tool.start', seq, {
+      id,
+      name: 'bash',
+      input: '{"command":"make test"}',
+      label,
+      full: true,
+    })
+
+  it('marks a card user-shell from its bang label', () => {
+    const s = apply(
+      initialSessionState(),
+      shellStart(1, 'shell-1', '! make test'),
+      ev('tool.start', 2, { id: 'call9', name: 'bash', input: '{}', label: 'bash: ls' }),
+    )
+    expect(s.live?.tools[0]).toMatchObject({ id: 'shell-1', shell: true, label: '! make test' })
+    // an agent call keeps its plain header even when it carries a label
+    expect(s.live?.tools[1]?.shell).toBeUndefined()
+    expect(s.live?.tools[1]?.label).toBeUndefined()
+  })
+
+  it('keeps an unfinished shell buffer across a not-running resnapshot', () => {
+    let s = apply(
+      initialSessionState(),
+      ev('turn.start', 1, { model: 'm' }),
+      ev('text.delta', 2, { delta: 'residue' }),
+      ev('tool.start', 3, { id: 'c1', name: 'bash', input: '{}' }),
+      shellStart(4, 'shell-1', '! make test'),
+      ev('tool.output', 5, { id: 'shell-1', delta: 'building...' }),
+      ev('turn.end', 6, { stop: 'end_turn' }),
+    )
+    // the model call seals at turn end; the staged run outlives the turn
+    expect(s.live?.tools.find((t) => t.id === 'c1')?.closed).toBe(true)
+    expect(s.live?.tools.find((t) => t.id === 'shell-1')?.closed).toBeUndefined()
+
+    s = apply(s, { type: 'snapshot', state: snap({ running: false }) })
+    expect(s.live).not.toBeNull()
+    // the sealed turn residue drops, the still-running shell card stays
+    expect(s.live?.text).toBe('')
+    expect(s.live?.tools).toHaveLength(1)
+    expect(s.live?.tools[0]).toMatchObject({ id: 'shell-1', shell: true })
+  })
+
+  it('retires the finished card when its flush entry commits', () => {
+    let s = apply(
+      initialSessionState(),
+      shellStart(1, 'shell-1', '! make test'),
+      ev('tool.result', 2, { id: 'shell-1', name: 'bash', output: 'built' }),
+    )
+    s = apply(s, ev('entry.append', 3, { entry: flushEntry('01FLUSH00000000000', 'make test') }))
+    expect(s.live).toBeNull()
+  })
+
+  it('clears only the flushed command among several cards', () => {
+    let s = apply(
+      initialSessionState(),
+      shellStart(1, 'shell-1', '! make test'),
+      ev('tool.result', 2, { id: 'shell-1', name: 'bash', output: 'built' }),
+      shellStart(3, 'shell-2', '!! git status'),
+      ev('tool.result', 4, { id: 'shell-2', name: 'bash', output: 'clean' }),
+    )
+    s = apply(s, ev('entry.append', 5, { entry: flushEntry('01FLUSH00000000000', 'make test') }))
+    expect(s.live?.tools.map((t) => t.id)).toEqual(['shell-2'])
+
+    // a typed prompt quoting the marker clears nothing: only flushes do
+    const typed = messageEntry('01PROMPT00000000000', undefined, 'user', 'User Ran: git status')
+    s = apply(s, ev('entry.append', 6, { entry: typed }))
+    expect(s.live?.tools.map((t) => t.id)).toEqual(['shell-2'])
+  })
+
+  it('clears through a backfilled flush too', () => {
+    let s = apply(
+      initialSessionState(),
+      shellStart(1, 'shell-1', '!! git status'),
+      ev('tool.result', 2, { id: 'shell-1', name: 'bash', output: 'clean' }),
+    )
+    // the flush lands through a heal-by-paging backfill, not a live append
+    s = apply(s, { type: 'backfill', entries: [flushEntry('01FLUSH00000000000', 'git status')] })
+    expect(s.live).toBeNull()
+  })
+
+  it('drops the oldest `!!` cards past the count cap', () => {
+    let s = initialSessionState()
+    for (let i = 1; i <= 7; i++) {
+      s = apply(s, shellStart(i, `shell-${i}`, `!! cmd ${i}`))
+    }
+    // excluded runs never flush, so the newest five are all that stay
+    expect(s.live?.tools.map((t) => t.id)).toEqual([
+      'shell-3',
+      'shell-4',
+      'shell-5',
+      'shell-6',
+      'shell-7',
+    ])
   })
 })
 

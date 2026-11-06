@@ -101,6 +101,7 @@ function LiveToolCard({
       call={{
         id: tool.id,
         name: tool.name || undefined,
+        label: tool.label,
         input: tool.input,
         outputs: tool.outputs,
         progress: tool.progress,

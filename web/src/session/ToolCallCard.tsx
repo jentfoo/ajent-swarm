@@ -12,6 +12,7 @@ import { parseEditInput } from './editInput'
 export interface ToolCardView {
   id: string
   name?: string
+  label?: string // header text overriding the tool name ('! cmd' on shell cards)
   input?: unknown
   outputs?: string[]
   progress?: ToolProgressView
@@ -45,7 +46,7 @@ export function ToolCallCard({
   if (failedCard && fault !== undefined) body = fault
   const closed = call.closed === true && call.result === undefined
   const done = call.result !== undefined || closed
-  const label = call.name || call.progress?.path || call.id
+  const label = call.label || call.name || call.progress?.path || call.id
   const bodyLines = body === '' ? 0 : splitRows(body).length
   // Only a body nobody watched stream collapses behind a count: a streamed
   // body keeps its live first-line preview

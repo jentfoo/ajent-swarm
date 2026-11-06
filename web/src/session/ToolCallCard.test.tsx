@@ -92,6 +92,19 @@ describe('ToolCallCard inputs', () => {
   })
 })
 
+describe('ToolCallCard headers', () => {
+  it('renders a shell card header from its label', () => {
+    render(<ToolCallCard call={{ id: 'shell-1', name: 'bash', label: '! make test' }} />)
+    expect(screen.getByText('! make test')).toBeInTheDocument()
+    expect(screen.queryByText('bash')).not.toBeInTheDocument()
+  })
+
+  it('keeps the tool name for agent calls', () => {
+    render(<ToolCallCard call={{ id: 'c1', name: 'bash', input: { command: 'go build ./...' } }} />)
+    expect(screen.getByText('bash')).toBeInTheDocument()
+  })
+})
+
 describe('ToolCallCard output preview', () => {
   it('counts a long committed output instead of previewing it', () => {
     render(

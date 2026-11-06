@@ -16,11 +16,13 @@ import { useSessionCompose } from '../session/useSessionCompose'
 import { useSessionLabel } from '../session/useSessionLabel'
 import { useKeyboardInset, keyboardInsetStyle } from '../hooks/useKeyboardInset'
 import { useSessionChannel } from '../hooks/useSessionChannel'
+import { overlayOpen } from '../ui/overlayStack'
 import { useWorkspace } from '../providers/workspace'
 import { BottomSheet } from './BottomSheet'
 import { ModelChip } from './ModelChip'
 import { RewindSheet } from './RewindSheet'
 import { SettingsScreen } from './SettingsScreen'
+import { horizontallyScrollable } from './scrollable'
 import { SwitcherRows } from './SwitcherRows'
 import { ToolsScreen } from './ToolsScreen'
 import { TouchDialogDock } from './TouchDialogDock'
@@ -74,13 +76,13 @@ function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElemen
   const edgeStart = useRef<{ x: number; y: number } | null>(null)
 
   const working = sessionBusy(snap)
-  // Escape shares the composer Stop button's guarded fire; overlays covering
-  // the session (switcher, rewind, tools, settings) keep Escape for themselves
+  // Escape shares the composer Stop button's guarded fire; sheets and pushed
+  // screens gate it through the shared overlay stack, so the interrupt stands
+  // down behind any open layer without naming each one
   const { interrupt, inFlight: stopBusy } = useInterruptStream({
     sessionId,
     busy: working,
     onToast: pushToast,
-    enabled: !(sheetOpen || showRewind || showTools || showSettings),
   })
   // the switcher's own label chain, so a rename follows the user into the view
   const label = useSessionLabel(sessionId)
@@ -91,14 +93,21 @@ function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElemen
       style={keyboardInsetStyle(keyboardInset)}
       onTouchStart={(ev) => {
         // one fresh finger seeds a candidate; anything else (a second touch
-        // landing mid-gesture, a pinch) kills the pending one
+        // landing mid-gesture, a pinch) kills the pending one. A touch targets
+        // the element it began on, so one starting inside a sideways scroller
+        // stands down: dragging a long code line scrolls its fence instead of
+        // opening the switcher
         const t = ev.touches[0]
-        edgeStart.current = ev.touches.length === 1 ? { x: t.clientX, y: t.clientY } : null
+        edgeStart.current =
+          ev.touches.length === 1 && !horizontallyScrollable(ev.target)
+            ? { x: t.clientX, y: t.clientY }
+            : null
       }}
       onTouchEnd={(ev) => {
         const start = edgeStart.current
         edgeStart.current = null
-        if (start === null || start.x > 24 || showRewind || showTools || showSettings) return
+        // an open overlay layer owns the screen, so the swipe stands down
+        if (start === null || start.x > 24 || overlayOpen()) return
         // a finger still down or several lifted together was never a swipe
         if (ev.touches.length > 0 || ev.changedTouches.length !== 1) return
         const end = ev.changedTouches[0]
@@ -248,8 +257,11 @@ function SwitcherOverlay({
         rows={rows}
         onOpen={(row) => {
           onClose()
-          if (row.status === 'ended') navigate(`/m/read/${encodeURIComponent(row.sessionId)}`)
-          else navigate(`/s/${encodeURIComponent(row.sessionId)}`)
+          // replacing recycles the sheet's own history entry, so back from
+          // the switched session returns here rather than onto a leftover
+          if (row.status === 'ended')
+            navigate(`/m/read/${encodeURIComponent(row.sessionId)}`, { replace: true })
+          else navigate(`/s/${encodeURIComponent(row.sessionId)}`, { replace: true })
         }}
       />
     </BottomSheet>

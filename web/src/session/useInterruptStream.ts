@@ -2,8 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { ApiError } from '../api/client'
 import { sessions as sessionAPI } from '../api/endpoints'
-import { popoverOpen } from '../ui/MenuPopover'
-import { modalOpen } from '../ui/ModalShell'
+import { overlayOpen } from '../ui/overlayStack'
 
 export interface UseInterruptStreamOptions {
   sessionId: string
@@ -16,10 +15,10 @@ export interface UseInterruptStreamOptions {
 
 // useInterruptStream binds Escape on a session's viewing surface to
 // interrupting its running turn, and hands the same guarded fire to explicit
-// stop buttons. Claims below win first: an open modal or popover keeps
-// Escape for itself, a prior preventDefault (the composer hiding its @-menu)
-// stands, and an unanswered request swallows repeat presses. Returns the
-// guarded fire plus whether one request is on the wire.
+// stop buttons. Claims below win first: an open overlay layer keeps Escape
+// for itself, a prior preventDefault (the composer hiding its @-menu) stands,
+// and an unanswered request swallows repeat presses. Returns the guarded
+// fire plus whether one request is on the wire.
 export function useInterruptStream({
   sessionId,
   busy,
@@ -57,7 +56,7 @@ export function useInterruptStream({
     const onKey = (ev: KeyboardEvent) => {
       if (ev.key !== 'Escape' || ev.ctrlKey || ev.metaKey || ev.altKey) return
       if (ev.isComposing || ev.defaultPrevented) return // a claim already made wins
-      if (modalOpen() || popoverOpen()) return // the open layer keeps Escape
+      if (overlayOpen()) return // the open layer keeps Escape
       const cur = ref.current
       if (!cur.busy || pendingRef.current) return
       ev.preventDefault() // claims the press: the workspace's Escape stands down

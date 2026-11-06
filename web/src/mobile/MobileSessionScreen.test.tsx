@@ -327,13 +327,14 @@ describe('MobileSessionScreen', () => {
       fetcher.handler.mock.calls.filter(([u]) => String(u).endsWith('/interrupt'))
 
     const user = userEvent.setup()
-    // the pushed tools screen covers the session and keeps Escape for itself
+    // the pushed tools screen keeps Escape for itself: one press closes it,
+    // and the stream's interrupt never fires behind it
     await user.click(screen.getByRole('button', { name: 'Open tools panel' }))
     await user.keyboard('{Escape}')
     expect(interruptCalls()).toHaveLength(0)
+    expect(screen.queryByRole('dialog', { name: 'Tools' })).not.toBeInTheDocument()
 
-    // closing it hands Escape back to the stream
-    await user.click(screen.getByRole('button', { name: '← Back' }))
+    // the closed layer hands Escape back to the stream
     await user.keyboard('{Escape}')
     await vi.waitFor(() => expect(interruptCalls()).toHaveLength(1))
   })
@@ -729,6 +730,57 @@ describe('MobileSessionScreen', () => {
     fireEvent.touchEnd(surface, { touches: [], changedTouches: [{ clientX: 120, clientY: 310 }] })
 
     expect(screen.queryByRole('dialog', { name: 'Session switcher' })).not.toBeInTheDocument()
+  })
+
+  it('keeps a fence drag from opening the switcher', async () => {
+    renderScreen()
+    const ws = await openSocket()
+    act(() => {
+      ws.message({ type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
+    })
+    await screen.findByRole('button', { name: /sonnet/ })
+
+    // a code fence scrolling a long line sideways owns the touch, so the
+    // edge-swipe zone stands down instead of opening the switcher mid-scroll
+    const surface = document.querySelector('.mobile-session') as HTMLElement
+    const fence = document.createElement('div')
+    fence.style.overflowX = 'auto'
+    Object.defineProperty(fence, 'scrollWidth', { configurable: true, value: 600 })
+    Object.defineProperty(fence, 'clientWidth', { configurable: true, value: 320 })
+    surface.appendChild(fence)
+
+    fireEvent.touchStart(fence, {
+      touches: [{ clientX: 10, clientY: 300 }],
+      changedTouches: [{ clientX: 10, clientY: 300 }],
+    })
+    fireEvent.touchEnd(surface, { touches: [], changedTouches: [{ clientX: 80, clientY: 306 }] })
+
+    expect(screen.queryByRole('dialog', { name: 'Session switcher' })).not.toBeInTheDocument()
+  })
+
+  it('closes the switcher on browser back instead of leaving the session', async () => {
+    renderScreen()
+    const ws = await openSocket()
+    act(() => {
+      ws.message({ type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
+    })
+    await screen.findByRole('button', { name: /sonnet/ })
+
+    const surface = document.querySelector('.mobile-session') as HTMLElement
+    fireEvent.touchStart(surface, {
+      touches: [{ clientX: 10, clientY: 300 }],
+      changedTouches: [{ clientX: 10, clientY: 300 }],
+    })
+    fireEvent.touchEnd(surface, { touches: [], changedTouches: [{ clientX: 80, clientY: 306 }] })
+    expect(await screen.findByRole('dialog', { name: 'Session switcher' })).toBeInTheDocument()
+
+    // the hardware/browser back gesture pops the entry the sheet pushed and
+    // closes it, leaving the session on screen
+    act(() => {
+      window.dispatchEvent(new PopStateEvent('popstate'))
+    })
+    expect(screen.queryByRole('dialog', { name: 'Session switcher' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /sonnet/ })).toBeInTheDocument()
   })
 
   it('shows the seat claim only while someone else holds the write seat', async () => {

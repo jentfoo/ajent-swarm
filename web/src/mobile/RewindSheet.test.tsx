@@ -1,11 +1,12 @@
-import { render, screen, within } from '@testing-library/react'
+import { act, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { RewindSheet } from './RewindSheet'
 import type { RewindCandidates } from '../api/types'
 
 // The flat rewind list survives transport hiccups: a failed load's error must
-// not outlive the sheet once a reload succeeds. Rows speak the shared rewind
+// not outlive the sheet once a reload succeeds, candidates load per open with
+// a pending notice until they arrive, and rows speak the shared rewind
 // language — kind dot, label, relative age — with the head inert.
 
 const listing: RewindCandidates = {
@@ -31,6 +32,28 @@ function renderSheet(open = true) {
 describe('RewindSheet', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
+  })
+
+  it('shows a pending notice until candidates arrive', async () => {
+    let release!: (listing: RewindCandidates) => void
+    const gate = new Promise<RewindCandidates>((resolve) => {
+      release = resolve
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json(await gate)),
+    )
+
+    renderSheet()
+    expect(screen.getByText('Loading rewind points…')).toBeInTheDocument()
+    expect(screen.queryByText('No prompts to rewind to.')).not.toBeInTheDocument()
+
+    // the empty message belongs to a settled empty list alone
+    await act(async () => {
+      release({ head: '01C1', candidates: [] })
+    })
+    expect(screen.queryByText('Loading rewind points…')).not.toBeInTheDocument()
+    expect(screen.getByText('No prompts to rewind to.')).toBeInTheDocument()
   })
 
   it('clears a load error once a reload succeeds', async () => {

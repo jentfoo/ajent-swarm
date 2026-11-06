@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ReactElement, ReactNode } from 'react'
 
+import { overlayEnter, overlayLeave, overlayTopmost } from './overlayStack'
+
 // One selector for what Tab cycles through inside a dialog: the disabled and
 // hidden cases the DOM itself can express. Modal content here renders
 // conditionally with React, so no layout-based visibility check rides along.
@@ -12,16 +14,6 @@ const focusableSelector = [
   'textarea:not([disabled])',
   '[tabindex]:not([tabindex="-1"])',
 ].join(', ')
-
-// Open shells, outermost first. Only the topmost answers keys and focus
-// escapes, so stacked dialogs never fight over one press or the caret.
-const openShells: HTMLElement[] = []
-
-// modalOpen reports whether any ModalShell currently holds the screen; key
-// bindings that act on page content read this and stand down behind it.
-export function modalOpen(): boolean {
-  return openShells.length > 0
-}
 
 // cycleFocus spends one Tab press inside `card`: focus steps through the
 // card's own controls, wraps at both ends, and holds on the card when nothing
@@ -76,12 +68,12 @@ export function ModalShell({
     const card = cardRef.current
     if (card === null) return
 
-    openShells.push(card)
+    overlayEnter(card)
     // content carrying autoFocus keeps its caret; otherwise the card takes it,
     // so typing starts inside the dialog, never behind the backdrop
     if (!card.contains(document.activeElement)) card.focus()
 
-    const topmost = () => openShells[openShells.length - 1] === card
+    const topmost = () => overlayTopmost(card)
 
     const onKey = (ev: KeyboardEvent) => {
       if (!topmost() || ev.defaultPrevented) return
@@ -103,8 +95,7 @@ export function ModalShell({
     return () => {
       // leave the stack before restoring focus, so a shell still open beneath
       // never recaptures the caret this close is handing back
-      const at = openShells.indexOf(card)
-      if (at >= 0) openShells.splice(at, 1)
+      overlayLeave(card)
       window.removeEventListener('keydown', onKey)
       document.removeEventListener('focusin', onFocusIn)
       if (restoreTarget !== null && restoreTarget.isConnected) restoreTarget.focus()

@@ -4,6 +4,7 @@ import type { ReactElement } from 'react'
 import { ApiError } from '../api/client'
 import { sessions as sessionAPI } from '../api/endpoints'
 import type { CtlState, ToolState } from '../api/types'
+import { PushedScreen } from './PushedScreen'
 
 // ToolsScreen is the pushed full-screen tools panel: snapshot rows with their
 // sources, toggled through tools.set. Each toggle submits the complete desired
@@ -78,13 +79,7 @@ export function ToolsScreen({
   }
 
   return (
-    <div className="pushed-screen" role="dialog" aria-label="Tools">
-      <header className="pushed-header">
-        <button type="button" onClick={onClose}>
-          ← Back
-        </button>
-        <h2>Tools</h2>
-      </header>
+    <PushedScreen title="Tools" onClose={onClose}>
       <p className="muted tools-hint">
         Toggles apply through the session's own /tools rule: everything can be reshaped before the
         first prompt, then only enabled.
@@ -107,6 +102,6 @@ export function ToolsScreen({
           )
         })}
       </div>
-    </div>
+    </PushedScreen>
   )
 }

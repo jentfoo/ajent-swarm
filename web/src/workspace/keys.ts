@@ -2,7 +2,7 @@
 // focus queue and pane digits, mod (Ctrl/Cmd) drives tile management, Alt
 // arrows resize. Editable targets always win: typing in the composer or a
 // dialog answer must never move the workspace, and every binding rests
-// behind an open modal or popover, leaving keys to what shows there. Plain
+// behind an open overlay layer, leaving keys to what shows there. Plain
 // keys also stand down on a focused button or link so Enter activates that
 // control instead of being swallowed by a shortcut. An event another
 // listener already claimed (defaultPrevented) is left alone entirely, and
@@ -10,8 +10,7 @@
 import { useEffect, useRef } from 'react'
 
 import { caretInInput, dialogDigitsClaimed } from '../session/dialogKeys'
-import { modalOpen } from '../ui/ModalShell'
-import { popoverOpen } from '../ui/MenuPopover'
+import { overlayOpen } from '../ui/overlayStack'
 
 export type Direction = 'left' | 'right' | 'up' | 'down'
 
@@ -43,10 +42,10 @@ export function useWorkspaceKeys(handlers: WorkspaceKeyHandlers): void {
       // an earlier listener that claimed the event wins, e.g. the viewed
       // session's Escape interrupt
       if (ev.defaultPrevented) return
-      // editable targets win; behind any open ModalShell or popover every
+      // editable targets win; behind any open overlay layer every
       // binding rests, leaving keys to what the layer shows instead of rows
       // and panes its backdrop hides
-      if (caretInInput(ev.target) || modalOpen() || popoverOpen()) return
+      if (caretInInput(ev.target) || overlayOpen()) return
       const h = ref.current
       const mod = ev.ctrlKey || ev.metaKey
 

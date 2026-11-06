@@ -1,26 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import type { RefObject } from 'react'
 
+import { scrollableUnder } from './scrollable'
+
 // pullRefreshPx is how far a downward drag past the top must travel for its
 // release to count as a refresh; matched with the transcript's pull-to-latest
 // threshold so mobile gestures feel alike.
 const pullRefreshPx = 64
-
-// scrollableUnder resolves what a touch would scroll: the nearest element at
-// or above the touched node with vertical overflow. Mobile pages scroll inside
-// the shell's content element, never the window; the document root stands in
-// when no inner scroller exists.
-function scrollableUnder(target: Element): HTMLElement {
-  let node: Element | null = target
-  while (node !== null) {
-    if (node instanceof HTMLElement) {
-      const overflowY = getComputedStyle(node).overflowY
-      if (overflowY === 'auto' || overflowY === 'scroll') return node
-    }
-    node = node.parentElement
-  }
-  return document.documentElement
-}
 
 // usePullToRefresh is the launcher's pull-down gesture: while a touch scroll
 // sits at the very top, dragging further down and releasing past the threshold
@@ -72,7 +58,7 @@ export function usePullToRefresh(
       // landing mid-gesture, a pinch) kills the pending one
       const t = ev.touches.length === 1 ? ev.touches[0] : undefined
       startY = t?.clientY ?? null
-      scroller = t && ev.target instanceof Element ? scrollableUnder(ev.target) : null
+      scroller = t && ev.target instanceof Element ? scrollableUnder(ev.target, 'y') : null
       furthest = 0
     }
     const move = (ev: TouchEvent) => {

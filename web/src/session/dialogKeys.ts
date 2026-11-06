@@ -1,7 +1,6 @@
 import { useEffect, useRef } from 'react'
 
-import { popoverOpen } from '../ui/MenuPopover'
-import { modalOpen } from '../ui/ModalShell'
+import { overlayOpen } from '../ui/overlayStack'
 
 // Live digit claims, newest last. Only the topmost claim answers, mirroring
 // ModalShell's open shell stack, so a second focused dock can never
@@ -25,7 +24,7 @@ export function caretInInput(target: EventTarget | null): boolean {
 // useDialogAnswerKeys binds digits 1..9 to `answer` while `enabled`: the
 // focused pane's head options card answers by position, one digit per option,
 // the vocabulary the rail and pane strips already use for jumps. A caret in an
-// input keeps its digits, an open modal or popover keeps its keys, and a press
+// input keeps its digits, an open overlay layer keeps its keys, and a press
 // another listener already claimed is left alone.
 export function useDialogAnswerKeys(enabled: boolean, answer: (position: number) => void): void {
   // latest answer, so the listener below never resubscribes
@@ -44,7 +43,7 @@ export function useDialogAnswerKeys(enabled: boolean, answer: (position: number)
       if (ev.defaultPrevented || ev.ctrlKey || ev.metaKey || ev.altKey) return
       if (!/^[1-9]$/.test(ev.key)) return
       if (caretInInput(ev.target)) return
-      if (modalOpen() || popoverOpen()) return
+      if (overlayOpen()) return
       ev.preventDefault() // claims the press: workspace digits stand down
       answerRef.current(Number(ev.key))
     }

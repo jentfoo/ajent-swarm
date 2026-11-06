@@ -2,6 +2,8 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import type { HTMLAttributes, RefObject } from 'react'
 import { createPortal } from 'react-dom'
 
+import { overlayEnter, overlayLeave, overlayTopmost } from './overlayStack'
+
 // Space between the trigger's box and the menu.
 const anchorGap = 4
 // Viewport margin a clamped menu always keeps.
@@ -59,15 +61,6 @@ type MenuPopoverProps = {
   onClose: () => void
   align?: 'left' | 'right'
 } & Omit<HTMLAttributes<HTMLDivElement>, 'onClose'>
-
-// Open popover layers, mirroring ModalShell's open shells: key bindings that
-// act on page content read this and leave Escape to the open menu.
-const openPopovers: HTMLElement[] = []
-
-// popoverOpen reports whether any MenuPopover layer is currently showing.
-export function popoverOpen(): boolean {
-  return openPopovers.length > 0
-}
 
 // MenuPopover portals children into document.body as a fixed layer anchored to
 // the trigger in `anchorRef`, so no ancestor's overflow clipping can cut it
@@ -140,8 +133,8 @@ export function MenuPopover({
   useEffect(() => {
     const menu = menuRef.current
     if (!menu) return
-    openPopovers.push(menu)
-    const topmost = () => openPopovers[openPopovers.length - 1] === menu
+    overlayEnter(menu)
+    const topmost = () => overlayTopmost(menu)
     const onKey = (ev: KeyboardEvent) => {
       // only the topmost layer answers, and never a press claimed elsewhere
       if (!topmost() || ev.defaultPrevented) return
@@ -158,8 +151,7 @@ export function MenuPopover({
     return () => {
       // leave the stack before restoring focus, so a popover still open
       // beneath never sees its own Escape swallowed by this close
-      const at = openPopovers.indexOf(menu)
-      if (at >= 0) openPopovers.splice(at, 1)
+      overlayLeave(menu)
       document.removeEventListener('keydown', onKey)
       document.removeEventListener('pointerdown', onPointerDown)
       if (restoreTarget !== null && restoreTarget.isConnected) restoreTarget.focus()

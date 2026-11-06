@@ -73,9 +73,11 @@ export function Composer({
   // typedSinceSend flags edits made while a submit is on the wire: an
   // acceptance must never clear them (a retype included).
   const typedSinceSend = useRef(false)
-  // inFlight names the line whose submit is unanswered, so an impatient Enter
-  // cannot fire the same submission twice before its reply lands.
-  const inFlight = useRef<string | null>(null)
+  // inFlight holds every unanswered submit's trimmed line, so an impatient
+  // Enter cannot fire the same submission twice before its reply lands. One
+  // marker per send: a completion clears only its own. Lines key it because
+  // slash and shell submits mint no pendingId.
+  const inFlight = useRef<Set<string>>(new Set())
 
   // @-path completion: the caret's token drives a debounced files lookup.
   // Tab or an arrow-moved Enter accepts and drops the caret after the token;
@@ -142,24 +144,24 @@ export function Composer({
     async (draft: string) => {
       const line = draft.trim()
       if (line === '' || disabled) return
-      if (inFlight.current === line) return
+      if (inFlight.current.has(line)) return
       // Slash and shell lines submit as-is: they surface through their effects
       // and commit no message entry, so only prompts paint an optimistic row.
       const isPrompt = !line.startsWith('/') && !line.startsWith('!')
       const pendingId = isPrompt ? newPendingID() : undefined
       if (pendingId !== undefined) onSubmit(line, pendingId)
-      inFlight.current = line
+      inFlight.current.add(line)
       typedSinceSend.current = false
       setError('')
       try {
         await sessionAPI.submit(sessionId, line, pendingId)
       } catch (err) {
-        inFlight.current = null
+        inFlight.current.delete(line)
         if (pendingId !== undefined) onSubmitFailed(pendingId)
         setError(err instanceof ApiError ? err.message : 'Submit failed.')
         return // the refused text stays right where it is
       }
-      inFlight.current = null
+      inFlight.current.delete(line)
       if (!typedSinceSend.current && valueRef.current === draft) onChange('')
     },
     [disabled, sessionId, onSubmit, onSubmitFailed, onChange],

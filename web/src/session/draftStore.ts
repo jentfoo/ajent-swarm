@@ -36,9 +36,16 @@ function reload(): void {
 }
 reload()
 
+// persist rewrites the whole map with oversize drafts skipped: they stay
+// memory-only without truncation, and a draft that grows past the cap drops
+// its stored copy instead of leaving stale text for a reload to restore.
 function persist(): void {
   try {
-    localStorage.setItem(storageKey, JSON.stringify(Object.fromEntries(drafts)))
+    const stored: Record<string, string> = {}
+    for (const [id, text] of drafts) {
+      if (text.length <= maxStoredChars) stored[id] = text
+    }
+    localStorage.setItem(storageKey, JSON.stringify(stored))
   } catch {
     // Persisting drafts is best effort.
   }
@@ -49,9 +56,8 @@ export function readDraft(sessionId: string): string {
 }
 
 // writeDraft stores one session's draft; an empty text drops the key. Oversize
-// texts stay in memory but skip persistence rather than truncating: a silently
-// cut draft could send the wrong text, while an unpersisted one only loses its
-// reload safety.
+// texts stay in memory but never persist, and any older stored copy is dropped
+// so a reload cannot restore it as if current.
 export function writeDraft(sessionId: string, text: string): void {
   let changed = false
   if (text === '') {
@@ -60,7 +66,7 @@ export function writeDraft(sessionId: string, text: string): void {
     drafts.set(sessionId, text)
     changed = true
   }
-  if (changed && text.length <= maxStoredChars) persist()
+  if (changed) persist()
 }
 
 // prependDraft mirrors upstream PrependInput: incoming text lands above a

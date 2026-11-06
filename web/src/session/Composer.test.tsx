@@ -483,6 +483,64 @@ describe('Composer submit flow', () => {
     expect(onSubmit).toHaveBeenCalledOnce()
   })
 
+  it('never resubmits a line another send left unanswered', async () => {
+    const user = userEvent.setup()
+    // deferred submits keep both sends on the wire until released in order
+    const pending: ((res: Response) => void)[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => new Promise<Response>((resolve) => pending.push(resolve))),
+    )
+    const onSubmit = vi.fn()
+    render(Harness({ onSubmit }))
+
+    await user.type(screen.getByLabelText('Prompt'), 'alpha{Enter}')
+    expect(onSubmit).toHaveBeenCalledTimes(1)
+
+    // a different line may overlap an unanswered send
+    const box = screen.getByLabelText('Prompt') as HTMLTextAreaElement
+    await user.clear(box)
+    await user.type(box, 'beta{Enter}')
+    expect(onSubmit).toHaveBeenCalledTimes(2)
+
+    // alpha's reply lands while beta is still on the wire
+    pending[0]!(Response.json({}, { status: 202 }))
+    await act(async () => {}) // let alpha's completion run
+
+    // an impatient Enter must not refire beta off alpha's completion
+    await user.type(box, '{Enter}')
+    expect(onSubmit).toHaveBeenCalledTimes(2)
+
+    // beta's own reply clears its marker and then the draft
+    pending[1]!(Response.json({}, { status: 202 }))
+    await act(async () => {})
+    await waitFor(() => expect(box).toHaveValue(''))
+    expect(onSubmit.mock.calls.map((c) => c[0])).toEqual(['alpha', 'beta'])
+  })
+
+  it('frees a refused line for an immediate retry', async () => {
+    const user = userEvent.setup()
+    let refused = true
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        refused
+          ? Response.json({ error: 'busy' }, { status: 409 })
+          : Response.json({}, { status: 202 }),
+      ),
+    )
+    const onSubmit = vi.fn()
+    render(Harness({ onSubmit }))
+
+    await user.type(screen.getByLabelText('Prompt'), 'retry me{Enter}')
+    expect(await screen.findByText(/busy/)).toBeInTheDocument()
+
+    refused = false
+    await user.type(screen.getByLabelText('Prompt'), '{Enter}')
+    expect(onSubmit).toHaveBeenCalledTimes(2)
+    await waitFor(() => expect(screen.getByLabelText('Prompt')).toHaveValue(''))
+  })
+
   it('clears nothing an edit touched while a submit was on the wire', async () => {
     const user = userEvent.setup()
     let accept!: (res: Response) => void

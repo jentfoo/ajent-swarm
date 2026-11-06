@@ -2,9 +2,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ApiError } from '../api/client'
 import { jobsApi, runsApi } from '../api/endpoints'
 import type { Job, Run, RunStatus } from '../api/types'
+import { useNow } from '../hooks/useNow'
 import { usePoll } from '../hooks/usePoll'
 import { JobTabs } from '../jobs/JobTabs'
-import { runStatusClass, formatDuration, formatTimestamp } from '../jobs/schedule'
+import {
+  runStatusClass,
+  formatDuration,
+  formatTimestamp,
+  relativeTimestamp,
+} from '../jobs/schedule'
 import { RunDetail } from '../jobs/RunDetail'
 
 const pollRunsMs = 10_000
@@ -55,6 +61,10 @@ export default function RunsHistory() {
   )
 
   usePoll(() => void load(), pollRunsMs)
+
+  // The Started column reads as a recency label, so it needs its own clock:
+  // a failed poll would otherwise leave every age frozen.
+  const now = useNow(30_000)
 
   const jobName = useCallback(
     (run: Run) => jobs.find((j) => j.id === run.jobId)?.name ?? '',
@@ -143,14 +153,22 @@ export default function RunsHistory() {
                   className="run-row"
                   data-testid={`run-${r.id}`}
                 >
-                  <td>{formatTimestamp(r.startedAt)}</td>
+                  <td title={formatTimestamp(r.startedAt)}>
+                    {relativeTimestamp(r.startedAt, now)}
+                  </td>
                   <td>{jobName(r) || '—'}</td>
                   <td>
                     <span className={runStatusClass(r.status)}>{r.status}</span>
-                    {r.error && <div className="muted small-note run-error-excerpt">{r.error}</div>}
+                    {r.error && (
+                      <div className="muted small-note run-error-excerpt" title={r.error}>
+                        {r.error}
+                      </div>
+                    )}
                   </td>
                   <td>{formatDuration(r.startedAt, r.finishedAt)}</td>
-                  <td className="run-prompt-cell">{(r.prompt ?? '').slice(0, 80) || '—'}</td>
+                  <td className="run-prompt-cell" title={r.prompt || undefined}>
+                    {(r.prompt ?? '').slice(0, 80) || '—'}
+                  </td>
                   <td>
                     <button
                       type="button"

@@ -272,7 +272,9 @@ function JobRow({
         <Link to={`/jobs/${job.id}`}>{job.name}</Link>
         <div className="muted small-note">{tildePath(job.workspace, auth.home)}</div>
         {job.prompt && (
-          <div className="muted small-note run-prompt-cell">{job.prompt.slice(0, 80)}</div>
+          <div className="muted small-note run-prompt-cell" title={job.prompt}>
+            {job.prompt.slice(0, 80)}
+          </div>
         )}
       </td>
       <td>{scheduleSummary(job)}</td>
@@ -284,7 +286,9 @@ function JobRow({
           <>
             <span className={runStatusClass(lastRun.status)}>{lastRun.status}</span>
             {lastRun.error && (
-              <div className="muted small-note run-error-excerpt">{lastRun.error}</div>
+              <div className="muted small-note run-error-excerpt" title={lastRun.error}>
+                {lastRun.error}
+              </div>
             )}
           </>
         )}

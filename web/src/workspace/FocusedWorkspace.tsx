@@ -4,6 +4,7 @@ import { useSearchParams } from 'react-router'
 import { useSwarm } from '../providers/swarm'
 import { useAuth } from '../providers/auth'
 import { useWorkspace } from '../providers/workspace'
+import { useNow } from '../hooks/useNow'
 import SessionView from '../screens/SessionView'
 import { RenameControl } from '../session/RenameControl'
 import { displayName, shortID, tildePath } from '../session/names'
@@ -175,17 +176,7 @@ export default function FocusedWorkspace() {
   )
 }
 
-// useNow ticks occasionally so "waited 3m" lines stay honest without a
-// re-render per second.
-function useNow(intervalMs: number): number {
-  const [now, setNow] = useState(() => Date.now())
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), intervalMs)
-    return () => clearInterval(timer)
-  }, [intervalMs])
-  return now
-}
-
+// waited renders one wait duration the rail reads at a glance.
 function waited(since: number, now: number): string {
   const s = Math.max(0, Math.floor((now - since) / 1000))
   if (s < 60) return `${s}s`

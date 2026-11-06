@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -7,6 +7,7 @@ import RunsHistory from './RunsHistory'
 import { AuthProvider } from '../providers/auth'
 import { SwarmProvider } from '../providers/swarm'
 import { MockWebSocket } from '../test/mockWebSocket'
+import { formatTimestamp, relativeTimestamp } from '../jobs/schedule'
 import type { Job, Run } from '../api/types'
 
 // Run history renders over the real provider stack: rows join job names,
@@ -190,6 +191,27 @@ describe('RunsHistory', () => {
 
     // the skipped run with no session id still lists
     expect(screen.getByTestId('run-13')).toBeInTheDocument()
+  })
+
+  it('carries full text in tooltips where rows truncate', async () => {
+    const prompt =
+      'sweep every log under /var/log, drop the rotated ones, and summarize the outliers for the nightly report'
+    const error = 'submit refused: dialog holds input because a previous dialog never resolved'
+    // five minutes back keeps the recency label clear of its unit boundaries
+    const startedAt = new Date(Date.now() - 5 * 60_000).toISOString()
+    runsReply = [{ ...runs[1], id: 21, startedAt, prompt, error }]
+    renderRuns()
+
+    const row = await screen.findByTestId('run-21')
+    // the slice stays, the tooltip carries what the clipped cell hides
+    const promptCell = row.querySelector('.run-prompt-cell')
+    expect(promptCell).toHaveAttribute('title', prompt)
+    expect(promptCell).toHaveTextContent(prompt.slice(0, 80))
+    expect(row.querySelector('.run-error-excerpt')).toHaveAttribute('title', error)
+
+    // Started reads as a recency label with the zone-suffixed absolute behind it
+    const started = within(row).getByTitle(formatTimestamp(startedAt))
+    expect(started).toHaveTextContent(relativeTimestamp(startedAt))
   })
 
   it('shows the empty state', async () => {

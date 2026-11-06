@@ -173,6 +173,23 @@ describe('JobsHome', () => {
     expect(screen.queryByText(/No scheduled jobs yet/)).not.toBeInTheDocument()
   })
 
+  it('carries full text in tooltips where rows truncate', async () => {
+    const prompt =
+      'sweep every log under /var/log, drop the rotated ones, and summarize the outliers for the nightly report'
+    jobsReply = { rows: [{ ...job, prompt }] }
+    renderJobs()
+
+    const row = await screen.findByTestId('job-5')
+    // the slice stays, the tooltip carries what the clipped cell hides
+    const promptCell = row.querySelector('.run-prompt-cell')
+    expect(promptCell).toHaveAttribute('title', prompt)
+    expect(promptCell).toHaveTextContent(prompt.slice(0, 80))
+    expect(row.querySelector('.run-error-excerpt')).toHaveAttribute(
+      'title',
+      'submit refused: dialog holds input',
+    )
+  })
+
   it('shows the empty state', async () => {
     jobsReply = { rows: [] }
     renderJobs()

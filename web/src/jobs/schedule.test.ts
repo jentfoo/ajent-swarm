@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest'
 
 import {
   formatEvery,
+  formatTimestamp,
   intervalToSeconds,
+  relativeTimestamp,
   scheduleSummary,
   sortJobsForDisplay,
   splitInterval,
@@ -99,6 +101,73 @@ describe('scheduleSummary', () => {
 
   it('renders unknown kinds verbatim', () => {
     expect(scheduleSummary({ ...base, scheduleKind: 'weekly' as never })).toBe('weekly')
+  })
+})
+
+describe('formatTimestamp', () => {
+  const iso = '2026-11-05T14:19:00Z'
+
+  // the abbreviation the runtime itself renders for a zone, so assertions
+  // hold in any viewer zone and locale
+  function zoneFor(tz?: string): string {
+    return (
+      new Intl.DateTimeFormat(undefined, { timeZone: tz, timeZoneName: 'short' })
+        .formatToParts(new Date(iso))
+        .find((p) => p.type === 'timeZoneName')?.value ?? ''
+    )
+  }
+
+  it('appends the viewer zone abbreviation', () => {
+    const bare = new Date(iso).toLocaleString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+    expect(formatTimestamp(iso)).toBe(`${bare} ${zoneFor()}`)
+  })
+
+  it('renders a job-owned zone when one rides along', () => {
+    const bare = new Date(iso).toLocaleString(undefined, {
+      timeZone: 'Europe/Berlin',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+    expect(formatTimestamp(iso, 'Europe/Berlin')).toBe(`${bare} ${zoneFor('Europe/Berlin')}`)
+  })
+
+  it('falls back for missing stamps and passes unreadable ones through', () => {
+    expect(formatTimestamp(undefined)).toBe('—')
+    expect(formatTimestamp('not a date')).toBe('not a date')
+  })
+})
+
+describe('relativeTimestamp', () => {
+  const NOW = Date.parse('2026-11-05T12:00:00Z')
+  const ago = (mins: number): string => new Date(NOW - mins * 60_000).toISOString()
+
+  it('renders recency like the rewind picker', () => {
+    expect(relativeTimestamp(new Date(NOW).toISOString(), NOW)).toBe('0s ago')
+    expect(relativeTimestamp(ago(1), NOW)).toBe('1m ago')
+    expect(relativeTimestamp(ago(96), NOW)).toBe('96m ago')
+    expect(relativeTimestamp(ago(3 * 60), NOW)).toBe('3h ago')
+    expect(relativeTimestamp(ago(26 * 60), NOW)).toBe('1d ago')
+    expect(relativeTimestamp(ago(6 * 24 * 60), NOW)).toBe('6d ago')
+  })
+
+  it('falls back to a short date past a week', () => {
+    const ts = NOW - 8 * 86_400_000
+    expect(relativeTimestamp(new Date(ts).toISOString(), NOW)).toBe(
+      new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+    )
+  })
+
+  it('clamps future stamps and drops unreadable ones', () => {
+    expect(relativeTimestamp(new Date(NOW + 5_000).toISOString(), NOW)).toBe('0s ago')
+    expect(relativeTimestamp('not a date', NOW)).toBe('—')
+    expect(relativeTimestamp(undefined, NOW)).toBe('—')
   })
 })
 

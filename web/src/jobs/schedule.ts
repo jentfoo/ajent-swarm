@@ -3,6 +3,7 @@
 // renders what a job row, a preview reply or a run row already carries.
 
 import type { Job, ScheduleKind } from '../api/types'
+import { relativeTime } from '../session/rewind'
 
 export const intervalUnits = ['seconds', 'minutes', 'hours', 'days'] as const
 export type IntervalUnit = (typeof intervalUnits)[number]
@@ -92,38 +93,54 @@ export function scheduleSummary(
   }
 }
 
-// renderWhen renders one ISO moment in the viewer's zone, or a daily job's
-// own when its zone rides along; unreadable values pass through untouched.
+// renderWhen renders one ISO moment in the viewer's zone, or a job's own when
+// its zone rides along; unreadable values pass through untouched.
 function renderWhen(
   iso: string | null | undefined,
-  tz: string | undefined,
   fallback: string,
-  withWeekday?: boolean,
+  opts: Intl.DateTimeFormatOptions,
 ): string {
   if (!iso) return fallback
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return iso
-  const opts: Intl.DateTimeFormatOptions = {
-    timeZone: tz || undefined,
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  }
-  if (withWeekday) opts.weekday = 'short'
-  return d.toLocaleString(undefined, opts) + (tz ? ` ${tz}` : '')
+  return d.toLocaleString(undefined, opts)
 }
 
 // formatSlot renders one fire time for a human scanning a schedule: weekday,
 // short date and clock time. A daily job's zone is passed through so its
 // preview reads the wall clock the job itself schedules in.
 export function formatSlot(iso: string | null | undefined, tz?: string): string {
-  return renderWhen(iso, tz, 'unscheduled', true)
+  const rendered = renderWhen(iso, 'unscheduled', {
+    timeZone: tz || undefined,
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+  return tz ? `${rendered} ${tz}` : rendered
 }
 
-// formatTimestamp renders a run's start or end moment without the weekday.
+// formatTimestamp renders a run's start or end moment with its zone
+// abbreviation riding along, so "Nov 5, 07:19 AM MST" names the zone the clock
+// reads in. A job-owned tz overrides the viewer's zone like formatSlot.
 export function formatTimestamp(iso: string | undefined, tz?: string): string {
-  return renderWhen(iso, tz, '—')
+  return renderWhen(iso, '—', {
+    timeZone: tz || undefined,
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZoneName: 'short',
+  })
+}
+
+// relativeTimestamp renders a run's start as a recency label sharing the
+// rewind picker's dialect, so ages never drift between surfaces; unreadable
+// stamps render the em dash.
+export function relativeTimestamp(iso: string | undefined, now: number = Date.now()): string {
+  const label = relativeTime(Date.parse(iso ?? ''), now)
+  return label === '' ? '—' : label
 }
 
 // formatDuration renders a run's wall-clock span as e.g. 2m 14s; unfinished

@@ -234,6 +234,57 @@ func TestSchedule(t *testing.T) {
 		assert.Equal(t, "01ABC", j.SessionTarget) // targets trim like names do
 	})
 
+	t.Run("validate_queued_pins_shape", func(t *testing.T) {
+		slot := time.Now().Add(time.Hour)
+		j := sampleJob(store.ScheduleInterval)
+		j.Workspace = t.TempDir()
+		j.Queued = true
+		// every fixed field arrives drifted, the way an edit round trip could
+		// send them
+		j.SpawnMode = "resume"
+		j.SessionTarget = "01ABC"
+		j.DailyTime = "09:00"
+		j.TZ = "Europe/Berlin"
+		j.Weekdays = "mon"
+		j.KeepAlive = false
+		j.RunWhenIdle = false
+		j.IdleMaxDelaySeconds = 3600
+		j.NextRunAt = &slot
+		require.NoError(t, ValidateJob(&j))
+
+		assert.Equal(t, store.ScheduleOnce, j.ScheduleKind)
+		assert.Equal(t, "new", j.SpawnMode)
+		assert.Empty(t, j.SessionTarget)
+		assert.Empty(t, j.DailyTime)
+		assert.Empty(t, j.TZ)
+		assert.Empty(t, j.Weekdays)
+		assert.Zero(t, j.IntervalSeconds)
+		assert.True(t, j.RunWhenIdle)
+		assert.Zero(t, j.IdleMaxDelaySeconds) // unlimited wait, never skips
+		assert.True(t, j.KeepAlive)
+		// the slot itself survives: the queue's wait is not disturbed
+		require.NotNil(t, j.NextRunAt)
+		assert.True(t, j.NextRunAt.Equal(slot))
+
+		// a queued row still needs its slot, like every once job
+		noSlot := sampleJob(store.ScheduleInterval)
+		noSlot.Workspace = t.TempDir()
+		noSlot.Queued = true
+		err := ValidateJob(&noSlot)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "next_run_at")
+
+		// plain rows keep their own shape untouched
+		plain := sampleJob(store.ScheduleInterval)
+		plain.Workspace = t.TempDir()
+		plain.RunWhenIdle = true
+		plain.IdleMaxDelaySeconds = 3600
+		require.NoError(t, ValidateJob(&plain))
+		assert.False(t, plain.Queued)
+		assert.Equal(t, store.ScheduleInterval, plain.ScheduleKind)
+		assert.Equal(t, 3600, plain.IdleMaxDelaySeconds)
+	})
+
 	t.Run("preview_interval_anchors", func(t *testing.T) {
 		j := sampleJob(store.ScheduleInterval)
 		j.IntervalSeconds = 1800

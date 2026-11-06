@@ -6,6 +6,7 @@ import { jobsApi } from '../api/endpoints'
 import type { Job, ToolState, TriggerOn } from '../api/types'
 import { defaultDraft, draftFromJob, idleDelayOptions, toPayload, validateDraft } from './jobDraft'
 import type { DraftErrors, JobDraft } from './jobDraft'
+import { FieldError, JobFactsFields } from './JobFactsFields'
 import {
   formatSlot,
   intervalUnits,
@@ -14,15 +15,6 @@ import {
   weekdayShort,
 } from './schedule'
 import { ModalShell } from '../ui/ModalShell'
-
-// Permission startup flags, matching phase 04's launcher.
-const permissionOptions = [
-  { value: '', label: 'ajent default (asks)' },
-  { value: 'read-only', label: 'read-only' },
-  { value: 'allow-auto', label: 'allow-auto' },
-  { value: 'allow-autowrite', label: 'allow-autowrite' },
-  { value: 'allow-all', label: 'allow-all' },
-]
 
 // Timezone candidates for the daily picker; free text always works. The IANA
 // list never changes within a page load, so it memoizes at module scope rather
@@ -99,23 +91,6 @@ export function JobEditor({
 
   const patch = (fields: Partial<JobDraft>) => setDraft((d) => ({ ...d, ...fields }))
 
-  // Tool rows to offer: the live union first, then stored names it no longer
-  // lists, so a saved custom set always stays visible and editable.
-  const toolRows = useMemo(() => {
-    const live = new Set(toolOptions.map((r) => r.name))
-    return [
-      ...toolOptions,
-      ...draft.tools.filter((name) => !live.has(name)).map((name) => ({ name, source: 'stored' })),
-    ]
-  }, [toolOptions, draft.tools])
-
-  const toggleTool = (name: string) =>
-    patch({
-      tools: draft.tools.includes(name)
-        ? draft.tools.filter((n) => n !== name)
-        : [...draft.tools, name],
-    })
-
   const save = async (ev: FormEvent) => {
     ev.preventDefault()
     if (saving || Object.keys(errors).length > 0) return
@@ -158,34 +133,15 @@ export function JobEditor({
         </h2>
 
         <div className="form-grid">
-          <label>
-            Name
-            <input
-              value={draft.name}
-              onChange={(ev) => patch({ name: ev.target.value })}
-              aria-invalid={errors.name !== undefined}
-            />
-            {errors.name && <FieldError text={errors.name} />}
-          </label>
-
-          <label>
-            Workspace directory
-            <input
-              list="job-workspaces"
-              placeholder="/home/you/project"
-              value={draft.workspace}
-              onChange={(ev) => patch({ workspace: ev.target.value })}
-              aria-invalid={errors.workspace !== undefined || workspaceError !== ''}
-            />
-            <datalist id="job-workspaces">
-              {workspaces.map((w) => (
-                <option key={w} value={w} />
-              ))}
-            </datalist>
-            {(errors.workspace ?? workspaceError) && (
-              <FieldError text={(errors.workspace ?? workspaceError)!} />
-            )}
-          </label>
+          <JobFactsFields
+            draft={draft}
+            patch={patch}
+            errors={errors}
+            workspaces={workspaces}
+            models={models}
+            toolOptions={toolOptions}
+            workspaceError={workspaceError}
+          />
 
           <label>
             Session start
@@ -214,73 +170,6 @@ export function JobEditor({
               {errors.sessionTarget && <FieldError text={errors.sessionTarget} />}
             </label>
           )}
-
-          <label>
-            Model
-            <input
-              list="job-models"
-              placeholder="ajent default"
-              value={draft.model}
-              onChange={(ev) => patch({ model: ev.target.value })}
-            />
-            <datalist id="job-models">
-              {models.map((m) => (
-                <option key={m} value={m} />
-              ))}
-            </datalist>
-          </label>
-
-          <label>
-            Permission
-            <select
-              value={draft.permission}
-              onChange={(ev) => patch({ permission: ev.target.value })}
-            >
-              {permissionOptions.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <div className="job-tools" role="group" aria-label="Tools">
-            <span className="check-row">
-              <input
-                type="checkbox"
-                id="job-custom-tools"
-                checked={draft.customTools}
-                onChange={(ev) => patch({ customTools: ev.target.checked })}
-              />
-              <label htmlFor="job-custom-tools">Custom tool set</label>
-            </span>
-
-            {draft.customTools && (
-              <>
-                {toolRows.map((row) => (
-                  <label key={row.name} className="tool-row">
-                    <input
-                      type="checkbox"
-                      checked={draft.tools.includes(row.name)}
-                      onChange={() => toggleTool(row.name)}
-                    />
-                    <span className="switch-name">{row.name}</span>
-                    <span className="muted tool-source">{row.source}</span>
-                  </label>
-                ))}
-                {toolOptions.length === 0 && (
-                  <p className="muted small-note">
-                    No live session to read tool names from; the saved list still applies.
-                  </p>
-                )}
-                {errors.tools && <FieldError text={errors.tools} />}
-                <p className="muted small-note">
-                  The chosen set replaces the session's defaults at launch; names this workspace
-                  does not have are ignored. An empty set runs with no tools at all.
-                </p>
-              </>
-            )}
-          </div>
         </div>
 
         <p className="muted small-note">
@@ -581,13 +470,5 @@ export function JobEditor({
         </div>
       </form>
     </ModalShell>
-  )
-}
-
-function FieldError({ text }: { text: string }) {
-  return (
-    <span className="error-text field-error" role="alert">
-      {text}
-    </span>
   )
 }

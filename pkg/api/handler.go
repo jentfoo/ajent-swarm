@@ -114,6 +114,7 @@ func Handler(cfg Config) http.Handler {
 		{http.MethodDelete, "/api/jobs/{id}", srv.handleJobDelete},
 		{http.MethodPost, "/api/jobs/{id}/run", srv.handleJobFire},
 		{http.MethodPost, "/api/jobs/preview", srv.handleJobPreview},
+		{http.MethodPost, "/api/jobs/queue", srv.handleJobQueue},
 		{http.MethodGet, "/api/runs", srv.handleRuns},
 
 		{http.MethodGet, "/api/tokens", srv.handleTokenList},

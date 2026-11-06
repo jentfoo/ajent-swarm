@@ -102,6 +102,14 @@ func (s *Scheduler) Start(ctx context.Context) {
 		s.log.Info("marked runs interrupted by restart", "count", n)
 	}
 
+	// a crash mid-run leaves queued rows with no slot and no watcher to finish
+	// them; the sweep above already settled their runs
+	if n, err := s.store.PruneAbandonedQueued(bookkeeping); err != nil {
+		s.log.Warn("queued-job sweep failed", "err", err)
+	} else if n > 0 {
+		s.log.Info("removed queued jobs abandoned by a restart", "count", n)
+	}
+
 	s.wg.Add(1)
 	go func() { //nolint:contextcheck // loop binds ctx at Start; bookkeeping detaches
 		defer s.wg.Done()
@@ -133,21 +141,16 @@ func (s *Scheduler) loop() {
 	s.sweep() // one retention pass at startup keeps long-gone installs bounded
 
 	nextSweep := time.Now().Add(sweepEvery)
+	// idleHeld tracks whether the last pass left a due job waiting for a quiet
+	// fleet: such a job keeps its past slot, so the earliest-slot hint would
+	// collapse every later wait to zero and spin the loop for the whole hold
+	var idleHeld bool
 	for s.baseCtx.Err() == nil {
-		untilDue := s.opts.Tick
-		if earliest, err := s.store.EarliestNextRun(s.ctx); err != nil {
-			s.log.Warn("reading the schedule failed", "err", err)
-		} else if earliest != nil {
-			if d := time.Until(*earliest); d < untilDue {
-				untilDue = max(d, 0)
-			}
-		}
-
 		select {
 		case <-s.baseCtx.Done():
 			return
 		case <-s.nudge:
-		case <-time.After(untilDue):
+		case <-time.After(s.nextWait(idleHeld)):
 		}
 
 		now := time.Now()
@@ -156,8 +159,11 @@ func (s *Scheduler) loop() {
 			s.log.Warn("reading due jobs failed", "err", err)
 			continue
 		}
+		idleHeld = false
 		for _, j := range due {
-			s.fireDue(j, now)
+			if s.fireDue(j, now) {
+				idleHeld = true
+			}
 		}
 
 		if !now.Before(nextSweep) {
@@ -166,22 +172,43 @@ func (s *Scheduler) loop() {
 	}
 }
 
+// nextWait picks the loop's next sleep: the earliest scheduled fire wins,
+// clamped to the tick. A pass that held jobs for a quiet fleet leaves their
+// slots in the past, so the fleet's quiet moment bounds the wait instead and
+// the loop never spins on a slot it already declined to fire.
+func (s *Scheduler) nextWait(idleHeld bool) time.Duration {
+	if idleHeld {
+		quiet := time.Until(s.runner.LastBusyAt().Add(idleWindow))
+		return max(min(s.opts.Tick, quiet), 0)
+	}
+	wait := s.opts.Tick
+	if earliest, err := s.store.EarliestNextRun(s.ctx); err != nil {
+		s.log.Warn("reading the schedule failed", "err", err)
+	} else if earliest != nil {
+		if d := time.Until(*earliest); d < wait {
+			wait = max(d, 0)
+		}
+	}
+	return wait
+}
+
 // fireDue claims one due slot: run-when-idle jobs wait for a quiet fleet
 // (skipping once their delay cap passes), missed jobs follow their on_missed
 // policy, and the schedule always advances before any launch. A claimed run
-// then executes asynchronously; a skipped or refused slot only records its row.
-func (s *Scheduler) fireDue(j store.Job, now time.Time) {
+// then executes asynchronously; a skipped or refused slot only records its
+// row. It reports whether the job stayed due waiting for an idle fleet.
+func (s *Scheduler) fireDue(j store.Job, now time.Time) bool {
 	slot := *j.NextRunAt
 
 	if j.RunWhenIdle && s.fleetBusy(now) {
 		maxDelay := time.Duration(j.IdleMaxDelaySeconds) * time.Second
 		waited := now.Sub(slot)
 		if maxDelay <= 0 || waited < maxDelay {
-			return // stay due: a later tick fires it once the fleet quiets down
+			return true // stay due: a later tick fires it once the fleet quiets down
 		}
 		s.skipDue(j, slot, "skipped: still busy after waiting "+
 			formatDelay(waited)+" for an idle fleet")
-		return
+		return false
 	}
 
 	// decide what happens to this slot before claiming it: the claim itself
@@ -191,7 +218,7 @@ func (s *Scheduler) fireDue(j store.Job, now time.Time) {
 		next, err := InitialNext(j, now)
 		if err != nil {
 			s.log.Error("job schedule is broken", "job", j.Name, "err", err)
-			return
+			return false
 		}
 		newNext = next
 	}
@@ -213,10 +240,10 @@ func (s *Scheduler) fireDue(j store.Job, now time.Time) {
 		j.Overlap == store.OverlapSkipIfRunning, s.opts.MaxConcurrent, run)
 	if err != nil {
 		s.log.Warn("claiming a fire failed", "job", j.Name, "err", err)
-		return
+		return false
 	}
 	if !claimed { // advanced or deleted elsewhere; nothing to do
-		return
+		return false
 	}
 	run.ID = id
 	run.Status = final
@@ -224,12 +251,16 @@ func (s *Scheduler) fireDue(j store.Job, now time.Time) {
 	switch final {
 	case store.RunSkipped:
 		s.log.Info("run skipped", "job", j.Name, "reason", run.Error)
+		if j.Queued { // nothing follows a skipped slot: the wait is over
+			s.dropQueuedJob(j.ID)
+		}
 	default:
 		s.log.Info("firing job", "job", j.Name,
 			"late", late && j.OnMissed == store.MissFireLate)
 		s.wg.Add(1) // claimed before the goroutine starts, so Stop never races it
 		go s.execute(run, j)
 	}
+	return false
 }
 
 // skipDue claims one due slot only to record a skipped run with the reason,

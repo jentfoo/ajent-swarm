@@ -426,6 +426,104 @@ func TestRunner(t *testing.T) {
 		assert.NotEmpty(t, got.SessionID)
 	})
 
+	t.Run("queued_run_deletes_job_and_keeps_session", func(t *testing.T) {
+		h := newHarness(t, nil)
+		id := h.addQueuedJob("queued sweep", "review the diff")
+		h.start(t.Context())
+
+		require.Eventually(t, func() bool {
+			_, err := h.store.JobByID(h.t.Context(), id)
+			return errors.Is(err, store.ErrNotFound)
+		}, settleWindow, 10*time.Millisecond)
+
+		// history survives unlinked: the prompt's row reads as an ad-hoc run
+		rows, err := h.store.Runs(h.t.Context(), 0, 100)
+		require.NoError(t, err)
+		require.Len(t, rows, 1)
+		assert.Nil(t, rows[0].JobID)
+		assert.Equal(t, store.RunOK, rows[0].Status)
+		assert.Equal(t, "review the diff", rows[0].Prompt)
+		assert.NotEmpty(t, rows[0].SessionID)
+
+		// keep_alive won: the row was read before the delete, nothing was stopped
+		h.runner.mu.Lock()
+		stopped := slices.Clone(h.runner.stopped)
+		h.runner.mu.Unlock()
+		assert.Empty(t, stopped)
+	})
+
+	t.Run("queued_capacity_skip_deletes_job", func(t *testing.T) {
+		gate := make(chan struct{})
+		h := newHarness(t, func(o *Options) { o.MaxConcurrent = 1 })
+		h.runner.blockLaunch = gate
+		h.start(t.Context())
+		t.Cleanup(func() { close(gate) }) // after start: closes before Stop unwinds
+
+		// the lone live slot belongs to the first queued job's parked launch
+		first := h.addQueuedJob("first", "first prompt")
+		h.waitForRun(first, store.RunRunning)
+
+		second := h.addQueuedJob("second", "second prompt")
+		require.Eventually(t, func() bool {
+			_, err := h.store.JobByID(h.t.Context(), second)
+			return errors.Is(err, store.ErrNotFound)
+		}, settleWindow, 10*time.Millisecond)
+
+		rows, err := h.store.Runs(h.t.Context(), 0, 100)
+		require.NoError(t, err)
+		var skipped *store.Run
+		for i := range rows {
+			if rows[i].Prompt == "second prompt" {
+				skipped = &rows[i]
+			}
+		}
+		require.NotNil(t, skipped)
+		assert.Equal(t, store.RunSkipped, skipped.Status)
+		assert.Contains(t, skipped.Error, "global run limit")
+		assert.Nil(t, skipped.JobID) // unlinked by the delete
+	})
+
+	t.Run("queued_run_keeps_stub_session_open", func(t *testing.T) {
+		// the queued flow against a real manager and stub server: the run lands,
+		// the row goes and the session is never told to exit; not parallel, since
+		// it pins AJENT_HOME for the process-wide discovery default
+		env, _ := newE2ESched(t, nil)
+
+		env.onSubmit("review the diff", func(pendingID string) {
+			env.stub.Broadcast(ctl.EventEntryAppend, ctl.EntryData{
+				Entry: ctl.Entry{ID: "e1", Type: "message",
+					Data: json.RawMessage(`{"queueIds":["` + pendingID + `"]}`)},
+			})
+			env.stub.Broadcast(ctl.EventIdle, ctl.IdleData{Idle: true})
+		})
+
+		id := env.h.addQueuedJob("queued sweep", "review the diff")
+		env.h.sched.Start(t.Context())
+		t.Cleanup(env.h.sched.Stop)
+
+		require.Eventually(t, func() bool {
+			_, err := env.h.store.JobByID(env.h.t.Context(), id)
+			return errors.Is(err, store.ErrNotFound)
+		}, settleWindow, 10*time.Millisecond)
+
+		// the prompt landed, and no stop line ever followed it
+		var submitted bool
+		for _, req := range env.stub.Received() {
+			if req.Method != ctl.MethodSubmit {
+				continue
+			}
+			var p ctl.SubmitParams
+			_ = json.Unmarshal(req.Params, &p)
+			if p.Line == "review the diff" {
+				submitted = true
+			} else {
+				assert.False(t, strings.HasPrefix(p.Line, "/exit"),
+					"the queued session must stay open")
+			}
+		}
+		assert.True(t, submitted)
+	})
+
 	t.Run("end_to_end_through_fleet", func(t *testing.T) {
 		// one run against a real manager and stub server, so the watcher consumes
 		// genuinely encoded frames from a live actor; not parallel, since it pins

@@ -62,7 +62,8 @@ type Job struct {
 	Tools               string     `json:"tools,omitempty"` // enabled tool names
 	ToolsCustom         bool       `json:"toolsCustom"`     // off keeps the launch defaults
 	Enabled             bool       `json:"enabled"`
-	ScheduleKind        string     `json:"scheduleKind"` // once, interval or daily
+	Queued              bool       `json:"queued,omitempty"` // one-shot parked by the queue endpoint
+	ScheduleKind        string     `json:"scheduleKind"`     // once, interval or daily
 	IntervalSeconds     int        `json:"intervalSeconds,omitempty"`
 	DailyTime           string     `json:"dailyTime,omitempty"` // HH:MM wall clock in TZ
 	TZ                  string     `json:"tz,omitempty"`        // IANA name; empty means server local
@@ -99,17 +100,17 @@ type Run struct {
 func (s *Store) CreateJob(ctx context.Context, j Job) (int64, error) {
 	const q = `INSERT INTO jobs
         (name, workspace, command_prefix, prompt, spawn_mode, session_target,
-         model, permission, tools, tools_custom, enabled, schedule_kind,
+         model, permission, tools, tools_custom, enabled, queued, schedule_kind,
          interval_seconds, daily_time, tz, weekdays, next_run_at, on_missed,
          overlap, timeout_minutes, keep_alive, run_when_idle,
          idle_max_delay_seconds, trigger_command, trigger_on, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                 ?, ?, ?, ?, ?)`
 	res, err := s.db.ExecContext(ctx, q,
 		j.Name, j.Workspace, j.CommandPrefix, j.Prompt, j.SpawnMode, j.SessionTarget,
 		j.Model, j.Permission, j.Tools, boolInt(j.ToolsCustom), boolInt(j.Enabled),
-		j.ScheduleKind, j.IntervalSeconds, j.DailyTime, j.TZ, j.Weekdays,
-		unixSecPtr(j.NextRunAt), j.OnMissed, j.Overlap, j.TimeoutMinutes,
+		boolInt(j.Queued), j.ScheduleKind, j.IntervalSeconds, j.DailyTime, j.TZ,
+		j.Weekdays, unixSecPtr(j.NextRunAt), j.OnMissed, j.Overlap, j.TimeoutMinutes,
 		boolInt(j.KeepAlive), boolInt(j.RunWhenIdle), j.IdleMaxDelaySeconds,
 		j.TriggerCommand, j.TriggerOn, unixSec(j.CreatedAt))
 	if isUniqueViolation(err) {
@@ -130,17 +131,18 @@ func (s *Store) UpdateJob(ctx context.Context, j Job) error {
 	const q = `UPDATE jobs SET
         name = ?, workspace = ?, command_prefix = ?, prompt = ?, spawn_mode = ?,
         session_target = ?, model = ?, permission = ?, tools = ?,
-        tools_custom = ?, enabled = ?, schedule_kind = ?, interval_seconds = ?,
-        daily_time = ?, tz = ?, weekdays = ?, next_run_at = ?, on_missed = ?,
-        overlap = ?, timeout_minutes = ?, keep_alive = ?, run_when_idle = ?,
-        idle_max_delay_seconds = ?, trigger_command = ?, trigger_on = ?
+        tools_custom = ?, enabled = ?, queued = ?, schedule_kind = ?,
+        interval_seconds = ?, daily_time = ?, tz = ?, weekdays = ?,
+        next_run_at = ?, on_missed = ?, overlap = ?, timeout_minutes = ?,
+        keep_alive = ?, run_when_idle = ?, idle_max_delay_seconds = ?,
+        trigger_command = ?, trigger_on = ?
         WHERE id = ?`
 	res, err := s.db.ExecContext(ctx, q,
 		j.Name, j.Workspace, j.CommandPrefix, j.Prompt, j.SpawnMode,
 		j.SessionTarget, j.Model, j.Permission, j.Tools, boolInt(j.ToolsCustom),
-		boolInt(j.Enabled), j.ScheduleKind, j.IntervalSeconds, j.DailyTime,
-		j.TZ, j.Weekdays, unixSecPtr(j.NextRunAt), j.OnMissed, j.Overlap,
-		j.TimeoutMinutes, boolInt(j.KeepAlive), boolInt(j.RunWhenIdle),
+		boolInt(j.Enabled), boolInt(j.Queued), j.ScheduleKind, j.IntervalSeconds,
+		j.DailyTime, j.TZ, j.Weekdays, unixSecPtr(j.NextRunAt), j.OnMissed,
+		j.Overlap, j.TimeoutMinutes, boolInt(j.KeepAlive), boolInt(j.RunWhenIdle),
 		j.IdleMaxDelaySeconds, j.TriggerCommand, j.TriggerOn, j.ID)
 	if isUniqueViolation(err) {
 		return fmt.Errorf("%w: job %q", ErrConflict, j.Name)
@@ -219,7 +221,7 @@ func (s *Store) EarliestNextRun(ctx context.Context) (*time.Time, error) {
 
 // jobColumns is the projection every jobs query reads.
 const jobColumns = `id, name, workspace, command_prefix, prompt, spawn_mode,
-    session_target, model, permission, tools, tools_custom, enabled,
+    session_target, model, permission, tools, tools_custom, enabled, queued,
     schedule_kind, interval_seconds, daily_time, tz, weekdays, next_run_at,
     on_missed, overlap, timeout_minutes, keep_alive, run_when_idle,
     idle_max_delay_seconds, trigger_command, trigger_on, created_at`
@@ -252,6 +254,7 @@ func scanJob(row interface{ Scan(...any) error }) (Job, error) {
 		j            Job
 		nextRun      sql.NullInt64
 		enabled      int64
+		queued       int64
 		toolsCustom  int64
 		keepAlive    int64
 		runWhenIdle  int64
@@ -260,13 +263,14 @@ func scanJob(row interface{ Scan(...any) error }) (Job, error) {
 	)
 	if err := row.Scan(&j.ID, &j.Name, &j.Workspace, &j.CommandPrefix, &j.Prompt,
 		&j.SpawnMode, &j.SessionTarget, &j.Model, &j.Permission, &j.Tools,
-		&toolsCustom, &enabled, &j.ScheduleKind, &j.IntervalSeconds, &j.DailyTime,
-		&j.TZ, &j.Weekdays, &nextRun, &j.OnMissed, &j.Overlap, &j.TimeoutMinutes,
-		&keepAlive, &runWhenIdle, &idleMaxDelay, &j.TriggerCommand, &j.TriggerOn,
-		&createdAt); err != nil {
+		&toolsCustom, &enabled, &queued, &j.ScheduleKind, &j.IntervalSeconds,
+		&j.DailyTime, &j.TZ, &j.Weekdays, &nextRun, &j.OnMissed, &j.Overlap,
+		&j.TimeoutMinutes, &keepAlive, &runWhenIdle, &idleMaxDelay,
+		&j.TriggerCommand, &j.TriggerOn, &createdAt); err != nil {
 		return Job{}, fmt.Errorf("scan job: %w", err)
 	}
 	j.Enabled = enabled != 0
+	j.Queued = queued != 0
 	j.ToolsCustom = toolsCustom != 0
 	j.KeepAlive = keepAlive != 0
 	j.RunWhenIdle = runWhenIdle != 0
@@ -487,6 +491,35 @@ func (s *Store) FailInterruptedRuns(ctx context.Context, now time.Time, reason s
 		return 0, fmt.Errorf("fail interrupted runs: %w", err)
 	}
 	return n, nil
+}
+
+// PruneAbandonedQueued deletes queued rows a crash mid-run left behind: no
+// scheduled slot and no live run, so nothing else will ever remove them.
+// Only enabled rows match, since the queue endpoint never stores a disabled
+// one and a user-disabled row deserves its restart. Run rows survive
+// unlinked, reading as ad-hoc manual runs afterwards.
+func (s *Store) PruneAbandonedQueued(ctx context.Context) (int64, error) {
+	const abandoned = `queued = 1 AND enabled = 1 AND next_run_at IS NULL
+        AND id NOT IN (SELECT job_id FROM runs WHERE status IN ` + liveRunStatuses + `)`
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("prune abandoned queued jobs: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if _, err = tx.ExecContext(ctx, `UPDATE runs SET job_id = NULL WHERE job_id IN
+        (SELECT id FROM jobs WHERE `+abandoned+`)`); err != nil {
+		return 0, fmt.Errorf("prune abandoned queued jobs: %w", err)
+	}
+	res, err := tx.ExecContext(ctx, `DELETE FROM jobs WHERE `+abandoned)
+	if err != nil {
+		return 0, fmt.Errorf("prune abandoned queued jobs: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("prune abandoned queued jobs: %w", err)
+	}
+	return n, tx.Commit()
 }
 
 // PruneRuns deletes run rows older than cutoff and then keeps at most keepMax

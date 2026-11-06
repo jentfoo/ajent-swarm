@@ -173,6 +173,105 @@ func TestJobs(t *testing.T) {
 		require.ErrorIs(t, err, ErrNotFound)
 	})
 
+	t.Run("queued_roundtrip", func(t *testing.T) {
+		st := newTestStore(t)
+		ctx := t.Context()
+
+		slot := time.Unix(5000, 0)
+		id, err := st.CreateJob(ctx, Job{
+			Name:         "queued sweep",
+			Workspace:    "/repo",
+			Prompt:       "review the diff",
+			SpawnMode:    "new",
+			Enabled:      true,
+			Queued:       true,
+			ScheduleKind: ScheduleOnce,
+			NextRunAt:    &slot,
+			OnMissed:     MissSkip,
+			Overlap:      OverlapRun,
+			KeepAlive:    true,
+			RunWhenIdle:  true,
+			CreatedAt:    time.Unix(1000, 0),
+		})
+		require.NoError(t, err)
+
+		got, err := st.JobByID(ctx, id)
+		require.NoError(t, err)
+		assert.True(t, got.Queued)
+		require.NotNil(t, got.NextRunAt)
+		assert.True(t, got.NextRunAt.Equal(slot))
+
+		got.Prompt = "changed"
+		require.NoError(t, st.UpdateJob(ctx, got))
+		again, err := st.JobByID(ctx, id)
+		require.NoError(t, err)
+		assert.True(t, again.Queued)
+		assert.Equal(t, "changed", again.Prompt)
+
+		again.Queued = false // the flag clears like any other column
+		require.NoError(t, st.UpdateJob(ctx, again))
+		cleared, err := st.JobByID(ctx, id)
+		require.NoError(t, err)
+		assert.False(t, cleared.Queued)
+
+		other, err := st.CreateJob(ctx, sampleJob("plain"))
+		require.NoError(t, err)
+		plain, err := st.JobByID(ctx, other)
+		require.NoError(t, err)
+		assert.False(t, plain.Queued)
+	})
+
+	t.Run("prune_abandoned_queued", func(t *testing.T) {
+		st := newTestStore(t)
+		ctx := t.Context()
+
+		past := time.Unix(4000, 0)
+		mkQueued := func(name string, enabled bool, slot *time.Time) int64 {
+			j := sampleJob(name)
+			j.Queued = true
+			j.Enabled = enabled
+			j.NextRunAt = slot
+			id, err := st.CreateJob(ctx, j)
+			require.NoError(t, err)
+			return id
+		}
+		plain, err := st.CreateJob(ctx, sampleJob("plain"))
+		require.NoError(t, err)
+		abandoned := mkQueued("abandoned", true, nil) // crash shape: slot claimed, run gone
+		waiting := mkQueued("waiting", true, &past)
+		disabled := mkQueued("disabled", false, nil) // a user-disabled row survives
+
+		// a live run keeps its queued row: its watcher may still settle it
+		held := mkQueued("held", true, nil)
+		jobID := held
+		_, err = st.BeginManualRun(ctx, jobID, false, 4, Run{JobID: &jobID,
+			Trigger: TriggerSchedule, Status: RunRunning, StartedAt: past})
+		require.NoError(t, err)
+
+		// a crash after the run settled: the row goes and the run unlinks
+		crashed := mkQueued("crashed", true, nil)
+		crashJob := crashed
+		finished := past.Add(time.Minute)
+		crashID, err := st.BeginManualRun(ctx, crashJob, false, 4, Run{JobID: &crashJob,
+			Trigger: TriggerSchedule, Status: RunFailed, FinishedAt: &finished,
+			StartedAt: past})
+		require.NoError(t, err)
+
+		n, err := st.PruneAbandonedQueued(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, int64(2), n)
+
+		_, err = st.JobByID(ctx, abandoned)
+		require.ErrorIs(t, err, ErrNotFound)
+		for _, keep := range []int64{plain, waiting, held, disabled} {
+			_, err = st.JobByID(ctx, keep)
+			require.NoError(t, err)
+		}
+		survivor, err := st.RunByID(ctx, crashID)
+		require.NoError(t, err)
+		assert.Nil(t, survivor.JobID) // history reads as an ad-hoc manual run
+	})
+
 	t.Run("due_jobs_filter_and_order", func(t *testing.T) {
 		st := newTestStore(t)
 		ctx := t.Context()

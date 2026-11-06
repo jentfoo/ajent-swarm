@@ -256,6 +256,21 @@ func (h *testHarness) addJob(name string, mutate func(*store.Job)) int64 {
 	return id
 }
 
+// addQueuedJob inserts one queued one-shot due at once, the exact row shape
+// the queue endpoint stores, and returns its id.
+func (h *testHarness) addQueuedJob(name, prompt string) int64 {
+	h.t.Helper()
+	return h.addJob(name, func(j *store.Job) {
+		j.Queued = true
+		j.ScheduleKind = store.ScheduleOnce
+		j.Prompt = prompt
+		j.KeepAlive = true
+		j.RunWhenIdle = true
+		slot := time.Now().Add(10 * time.Millisecond)
+		j.NextRunAt = &slot
+	})
+}
+
 // runRows lists the runs recorded so far for one job.
 func (h *testHarness) runRows(jobID int64) []store.Run {
 	h.t.Helper()
@@ -603,6 +618,85 @@ func TestScheduler(t *testing.T) {
 		})
 		h.start(t.Context())
 		h.waitForRun(id, store.RunOK)
+	})
+
+	t.Run("idle_hold_never_spins", func(t *testing.T) {
+		h := newHarness(t, func(o *Options) { o.Tick = 50 * time.Millisecond })
+
+		slot := time.Now().Add(-time.Minute) // due now, held by a busy fleet
+		id := h.addJob("held", func(j *store.Job) {
+			j.IntervalSeconds = 3600
+			j.NextRunAt = &slot
+			j.RunWhenIdle = true
+		})
+		h.runner.mu.Lock()
+		h.runner.busyAt = time.Now()
+		h.runner.mu.Unlock()
+
+		// without the hold floor the past slot collapses the wait to zero and the
+		// loop spins two queries per round for the whole idle window
+		assert.Positive(t, h.sched.nextWait(true))
+		assert.LessOrEqual(t, h.sched.nextWait(true), 50*time.Millisecond)
+
+		// no held job: a past slot still means due now, exactly as before
+		assert.Zero(t, h.sched.nextWait(false))
+
+		// and once the fleet quiets the wait runs out and the fire lands
+		h.runner.mu.Lock()
+		h.runner.busyAt = time.Now().Add(-11 * time.Minute)
+		h.runner.mu.Unlock()
+		h.start(t.Context())
+		h.waitForRun(id, store.RunOK)
+	})
+
+	t.Run("startup_sweeps_abandoned_queued", func(t *testing.T) {
+		h := newHarness(t, nil)
+
+		mkQueued := func(name string, slot *time.Time) int64 {
+			return h.addJob(name, func(j *store.Job) {
+				j.Queued = true
+				j.ScheduleKind = store.ScheduleOnce
+				j.KeepAlive = true
+				j.RunWhenIdle = true
+				j.Prompt = name + " prompt"
+				j.NextRunAt = slot
+			})
+		}
+		future := time.Now().Add(time.Hour)     // beyond the loop's reach: no fire races
+		abandoned := mkQueued("abandoned", nil) // crash shape: slot claimed, run gone
+		waiting := mkQueued("waiting", &future)
+
+		// the realistic crash leaves a live run behind; the interrupted sweep
+		// settles it before the queued sweep decides
+		crashed := mkQueued("crashed", nil)
+		jobID := crashed
+		_, err := h.store.BeginManualRun(h.t.Context(), jobID, false, 4, store.Run{
+			JobID: &jobID, Prompt: "crashed prompt", Trigger: store.TriggerSchedule,
+			Status: store.RunRunning, StartedAt: time.Now()})
+		require.NoError(t, err)
+
+		h.start(t.Context())
+
+		for _, gone := range []int64{abandoned, crashed} {
+			require.Eventually(t, func() bool {
+				_, err := h.store.JobByID(h.t.Context(), gone)
+				return errors.Is(err, store.ErrNotFound)
+			}, settleWindow, 10*time.Millisecond)
+		}
+		_, err = h.store.JobByID(h.t.Context(), waiting)
+		require.NoError(t, err) // a waiting row keeps its slot and survives
+
+		rows, err := h.store.Runs(h.t.Context(), 0, 100)
+		require.NoError(t, err)
+		var settled *store.Run
+		for i := range rows {
+			if rows[i].Prompt == "crashed prompt" {
+				settled = &rows[i]
+			}
+		}
+		require.NotNil(t, settled)
+		assert.Equal(t, store.RunFailed, settled.Status)
+		assert.Nil(t, settled.JobID) // unlinked, history reads as an ad-hoc run
 	})
 
 	t.Run("trigger_command_gate", func(t *testing.T) {

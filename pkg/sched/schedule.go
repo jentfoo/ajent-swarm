@@ -261,6 +261,9 @@ func ValidateJob(j *store.Job) error {
 	if err := CheckWorkspace(j.Workspace); err != nil {
 		return err
 	}
+	if j.Queued {
+		normalizeQueued(j)
+	}
 
 	j.SpawnMode = strings.TrimSpace(j.SpawnMode)
 	if j.SpawnMode == "" {
@@ -365,6 +368,23 @@ func ValidateJob(j *store.Job) error {
 		return fmt.Errorf("unknown trigger_on policy %q", j.TriggerOn)
 	}
 	return nil
+}
+
+// normalizeQueued pins the stored shape a queued row must keep: a once slot
+// spawning a new session that waits for an idle fleet without a skip cap and
+// leaves that session open. Edits round trip through ValidateJob, so these
+// fields cannot drift while the row waits.
+func normalizeQueued(j *store.Job) {
+	j.ScheduleKind = store.ScheduleOnce
+	j.SpawnMode = string(fleet.LaunchNew)
+	j.SessionTarget = ""
+	j.IntervalSeconds = 0
+	j.DailyTime = ""
+	j.TZ = ""
+	j.Weekdays = ""
+	j.RunWhenIdle = true
+	j.IdleMaxDelaySeconds = 0
+	j.KeepAlive = true
 }
 
 // weekdaysToken renders a weekday set back into its stored comma form,

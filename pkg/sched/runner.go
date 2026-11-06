@@ -458,8 +458,10 @@ func orNone(s string) string {
 }
 
 // finish records the terminal status, then tears the session down unless the
-// job keeps it alive. Bookkeeping detaches from shutdown cancellation so a
-// stopping service still writes what it knows.
+// job keeps it alive. A queued job's row goes once its outcome is recorded;
+// the keep/stop decision reads the stored row first so KeepAlive still wins.
+// Bookkeeping detaches from shutdown cancellation so a stopping service still
+// writes what it knows.
 func (s *Scheduler) finish(run store.Run, j store.Job, status string, note string) {
 	fin := time.Now()
 	run.Status = status
@@ -471,7 +473,11 @@ func (s *Scheduler) finish(run store.Run, j store.Job, status string, note strin
 	s.log.Info("run finished", "job", j.ID, "session", run.SessionID,
 		"status", status)
 
-	if !s.stopAfter(run) {
+	stop := s.stopAfter(run)
+	if j.Queued {
+		s.dropQueuedJob(j.ID)
+	}
+	if !stop {
 		return
 	}
 	stopCtx, cancel := context.WithTimeout(s.ctx, stopCallWait)
@@ -479,6 +485,15 @@ func (s *Scheduler) finish(run store.Run, j store.Job, status string, note strin
 	if err := s.runner.StopSession(stopCtx, run.SessionID); err != nil {
 		s.log.Warn("run session could not be stopped", "session",
 			run.SessionID, "err", err)
+	}
+}
+
+// dropQueuedJob removes a queued row whose run reached a terminal outcome;
+// a concurrent drop (a user deleting it mid-run) is fine. DeleteJob unlinks
+// its runs, so history rows read as ad-hoc manual runs afterwards.
+func (s *Scheduler) dropQueuedJob(id int64) {
+	if err := s.store.DeleteJob(s.ctx, id); err != nil && !errors.Is(err, store.ErrNotFound) {
+		s.log.Warn("queued job not removed", "job", id, "err", err)
 	}
 }
 

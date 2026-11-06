@@ -41,6 +41,18 @@ const run: Run = {
   error: 'submit refused: dialog holds input',
 }
 
+// A queued row exercises the badge and the idle label beside its wait.
+const queuedJob: Job = {
+  ...job,
+  id: 7,
+  name: 'later',
+  queued: true,
+  scheduleKind: 'once',
+  nextRunAt: '2026-11-05T21:00:00Z',
+  keepAlive: true,
+  runWhenIdle: true,
+}
+
 // A one-shot source exercises the duplicate path's fire-time clearing.
 const onceJob: Job = {
   ...job,
@@ -57,6 +69,7 @@ const fireReplies: Array<{ id: number; ok: boolean }> = []
 let updateBodies: Array<Record<string, unknown>> = []
 let updateWaiters: Array<(r: Response) => void> = []
 const createBodies: Array<Record<string, unknown>> = []
+const queueBodies: Array<Record<string, unknown>> = []
 
 describe('JobsHome', () => {
   let sockets: MockWebSocket[]
@@ -69,6 +82,7 @@ describe('JobsHome', () => {
     updateBodies = []
     updateWaiters = []
     createBodies.length = 0
+    queueBodies.length = 0
     vi.stubGlobal(
       'WebSocket',
       class extends MockWebSocket {
@@ -89,13 +103,18 @@ describe('JobsHome', () => {
         if (base === '/api/sessions' || base === '/api/attention' || base === '/api/models') {
           return Promise.resolve(Response.json([]))
         }
-        // EditorWithFacts loads tool options beside the models listing
+        // the job forms load tool options beside the models listing
         if (base === '/api/tools/options') return Promise.resolve(Response.json([]))
         if (base === '/api/jobs/preview') return Promise.resolve(Response.json({ times: [] }))
         if (base === '/api/jobs' && init?.method === 'POST') {
           const body = JSON.parse(String(init.body)) as Record<string, unknown>
           createBodies.push(body)
           return Promise.resolve(Response.json({ ...body, id: 77 }))
+        }
+        if (base === '/api/jobs/queue' && init?.method === 'POST') {
+          const body = JSON.parse(String(init.body)) as Record<string, unknown>
+          queueBodies.push(body)
+          return Promise.resolve(Response.json({ ...body, id: 78, queued: true }))
         }
         const listJobs = base === '/api/jobs' && (!init?.method || init.method === 'GET')
         if (listJobs) {
@@ -276,6 +295,44 @@ describe('JobsHome', () => {
     updateWaiters.shift()!(Response.json(job))
     await waitFor(() => expect(jobsFetches).toBe(3))
     expect(screen.getByRole('checkbox', { name: 'Disable nightly sweep' })).toBeChecked()
+  })
+
+  it('queues a prompt from the header action', async () => {
+    const user = userEvent.setup()
+    renderJobs()
+    await screen.findByText('nightly sweep')
+
+    await user.click(screen.getByRole('link', { name: 'Queue' }))
+    expect(await screen.findByRole('dialog', { name: 'Queue a prompt' })).toBeInTheDocument()
+
+    await user.type(screen.getByRole('textbox', { name: /^Name/ }), 'later')
+    await user.type(screen.getByLabelText(/Workspace directory/), '/repo')
+    await user.type(screen.getByRole('textbox', { name: /^Prompt/ }), 'review the diff')
+    await user.click(screen.getByRole('button', { name: 'Queue prompt' }))
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Queued “later”.')
+    expect(queueBodies).toHaveLength(1)
+    expect(queueBodies[0]).toMatchObject({
+      name: 'later',
+      workspace: '/repo',
+      prompt: 'review the diff',
+    })
+    // the composer closed back to the list, which reloaded with the new row
+    expect(screen.queryByRole('dialog', { name: 'Queue a prompt' })).toBeNull()
+  })
+
+  it('marks queued rows with a badge and the idle wait', async () => {
+    jobsReply = { rows: [job, queuedJob] }
+    renderJobs()
+
+    const row = await screen.findByTestId('job-7')
+    expect(row.textContent).toContain('queued')
+    expect(row.textContent).toContain('when idle')
+    expect(row.textContent).not.toContain('once at') // no schedule summary
+
+    // the waiting row sorts first: its slot is the oldest one due
+    const ids = screen.getAllByTestId(/^job-\d+$/).map((r) => r.getAttribute('data-testid'))
+    expect(ids).toEqual(['job-7', 'job-5'])
   })
 
   it('renders rows with the earliest next run first', async () => {

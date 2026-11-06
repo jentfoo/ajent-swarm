@@ -363,6 +363,7 @@ export interface Job {
   tools?: string // comma list of enabled tool names; custom sets only
   toolsCustom?: boolean // off keeps the launched session's default set
   enabled: boolean
+  queued?: boolean // one-shot parked by the queue endpoint; server-owned
   scheduleKind: ScheduleKind
   intervalSeconds?: number
   dailyTime?: string // HH:MM wall clock in tz
@@ -378,6 +379,21 @@ export interface Job {
   triggerCommand?: string // shell gate evaluated before each launch
   triggerOn?: TriggerOn // which exit outcome lets the job run
   createdAt: string
+}
+
+// QueueRequest is the POST /api/jobs/queue body: one prompt parked until the
+// fleet is idle. Name, workspace and prompt are required; the optional fields
+// shape the launch. The fixed job shape around them is server-owned.
+export interface QueueRequest {
+  name: string
+  workspace: string
+  prompt: string
+  model?: string
+  permission?: string
+  toolsCustom?: boolean
+  tools?: string
+  triggerCommand?: string
+  triggerOn?: TriggerOn
 }
 
 // Run is one row of run history from /api/runs. sessionId stays absent until

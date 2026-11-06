@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jentfoo/ajent-swarm/pkg/fleet"
 	"github.com/jentfoo/ajent-swarm/pkg/sched"
 	"github.com/jentfoo/ajent-swarm/pkg/store"
 )
@@ -120,6 +121,7 @@ func (s *apiServer) handleJobCreate(w http.ResponseWriter, r *http.Request) {
 	j := req.Job
 	j.ID = 0
 	j.CreatedAt = time.Now()
+	j.Queued = false // queued rows come from the queue endpoint only
 	req.applyEnabled(&j, true)
 
 	if err := sched.ValidateJob(&j); err != nil {
@@ -184,7 +186,19 @@ func (s *apiServer) handleJobUpdate(w http.ResponseWriter, r *http.Request) {
 	j := req.Job
 	j.ID = current.ID
 	j.CreatedAt = current.CreatedAt
+	j.Queued = current.Queued // the marker is server-owned, like the row's id
 	req.applyEnabled(&j, current.Enabled)
+	// A queued row's slot is server-owned too: edits keep the queued-at
+	// anchor, and re-enabling one whose slot already fired restarts the wait.
+	if j.Queued && j.NextRunAt == nil {
+		switch {
+		case current.NextRunAt != nil:
+			j.NextRunAt = current.NextRunAt
+		case j.Enabled:
+			slot := time.Now()
+			j.NextRunAt = &slot
+		}
+	}
 
 	if err := sched.ValidateJob(&j); err != nil {
 		writeError(w, http.StatusBadRequest, codeInvalidRequest, err.Error())
@@ -208,6 +222,76 @@ func (s *apiServer) handleJobUpdate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "job_not_found", "")
 	default:
 		writeError(w, http.StatusInternalServerError, codeInternalError, "")
+	}
+}
+
+// queueRequest is the POST /api/jobs/queue body: one prompt to park until the
+// fleet is idle, plus the optional launch shaping it runs with. Name,
+// workspace and prompt are required.
+type queueRequest struct {
+	Name           string `json:"name"`
+	Workspace      string `json:"workspace"`
+	Prompt         string `json:"prompt"`
+	Model          string `json:"model,omitempty"`
+	Permission     string `json:"permission,omitempty"`
+	ToolsCustom    bool   `json:"toolsCustom,omitempty"`
+	Tools          string `json:"tools,omitempty"`
+	TriggerCommand string `json:"triggerCommand,omitempty"`
+	TriggerOn      string `json:"triggerOn,omitempty"`
+}
+
+// handleJobQueue stores one queued prompt: a job that waits for an idle fleet,
+// runs once in a fresh session and leaves that session open for review. The
+// fixed shape is built here and pinned by validation, so the body carries
+// only what the caller actually chooses.
+func (s *apiServer) handleJobQueue(w http.ResponseWriter, r *http.Request) {
+	var req queueRequest
+	if !readRequest(w, r, &req) {
+		return
+	}
+	if strings.TrimSpace(req.Prompt) == "" {
+		writeError(w, http.StatusBadRequest, codeInvalidRequest, "prompt is required")
+		return
+	}
+
+	now := time.Now()
+	j := store.Job{
+		Name:           req.Name,
+		Workspace:      req.Workspace,
+		Prompt:         req.Prompt,
+		SpawnMode:      string(fleet.LaunchNew),
+		Model:          req.Model,
+		Permission:     req.Permission,
+		Tools:          req.Tools,
+		ToolsCustom:    req.ToolsCustom,
+		Enabled:        true,
+		Queued:         true,
+		ScheduleKind:   store.ScheduleOnce,
+		NextRunAt:      &now, // due at once: the idle hold does the waiting
+		KeepAlive:      true,
+		RunWhenIdle:    true,
+		TriggerCommand: req.TriggerCommand,
+		TriggerOn:      req.TriggerOn,
+		CreatedAt:      now,
+	}
+	if err := sched.ValidateJob(&j); err != nil {
+		writeError(w, http.StatusBadRequest, codeInvalidRequest, err.Error())
+		return
+	}
+
+	id, err := s.sched.CreateJob(r.Context(), j)
+	switch {
+	case errors.Is(err, store.ErrConflict):
+		writeError(w, http.StatusConflict, "conflict", err.Error())
+	case err != nil:
+		writeError(w, http.StatusInternalServerError, codeInternalError, "")
+	default:
+		created, err := s.sched.JobByID(r.Context(), id)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, codeInternalError, "")
+			return
+		}
+		writeJSON(w, http.StatusCreated, created)
 	}
 }
 

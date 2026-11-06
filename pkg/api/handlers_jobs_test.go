@@ -492,6 +492,134 @@ func TestJobHandlers(t *testing.T) {
 		})
 	})
 
+	t.Run("queue_endpoint", func(t *testing.T) {
+		env, client := newSchedEnv(t)
+
+		queue := func(mutate map[string]any) (int, store.Job) {
+			t.Helper()
+			body := map[string]any{
+				"name":      "someday",
+				"workspace": env.dir,
+				"prompt":    "review the diff",
+			}
+			for k, v := range mutate {
+				body[k] = v
+			}
+			code, got := callJSON[store.Job](t, client, env.server.URL,
+				http.MethodPost, "/api/jobs/queue", body)
+			return code, got
+		}
+
+		t.Run("creates_fixed_shape_row", func(t *testing.T) {
+			code, created := queue(map[string]any{
+				"model":          "p/m",
+				"permission":     "allow-all",
+				"toolsCustom":    true,
+				"tools":          "builtin:read",
+				"triggerCommand": "git pull --ff-only",
+			})
+			require.Equal(t, http.StatusCreated, code)
+
+			assert.True(t, created.Queued)
+			assert.True(t, created.Enabled)
+			assert.Equal(t, store.ScheduleOnce, created.ScheduleKind)
+			assert.Equal(t, "new", created.SpawnMode)
+			assert.True(t, created.RunWhenIdle)
+			assert.Zero(t, created.IdleMaxDelaySeconds) // waits forever, never skips
+			assert.True(t, created.KeepAlive)           // the session survives the run
+			require.NotNil(t, created.NextRunAt)        // due at once
+			assert.Equal(t, "p/m", created.Model)
+			assert.Equal(t, "allow-all", created.Permission)
+			assert.True(t, created.ToolsCustom)
+			assert.Equal(t, "builtin:read", created.Tools)
+			assert.Equal(t, "git pull --ff-only", created.TriggerCommand)
+
+			// the scheduler never started, so the row sits waiting exactly as
+			// the queue means it to
+			j, err := env.sched.JobByID(t.Context(), created.ID)
+			require.NoError(t, err)
+			assert.True(t, j.Queued)
+		})
+
+		t.Run("prompt_is_required", func(t *testing.T) {
+			code, _ := queue(map[string]any{"prompt": "   "})
+			assert.Equal(t, http.StatusBadRequest, code)
+		})
+
+		t.Run("name_is_required", func(t *testing.T) {
+			code, _ := queue(map[string]any{"name": ""})
+			assert.Equal(t, http.StatusBadRequest, code)
+		})
+
+		t.Run("workspace_must_exist", func(t *testing.T) {
+			code, _ := queue(map[string]any{"workspace": "/nonexistent-swarm-test"})
+			assert.Equal(t, http.StatusBadRequest, code)
+		})
+
+		t.Run("unknown_field_rejected", func(t *testing.T) {
+			// the body is strict: schedule shaping belongs to the full editor
+			code, _ := queue(map[string]any{"scheduleKind": "interval"})
+			assert.Equal(t, http.StatusBadRequest, code)
+		})
+
+		t.Run("duplicate_name_conflicts", func(t *testing.T) {
+			code, _ := queue(map[string]any{"name": "taken"})
+			require.Equal(t, http.StatusCreated, code)
+
+			code, _ = queue(map[string]any{"name": "taken"})
+			assert.Equal(t, http.StatusConflict, code)
+
+			// and against an ordinary job's name too
+			env.createJob(t, client, "plain", nil)
+			code, _ = queue(map[string]any{"name": "plain"})
+			assert.Equal(t, http.StatusConflict, code)
+		})
+
+		t.Run("update_preserves_the_marker", func(t *testing.T) {
+			// an editor edit that omits the flag cannot un-queue the row, and the
+			// wait keeps its anchor even when the slot rides nowhere
+			code, created := queue(map[string]any{"name": "editme"})
+			require.Equal(t, http.StatusCreated, code)
+			require.NotNil(t, created.NextRunAt)
+
+			code, updated := callJSON[store.Job](t, client, env.server.URL,
+				http.MethodPut, "/api/jobs/"+strconv.FormatInt(created.ID, 10),
+				map[string]any{
+					"name":      "editme",
+					"workspace": env.dir,
+					"prompt":    "changed",
+				})
+			require.Equal(t, http.StatusOK, code)
+			assert.True(t, updated.Queued)
+			assert.Equal(t, "changed", updated.Prompt)
+			require.NotNil(t, updated.NextRunAt)
+			assert.True(t, updated.NextRunAt.Equal(*created.NextRunAt))
+		})
+
+		t.Run("re_enabled_queue_restarts_wait", func(t *testing.T) {
+			code, created := queue(map[string]any{"name": "requeue"})
+			require.Equal(t, http.StatusCreated, code)
+
+			// disabling unschedules like any other row
+			code, off := callJSON[store.Job](t, client, env.server.URL,
+				http.MethodPut, "/api/jobs/"+strconv.FormatInt(created.ID, 10),
+				map[string]any{"name": "requeue", "workspace": env.dir,
+					"prompt": "review the diff", "enabled": false,
+					"nextRunAt": created.NextRunAt})
+			require.Equal(t, http.StatusOK, code)
+			assert.Nil(t, off.NextRunAt)
+
+			// re-enabling without a slot restarts the idle wait instead of 400ing
+			code, on := callJSON[store.Job](t, client, env.server.URL,
+				http.MethodPut, "/api/jobs/"+strconv.FormatInt(created.ID, 10),
+				map[string]any{"name": "requeue", "workspace": env.dir,
+					"prompt": "review the diff", "enabled": true})
+			require.Equal(t, http.StatusOK, code)
+			assert.True(t, on.Queued)
+			require.NotNil(t, on.NextRunAt)
+		})
+	})
+
 	t.Run("route_rejects_wrong_method", func(t *testing.T) {
 		env, client := newSchedEnv(t)
 

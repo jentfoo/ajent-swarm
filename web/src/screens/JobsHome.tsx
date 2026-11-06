@@ -9,6 +9,7 @@ import { usePoll } from '../hooks/usePoll'
 import { useAuth } from '../providers/auth'
 import { tildePath } from '../session/names'
 import { JobEditor } from '../jobs/JobEditor'
+import { QueueComposer } from '../jobs/QueueComposer'
 import { duplicateDraft } from '../jobs/jobDraft'
 import type { JobDraft } from '../jobs/jobDraft'
 import { JobTabs } from '../jobs/JobTabs'
@@ -39,9 +40,11 @@ export default function JobsHome() {
   // Monotonic load token, so only the newest load's response applies.
   const loadToken = useRef(0)
 
-  // Editing state derives from the route: /jobs/new or /jobs/<id>.
+  // Editing state derives from the route: /jobs/new, /jobs/queue or /jobs/<id>.
+  // The fixed routes ride the :jobId param the same way 'new' always has, so
+  // both AuthGate trees serve them without extra registrations.
   const editingId =
-    jobId === undefined ? undefined : jobId === 'new' ? ('new' as const) : Number(jobId)
+    jobId === undefined || jobId === 'new' || jobId === 'queue' ? jobId : Number(jobId)
   const editing =
     typeof editingId === 'number' && !Number.isNaN(editingId)
       ? jobs?.find((j) => j.id === editingId)
@@ -102,6 +105,15 @@ export default function JobsHome() {
     [closeEditor, load],
   )
 
+  const onQueued = useCallback(
+    async (job: Job) => {
+      setNotice(`Queued “${job.name}”.`)
+      await closeEditor()
+      void load()
+    },
+    [closeEditor, load],
+  )
+
   // toggle flips the row optimistically and reverts when the backend refuses.
   // After the request settles a fresh load re-syncs the row with server truth
   // (a toggle moves nextRunAt too). The row stays shielded from polls until
@@ -145,11 +157,16 @@ export default function JobsHome() {
         <h1 style={{ margin: 0, fontSize: 'inherit' }}>Scheduled jobs</h1>
         <span className="spacer" style={{ flex: 1 }} />
         {editingId === undefined && (
-          <Link to="/jobs/new">
-            <button type="button" className="primary">
-              New job
-            </button>
-          </Link>
+          <>
+            <Link to="/jobs/queue">
+              <button type="button">Queue</button>
+            </Link>
+            <Link to="/jobs/new">
+              <button type="button" className="primary">
+                New job
+              </button>
+            </Link>
+          </>
         )}
       </div>
 
@@ -167,7 +184,10 @@ export default function JobsHome() {
       {jobs === null && error === '' ? (
         <p className="muted">Loading jobs…</p>
       ) : jobs !== null && jobs.length === 0 && editingId === undefined ? (
-        <p className="muted">No scheduled jobs yet. Create one to launch ajent on a schedule.</p>
+        <p className="muted">
+          No scheduled jobs yet. Create one to launch ajent on a schedule, or queue a single prompt
+          for the next idle moment.
+        </p>
       ) : (
         jobs !== null &&
         jobs.length > 0 && (
@@ -204,6 +224,8 @@ export default function JobsHome() {
         </p>
       ) : jobs === null && (typeof editingId === 'number' || wantsSeed) ? (
         <p className="muted">Loading job…</p>
+      ) : editingId === 'queue' ? (
+        <QueueWithFacts onClose={closeEditor} onQueued={onQueued} />
       ) : editingId !== undefined ? (
         <EditorWithFacts job={editing} seed={seed} onClose={closeEditor} onSaved={onSaved} />
       ) : null}
@@ -211,20 +233,10 @@ export default function JobsHome() {
   )
 }
 
-// EditorWithFacts gathers the picker facts the editor suggests from: known
+// useJobFacts gathers the picker facts the job forms suggest from: known
 // workspaces across live and saved sessions via the shared launch-facts hook,
 // model keys and tool rows from live ones.
-function EditorWithFacts({
-  job,
-  seed,
-  onClose,
-  onSaved,
-}: {
-  job?: Job
-  seed?: JobDraft
-  onClose: () => void
-  onSaved: (job: Job | undefined) => Promise<void>
-}) {
+function useJobFacts() {
   const { models, workspaceOptions } = useLaunchFacts()
   const [toolOptions, setToolOptions] = useState<ToolState[]>([])
 
@@ -239,16 +251,51 @@ function EditorWithFacts({
     }
   }, [])
 
+  return { models: models.map((m) => m.key), workspaceOptions, toolOptions }
+}
+
+function EditorWithFacts({
+  job,
+  seed,
+  onClose,
+  onSaved,
+}: {
+  job?: Job
+  seed?: JobDraft
+  onClose: () => void
+  onSaved: (job: Job | undefined) => Promise<void>
+}) {
+  const facts = useJobFacts()
+
   // The editor suggests model keys through its free-text datalist; browsers
   // only offer plain options there, so grouping stays in the select pickers.
   return (
     <JobEditor
       job={job}
       seed={seed}
-      workspaces={workspaceOptions}
-      models={models.map((m) => m.key)}
-      toolOptions={toolOptions}
+      workspaces={facts.workspaceOptions}
+      models={facts.models}
+      toolOptions={facts.toolOptions}
       onSaved={onSaved}
+      onCancel={onClose}
+    />
+  )
+}
+
+function QueueWithFacts({
+  onClose,
+  onQueued,
+}: {
+  onClose: () => void
+  onQueued: (job: Job) => Promise<void>
+}) {
+  const facts = useJobFacts()
+  return (
+    <QueueComposer
+      workspaces={facts.workspaceOptions}
+      models={facts.models}
+      toolOptions={facts.toolOptions}
+      onQueued={onQueued}
       onCancel={onClose}
     />
   )
@@ -277,8 +324,16 @@ function JobRow({
           </div>
         )}
       </td>
-      <td>{scheduleSummary(job)}</td>
-      <td>{job.enabled && job.nextRunAt ? formatSlot(job.nextRunAt, job.tz) : '—'}</td>
+      <td>{job.queued ? <span className="badge accent">queued</span> : scheduleSummary(job)}</td>
+      <td>
+        {job.queued
+          ? job.nextRunAt
+            ? 'when idle'
+            : '—'
+          : job.enabled && job.nextRunAt
+            ? formatSlot(job.nextRunAt, job.tz)
+            : '—'}
+      </td>
       <td>
         {lastRun === undefined ? (
           '—'

@@ -14,6 +14,7 @@ import type {
   ModelRow,
   ModeReply,
   ModelState,
+  QueueRequest,
   RecallRow,
   ResolveAnswer,
   ResolveReply,
@@ -127,10 +128,12 @@ export const sessions = {
 }
 
 // Scheduled jobs and their run history. preview evaluates one draft schedule
-// server-side through the trigger loop's own arithmetic.
+// server-side through the trigger loop's own arithmetic; queue parks one
+// prompt on a one-shot row that waits for an idle fleet.
 export const jobsApi = {
   list: (signal?: AbortSignal) => get<Job[]>('/api/jobs', { signal }),
   create: (job: Partial<Job>) => post<Job>('/api/jobs', job),
+  queue: (req: QueueRequest) => post<Job>('/api/jobs/queue', req),
   update: (id: number, job: Partial<Job>) => put<Job>(`/api/jobs/${id}`, job),
   remove: (id: number) => del<void>(`/api/jobs/${id}`),
   fire: (id: number) => post<Run>(`/api/jobs/${id}/run`),

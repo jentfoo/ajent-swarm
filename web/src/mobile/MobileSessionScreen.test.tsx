@@ -402,6 +402,12 @@ describe('MobileSessionScreen', () => {
     const screenEl = document.querySelector('.mobile-session') as HTMLElement
     expect(screenEl.style.getPropertyValue('--keyboard-inset')).toBe('0px')
 
+    // an inset means a keyboard, which only exists while text entry holds
+    // focus. Composing in the textarea is what summons it
+    act(() => {
+      ;(screenEl.querySelector('.composer textarea') as HTMLElement).focus()
+    })
+
     // the keyboard rises in steps; every intermediate inset lands so the
     // transcript stays visible and autoscroll stays pinned while it animates
     vvHeight = window.innerHeight - 120

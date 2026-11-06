@@ -80,9 +80,11 @@ pre {
 /* --- layout chrome --- */
 
 /* definite height so inner regions own their scrolling: the workspace rail
-   and transcript never share a scrollbar with each other or the page */
+   and transcript never share a scrollbar with each other or the page. dvh
+   rides collapsing browser toolbars instead of clipping behind them */
 .app-shell {
-  height: 100vh;
+  height: 100vh; /* static fallback for engines without dynamic units */
+  height: 100dvh;
   display: flex;
   flex-direction: column;
 }
@@ -223,6 +225,16 @@ select:focus {
   outline: 1px solid var(--accent);
 }
 
+/* touch keyboards auto-zoom any focused control under 16px, so coarse
+   pointers get a readable floor while desktop keeps its compact density */
+@media (pointer: coarse) {
+  input,
+  select,
+  textarea {
+    font-size: max(var(--fs-body), 16px);
+  }
+}
+
 label {
   display: block;
   margin-bottom: calc(var(--unit) * 2);
@@ -245,7 +257,8 @@ label {
 /* --- auth screens --- */
 
 .auth-screen {
-  min-height: 100vh;
+  min-height: 100vh; /* static fallback for engines without dynamic units */
+  min-height: 100dvh;
   display: grid;
   place-items: center;
 }
@@ -346,6 +359,13 @@ label {
   bottom: calc(var(--unit) * 4);
   right: calc(var(--unit) * 4);
   box-shadow: 0 2px 8px rgb(0 0 0 / 35%);
+}
+
+@media (max-width: 48rem) {
+  /* the pill is the only way back to the live tail on a phone */
+  .jump-latest {
+    min-height: 44px;
+  }
 }
 
 /* markdown */
@@ -592,6 +612,13 @@ label {
   display: flex;
   gap: calc(var(--unit) * 2);
   flex-shrink: 0;
+}
+@media (max-width: 48rem) {
+  /* phones meet the theme's touch floor while desktop keeps its density */
+  .composer-actions button {
+    min-height: 44px;
+    min-width: 44px;
+  }
 }
 .queue-chip.failed .badge.danger {
   margin-left: calc(var(--unit) * 1);
@@ -929,12 +956,16 @@ label {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* the check-off rides only the mobile switcher rows today, so it carries the
+   touch floor outright rather than behind a breakpoint */
 .rail-check {
   border: none;
   background: none;
   color: var(--muted);
   cursor: pointer;
   padding: 0 2px;
+  min-width: 44px;
+  min-height: 44px;
   font-size: var(--fs-small);
 }
 .rail-check:hover {
@@ -1482,13 +1513,16 @@ label {
   overflow-y: auto;
 }
 
-/* the editor fills small screens, so mobile gets a full-screen form */
+/* the editor fills small screens, so mobile gets a full-screen form; dvh
+   keeps its action buttons above browser toolbars instead of behind them */
 @media (max-width: 48rem) {
   .modal.job-editor,
   .modal.run-detail {
     width: 100vw;
-    height: 100vh;
+    height: 100vh; /* static fallback for engines without dynamic units */
+    height: 100dvh;
     max-height: 100vh;
+    max-height: 100dvh;
     border-radius: 0;
     overflow-y: auto;
   }
@@ -1501,6 +1535,15 @@ label {
 
 .mobile-topbar {
   padding-right: calc(var(--unit) * 4);
+}
+/* the badge is the phone's only needs-input affordance, so it meets the
+   touch floor. Desktop's compact topbar button keeps its own density */
+.mobile-topbar .attend-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
 }
 .mobile-content {
   padding: calc(var(--unit) * 3);
@@ -1724,7 +1767,7 @@ label {
 }
 .mobile-session-header .back-link {
   font-size: 1.2em;
-  min-width: 32px;
+  min-width: 44px; /* touch target, width included */
   min-height: 44px; /* touch target */
   display: inline-flex;
   align-items: center;

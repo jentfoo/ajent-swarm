@@ -107,9 +107,13 @@ describe('BottomSheet', () => {
 
     render(
       <BottomSheet open onClose={() => {}} label="Session switcher">
-        <p>rows</p>
+        <input aria-label="Sheet input" />
       </BottomSheet>,
     )
+    // an inset means a keyboard, which only exists while text entry holds focus
+    act(() => {
+      screen.getByRole('textbox', { name: 'Sheet input' }).focus()
+    })
 
     // the backdrop publishes the inset; theme.css shrinks it from the bottom,
     // since ancestor padding cannot move a position:fixed panel

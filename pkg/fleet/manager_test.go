@@ -502,7 +502,7 @@ func TestManager(t *testing.T) {
 				PID: 4601, SessionID: "01EXTENDED00000001", SessionName: "daily",
 				Workspace: "/w", Origin: SpawnedByExternal,
 				StartedAt: now.Add(-time.Hour), ExitedAt: now,
-				ExitNote: "left the control registry",
+				ExitNote: "ended on its own",
 			}
 
 			rows := m.Sessions()
@@ -510,7 +510,7 @@ func TestManager(t *testing.T) {
 			st := rows[0]
 			assert.Equal(t, SpawnedByExternal, st.SpawnedBy)
 			assert.Equal(t, ChildExited, st.State)
-			assert.Equal(t, "left the control registry", st.Detail)
+			assert.Equal(t, "ended on its own", st.Detail)
 			assert.Equal(t, "daily", st.Name)
 			assert.Nil(t, st.ExitCode) // swarm never reaped the process
 			assert.Empty(t, st.Argv)   // externals have neither spawn fact
@@ -613,7 +613,7 @@ func TestManager(t *testing.T) {
 			st, ok := rowFor(m.Sessions(), inst.SessionID)
 			require.True(t, ok)
 			assert.Equal(t, ChildExited, st.State)
-			assert.Equal(t, "left the control registry", st.Detail)
+			assert.Equal(t, "ended on its own", st.Detail)
 			assert.Equal(t, SpawnedByExternal, st.SpawnedBy)
 			assert.Positive(t, st.ExitedAt)
 			assert.Nil(t, st.ExitCode)
@@ -621,7 +621,7 @@ func TestManager(t *testing.T) {
 			rec, ok := cs.byPID(inst.PID)
 			require.True(t, ok)
 			assert.False(t, rec.ExitedAt.IsZero())
-			assert.Equal(t, "left the control registry", rec.ExitNote)
+			assert.Equal(t, "ended on its own", rec.ExitNote)
 			assert.Nil(t, rec.ExitCode)
 		})
 

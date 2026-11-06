@@ -392,7 +392,7 @@ func (m *Manager) markExternalGone(inst ctl.Instance) {
 		return
 	}
 	rec.ExitedAt = time.Now()
-	rec.ExitNote = "left the control registry"
+	rec.ExitNote = "ended on its own"
 	m.externals[inst.PID] = rec
 	m.mu.Unlock()
 

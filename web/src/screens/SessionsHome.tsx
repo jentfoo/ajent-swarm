@@ -13,6 +13,7 @@ import { useAuth } from '../providers/auth'
 import { AgentSettingsMenu } from '../session/AgentSettingsMenu'
 import { RenameControl } from '../session/RenameControl'
 import { displayName, shortID, tildePath } from '../session/names'
+import { describeStop } from '../workspace/attention'
 import { ModelSelectOptions } from '../ui/ModelSelectOptions'
 
 // SessionsHome is the live instance grid: state, workspace and seat badges
@@ -98,6 +99,10 @@ function SessionCard({
   const stateClass = s.state === ChildState.Online ? 'ok' : childEnded(s.state) ? 'danger' : 'warn'
   const label = displayName(s, home)
   const ended = childEnded(s.state)
+  const detail = cardDetail(s)
+  // known facts only: no placeholder when the model or workspace is missing
+  const tail = s.workspace?.split('/').filter(Boolean).pop()
+  const facts = [s.model, tail].filter(Boolean).join(' · ')
 
   return (
     <div className={`card session-card ${ended ? 'ended' : ''}`}>
@@ -123,12 +128,11 @@ function SessionCard({
       <div className="chips">
         <span className={`badge ${stateClass}`}>{s.state}</span>
         {s.spawnedBy === 'swarm' && <span className="badge accent">swarm</span>}
-        {s.seatHeld ? (
+        {/* a held seat means a takeover is needed; the free default stays quiet */}
+        {s.seatHeld && (
           <span className={s.seatOurs ? 'badge accent' : 'badge warn'}>
             seat: {s.seatHolder || 'held'}
           </span>
-        ) : (
-          <span className="badge">seat free</span>
         )}
         {s.openInteractions > 0 && (
           <span className="badge danger">{s.openInteractions} need input</span>
@@ -139,24 +143,28 @@ function SessionCard({
           <span className="badge">idle</span>
         ) : null}
       </div>
-      <p className="muted" style={{ margin: '0.2em 0' }}>
-        {s.model || 'model unknown'}
-        {s.workspace ? ` · ${shortPath(s.workspace)}` : ''}
-      </p>
+      {facts && (
+        <p className="muted" style={{ margin: '0.2em 0' }}>
+          {facts}
+        </p>
+      )}
       {/* exits are never mysterious: the detail line and last-stop reason sit here */}
-      {(s.detail || s.lastStopErr || s.lastStop) && (
+      {detail && (
         <p className="muted card-detail" style={{ margin: '0.2em 0' }}>
-          {ended && s.detail ? `${s.detail}` : ''}
-          {!ended && s.lastStopErr
-            ? `last turn failed: ${s.lastStopErr}`
-            : !ended && s.lastStop
-              ? `last stop: ${s.lastStop}`
-              : ''}
+          {detail}
         </p>
       )}
       <ActionsBar status={s} />
     </div>
   )
+}
+
+// cardDetail picks the card's story line: the exit note once ended, else the
+// last turn's end in the shared rail vocabulary.
+function cardDetail(s: SessionStatus): string {
+  if (childEnded(s.state)) return s.detail ?? ''
+  if (s.lastStopErr) return `last turn failed: ${s.lastStopErr}`
+  return s.lastStop ? describeStop(s.lastStop, undefined) : ''
 }
 
 // ActionsBar holds the quick actions: open, agent settings and stop for live
@@ -325,9 +333,4 @@ function LaunchPanel({ home }: { home?: string }) {
       </button>
     </form>
   )
-}
-
-function shortPath(p: string): string {
-  const parts = p.split('/').filter(Boolean)
-  return parts.length === 0 ? p : parts[parts.length - 1]
 }

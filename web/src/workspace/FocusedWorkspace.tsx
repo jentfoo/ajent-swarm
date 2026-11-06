@@ -76,6 +76,8 @@ export default function FocusedWorkspace() {
       if (item) acknowledgeItem(item)
     },
     onDigit: (position) => setCursorId(rows[position - 1]?.sessionId ?? cursor),
+    // Escape reaches here only when the viewed session claimed nothing: an
+    // interrupt wins first, otherwise the rail row takes the caret
     onEscape: () => {
       railRef.current?.querySelector<HTMLElement>('[data-cursor="true"]')?.focus()
     },

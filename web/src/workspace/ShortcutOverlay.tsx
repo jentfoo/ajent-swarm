@@ -8,11 +8,12 @@ const focusBindings: [string, string][] = [
   ['Enter', 'open the highlighted row'],
   ['r', 'mark reviewed'],
   ['1 – 9', 'jump by position'],
-  ['Esc', 'return focus to the rail'],
+  ['Esc', 'interrupt the stream, else focus the rail'],
   ['?', 'toggle this overlay'],
 ]
 
 const tileBindings: [string, string][] = [
+  ['Esc', "interrupt the focused pane's stream"],
   ['Mod+W', 'close the focused pane'],
   ['Mod+\\', 'split right'],
   ['Mod+Shift+\\', 'split down'],

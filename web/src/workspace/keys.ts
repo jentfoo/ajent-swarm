@@ -1,7 +1,8 @@
 // Keyboard plumbing shared by both workspace modes. Plain keys drive the
 // focus queue and pane digits, mod (Ctrl/Cmd) drives tile management, Alt
 // arrows resize. Editable targets always win: typing in the composer or a
-// dialog answer must never move the workspace.
+// dialog answer must never move the workspace. An event another listener
+// already claimed (defaultPrevented) is left alone entirely.
 import { useEffect, useRef } from 'react'
 
 import { modalOpen } from '../ui/ModalShell'
@@ -40,6 +41,9 @@ export function useWorkspaceKeys(handlers: WorkspaceKeyHandlers): void {
 
   useEffect(() => {
     const onKey = (ev: KeyboardEvent) => {
+      // an earlier listener that claimed the event wins, e.g. the viewed
+      // session's Escape interrupt
+      if (ev.defaultPrevented) return
       // editable targets win; behind any open ModalShell every binding rests,
       // leaving keys to the dialog instead of rows the backdrop hides
       if (isEditable(ev.target) || modalOpen()) return

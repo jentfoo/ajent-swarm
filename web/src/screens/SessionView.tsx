@@ -3,6 +3,7 @@ import { useParams } from 'react-router'
 
 import { useSessionChannel } from '../hooks/useSessionChannel'
 import { useWorkspace } from '../providers/workspace'
+import { sessionBusy } from '../state/eventApplier'
 import { Composer } from '../session/Composer'
 import { phaseText } from '../session/phases'
 import { DialogDock } from '../session/DialogDock'
@@ -13,15 +14,17 @@ import { StatusBar } from '../session/StatusBar'
 import { StatusHeader } from '../session/StatusHeader'
 import { TranscriptView } from '../session/TranscriptView'
 import { RewindDialog } from '../session/RewindDialog'
+import { useInterruptStream } from '../session/useInterruptStream'
 import { useSessionCompose } from '../session/useSessionCompose'
 
 // SessionView is the single-session experience: slim status header with
 // controls, virtualized transcript over reconciled state, dialog dock above a
 // queue-aware composer, and a bottom status bar answering "what is the agent
 // doing" at a glance. The workspace modes host it by sessionId; the /s/:sessionId
-// route keeps a standalone focused view for deep links. autoFocusDialogs marks
-// the surface that holds keyboard focus: dialogs take the caret there (head
-// card, on mount) and render inert in background panes.
+// route keeps a standalone focused view for deep links. focused marks the
+// surface that holds keyboard focus: dialogs take the caret there (head card,
+// on mount), render inert in background panes, and its stream answers Escape
+// with an interrupt.
 //
 // The content keys on sessionId, so every host presents a swap as a remount:
 // that session's own draft restores from the store while sheets, menus, toasts
@@ -29,27 +32,19 @@ import { useSessionCompose } from '../session/useSessionCompose'
 // (session-switch-state-reset.md).
 export default function SessionView({
   sessionId: hostedId,
-  autoFocusDialogs = true,
+  focused = true,
 }: {
   sessionId?: string
-  autoFocusDialogs?: boolean
+  focused?: boolean
 }) {
   const params = useParams()
   const sessionId = hostedId ?? params.sessionId ?? ''
-  return (
-    <SessionSurface key={sessionId} sessionId={sessionId} autoFocusDialogs={autoFocusDialogs} />
-  )
+  return <SessionSurface key={sessionId} sessionId={sessionId} focused={focused} />
 }
 
 // SessionSurface is one session's mounted presentation; the key above makes a
 // session swap a remount, so local state never outlives its session.
-function SessionSurface({
-  sessionId,
-  autoFocusDialogs,
-}: {
-  sessionId: string
-  autoFocusDialogs: boolean
-}) {
+function SessionSurface({ sessionId, focused }: { sessionId: string; focused: boolean }) {
   const { state, phase, loadOlder, dispatch } = useSessionChannel(sessionId)
   const { acknowledgeDialog, acknowledgeTurn } = useWorkspace()
   const snap = state.snapshot
@@ -66,6 +61,15 @@ function SessionSurface({
     pushToast,
   } = useSessionCompose(sessionId)
   const [showRewind, setShowRewind] = useState(false)
+
+  // Escape interrupts the stream while this surface is the one being viewed;
+  // only the focused tile pane binds it
+  useInterruptStream({
+    sessionId,
+    busy: sessionBusy(snap),
+    onToast: pushToast,
+    enabled: focused,
+  })
 
   return (
     <div className="session-screen">
@@ -99,7 +103,7 @@ function SessionSurface({
         sessionId={sessionId}
         dialogs={dialogs}
         outcomes={state.resolvedElsewhere}
-        autoFocusDialogs={autoFocusDialogs}
+        autoFocusDialogs={focused}
         onAnsweredLocally={(dialogId) => {
           dispatch({ type: 'dialogAnswered', dialogId })
           acknowledgeDialog(sessionId, dialogId) // acting clears the queue row

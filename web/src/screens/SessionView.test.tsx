@@ -472,6 +472,20 @@ describe('SessionView', () => {
     })
   })
 
+  it('interrupts a running stream on escape', async () => {
+    fetcher.on(`/api/sessions/${VIEW}/interrupt`, () => Response.json({ stopped: VIEW }))
+    renderView()
+    const ws = await openSocket()
+
+    frame(ws, { type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
+    frame(ws, wireEvent('turn.start', 1, { model: 'sonnet' }))
+
+    const user = userEvent.setup()
+    await user.keyboard('{Escape}')
+
+    await waitFor(() => expect(fetcher.callsTo('/interrupt')).toHaveLength(1))
+  })
+
   it('marks refused submits without losing the draft', async () => {
     fetcher.on(`/api/sessions/${VIEW}/submit`, () =>
       Response.json({ error: 'unavailable', message: 'a dialog holds input' }, { status: 409 }),

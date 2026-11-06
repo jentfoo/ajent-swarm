@@ -60,6 +60,15 @@ type MenuPopoverProps = {
   align?: 'left' | 'right'
 } & Omit<HTMLAttributes<HTMLDivElement>, 'onClose'>
 
+// Open popover layers, mirroring ModalShell's open shells: key bindings that
+// act on page content read this and leave Escape to the open menu.
+const openPopovers: HTMLElement[] = []
+
+// popoverOpen reports whether any MenuPopover layer is currently showing.
+export function popoverOpen(): boolean {
+  return openPopovers.length > 0
+}
+
 // MenuPopover portals children into document.body as a fixed layer anchored to
 // the trigger in `anchorRef`, so no ancestor's overflow clipping can cut it
 // off. It flips above or clamps to stay in the viewport, repositions on scroll
@@ -123,6 +132,9 @@ export function MenuPopover({
   })
 
   useEffect(() => {
+    const menu = menuRef.current
+    if (!menu) return
+    openPopovers.push(menu)
     const onKey = (ev: KeyboardEvent) => {
       if (ev.key === 'Escape') closeRef.current()
     }
@@ -135,6 +147,8 @@ export function MenuPopover({
     document.addEventListener('keydown', onKey)
     document.addEventListener('pointerdown', onPointerDown)
     return () => {
+      const at = openPopovers.indexOf(menu)
+      if (at >= 0) openPopovers.splice(at, 1)
       document.removeEventListener('keydown', onKey)
       document.removeEventListener('pointerdown', onPointerDown)
     }

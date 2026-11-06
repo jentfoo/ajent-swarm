@@ -122,4 +122,18 @@ describe('useWorkspaceKeys', () => {
     view.rerender(<Harness {...handlers} />)
     expect(press({ key: 'j' })).toBe(true) // bindings return once it closes
   })
+
+  it('stands down behind an event another listener claimed', () => {
+    const handlers = { onEscape: vi.fn(), onNext: vi.fn() }
+    mount(handlers)
+
+    // e.g. the viewed session's Escape interrupt claimed the press first
+    const ev = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+    ev.preventDefault()
+    window.dispatchEvent(ev)
+
+    expect(handlers.onEscape).not.toHaveBeenCalled()
+
+    expect(press({ key: 'j' })).toBe(true) // unclaimed keys keep their bindings
+  })
 })

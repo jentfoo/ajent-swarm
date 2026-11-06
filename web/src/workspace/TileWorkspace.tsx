@@ -501,9 +501,11 @@ function PaneView({
         ))}
 
       <div className="tile-body">
-        {/* autofocus follows the focused pane; background sessions surface
-            dialogs through attention instead (dialog-focus-policy.md) */}
-        <SessionView sessionId={pane.active} autoFocusDialogs={isFocused} />
+        {/* focus follows the focused pane: dialogs take the caret there while
+            background sessions surface them through attention
+            (dialog-focus-policy.md), and only the focused pane's stream
+            answers Escape with an interrupt */}
+        <SessionView sessionId={pane.active} focused={isFocused} />
       </div>
     </div>
   )

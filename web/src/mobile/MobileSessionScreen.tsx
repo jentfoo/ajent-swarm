@@ -1,9 +1,7 @@
-import { useCallback, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import type { ReactElement } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 
-import { sessions as sessionAPI } from '../api/endpoints'
-import { ApiError } from '../api/client'
 import { sessionBusy } from '../state/eventApplier'
 import { Composer } from '../session/Composer'
 import { SeatBadge } from '../session/SeatBadge'
@@ -13,6 +11,7 @@ import { QueuedPrompts } from '../session/QueuedPrompts'
 import { ModeMenu } from '../session/StatusHeader'
 import { StatusBar } from '../session/StatusBar'
 import { TranscriptView } from '../session/TranscriptView'
+import { useInterruptStream } from '../session/useInterruptStream'
 import { useSessionCompose } from '../session/useSessionCompose'
 import { useSessionLabel } from '../session/useSessionLabel'
 import { useKeyboardInset, keyboardInsetStyle } from '../hooks/useKeyboardInset'
@@ -69,7 +68,6 @@ function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElemen
   const [showRewind, setShowRewind] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [sheetOpen, setSheetOpen] = useState(false)
-  const [stopBusy, setStopBusy] = useState(false)
   const [showSwipeHint, setShowSwipeHint] = useState(() => !swipeHintSeen())
   const keyboardInset = useKeyboardInset()
 
@@ -83,18 +81,15 @@ function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElemen
   // touch zone is only the first 24px so transcript selection never fights it.
   const edgeStart = useRef<{ x: number; y: number } | null>(null)
 
-  const interrupt = useCallback(async () => {
-    setStopBusy(true)
-    try {
-      await sessionAPI.interrupt(sessionId)
-    } catch (err) {
-      pushToast(err instanceof ApiError ? err.message : 'Interrupt failed.', 'error')
-    } finally {
-      setStopBusy(false)
-    }
-  }, [sessionId, pushToast])
-
   const working = sessionBusy(snap)
+  // Escape shares the header button's guarded fire; overlays covering the
+  // session (switcher, rewind, tools, settings) keep Escape for themselves
+  const { interrupt, inFlight: stopBusy } = useInterruptStream({
+    sessionId,
+    busy: working,
+    onToast: pushToast,
+    enabled: !(sheetOpen || showRewind || showTools || showSettings),
+  })
   // the switcher's own label chain, so a rename follows the user into the view
   const label = useSessionLabel(sessionId)
 
@@ -138,7 +133,7 @@ function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElemen
           <span className={`badge ${phase === 'resyncing' ? 'warn' : ''}`}>{phase}</span>
         )}
         {working && (
-          <button type="button" onClick={() => void interrupt()} disabled={stopBusy}>
+          <button type="button" onClick={interrupt} disabled={stopBusy}>
             {stopBusy ? 'Stopping…' : 'Interrupt'}
           </button>
         )}

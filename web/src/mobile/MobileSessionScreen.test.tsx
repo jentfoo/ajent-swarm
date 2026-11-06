@@ -310,6 +310,34 @@ describe('MobileSessionScreen', () => {
     expect(bar.querySelector('.spinner.idle')).not.toBeInTheDocument()
   })
 
+  it('interrupts a working stream on escape, standing down behind overlays', async () => {
+    fetcher.on(`/api/sessions/${VIEW}/interrupt`, () => Response.json({ stopped: VIEW }))
+    renderScreen()
+    const ws = await openSocket()
+    act(() => {
+      ws.message({
+        type: 'init',
+        sessionId: VIEW,
+        state: snapshotFor(VIEW, { running: true, idle: false }),
+        entries: [],
+      })
+    })
+
+    const interruptCalls = () =>
+      fetcher.handler.mock.calls.filter(([u]) => String(u).endsWith('/interrupt'))
+
+    const user = userEvent.setup()
+    // the pushed tools screen covers the session and keeps Escape for itself
+    await user.click(screen.getByRole('button', { name: 'Open tools panel' }))
+    await user.keyboard('{Escape}')
+    expect(interruptCalls()).toHaveLength(0)
+
+    // closing it hands Escape back to the stream
+    await user.click(screen.getByRole('button', { name: '← Back' }))
+    await user.keyboard('{Escape}')
+    await vi.waitFor(() => expect(interruptCalls()).toHaveLength(1))
+  })
+
   it('renders the context meter only when the window is known', async () => {
     renderScreen()
     const ws = await openSocket()

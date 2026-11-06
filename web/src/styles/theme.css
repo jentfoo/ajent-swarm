@@ -1910,7 +1910,8 @@ label {
 .mobile-settings h3 {
   font-size: var(--fs-body);
 }
-.appearance-row {
+/* every top-level settings card, so sections read as separate rows */
+.settings-card {
   margin-bottom: calc(var(--unit) * 4);
 }
 .setting-row {
@@ -1944,6 +1945,27 @@ label {
 .segmented button.active {
   background: var(--accent);
   color: var(--accent-text);
+}
+
+/* contextual notification opt-in: one quiet card riding the attention moment,
+   shown only while a session waits and permission is undecided */
+.notify-prompt {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--unit) * 2) calc(var(--unit) * 3);
+}
+.notify-copy {
+  flex: 1;
+  min-width: 14rem;
+  margin: 0;
+}
+.notify-actions {
+  display: flex;
+  gap: calc(var(--unit) * 2);
+}
+.notify-prompt button {
+  min-height: 44px; /* touch target floor, like every mobile button */
 }
 
 /* mobile session screen: the transcript owns the scroll under the sticky

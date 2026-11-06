@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 
 import { useSwarm } from '../providers/swarm'
 import { useWorkspace } from '../providers/workspace'
+import NotificationPrompt from './NotificationPrompt'
 
 // MobileShell is the small-screen chrome: a slim top bar with the attention
 // badge, plus the shared connection banner. The theme toggle and swarm's
@@ -34,6 +35,8 @@ export default function MobileShell({ children }: { children: ReactNode }) {
             : 'Live connection lost. Reconnecting…'}
         </div>
       )}
+
+      <NotificationPrompt />
 
       <main className="content mobile-content">{children}</main>
     </div>

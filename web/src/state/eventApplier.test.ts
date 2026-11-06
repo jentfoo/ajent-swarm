@@ -510,6 +510,40 @@ describe('applierReducer resnapshot poll-only fields', () => {
   })
 })
 
+describe('applierReducer seat state', () => {
+  it('reads swarm displacement as our own takeover', () => {
+    // swarm force-claiming announces loss to the previous holder; this
+    // single-user service is the new holder, so SeatBadge clears at once.
+    const s = apply(initialSessionState(), ev('seat.lost', 1, { from: 'human-2', to: 'swarm' }))
+    expect(s.snapshot.seat).toEqual({ held: true, holder: 'swarm', yours: true })
+  })
+
+  it('merges seat through resnapshots like poll-only facts', () => {
+    // A seat release spends no event number; the next snapshot is where the
+    // badge learns it.
+    let s = apply(initialSessionState(), ev('seat.lost', 1, { from: 'swarm', to: 'human-2' }))
+    expect(s.snapshot.seat).toEqual({ held: true, holder: 'human-2', yours: false })
+
+    s = apply(s, { type: 'snapshot', state: snap({ seq: 1, seat: { held: false, yours: false } }) })
+    expect(s.snapshot.seat).toEqual({ held: false, yours: false })
+
+    const taken = snap({ seq: 2, seat: { held: true, holder: 'swarm', yours: true } })
+    s = apply(s, { type: 'snapshot', state: taken })
+    expect(s.snapshot.seat).toEqual({ held: true, holder: 'swarm', yours: true })
+  })
+
+  it('refreshes seat even from a stale snapshot stamp', () => {
+    // Poll-only semantics match workspace and cwd: an in-flight read taken
+    // before the displacement still lands, and the next poll corrects any race.
+    let s = apply(initialSessionState(), ev('seat.lost', 5, { from: 'swarm', to: 'human-2' }))
+    s = apply(s, {
+      type: 'snapshot',
+      state: snap({ seq: 4, seat: { held: false, yours: false } }),
+    })
+    expect(s.snapshot.seat).toEqual({ held: false, yours: false })
+  })
+})
+
 describe('applierReducer snapshot ordering', () => {
   const dialog = (id: number) => ({
     id,

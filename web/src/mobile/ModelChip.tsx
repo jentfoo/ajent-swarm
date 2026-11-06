@@ -3,15 +3,13 @@ import { useEffect, useRef, useState } from 'react'
 import { ApiError } from '../api/client'
 import { sessions as sessionAPI } from '../api/endpoints'
 import type { CtlState, ModelState } from '../api/types'
-import { sessionBusy } from '../state/eventApplier'
 import { ModelMenuItems } from '../ui/ModelMenuItems'
-import { Spinner } from '../session/Spinner'
 
-// ModelChip is the compact header model control: the short label plus a
-// spinner while working. The menu lists models.get's registry directly and
-// switches through model.set — no picker dialog to ride or cancel. Items
-// render through the shared grouped ModelMenuItems, the same layout the
-// desktop header menu uses.
+// ModelChip is the compact header model control: the short label only, no
+// working spinner (the bottom status line owns that). The menu lists
+// models.get's registry directly and switches through model.set — no picker
+// dialog to ride or cancel. Items render through the shared grouped
+// ModelMenuItems, the same layout the desktop header menu uses.
 export function ModelChip({
   sessionId,
   snap,
@@ -30,7 +28,6 @@ export function ModelChip({
     active: string
   } | null>(null)
   const [busy, setBusy] = useState(false) // a model.set is in flight
-  const working = sessionBusy(snap)
   const menuRef = useRef<HTMLSpanElement>(null)
 
   useEffect(() => {
@@ -91,7 +88,6 @@ export function ModelChip({
         onClick={() => setOpen((v) => !v)}
       >
         {snap.model.short || snap.model.key || 'model'}
-        {working && <Spinner state="wait" />}
       </button>
       {open && listed && (
         <div className="menu card model-menu-list" role="menu">

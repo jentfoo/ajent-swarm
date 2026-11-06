@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
+import { writeClipboard } from './writeClipboard'
+
 // how long the copied/failed label holds before resolving back to idle
 const copyStateTtlMs = 2_000
 
@@ -10,11 +12,12 @@ interface CopyText {
   state: CopyState // what the caller's button label shows
 }
 
-// useCopyText writes raw text through navigator.clipboard and exposes one
-// transient label state: copied after a successful write, failed when the
-// write rejects or no clipboard exists (denied permission, insecure context),
-// resolving back to idle on a timer that unmount clears. Only the newest copy
-// settles, so a slow earlier write cannot overwrite a later result.
+// useCopyText writes raw text through writeClipboard (async Clipboard API with
+// an execCommand fallback for Firefox rejections and plain-HTTP origins) and
+// exposes one transient label state: copied after a successful write, failed
+// when every path fails, resolving back to idle on a timer that unmount
+// clears. Only the newest copy settles, so a slow earlier write cannot
+// overwrite a later result.
 export function useCopyText(): CopyText {
   const [state, setState] = useState<CopyState>('idle')
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -49,12 +52,7 @@ export function useCopyText(): CopyText {
           if (alive.current) setState('idle')
         }, copyStateTtlMs)
       }
-      const clipboard: Clipboard | undefined = navigator.clipboard
-      if (clipboard === undefined) {
-        settle('failed')
-        return
-      }
-      void clipboard.writeText(text).then(
+      void writeClipboard(text).then(
         () => settle('copied'),
         () => settle('failed'),
       )

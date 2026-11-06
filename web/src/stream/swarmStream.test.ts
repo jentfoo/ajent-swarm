@@ -80,7 +80,6 @@ describe('SwarmStream subscriptions', () => {
     expect(ws.sent.map((raw) => JSON.parse(raw))).toEqual([{ type: 'subscribe', sessionId: 's1' }])
 
     const un2 = stream.subscribe('s1', (f) => got2.push(f))
-    void un2
     expect(ws.sent).toHaveLength(1) // no second subscribe frame
 
     ws.message(initFrameFor('s1'))
@@ -88,10 +87,19 @@ describe('SwarmStream subscriptions', () => {
     expect(got2).toHaveLength(1)
     expect(stream.sessionPhase('s1')).toBe('live')
 
-    // Unsubscribe happens only when the last view leaves.
+    // Leaving one of two views removes its own listener at once: the departed
+    // callback goes quiet while the survivor keeps receiving.
     un1()
-    expect(ws.sent).toHaveLength(1)
+    ws.message({ type: 'child', sessionId: 's1', state: 'online' })
+    expect(got1).toHaveLength(1)
+    expect(got2).toHaveLength(2)
+
+    // The last view leaving unsubscribes on the wire and nothing hears frames.
     un2()
+    ws.message({ type: 'child', sessionId: 's1', state: 'online' })
+    expect(got1).toHaveLength(1)
+    expect(got2).toHaveLength(2)
+    expect(ws.sent).toHaveLength(2) // the first leave never touched the wire
     expect(JSON.parse(ws.sent[1])).toEqual({ type: 'unsubscribe', sessionId: 's1' })
   })
 

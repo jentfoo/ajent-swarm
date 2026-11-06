@@ -61,11 +61,12 @@ function SessionSurface({ sessionId, focused }: { sessionId: string; focused: bo
   } = useSessionCompose(sessionId)
   const [showRewind, setShowRewind] = useState(false)
 
-  // Escape interrupts the stream while this surface is the one being viewed;
-  // only the focused tile pane binds it
-  useInterruptStream({
+  const working = sessionBusy(snap)
+  // Escape interrupts while this surface is being viewed; only the focused tile
+  // pane binds it. The same guarded fire drives the composer's Stop button.
+  const { interrupt, inFlight: stopBusy } = useInterruptStream({
     sessionId,
-    busy: sessionBusy(snap),
+    busy: working,
     onToast: pushToast,
     enabled: focused,
   })
@@ -136,6 +137,7 @@ function SessionSurface({ sessionId, focused }: { sessionId: string; focused: bo
           acknowledgeTurn(sessionId, Date.now())
         }}
         onSubmitFailed={(pendingId) => dispatch({ type: 'pendingFailed', pendingId })}
+        stop={working ? { onClick: interrupt, busy: stopBusy } : undefined}
       />
 
       <StatusBar snap={snap} live={state.live} />

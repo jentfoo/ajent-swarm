@@ -116,6 +116,9 @@ export class SwarmStream {
     return () => {
       const current = this.refs.get(sessionId)
       if (current === undefined) return // already fully unsubscribed
+      // The leaver drops its own listener on every path, so a surviving view
+      // of the session never keeps delivering frames to one that left.
+      this.listeners.get(sessionId)?.delete(onFrame)
       if (current > 1) {
         this.refs.set(sessionId, current - 1)
         return

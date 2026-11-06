@@ -74,7 +74,7 @@ describe('TouchDialogDock', () => {
     expect(input).toHaveAttribute('type', 'password')
   })
 
-  it('auto-dismisses answered-elsewhere chips after a few seconds', async () => {
+  it('auto-dismisses answered-elsewhere chips quickly', async () => {
     vi.useFakeTimers()
     try {
       const outcome = {

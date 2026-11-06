@@ -4,8 +4,8 @@
 // Three attention kinds rise from the digest plus this ledger:
 //   - needs input: open dialogs, ranked by oldest wait
 //   - needs review: an idle session after a turn end not yet acknowledged
-//   - awaiting: an idle agent waiting for its next prompt (the rail's
-//     Waiting section, but never badged or notified)
+//   - awaiting: an idle agent waiting for its next prompt (the rail's Waiting
+//     queue, but never badged or notified)
 //
 // Acknowledging happens by acting (answering the dialog, submitting a prompt)
 // or an explicit check-off. The ledger persists in localStorage keyed by
@@ -25,6 +25,7 @@ export interface AttentionItem {
   dialogId?: number // present on needs-input rows raised by a dialog
   turnEnd?: number // present on needs-review rows
   running: boolean
+  queuedAt?: number // unix ms the session entered its current queue, client-stamped
 }
 
 // --- ledger, persisted under one versioned key ---
@@ -218,69 +219,122 @@ export interface AttentionSort {
   sessionId: string
   kind?: AttentionKind // absent shares the working class below
   since?: number // dialog wait or turn end, within-class order
+  queuedAt?: number // queue entry, drives movers to the end
 }
 
-// attentionSectionTitles are the fixed rail headings keyed by attention kind.
-// Every surface renders them verbatim so desktop and mobile cannot drift.
-export const attentionSectionTitles: Record<AttentionKind, string> = {
-  'needs-input': 'Needs input',
-  'needs-review': 'Ready to review',
-  awaiting: 'Waiting',
+// The rail renders three queues: Needs input holds every state wanting a
+// human answer (dialogs and unreviewed completions together), Waiting holds
+// new and settled idle agents, Working holds the busy ones. Rows badge their
+// own kind, so a queue never encodes state on its own. Every surface renders
+// these verbatim so desktop and mobile cannot drift.
+export type AttentionQueue = 'needs' | 'waiting' | 'working'
+
+export const attentionSectionTitles: Record<AttentionQueue, string> = {
+  needs: 'Needs input',
+  waiting: 'Waiting',
   working: 'Working',
 }
 
-// Display classes in rail order, one titled section per class.
+// Queue ranks in rail order: needs, waiting, working.
 export const attentionRanks = {
-  input: 0,
-  review: 1,
-  awaiting: 2,
-  working: 3,
+  needs: 0,
+  waiting: 1,
+  working: 2,
 } as const
 
-// attentionRank classifies one row into its display class. Rows without a
-// digest share the working class so they never outrank actionable ones.
+// attentionRank classifies one row into its queue rank: dialogs and
+// completions collapse into needs, idle agents wait, and rows without a
+// digest share working so they never outrank actionable ones.
 export function attentionRank(entry: AttentionSort): number {
   switch (entry.kind) {
     case 'needs-input':
-      return attentionRanks.input
     case 'needs-review':
-      return attentionRanks.review
+      return attentionRanks.needs
     case 'awaiting':
-      return attentionRanks.awaiting
+      return attentionRanks.waiting
     default:
       return attentionRanks.working
   }
 }
 
-// compareAttention orders two rows the way rankAttention renders them: class
-// first, then dialogs by oldest wait and completions newest first, everything
-// else stable by session id. Every surface sorting alive rows consumes it.
+// attentionQueue buckets one row into the rail's three queues.
+export function attentionQueue(entry: AttentionSort): AttentionQueue {
+  const rank = attentionRank(entry)
+  if (rank === attentionRanks.needs) return 'needs'
+  if (rank === attentionRanks.waiting) return 'waiting'
+  return 'working'
+}
+
+// compareAttention orders two rows the way rankAttention renders them: queue
+// first, then needs rows by oldest wait (dialogs and completions share one
+// order), waiting and working by queue entry so a row moving between queues
+// lands at the end of its new one. Everything else stable by session id.
+// Every surface sorting alive rows consumes it.
 export function compareAttention(a: AttentionSort, b: AttentionSort): number {
   const ra = attentionRank(a)
   const rb = attentionRank(b)
   if (ra !== rb) return ra - rb
-  if (ra === attentionRanks.input) return (a.since ?? 0) - (b.since ?? 0)
-  if (ra === attentionRanks.review) return (b.since ?? 0) - (a.since ?? 0)
-  return a.sessionId.localeCompare(b.sessionId)
+  if (ra === attentionRanks.needs) {
+    return (a.since ?? 0) - (b.since ?? 0) || a.sessionId.localeCompare(b.sessionId)
+  }
+  return (a.queuedAt ?? 0) - (b.queuedAt ?? 0) || a.sessionId.localeCompare(b.sessionId)
 }
 
-// rankAttention buckets the rail's fixed sections: needs holds dialogs by
-// oldest wait then unreviewed completions newest first, awaiting and working
-// follow name-stable so rows never reshuffle mid-flight. needsInputCount
-// counts open dialogs only.
+// --- queue entries, in memory only ---
+
+// The digest carries no timestamp for idle or busy transitions, so each
+// session's arrival in its current queue is stamped client-side: one map,
+// re-stamped only when the kind changes, pruned when the session leaves.
+// Reloads re-stamp; settled order is cosmetic and never persisted.
+const queueEntries = new Map<string, { kind: AttentionKind; at: number }>()
+
+function queueKey(item: Pick<AttentionItem, 'sessionId' | 'pid'>): string {
+  return `${item.sessionId}:${item.pid}`
+}
+
+// stampQueueEntries pairs every item with its queue entry time, stamping
+// arrivals and kind changes at one shared clock read so a fresh batch stays
+// name-stable, and drops entries for sessions no longer present.
+function stampQueueEntries(items: readonly AttentionItem[]): AttentionItem[] {
+  const now = Date.now()
+  const stamped = items.map((item) => {
+    const key = queueKey(item)
+    const entry = queueEntries.get(key)
+    if (entry === undefined || entry.kind !== item.kind) {
+      queueEntries.set(key, { kind: item.kind, at: now })
+      return { ...item, queuedAt: now }
+    }
+    return { ...item, queuedAt: entry.at }
+  })
+  const live = new Set(stamped.map(queueKey))
+  for (const key of queueEntries.keys()) {
+    if (!live.has(key)) queueEntries.delete(key)
+  }
+  return stamped
+}
+
+// resetQueueEntries clears arrival stamps; only tests need this for
+// isolation between cases.
+export function resetQueueEntries(): void {
+  queueEntries.clear()
+}
+
+// rankAttention buckets the rail's queues: needs holds dialogs and unreviewed
+// completions together by oldest wait, waiting (new and settled idle agents)
+// and working follow by queue entry so movers append. needsInputCount counts
+// open dialogs only.
 export function rankAttention(items: readonly AttentionItem[]): {
   needs: AttentionItem[]
-  awaiting: AttentionItem[]
+  waiting: AttentionItem[]
   working: AttentionItem[]
   needsInputCount: number
 } {
-  const needsInput = items.filter((i) => i.kind === 'needs-input').sort(compareAttention)
-  const needsReview = items.filter((i) => i.kind === 'needs-review').sort(compareAttention)
+  const stamped = stampQueueEntries(items)
   return {
-    needs: [...needsInput, ...needsReview],
-    awaiting: items.filter((i) => i.kind === 'awaiting').sort(compareAttention),
-    working: items.filter((i) => i.kind === 'working').sort(compareAttention),
-    needsInputCount: needsInput.length,
+    needs: stamped.filter((i) => attentionQueue(i) === 'needs').sort(compareAttention),
+    waiting: stamped.filter((i) => attentionQueue(i) === 'waiting').sort(compareAttention),
+    working: stamped.filter((i) => attentionQueue(i) === 'working').sort(compareAttention),
+    needsInputCount: stamped.filter((i) => i.kind === 'needs-input').length,
   }
 }
 

@@ -191,6 +191,39 @@ describe('SessionStore', () => {
     expect(store.peek('s1').snapshot.cwd).toBe('') // the pre-init read never lands
   })
 
+  it('signals digest changes only on queue-moving transitions', async () => {
+    store.acquire('s1')
+    const ws = openSocket()
+    ws.message({ type: 'init', sessionId: 's1', state: snapshotFor('s1'), entries: [] })
+
+    const changes: string[] = []
+    store.onDigestChange(() => changes.push('digest'))
+
+    // transcript and activity churn never touches the digest facts
+    ws.message(eventFrame('s1', 'entry.append', 1, { type: 'text', ts: 1, data: '' }))
+    ws.message(eventFrame('s1', 'activity', 2, { rows: [{ label: 'reading main.go' }] }))
+    expect(changes).toEqual([])
+
+    // a dialog opening moves the session into the needs queue
+    ws.message(
+      eventFrame('s1', 'interaction.pending', 3, {
+        id: 7,
+        kind: 'confirm',
+        prompt: 'Allow write access?',
+      }),
+    )
+    expect(changes).toEqual(['digest'])
+
+    // answering it settles the dialog and starts the turn
+    ws.message(eventFrame('s1', 'turn.start', 4, { model: 'm' }))
+    ws.message(eventFrame('s1', 'interaction.settled', 5, { id: 7, answered: true }))
+    expect(changes).toEqual(['digest', 'digest', 'digest'])
+
+    // the turn ending drops the session back out of working
+    ws.message(eventFrame('s1', 'turn.end', 6, { stop: 'end_turn' }))
+    expect(changes).toHaveLength(4)
+  })
+
   it('unsubscribes everything on dispose', async () => {
     for (const id of ['a', 'b', 'c', 'd']) store.acquire(id)()
     const ws = openSocket()

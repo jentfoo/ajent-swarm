@@ -62,17 +62,17 @@ describe('CodeBlock copy button', () => {
     expect(document.querySelector('.fence-wrap > .copy-btn.fence-copy')).not.toBeNull()
   })
 
-  it('flips the copied label then resolves back', async () => {
+  it('flips the copied icon then resolves back', async () => {
     vi.useFakeTimers()
     stubClipboard(async () => {})
     render(<CodeBlock code={'x'} />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Copy' }))
     await act(async () => {}) // the write promise resolves on a microtask
-    expect(screen.getByText('Copied')).toHaveAttribute('data-on', 'true')
+    expect(screen.getByText('Copied').closest('[data-on]')).toHaveAttribute('data-on', 'true')
 
     act(() => vi.advanceTimersByTime(2_000))
-    expect(screen.getByText('Copy')).toHaveAttribute('data-on', 'true')
+    expect(screen.getByText('Copy').closest('[data-on]')).toHaveAttribute('data-on', 'true')
   })
 
   it('shows copy failed on a rejected write', async () => {
@@ -80,6 +80,6 @@ describe('CodeBlock copy button', () => {
     render(<CodeBlock code={'x'} />)
 
     await user.click(screen.getByRole('button', { name: 'Copy' }))
-    expect(screen.getByText('Copy failed')).toHaveAttribute('data-on', 'true')
+    expect(screen.getByText('Copy failed').closest('[data-on]')).toHaveAttribute('data-on', 'true')
   })
 })

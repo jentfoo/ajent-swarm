@@ -24,7 +24,6 @@ import { SettingsScreen } from './SettingsScreen'
 import { SwitcherRows } from './SwitcherRows'
 import { ToolsScreen } from './ToolsScreen'
 import { TouchDialogDock } from './TouchDialogDock'
-import { dismissSwipeHint, swipeHintSeen } from './swipeHint'
 import { useSwitcherRows } from './useSwitcherRows'
 
 // edgeSwipePx is how far right a touch starting in the left edge zone must
@@ -34,8 +33,8 @@ const edgeSwipePx = 56
 // MobileSessionScreen drives one session on a phone. The component tree stays
 // shared with desktop (TranscriptView, notices, dialogs, queue chips, Composer,
 // StatusBar); only the chrome forks: a sticky compact header collapsing to
-// the session label, model chip and spinner, and dialogs as stacked
-// full-width cards above the composer.
+// the session label and model chip, the working turn's Stop riding beside
+// Send, and dialogs as stacked full-width cards above the composer.
 //
 // The content keys on sessionId, so the route reusing this screen for another
 // session presents it as a remount: that session's own draft restores from the
@@ -68,22 +67,15 @@ function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElemen
   const [showRewind, setShowRewind] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [sheetOpen, setSheetOpen] = useState(false)
-  const [showSwipeHint, setShowSwipeHint] = useState(() => !swipeHintSeen())
   const keyboardInset = useKeyboardInset()
-
-  // the hint retires once, then stays retired through the persisted flag
-  const retireSwipeHint = () => {
-    setShowSwipeHint(false)
-    dismissSwipeHint()
-  }
 
   // Edge-swipe from the left reopens the switcher over any session view; the
   // touch zone is only the first 24px so transcript selection never fights it.
   const edgeStart = useRef<{ x: number; y: number } | null>(null)
 
   const working = sessionBusy(snap)
-  // Escape shares the header button's guarded fire; overlays covering the
-  // session (switcher, rewind, tools, settings) keep Escape for themselves
+  // Escape shares the composer Stop button's guarded fire; overlays covering
+  // the session (switcher, rewind, tools, settings) keep Escape for themselves
   const { interrupt, inFlight: stopBusy } = useInterruptStream({
     sessionId,
     busy: working,
@@ -115,7 +107,6 @@ function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElemen
         // horizontal dominance keeps vertical scrolls from reading as swipes
         if (dx >= edgeSwipePx && dx > dy) {
           setSheetOpen(true)
-          retireSwipeHint()
         }
       }}
       onTouchCancel={() => {
@@ -131,11 +122,6 @@ function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElemen
         <ModeMenu sessionId={sessionId} mode={snap.permission} onToast={pushToast} />
         {phase !== 'live' && phase !== 'ended' && (
           <span className={`badge ${phase === 'resyncing' ? 'warn' : ''}`}>{phase}</span>
-        )}
-        {working && (
-          <button type="button" onClick={interrupt} disabled={stopBusy}>
-            {stopBusy ? 'Stopping…' : 'Interrupt'}
-          </button>
         )}
         <span className="spacer" />
         <SeatBadge sessionId={sessionId} seat={snap.seat} compact />
@@ -153,11 +139,6 @@ function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElemen
         >
           ☰
         </button>
-        {showSwipeHint && (
-          <button type="button" className="muted edge-swipe-hint" onClick={retireSwipeHint}>
-            Tip: swipe from the left edge to switch sessions
-          </button>
-        )}
       </header>
 
       {phase === 'ended' && (
@@ -208,6 +189,7 @@ function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElemen
           acknowledgeTurn(sessionId, Date.now())
         }}
         onSubmitFailed={(pendingId) => dispatch({ type: 'pendingFailed', pendingId })}
+        stop={working ? { onClick: interrupt, busy: stopBusy } : undefined}
       />
       <StatusBar snap={snap} live={state.live} />
 

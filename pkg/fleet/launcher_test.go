@@ -83,7 +83,8 @@ func (f *fakeChildStore) Children(_ context.Context) ([]ChildRecord, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	out := bulk.MapValuesSlice(f.rows)
-	slices.SortFunc(out, func(a, b ChildRecord) int { return cmp.Compare(a.ID, b.ID) })
+	// the SQLite store reads newest first; adopt must stay order-agnostic
+	slices.SortFunc(out, func(a, b ChildRecord) int { return cmp.Compare(b.ID, a.ID) })
 	return out, nil
 }
 
@@ -306,6 +307,62 @@ func TestLauncher(t *testing.T) {
 		}, 3*time.Second, testPoll)
 
 		// the adopted child stops like any other
+		require.NoError(t, env2.m.StopSession(t.Context(), sid))
+		require.Eventually(t, func() bool { return pidGone(res.PID) }, 3*time.Second, testPoll)
+		rec, ok := env.cs.byPID(res.PID)
+		require.True(t, ok)
+		assert.Equal(t, "stopped by swarm", rec.ExitNote)
+	})
+
+	t.Run("readopt_prefers_live_row_for_stop", func(t *testing.T) {
+		env := newLaunchEnv(t, false)
+		const sid = "01STUBRELIVE00001"
+		t.Setenv("STUB_CHILD_MODE", "serve")
+		setStubRecord(t, env.home, sid)
+		ws := launchWorkspace(t, env.home)
+
+		// a previous run of the same session left its exited row behind, the
+		// shape every relaunch of a known session produces
+		_, err := env.cs.CreateChild(t.Context(), ChildRecord{
+			PID:       deadPID(t),
+			SessionID: sid,
+			Workspace: ws,
+			Argv:      "--serve",
+			StartedAt: time.Now().Add(-time.Hour),
+			ExitedAt:  time.Now().Add(-30 * time.Minute),
+			ExitNote:  "exit status 0",
+		})
+		require.NoError(t, err)
+
+		res, err := env.m.Launch(t.Context(), LaunchRequest{Workspace: ws})
+		require.NoError(t, err)
+		require.Equal(t, sid, res.SessionID)
+
+		env.m.Stop() // the child outlives the manager as always
+		assert.False(t, pidGone(res.PID))
+
+		// a restarted service re-adopts through the persisted rows and must
+		// map the session to the live run, never the exited twin
+		env2 := &launchEnv{bin: env.bin, home: env.home, cs: env.cs}
+		env2.m = New(Options{
+			Log:          testLogger(),
+			PollInterval: testPoll,
+			BackoffBase:  testBackoff,
+			BackoffMax:   testBackoffHi,
+			AjentBin:     env2.bin,
+			ChildrenDir:  filepath.Join(env2.home, "children"),
+			ChildStore:   env2.cs,
+			KillOnExit:   true,
+		})
+		env2.m.Start(t.Context())
+		t.Cleanup(env2.m.Stop)
+
+		require.Eventually(t, func() bool {
+			st, ok := rowFor(env2.m.Sessions(), sid)
+			return ok && st.SpawnedBy == SpawnedBySwarm && st.PID == res.PID
+		}, 3*time.Second, testPoll)
+
+		// the stop must reach the live pid, not answer a stale exited row
 		require.NoError(t, env2.m.StopSession(t.Context(), sid))
 		require.Eventually(t, func() bool { return pidGone(res.PID) }, 3*time.Second, testPoll)
 		rec, ok := env.cs.byPID(res.PID)

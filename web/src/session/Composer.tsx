@@ -39,6 +39,8 @@ export interface ComposerProps {
   disabledReason: string
   onSubmit: (line: string, pendingId: string) => void // paints the optimistic row
   onSubmitFailed: (pendingId: string) => void // a refused submit never queued
+  // stop rides beside Send; the surface decides when a streaming turn shows it
+  stop?: { onClick: () => void; busy: boolean }
 }
 
 // Composer is the prompt line: autosize textarea, Enter sends on fine
@@ -54,6 +56,7 @@ export function Composer({
   disabledReason,
   onSubmit,
   onSubmitFailed,
+  stop,
 }: ComposerProps) {
   const [error, setError] = useState('')
   const [uploading, setUploading] = useState(false)
@@ -337,6 +340,12 @@ export function Composer({
           >
             {uploading ? '…' : '📎'}
           </button>
+          {/* stop rides beside Send, ahead of it in the touch order */}
+          {stop && (
+            <button type="button" onClick={stop.onClick} disabled={stop.busy}>
+              {stop.busy ? 'Stopping…' : 'Stop'}
+            </button>
+          )}
           <button className="primary" type="submit" disabled={disabled || value.trim() === ''}>
             Send
           </button>

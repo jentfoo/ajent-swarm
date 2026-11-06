@@ -11,18 +11,17 @@ import { displayName, shortID, tildePath } from '../session/names'
 import { useWorkspaceKeys } from './keys'
 import { ShortcutOverlay } from './ShortcutOverlay'
 import { attentionSectionTitles } from './attention'
-import type { AttentionItem, AttentionKind } from './attention'
+import type { AttentionItem, AttentionQueue } from './attention'
 
-// FocusedWorkspace answers "what needs me right now": a ranked rail of
-// attention split by urgency — dialogs, unreviewed completions, idle agents,
-// busy sessions last — beside exactly one SessionView. The selected session
-// persists in the layout profile; recently viewed sessions stay warm in the
-// store, so swapping rows is instant.
+// FocusedWorkspace answers "what needs me right now": a ranked rail split
+// in three queues — states wanting a human answer above, idle agents
+// waiting below them, busy sessions last — beside exactly one SessionView.
+// The selected session persists in the layout profile; recently viewed
+// sessions stay warm in the store, so swapping rows is instant.
 export default function FocusedWorkspace() {
   const { sessions } = useSwarm()
   const auth = useAuth()
-  const { needs, awaiting, working, acknowledgeItem, profile, selectFocusedSession } =
-    useWorkspace()
+  const { needs, waiting, working, acknowledgeItem, profile, selectFocusedSession } = useWorkspace()
 
   const [searchParams, setSearchParams] = useSearchParams()
   const selected = profile.focused.selectedSessionId
@@ -35,7 +34,7 @@ export default function FocusedWorkspace() {
     setSearchParams({}, { replace: true })
   }, [searchParams, selectFocusedSession, setSearchParams])
 
-  const rows = useMemo(() => [...needs, ...awaiting, ...working], [needs, awaiting, working])
+  const rows = useMemo(() => [...needs, ...waiting, ...working], [needs, waiting, working])
   const [cursorId, setCursorId] = useState<string | null>(selected ?? rows[0]?.sessionId ?? null)
 
   // The cursor follows reality: a row that leaves the queue moves to the next.
@@ -91,30 +90,22 @@ export default function FocusedWorkspace() {
       ?.scrollIntoView({ block: 'nearest' })
   }, [cursor])
 
-  // The combined actionable bucket splits per urgency: dialogs need an answer
-  // now, completions want review, and each renders under its own heading.
-  const needsInput = needs.filter((i) => i.kind === 'needs-input')
-  const needsReview = needs.filter((i) => i.kind === 'needs-review')
-
-  // The rail's fixed sections in display order, titled from the shared model.
-  // The first section's empty note stays quiet unless nothing waits anywhere.
-  const railSections: { kind: AttentionKind; rows: AttentionItem[]; empty?: string }[] = [
+  // The rail's three queues in display order, titled from the shared model.
+  // Rows badge their own kind, so a queue never encodes state; the needs
+  // queue's empty note stays quiet while anything waits below it.
+  const railSections: { queue: AttentionQueue; rows: AttentionItem[]; empty: string }[] = [
     {
-      kind: 'needs-input',
-      rows: needsInput,
-      empty: needs.length + awaiting.length === 0 ? 'Nothing waits on you.' : undefined,
+      queue: 'needs',
+      rows: needs,
+      empty: needs.length + waiting.length === 0 ? 'Nothing waits on you.' : '',
     },
-    { kind: 'needs-review', rows: needsReview },
-    { kind: 'awaiting', rows: awaiting },
-    { kind: 'working', rows: working, empty: 'No busy sessions.' },
+    { queue: 'waiting', rows: waiting, empty: '' },
+    { queue: 'working', rows: working, empty: 'No busy sessions.' },
   ]
 
   const renderRow = (item: AttentionItem) => {
     const isCursor = item.sessionId === cursor
     const isSelected = item.sessionId === selected
-    // only the working class sits outside the attention sections; its rows
-    // keep the plain below styling they have always carried
-    const below = item.kind === 'working'
     // the stored swarm title leads, its workspace path sits below in small
     // muted text so long titles keep the whole line
     const row = sessions.find((s) => s.sessionId === item.sessionId)
@@ -123,7 +114,7 @@ export default function FocusedWorkspace() {
         key={`${item.sessionId}:${item.pid}`}
         role="button"
         tabIndex={-1}
-        className={`rail-row kind-${below ? 'below' : item.kind} ${isSelected ? 'selected' : ''}`}
+        className={`rail-row kind-${item.kind} ${isSelected ? 'selected' : ''}`}
         data-cursor={isCursor || undefined}
         data-session-id={item.sessionId}
         onClick={() => open(item.sessionId)}
@@ -134,18 +125,14 @@ export default function FocusedWorkspace() {
           <span className="rail-meta">
             {item.kind === 'needs-input' && <span className="badge danger">input</span>}
             {item.kind === 'needs-review' && <span className="badge warn">review</span>}
-            {below ? (
-              item.running ? (
+            {item.kind === 'awaiting' && <span className="badge">waiting</span>}
+            {item.kind === 'working' &&
+              (item.running ? (
                 <span className="badge accent">running</span>
               ) : (
                 <span className="badge">idle</span>
-              )
-            ) : (
-              item.kind === 'awaiting' && <span className="badge">waiting</span>
-            )}
-            {!below && item.since > 0 && (
-              <span className="muted rail-wait">{waited(item.since, now)}</span>
-            )}
+              ))}
+            {item.since > 0 && <span className="muted rail-wait">{waited(item.since, now)}</span>}
           </span>
         </span>
         {row?.workspace && (
@@ -153,7 +140,9 @@ export default function FocusedWorkspace() {
             {tildePath(row.workspace, auth.home)}
           </span>
         )}
-        <span className="rail-reason">{item.reason || (below ? 'working…' : '')}</span>
+        <span className="rail-reason">
+          {item.reason || (item.kind === 'working' ? 'working…' : '')}
+        </span>
       </div>
     )
   }
@@ -162,12 +151,12 @@ export default function FocusedWorkspace() {
     <div className="workspace focused-workspace">
       <div className="focus-rail" ref={railRef} aria-label="Focus queue">
         {railSections.map((section) => (
-          <div className="rail-section" key={section.kind}>
+          <div className="rail-section" key={section.queue}>
             <div className="rail-section-title">
-              {attentionSectionTitles[section.kind]}{' '}
+              {attentionSectionTitles[section.queue]}{' '}
               {section.rows.length > 0 && <span className="muted">({section.rows.length})</span>}
             </div>
-            {section.rows.length === 0 && section.empty && (
+            {section.rows.length === 0 && section.empty !== '' && (
               <div className="rail-empty muted">{section.empty}</div>
             )}
             {section.rows.map((item) => renderRow(item))}

@@ -431,6 +431,30 @@ describe('Composer submit flow', () => {
     expect(await screen.findByText(/queue is full/)).toBeInTheDocument()
   })
 
+  it('renders the stop control beside send and fires its click', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({})),
+    )
+    const onClick = vi.fn()
+    const view = render(Harness({ stop: { onClick, busy: false } }))
+
+    const stop = screen.getByRole('button', { name: 'Stop' })
+    expect(
+      stop.compareDocumentPosition(screen.getByRole('button', { name: 'Send' })) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+
+    await user.click(stop)
+    expect(onClick).toHaveBeenCalledOnce()
+
+    // an unanswered stop disables the button and says so
+    view.unmount()
+    render(Harness({ stop: { onClick, busy: true } }))
+    expect(screen.getByRole('button', { name: 'Stopping…' })).toBeDisabled()
+  })
+
   it('keeps the draft in the composer when a submit is refused', async () => {
     const user = userEvent.setup()
     vi.stubGlobal(

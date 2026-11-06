@@ -137,42 +137,6 @@ main.content {
   overflow-y: auto; /* pages scroll inside the shell, never the window */
 }
 
-/* mobile chrome swaps navigation to a bottom bar.
-   Every (max-width: 48rem) below is the same breakpoint as
-   hooks/useMediaQuery.ts's mobileLayout; change both together. */
-.mobile-nav {
-  display: none;
-}
-@media (max-width: 48rem) {
-  .topbar nav,
-  .topbar .account-name {
-    display: none;
-  }
-  .mobile-nav {
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    display: flex;
-    background: var(--surface);
-    border-top: 1px solid var(--border);
-    z-index: 10;
-  }
-  .mobile-nav a {
-    flex: 1;
-    text-align: center;
-    padding: calc(var(--unit) * 3);
-    color: var(--muted);
-  }
-  .mobile-nav a.active {
-    color: var(--text);
-    background: var(--surface-2);
-  }
-  main.content {
-    padding-bottom: calc(var(--unit) * 14);
-  }
-}
-
 /* --- shared widgets --- */
 
 .card {
@@ -412,13 +376,21 @@ label {
   background: transparent !important;
 }
 
-/* raw-copy buttons: the label spans share one grid cell, so a state swap
-   never resizes the button */
+/* raw-copy buttons: one icon per state cell, so a swap never resizes the
+   button; labels stay in the tree for screen readers via .sr-only */
 .copy-btn {
   display: inline-flex;
   align-items: center;
-  padding: calc(var(--unit) * 0.5) calc(var(--unit) * 2);
-  font-size: var(--fs-small);
+  justify-content: center;
+  padding: calc(var(--unit) * 1);
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
   white-space: nowrap;
 }
 .copy-labels {
@@ -448,10 +420,16 @@ label {
   color: #e6edf3;
 }
 
-/* quiet copy row at the bottom of an assistant entry */
+/* clipboard affordance at the bottom-right corner of an assistant message:
+   the entry lays out as a column so align-self parks the button at its end */
+.entry.assistant {
+  display: flex;
+  flex-direction: column;
+}
 .entry-copy {
+  align-self: flex-end;
   margin-top: calc(var(--unit) * 1);
-  padding: 0;
+  padding: calc(var(--unit) * 0.5) calc(var(--unit) * 2);
   border: none;
   background: none;
   color: var(--muted);
@@ -1761,16 +1739,6 @@ label {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-weight: 550;
-}
-/* first-run note for the edge-swipe gesture; hint-shaped rather than
-   button-shaped, wrapping onto its own line under the controls */
-.mobile-session-header .edge-swipe-hint {
-  flex-basis: 100%;
-  padding: 0;
-  background: none;
-  border: none;
-  font-size: var(--fs-small);
-  text-align: left;
 }
 .seat-claim {
   white-space: normal;

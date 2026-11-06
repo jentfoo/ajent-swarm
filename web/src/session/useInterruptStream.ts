@@ -16,7 +16,7 @@ export interface UseInterruptStreamOptions {
 
 // useInterruptStream binds Escape on a session's viewing surface to
 // interrupting its running turn, and hands the same guarded fire to explicit
-// Interrupt buttons. Claims below win first: an open modal or popover keeps
+// stop buttons. Claims below win first: an open modal or popover keeps
 // Escape for itself, a prior preventDefault (the composer hiding its @-menu)
 // stands, and an unanswered request swallows repeat presses. Returns the
 // guarded fire plus whether one request is on the wire.

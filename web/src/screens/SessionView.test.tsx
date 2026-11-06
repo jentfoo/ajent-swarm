@@ -488,6 +488,24 @@ describe('SessionView', () => {
     await waitFor(() => expect(fetcher.callsTo('/interrupt')).toHaveLength(1))
   })
 
+  it('stops a running stream from beside send rather than the header', async () => {
+    fetcher.on(`/api/sessions/${VIEW}/interrupt`, () => Response.json({ stopped: VIEW }))
+    renderView()
+    const ws = await openSocket()
+
+    frame(ws, { type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
+    frame(ws, wireEvent('turn.start', 1, { model: 'sonnet' }))
+
+    // the header carries no interrupt control; the composer's Stop does
+    expect(screen.queryByRole('button', { name: 'Interrupt' })).not.toBeInTheDocument()
+    const stop = await screen.findByRole('button', { name: 'Stop' })
+    const send = screen.getByRole('button', { name: 'Send' })
+    expect(stop.compareDocumentPosition(send) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+
+    await userEvent.setup().click(stop)
+    await waitFor(() => expect(fetcher.callsTo('/interrupt')).toHaveLength(1))
+  })
+
   it('marks refused submits without losing the draft', async () => {
     fetcher.on(`/api/sessions/${VIEW}/submit`, () =>
       Response.json({ error: 'unavailable', message: 'a dialog holds input' }, { status: 409 }),

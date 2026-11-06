@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { AttentionRow } from '../api/types'
 import {
@@ -7,6 +7,7 @@ import {
   acknowledgeItem,
   ackedTurn,
   attentionRank,
+  attentionQueue,
   attentionRanks,
   compareAttention,
   deriveItem,
@@ -15,6 +16,7 @@ import {
   rankAttention,
   ledgerVersionNow,
   resetLedger,
+  resetQueueEntries,
   subscribeLedger,
 } from './attention'
 import type { AttentionSort } from './attention'
@@ -31,6 +33,11 @@ function row(overrides: Partial<AttentionRow> & { sessionId: string }): Attentio
 beforeEach(() => {
   localStorage.clear()
   resetLedger()
+  resetQueueEntries()
+})
+
+afterEach(() => {
+  vi.useRealTimers()
 })
 
 // dispatchStorageEvent mimics another tab writing the ledger: nothing changes
@@ -159,7 +166,7 @@ describe('attention derivation', () => {
 })
 
 describe('attention ranking', () => {
-  it('orders dialogs by oldest wait, then reviews newest first', () => {
+  it('merges dialogs and reviews into needs by oldest wait', () => {
     const items = [
       deriveItem(row({ sessionId: 'old-dialog', openInteractions: 1, dialogId: 1, dialogAt: 100 })),
       deriveItem(row({ sessionId: 'new-dialog', openInteractions: 1, dialogId: 2, dialogAt: 300 })),
@@ -170,46 +177,81 @@ describe('attention ranking', () => {
       deriveItem(row({ sessionId: 'zzz-snoozing', activity: 'tests green' })),
     ]
     const ranked = rankAttention(items)
+    // dialogs and completions share one oldest-first order regardless of kind
     expect(ranked.needs.map((i) => i.sessionId)).toEqual([
       'old-dialog',
+      'old-turn',
       'new-dialog',
       'new-turn',
-      'old-turn',
     ])
     expect(ranked.working.map((i) => i.sessionId)).toEqual(['worker'])
-    // agents waiting for a prompt land after the actionable rows, name-sorted
-    expect(ranked.awaiting.map((i) => i.sessionId)).toEqual(['aaa-snoozing', 'zzz-snoozing'])
-    expect(ranked.awaiting[1].reason).toBe('tests green')
+    // idle agents wait in their own queue, name-stable within one batch
+    expect(ranked.waiting.map((i) => i.sessionId)).toEqual(['aaa-snoozing', 'zzz-snoozing'])
+    expect(ranked.waiting[1].reason).toBe('tests green')
     expect(ranked.needsInputCount).toBe(2)
+  })
+
+  it('moves a row to the end of its new queue on a kind change', () => {
+    vi.useFakeTimers()
+    const busy = (sessionId: string) =>
+      deriveItem(row({ sessionId, running: true, idle: false, activity: 'busy' }))
+    const idle = (sessionId: string) => deriveItem(row({ sessionId }))
+
+    vi.setSystemTime(1000)
+    const first = rankAttention([busy('aaa-settled'), busy('zzz-mover')])
+    expect(first.working.map((i) => i.sessionId)).toEqual(['aaa-settled', 'zzz-mover'])
+
+    // the second worker goes idle later: it must land behind the settled row
+    vi.setSystemTime(2000)
+    const second = rankAttention([busy('aaa-settled'), idle('zzz-mover')])
+    expect(second.working.map((i) => i.sessionId)).toEqual(['aaa-settled'])
+    expect(second.waiting.map((i) => i.sessionId)).toEqual(['zzz-mover'])
+
+    // a later waiting arrival still appends behind the earlier one
+    vi.setSystemTime(3000)
+    const third = rankAttention([idle('aaa-settled'), idle('zzz-mover')])
+    expect(third.waiting.map((i) => i.sessionId)).toEqual(['zzz-mover', 'aaa-settled'])
   })
 })
 
 describe('shared attention ordering', () => {
-  it('ranks kinds in rail order, digest-less rows with working', () => {
-    expect(attentionRank({ sessionId: 's', kind: 'needs-input' })).toBe(attentionRanks.input)
-    expect(attentionRank({ sessionId: 's', kind: 'needs-review' })).toBe(attentionRanks.review)
-    expect(attentionRank({ sessionId: 's', kind: 'awaiting' })).toBe(attentionRanks.awaiting)
+  it('ranks queues in rail order, digest-less rows with working', () => {
+    expect(attentionRank({ sessionId: 's', kind: 'needs-input' })).toBe(attentionRanks.needs)
+    expect(attentionRank({ sessionId: 's', kind: 'needs-review' })).toBe(attentionRanks.needs)
+    expect(attentionRank({ sessionId: 's', kind: 'awaiting' })).toBe(attentionRanks.waiting)
     expect(attentionRank({ sessionId: 's', kind: 'working' })).toBe(attentionRanks.working)
 
     // a listing row without a digest never outranks actionable ones
     expect(attentionRank({ sessionId: 's' })).toBe(attentionRanks.working)
   })
 
-  it('sorts classes first, then waits within them, names otherwise', () => {
+  it('buckets kinds into the three rail queues', () => {
+    expect(attentionQueue({ sessionId: 's', kind: 'needs-input' })).toBe('needs')
+    expect(attentionQueue({ sessionId: 's', kind: 'needs-review' })).toBe('needs')
+    expect(attentionQueue({ sessionId: 's', kind: 'awaiting' })).toBe('waiting')
+    expect(attentionQueue({ sessionId: 's', kind: 'working' })).toBe('working')
+
+    // a listing row without a digest sits with the busy ones
+    expect(attentionQueue({ sessionId: 's' })).toBe('working')
+  })
+
+  it('sorts queues first, oldest wait inside needs, entries below', () => {
     const rows: AttentionSort[] = [
-      { sessionId: 'zzz-busy', kind: 'working' },
+      { sessionId: 'zzz-busy', kind: 'working', queuedAt: 50 },
       { sessionId: 'new-dialog', kind: 'needs-input', since: 500 },
-      { sessionId: 'b-idle', kind: 'awaiting' },
+      { sessionId: 'b-idle', kind: 'awaiting', queuedAt: 300 },
       { sessionId: 'old-turn', kind: 'needs-review', since: 100 },
       { sessionId: 'aaa-plain' }, // digest-less ranks with working
       { sessionId: 'old-dialog', kind: 'needs-input', since: 100 },
+      { sessionId: 'a-idle', kind: 'awaiting', queuedAt: 100 },
     ]
     expect([...rows].sort(compareAttention).map((r) => r.sessionId)).toEqual([
-      'old-dialog', // dialogs by oldest wait
+      'old-dialog', // needs merges kinds by oldest wait, names break ties
+      'old-turn',
       'new-dialog',
-      'old-turn', // completions newest first
+      'a-idle', // waiting and working queue by entry, movers append
       'b-idle',
-      'aaa-plain', // working class name-stable
+      'aaa-plain', // digest-less reads as oldest within working
       'zzz-busy',
     ])
   })

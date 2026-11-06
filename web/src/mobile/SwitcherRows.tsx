@@ -136,8 +136,9 @@ function SwitchRow({
 // RowActions is the row's trailing action area, mirroring the desktop card's
 // bar minus Open (the row itself opens): Rename on every row, Settings and
 // Stop for live rows, Resume for ended ones with a recorded workspace. Stop
-// carries the shared danger variant and arm/confirm guard; armed never
-// survives a scroll or a poll re-render of the row. It swallows clicks and
+// carries the shared danger variant and arm/confirm guard; like the desktop
+// card it holds across listing polls, while a relaunch resets it by remounting
+// this row under a fresh instance key. It swallows clicks and
 // pointer-downs so tapping or holding an action never reads as the row's own
 // open or long-press gestures.
 function RowActions({
@@ -168,7 +169,10 @@ function RowActions({
     }
   }
 
-  const confirm = useArmedConfirm(() => void stop(), { disabled: busy, resetKey: row })
+  // no resetKey: polls rebuild row objects every couple of seconds, so an
+  // object key would void the arm between taps; instance swaps remount this
+  // row disarmed instead
+  const confirm = useArmedConfirm(() => void stop(), { disabled: busy })
 
   return (
     <div

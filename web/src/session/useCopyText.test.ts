@@ -11,6 +11,12 @@ function stubClipboard(writeText: (text: string) => Promise<void>) {
   return fn
 }
 
+function stubExecCommand(ok: boolean) {
+  const fn = vi.fn(() => ok)
+  Object.defineProperty(document, 'execCommand', { configurable: true, value: fn })
+  return fn
+}
+
 function unstubClipboard() {
   delete (navigator as { clipboard?: unknown }).clipboard
 }
@@ -18,6 +24,7 @@ function unstubClipboard() {
 beforeEach(unstubClipboard)
 afterEach(() => {
   unstubClipboard()
+  delete (document as { execCommand?: unknown }).execCommand
   vi.useRealTimers()
 })
 
@@ -39,18 +46,36 @@ describe('useCopyText', () => {
     expect(result.current.state).toBe('idle')
   })
 
-  it('reports failed on a rejected write', async () => {
+  it('copies through the fallback when no clipboard exists', async () => {
+    stubExecCommand(true)
+    const { result } = renderHook(() => useCopyText())
+
+    await act(async () => result.current.copy('raw markdown'))
+    expect(result.current.state).toBe('copied')
+  })
+
+  it('copies through the fallback after a rejected write', async () => {
     stubClipboard(() => Promise.reject(new Error('denied')))
+    stubExecCommand(true)
+    const { result } = renderHook(() => useCopyText())
+
+    await act(async () => result.current.copy('raw markdown'))
+    expect(result.current.state).toBe('copied')
+  })
+
+  it('reports failed when no path can write', async () => {
+    stubClipboard(() => Promise.reject(new Error('denied')))
+    stubExecCommand(false)
     const { result } = renderHook(() => useCopyText())
 
     await act(async () => result.current.copy('raw markdown'))
     expect(result.current.state).toBe('failed')
   })
 
-  it('reports failed when no clipboard exists', () => {
+  it('reports failed when no clipboard and no fallback exist', async () => {
     const { result } = renderHook(() => useCopyText())
 
-    act(() => result.current.copy('raw markdown'))
+    await act(async () => result.current.copy('raw markdown'))
     expect(result.current.state).toBe('failed')
   })
 

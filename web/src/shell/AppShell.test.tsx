@@ -101,7 +101,9 @@ describe('AppShell', () => {
     expect(document.querySelector('main')).not.toHaveClass('workspace-content')
   })
 
-  it('stays desktop-only: no switcher at phone width', async () => {
+  it('keeps desktop chrome at phone width', async () => {
+    // shell choice under the breakpoint belongs to AuthGate; AppShell has no
+    // phone-width branches, so matchMedia reporting mobile changes nothing here
     vi.stubGlobal('matchMedia', (query: string) => ({
       matches: query === mobileLayout,
       media: query,
@@ -112,7 +114,9 @@ describe('AppShell', () => {
     }))
     await renderShell('/')
 
-    expect(switcher()).not.toBeInTheDocument()
+    expect(switcher()).toBeInTheDocument()
+    // the removed bottom navigation stays gone
+    expect(document.querySelector('.mobile-nav')).not.toBeInTheDocument()
   })
 
   it('keeps the switcher when a mode press navigates within workspaces', async () => {

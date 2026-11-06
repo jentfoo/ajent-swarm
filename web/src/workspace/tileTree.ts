@@ -69,16 +69,19 @@ export function findPane(tree: TileNode | null, paneId: string): TilePane | null
 export function openTab(tree: TileNode | null, sessionId: string, paneId?: string): TileNode {
   if (tree === null) return freshPane(sessionId)
   const existing = findSessionPane(tree, sessionId)
-  if (existing) return setActive(tree, existing.id, sessionId)
+  if (existing) return activateTab(tree, existing.id, sessionId)
   const target = (paneId && findPane(tree, paneId)) || firstPane(tree)
   if (!target) return tree
   return withTabs(tree, target.id, (tabs) => [...tabs, sessionId], sessionId)
 }
 
-// setActive focuses one tab in its pane.
-function setActive(tree: TileNode, paneId: string, sessionId: string): TileNode {
+// activateTab shows one existing tab in its pane: the session must already be
+// a tab there, anything else keeps the tree identity.
+export function activateTab(tree: TileNode, paneId: string, sessionId: string): TileNode {
   return mapPane(tree, paneId, (pane) =>
-    pane.tabs.includes(sessionId) ? { ...pane, active: sessionId } : pane,
+    !pane.tabs.includes(sessionId) || pane.active === sessionId
+      ? pane
+      : { ...pane, active: sessionId },
   )
 }
 

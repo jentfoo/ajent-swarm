@@ -286,7 +286,10 @@ func (m *Manager) StopSession(ctx context.Context, sessionID string) error {
 	pid := 0
 	m.mu.Lock()
 	cp := m.childBySession[sessionID]
-	alreadyExited := cp != nil && !cp.rec.ExitedAt.IsZero()
+	// a recorded exit counts only with the pid provably gone: a stale row
+	// (an older run of a relaunched session) must never read as stopped while
+	// the live process serves on
+	alreadyExited := cp != nil && !cp.rec.ExitedAt.IsZero() && pidGone(cp.rec.PID)
 	if cp != nil {
 		pid = cp.rec.PID
 	} else if a != nil {
@@ -425,7 +428,12 @@ func (m *Manager) adopt(ctx context.Context) {
 			cp := &childProc{rec: rec, adopted: running, exit: make(chan struct{})}
 			m.children[rec.PID] = cp
 			if rec.SessionID != "" {
-				m.childBySession[rec.SessionID] = cp
+				// a relaunched session keeps one row per run: the live row must win
+				// the session lookup or stop reads the dead row and quietly no-ops
+				cur, ok := m.childBySession[rec.SessionID]
+				if !ok || (running && !cur.rec.ExitedAt.IsZero()) {
+					m.childBySession[rec.SessionID] = cp
+				}
 			}
 		} else if _, ok := m.externals[rec.PID]; !ok {
 			m.externals[rec.PID] = rec // retained for the listing alone

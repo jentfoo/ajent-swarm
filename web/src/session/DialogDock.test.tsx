@@ -187,7 +187,7 @@ describe('DialogDock shape mapping', () => {
     expect(onOutcomeDismissed).toHaveBeenCalledWith(9)
   })
 
-  it('auto-dismisses an outcome after a few seconds', async () => {
+  it('auto-dismisses an outcome after a moment', async () => {
     vi.useFakeTimers()
     try {
       const { onOutcomeDismissed } = dock([], [{ id: 11, cancelled: true, answered: false }])

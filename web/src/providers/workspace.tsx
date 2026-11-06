@@ -24,8 +24,8 @@ interface WorkspaceContextValue {
   setTileLayout: (tile: TileLayout) => void
 
   // One derived attention model, consumed by both modes and the badge.
-  needs: AttentionItem[] // dialogs by oldest wait, then unreviewed newest first
-  awaiting: AttentionItem[] // idle agents waiting for their next prompt
+  needs: AttentionItem[] // dialogs and unreviewed completions by oldest wait
+  waiting: AttentionItem[] // idle agents waiting for their next prompt
   working: AttentionItem[]
   needsInputCount: number
   itemFor(sessionId: string): AttentionItem | undefined
@@ -105,7 +105,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       selectFocusedSession,
       setTileLayout,
       needs: ranked.needs,
-      awaiting: ranked.awaiting,
+      waiting: ranked.waiting,
       working: ranked.working,
       needsInputCount: ranked.needsInputCount,
       itemFor,

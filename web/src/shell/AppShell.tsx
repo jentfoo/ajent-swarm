@@ -4,7 +4,6 @@ import type { ReactNode } from 'react'
 import { useSwarm } from '../providers/swarm'
 import { useWorkspace } from '../providers/workspace'
 import { useAuth } from '../providers/auth'
-import { mobileLayout, useMediaQuery } from '../hooks/useMediaQuery'
 import { ChildState } from '../api/types'
 import type { SessionStatus } from '../api/types'
 import { GlobalSettingsMenu } from './GlobalSettingsMenu'
@@ -20,11 +19,11 @@ export function reachableSession(s: SessionStatus): boolean {
 // the chrome. Elsewhere the switcher would only navigate away.
 const workspacePaths = new Set(['/', '/focused', '/tile'])
 
-// AppShell is the one chrome with two variants: the desktop pane-capable bar
-// and a bottom navigation under the mobile breakpoint. The workspace mode
-// switch (workspace routes only) and the attention badge live here on desktop,
-// the theme toggle sits beside them, and the hamburger opens swarm's global
-// settings; per-session agent settings ride each session's own chrome.
+// AppShell is the desktop chrome, mounted only above the breakpoint; AuthGate
+// swaps in MobileShell below it, so no phone-width branches belong here. The
+// workspace mode switch (workspace routes only) and the attention badge live
+// here, the theme toggle sits beside them, and the hamburger opens swarm's
+// global settings; per-session agent settings ride each session's own chrome.
 export default function AppShell({ children }: { children: ReactNode }) {
   const { sessions, connection, theme, setTheme } = useSwarm()
   const {
@@ -35,7 +34,6 @@ export default function AppShell({ children }: { children: ReactNode }) {
     requestNotifications,
   } = useWorkspace()
   const auth = useAuth()
-  const mobile = useMediaQuery(mobileLayout)
   const location = useLocation()
   const navigate = useNavigate()
   const workspaceRoute = workspacePaths.has(location.pathname)
@@ -51,26 +49,24 @@ export default function AppShell({ children }: { children: ReactNode }) {
     navigate('/focused')
   }
 
-  // navLinks render twice: the desktop bar and the mobile bottom navigation.
-  const navLinks = (
-    <>
-      <Link to="/" className={location.pathname === '/' ? 'active' : ''}>
-        Workspace
-      </Link>
-      <Link to="/sessions" className={location.pathname.startsWith('/sessions') ? 'active' : ''}>
-        Sessions
-      </Link>
-      <Link to="/jobs" className={location.pathname.startsWith('/jobs') ? 'active' : ''}>
-        Jobs
-      </Link>
-    </>
-  )
-
   return (
     <div className="app-shell">
       <header className="topbar">
-        <nav>{navLinks}</nav>
-        {!mobile && workspaceRoute && (
+        <nav>
+          <Link to="/" className={location.pathname === '/' ? 'active' : ''}>
+            Workspace
+          </Link>
+          <Link
+            to="/sessions"
+            className={location.pathname.startsWith('/sessions') ? 'active' : ''}
+          >
+            Sessions
+          </Link>
+          <Link to="/jobs" className={location.pathname.startsWith('/jobs') ? 'active' : ''}>
+            Jobs
+          </Link>
+        </nav>
+        {workspaceRoute && (
           <div className="ws-switcher" role="group" aria-label="Workspace mode">
             <button
               type="button"
@@ -141,8 +137,6 @@ export default function AppShell({ children }: { children: ReactNode }) {
       )}
 
       <main className={workspaceRoute ? 'content workspace-content' : 'content'}>{children}</main>
-
-      {mobile && <nav className="mobile-nav">{navLinks}</nav>}
     </div>
   )
 }

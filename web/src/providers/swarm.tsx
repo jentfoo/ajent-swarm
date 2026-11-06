@@ -17,6 +17,10 @@ const pollSessionsMs = 2_000
 const pollAttentionMs = 2_500
 const pollAttentionHiddenMs = 30_000
 
+// Debounce for stream-driven digest refreshes: turn boundaries land several
+// frames in quick succession, so the burst coalesces into one fetch.
+const digestRefreshMs = 150
+
 interface SwarmContextValue {
   stream: SwarmStream
   store: SessionStore
@@ -94,6 +98,26 @@ export function SwarmProvider({ children }: { children: ReactNode }) {
   // The digest keeps a slow background cadence so hidden tabs still raise
   // notifications; everything else stays visible-only.
   usePoll(() => void refreshAttention(), pollAttentionMs, pollAttentionHiddenMs)
+
+  // The chat pane updates straight off the stream, so the digest poll alone
+  // leaves the focus queue re-sorting seconds behind what the user just saw.
+  // Frames that move a session between queues (a dialog answered, a turn
+  // started or ended) refresh the digest right away, keeping the rail in
+  // step with the chat; unrelated transcript churn still rides the poll.
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const unsub = store.onDigestChange(() => {
+      if (timer !== null) clearTimeout(timer)
+      timer = setTimeout(() => {
+        timer = null
+        void refreshAttention()
+      }, digestRefreshMs)
+    })
+    return () => {
+      unsub()
+      if (timer !== null) clearTimeout(timer)
+    }
+  }, [store, refreshAttention])
 
   const [theme, setThemeState] = useState<Theme>(() =>
     readStored('swarm.theme', ['dark', 'light'] as const, preferredTheme()),

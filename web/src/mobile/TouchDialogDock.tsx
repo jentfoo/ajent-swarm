@@ -12,7 +12,7 @@ import {
   usePermitNoteAutoAnswer,
 } from '../session/decisionNote'
 
-const outcomeDismissMs = 5_000
+const outcomeDismissMs = 1_500
 
 // resolveDialog posts one answer; a settled code means another surface's
 // answer already won, which stays benign wherever it lands.
@@ -310,7 +310,7 @@ function TextAnswer({
 }
 
 // ResolvedChip inherits phase 14's auto-dismiss: an answered-elsewhere chip
-// clears itself after a few seconds and on tap, never parking under the dock.
+// clears itself shortly after appearing and on tap, never parking under the dock.
 function ResolvedChip({ outcome }: { outcome: DialogOutcome }): ReactElement | null {
   const [visible, setVisible] = useState(true)
   useEffect(() => {

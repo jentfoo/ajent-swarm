@@ -15,9 +15,9 @@ import type { SwitcherRow } from './switcher'
 import { usePullToRefresh } from './usePullToRefresh'
 import { useSwitcherRows } from './useSwitcherRows'
 
-// MobileHome is the launcher and switcher: the grouped live sessions the
-// bottom sheet shows (section headings included), then sections for new
-// session, saved sessions, jobs and settings. Depth of controls trades for
+// MobileHome is the launcher and switcher: the new-session launcher on top,
+// then the grouped live sessions the bottom sheet shows (section headings
+// included), then links for jobs and settings. Depth of controls trades for
 // reachability here.
 export default function MobileHome() {
   const navigate = useNavigate()
@@ -50,11 +50,11 @@ export default function MobileHome() {
         </p>
       )}
 
+      <NewSessionSection facts={facts} />
+
       <section aria-label="Live sessions">
         <SwitcherRows rows={rows} onOpen={open} />
       </section>
-
-      <NewSessionSection facts={facts} />
 
       <nav className="mobile-links" aria-label="More">
         <Link to="/jobs" data-testid="link-jobs">
@@ -70,8 +70,8 @@ export default function MobileHome() {
   )
 }
 
-// NewSessionSection keeps the launcher collapsed until asked, so the switcher
-// stays the screen's first thing on a phone.
+// NewSessionSection keeps the launcher collapsed until asked, so the launch
+// button stays one tap without its form pushing the session list down.
 function NewSessionSection({ facts }: { facts: LaunchFacts }) {
   const navigate = useNavigate()
   const { refreshSessions } = useSwarm()

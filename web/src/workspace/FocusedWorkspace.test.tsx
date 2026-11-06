@@ -8,12 +8,12 @@ import { AuthProvider } from '../providers/auth'
 import { SwarmProvider } from '../providers/swarm'
 import { WorkspaceProvider } from '../providers/workspace'
 import { MockWebSocket } from '../test/mockWebSocket'
-import { resetLedger } from './attention'
+import { resetLedger, resetQueueEntries } from './attention'
 import type { AttentionRow } from '../api/types'
 
 // The rail renders over the real provider stack with fetch and WebSocket
-// mocks: mixed attention rows fill every section, acting on a row clears it,
-// and the keyboard drives the queue.
+// mocks: mixed attention rows fill the three queues, acting on a row clears
+// it, and the keyboard drives the queue.
 const DIALOG = '01AAAAAAAAAAAAAA'
 const REVIEW = '01BBBBBBBBBBBBBB'
 const WORKER = '01CCCCCCCCCCCCCC'
@@ -101,6 +101,7 @@ describe('FocusedWorkspace', () => {
   beforeEach(() => {
     localStorage.clear()
     resetLedger()
+    resetQueueEntries()
     vi.stubGlobal(
       'WebSocket',
       class extends MockWebSocket {
@@ -171,31 +172,31 @@ describe('FocusedWorkspace', () => {
     await screen.findByText('dialog session') // attention rows have landed
   }
 
-  it('renders each attention kind under its own section', async () => {
+  it('renders three queues with needs merged oldest-first', async () => {
     attention = [...attentionRows(), waitingRow()]
     renderFocused()
     await openSocket()
 
+    // the review's turn ended before the dialog opened, so it leads the
+    // merged Needs input queue ahead of the dialog, the waiting agent and the
+    // busy row
     const rows = railRows().map((row) => row.textContent ?? '')
-    expect(rows[0]).toContain('dialog session')
-    expect(rows[0]).toContain('allow write access?')
-    expect(rows[1]).toContain('review session')
-    expect(rows[1]).toContain('turn complete')
-    // agents waiting for a prompt sit in their own Waiting section before the
-    // busy rows
+    expect(rows[0]).toContain('review session')
+    expect(rows[0]).toContain('turn complete')
+    expect(rows[1]).toContain('dialog session')
+    expect(rows[1]).toContain('allow write access?')
     expect(rows[2]).toContain('01WAITIN…')
     expect(rows[2]).toContain('waiting for a prompt')
     expect(rows[3]).toContain('worker session')
     expect(rows[3]).toContain('reading main.go')
 
-    // each section heads itself with the shared title and its own count
+    // rows badge their own kind while the queues carry shared titles
+    expect(rows[0]).toContain('review')
+    expect(rows[1]).toContain('input')
+    expect(rows[2]).toContain('waiting')
+    expect(rows[3]).toContain('running')
     const headings = [...rail().querySelectorAll('.rail-section-title')].map((h) => h.textContent)
-    expect(headings).toEqual([
-      'Needs input (1)',
-      'Ready to review (1)',
-      'Waiting (1)',
-      'Working (1)',
-    ])
+    expect(headings).toEqual(['Needs input (2)', 'Waiting (1)', 'Working (1)'])
   })
 
   it('shows empty states when nothing lives', async () => {
@@ -204,8 +205,8 @@ describe('FocusedWorkspace', () => {
 
     // the fixed sections still head the rail when every one is empty
     expect(await screen.findByText('Needs input')).toBeInTheDocument()
-    expect(screen.getByText('Ready to review')).toBeInTheDocument()
     expect(screen.getByText('Waiting')).toBeInTheDocument()
+    expect(screen.getByText('Working')).toBeInTheDocument()
     expect(screen.getByText('Nothing waits on you.')).toBeInTheDocument()
     expect(screen.getByText('No busy sessions.')).toBeInTheDocument()
     expect(screen.getByText('Select a session from the rail.')).toBeInTheDocument()
@@ -238,10 +239,11 @@ describe('FocusedWorkspace', () => {
     // no inline check-off renders; acknowledgment happens via the 'r' shortcut
     expect(screen.queryByLabelText(/Mark .* reviewed/)).not.toBeInTheDocument()
     const user = userEvent.setup()
+    await user.keyboard('j') // review -> dialog
     await user.keyboard('r')
 
-    // the acked dialog leaves the queue; the review row tops it now and the
-    // settled session drops to Working with no reason line
+    // the acked dialog leaves the queue; the review row keeps topping it and
+    // the settled session drops to Waiting with no reason line
     await waitFor(() => expect(screen.queryByText('allow write access?')).not.toBeInTheDocument())
     expect(railRows()[0].textContent).toContain('review session')
     const settled = railRows().find((row) => row.textContent?.includes('dialog session'))
@@ -253,7 +255,8 @@ describe('FocusedWorkspace', () => {
     await openSocket()
 
     const user = userEvent.setup()
-    await user.keyboard('j') // dialog -> review
+    await user.keyboard('j') // review -> dialog
+    await user.keyboard('k') // back to the review row
     await user.keyboard('{Enter}') // open the review row
 
     await waitFor(() => {

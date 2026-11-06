@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import type { FocusEvent as ReactFocusEvent, MouseEvent as ReactMouseEvent } from 'react'
 
 // armMs is how long the first click stays armed before the timer resets it.
-const armMs = 4_000
+// Long enough to survive a human confirming glance, short enough that a
+// forgotten arm cannot linger.
+const armMs = 10_000
 
 // ArmedFacts is the host state an arm was granted under.
 interface ArmedFacts {
@@ -11,19 +14,37 @@ interface ArmedFacts {
 
 export interface ArmedConfirm {
   armed: boolean
-  onClick: () => void // arms when idle, confirms when armed
-  onBlur: () => void // disarms; wire to the button's own blur
+  onClick: (ev?: ReactMouseEvent<HTMLElement>) => void // arms when idle, confirms when armed
+  onBlur: (ev?: ReactFocusEvent<HTMLElement>) => void // disarms; wire to the button's own blur
 }
 
 export interface ArmedConfirmOptions {
   disabled?: boolean // the button's disabled state; a transition disarms
-  resetKey?: unknown // fresh host data disarms, e.g. a poll-rebuilt row object
+  resetKey?: unknown // fresh host facts disarm, keyed by caller-chosen identity
+}
+
+// inViewport reports whether the armed control still shows. An arm voids only
+// on scrolls that carry it out of view, never on wheel drift, momentum tails
+// or unrelated scrollers. jsdom boxes report zero size, which cannot place the
+// control anywhere, so an unmeasurable box reads as in view.
+function inViewport(el: HTMLElement): boolean {
+  const rect = el.getBoundingClientRect()
+  if (rect.width === 0 && rect.height === 0) return true
+  return (
+    rect.bottom > 0 &&
+    rect.top < window.innerHeight &&
+    rect.right > 0 &&
+    rect.left < window.innerWidth
+  )
 }
 
 // useArmedConfirm is the two-step guard for destructive buttons: the first
-// click arms, a second within the window confirms, and the timer, blur, any
-// scroll or a change to the host facts disarms. No modal: the button itself
-// carries the question.
+// click arms, a second within the window confirms, and the timer, a focus move
+// onto another control or a change to the host facts disarms. A scroll voids
+// the arm only once it carries the armed control out of the viewport, and
+// losing document focus (alt-tab, another monitor) keeps the arm, so incidental
+// activity between the presses never eats the confirm. No modal: the button
+// itself carries the question.
 export function useArmedConfirm(
   onConfirm: () => void,
   { disabled = false, resetKey }: ArmedConfirmOptions = {},
@@ -32,6 +53,8 @@ export function useArmedConfirm(
   // poll re-render or a disabled transition voids it without a reset effect
   const [armedFacts, setArmedFacts] = useState<ArmedFacts | null>(null)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // the control the arm was granted on, for the out-of-view check
+  const armedEl = useRef<HTMLElement | null>(null)
 
   const armed =
     armedFacts !== null && armedFacts.disabled === disabled && armedFacts.resetKey === resetKey
@@ -41,35 +64,54 @@ export function useArmedConfirm(
       clearTimeout(timer.current)
       timer.current = null
     }
+    armedEl.current = null
     setArmedFacts(null)
   }, [])
 
   useEffect(() => disarm, [disarm])
 
-  // scroll does not bubble, but capture still sees every scroller's event; a
-  // viewport that moved under the user voids the pending confirm
+  // scroll does not bubble, but capture still sees every scroller's event; the
+  // arm survives unless the scrolling carried the armed control out of view
   useEffect(() => {
     if (!armed) return
-    document.addEventListener('scroll', disarm, { capture: true, passive: true })
-    return () => document.removeEventListener('scroll', disarm, { capture: true })
+    const onScroll = () => {
+      const el = armedEl.current
+      if (el === null || (el.isConnected && inViewport(el))) return
+      disarm()
+    }
+    document.addEventListener('scroll', onScroll, { capture: true, passive: true })
+    return () => document.removeEventListener('scroll', onScroll, { capture: true })
   }, [armed, disarm])
 
-  const onClick = useCallback(() => {
-    if (disabled) return
-    if (armed) {
-      disarm()
-      onConfirm()
-      return
-    }
-    if (timer.current !== null) clearTimeout(timer.current)
-    setArmedFacts({ disabled, resetKey })
-    timer.current = setTimeout(() => {
-      timer.current = null
-      disarm()
-    }, armMs)
-  }, [armed, disabled, resetKey, disarm, onConfirm])
+  const onClick = useCallback(
+    (ev?: ReactMouseEvent<HTMLElement>) => {
+      if (disabled) return
+      if (armed) {
+        disarm()
+        onConfirm()
+        return
+      }
+      if (timer.current !== null) clearTimeout(timer.current)
+      armedEl.current = ev?.currentTarget ?? null
+      setArmedFacts({ disabled, resetKey })
+      timer.current = setTimeout(() => {
+        timer.current = null
+        disarm()
+      }, armMs)
+    },
+    [armed, disabled, resetKey, disarm, onConfirm],
+  )
 
-  const onBlur = useCallback(() => disarm(), [disarm])
+  const onBlur = useCallback(
+    (ev?: ReactFocusEvent<HTMLElement>) => {
+      // focus with nowhere in-document to land (alt-tab, a click on plain page
+      // area, focus-follows-mouse crossing windows) is not a changed mind;
+      // only a move onto another control voids the arm
+      if (ev && ev.relatedTarget === null) return
+      disarm()
+    },
+    [disarm],
+  )
 
   return { armed, onClick, onBlur }
 }

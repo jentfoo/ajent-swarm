@@ -8,7 +8,6 @@ import { sessionBusy } from '../state/eventApplier'
 import { MenuPopover } from '../ui/MenuPopover'
 import { ModelMenuItems } from '../ui/ModelMenuItems'
 import { shortID } from './names'
-import { useInterruptStream } from './useInterruptStream'
 import { useSessionLabel } from './useSessionLabel'
 import { AgentSettingsMenu } from './AgentSettingsMenu'
 import { ToolsPanel } from './ToolsPanel'
@@ -20,9 +19,9 @@ const permissionModes = ['allow-read', 'auto', 'auto+write', 'allow-all', 'block
 // StatusHeader is the slim chrome above the transcript: identity (the shared
 // listing label beside the short session id) and action buttons only.
 // Everything that reads at a glance (segments, context, queue, activity) lives
-// in the status bar under the transcript. Sessions stop from the sessions tab;
-// this header never tears one down. The ☰ here carries this session's agent
-// settings.
+// in the status bar under the transcript. A running turn stops from the
+// composer's Stop button; sessions exit from the sessions tab, so this header
+// never tears one down. The ☰ here carries this session's agent settings.
 export function StatusHeader({
   sessionId,
   snap,
@@ -39,13 +38,6 @@ export function StatusHeader({
   // with its refresh, and the short id rides beside any real label
   const label = useSessionLabel(sessionId)
   const short = shortID(sessionId)
-  // Escape stays with the workspace surface; the header only offers the button
-  const { interrupt, inFlight: busy } = useInterruptStream({
-    sessionId,
-    busy: working,
-    onToast,
-    enabled: false,
-  })
 
   return (
     <div className="session-header">
@@ -60,15 +52,9 @@ export function StatusHeader({
       ) : (
         snap.idle && <span className="badge">idle</span>
       )}
-      {busy && <span className="badge warn">stopping…</span>}
       <ModeMenu sessionId={sessionId} mode={snap.permission} onToast={onToast} />
       <ToolsPanel sessionId={sessionId} snap={snap} onToast={onToast} />
       <ModelMenu sessionId={sessionId} snap={snap} onToast={onToast} />
-      {working && (
-        <button type="button" onClick={interrupt} disabled={busy}>
-          Interrupt
-        </button>
-      )}
       {children}
       <AgentSettingsMenu sessionId={sessionId} />
     </div>

@@ -13,9 +13,9 @@ import {
   usePermitNoteAutoAnswer,
 } from './decisionNote'
 
-// Resolved chips linger briefly so an answer is visible, then leave on their
+// Resolved chips linger a moment so an answer is visible, then leave on their
 // own: dialogs settled elsewhere never park under the dock until the cap.
-const outcomeTtlMs = 4_000
+const outcomeTtlMs = 1_500
 
 // DialogDock sits above the composer and lists open dialogs oldest first.
 // Card variants key on the shape flags, never on kind: a button list for
@@ -77,8 +77,8 @@ export function DialogDock({
   )
 }
 
-// ResolvedChip self-dismisses after a few seconds and leaves on click, so an
-// answer decided elsewhere never becomes residue. The timer is per id and
+// ResolvedChip self-dismisses shortly after appearing and leaves on click, so
+// an answer decided elsewhere never becomes residue. The timer is per id and
 // ignores parent re-renders; hover keeps what was picked.
 function ResolvedChip({
   outcome,

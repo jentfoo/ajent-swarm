@@ -176,6 +176,10 @@ const maxDroppedRows = 20
 const maxOutcomes = 5
 const maxShellCards = 5
 
+// swarmHolder matches pkg/fleet's holderName: upstream announces every swarm
+// claim with it, so displacement by this name reads as our own takeover.
+const swarmHolder = 'swarm'
+
 export function initialSessionState(): AppliedSessionState {
   return {
     seq: 0,
@@ -609,7 +613,9 @@ function applyEvent(state: AppliedSessionState, ev: WireEvent): AppliedSessionSt
     case 'seat.lost': {
       const to = decode<{ to?: string }>(ev.data)?.to
       if (!isValidId(to)) return next
-      next.snapshot = { ...next.snapshot, seat: { held: true, holder: to, yours: false } }
+      // A claim by swarm is this single-user service itself, never a third party.
+      const ours = to === swarmHolder
+      next.snapshot = { ...next.snapshot, seat: { held: true, holder: to, yours: ours } }
       return next
     }
 
@@ -783,12 +789,14 @@ function applyToolEvent(next: AppliedSessionState, ev: WireEvent): AppliedSessio
 }
 
 // applyResnapshot merges one REST snapshot. Poll-only facts (workspace, cwd,
-// usage totals) merge unconditionally, since no change event can regress under
-// them. The reply's stamp names the watermark the actor had applied when it
-// read: at or above ours, its event-covered fields land wholesale since they
-// fold every event this client has seen; below, events already moved past the
-// read and only those facts merge, so a late response can never empty a dialog,
-// drop the live turn's buffer, or queue rows the stream just announced.
+// usage totals, seat) merge unconditionally, since no change event can regress
+// under them: releases and swarm's own claims spend no event number, so a
+// resnapshot is where SeatBadge learns either. The reply's stamp names the
+// watermark the actor had applied when it read: at or above ours, its
+// event-covered fields land wholesale since they fold every event this client
+// has seen; below, events already moved past the read and only those facts
+// merge, so a late response can never empty a dialog, drop the live turn's
+// buffer, or queue rows the stream just announced.
 function applyResnapshot(state: AppliedSessionState, snap: CtlState): AppliedSessionState {
   const fresh = snap.seq === undefined || snap.seq >= state.seq
   const next = cloneShallow(state)
@@ -797,6 +805,7 @@ function applyResnapshot(state: AppliedSessionState, snap: CtlState): AppliedSes
     workspace: snap.workspace,
     cwd: snap.cwd,
     usage: snap.usage,
+    seat: snap.seat,
   }
   if (!fresh) return next
 

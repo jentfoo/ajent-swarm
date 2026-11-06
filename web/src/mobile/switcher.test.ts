@@ -67,12 +67,12 @@ describe('buildSwitcherRows', () => {
         { ...item('working'), sessionId: '04-working' },
       ],
     )
-    // each attention kind renders under its own rail heading; digest-less
-    // rows stay in Working beside the busy ones
+    // every human-waiting kind shares the Needs input queue, idle agents
+    // wait below it, and digest-less rows stay in Working beside the busy ones
     expect(rows.map((r) => r.section)).toEqual([
-      'needs-input',
-      'needs-review',
-      'awaiting',
+      'needs',
+      'needs',
+      'waiting',
       'working',
       'working',
       'ended',
@@ -87,7 +87,7 @@ describe('buildSwitcherRows', () => {
     ])
   })
 
-  it('orders needs like the rail: oldest dialog, newest review', () => {
+  it('merges needs kinds into one oldest-first queue', () => {
     const rows = buildSwitcherRows(
       [
         session({ sessionId: 'a' }),
@@ -103,14 +103,11 @@ describe('buildSwitcherRows', () => {
         { ...item('needs-review'), sessionId: 'd', since: 9 },
       ],
     )
-    expect(rows.map((r) => r.sessionId)).toEqual(['b', 'a', 'd', 'c'])
-    // each kind groups under its shared heading, in rail order
+    expect(rows.map((r) => r.sessionId)).toEqual(['b', 'c', 'd', 'a'])
+    // dialogs and reviews share the one Needs input heading, oldest first
     const groups = groupSwitcherRows(rows)
-    expect(groups.map((g) => g.title)).toEqual(['Needs input', 'Ready to review'])
-    expect(groups.map((g) => g.rows.map((r) => r.sessionId))).toEqual([
-      ['b', 'a'],
-      ['d', 'c'],
-    ])
+    expect(groups.map((g) => g.title)).toEqual(['Needs input'])
+    expect(groups.map((g) => g.rows.map((r) => r.sessionId))).toEqual([['b', 'c', 'd', 'a']])
   })
 
   it('keeps dialogs ahead of reviews and waiting rows neutral', () => {
@@ -136,7 +133,7 @@ describe('buildSwitcherRows', () => {
     }
   })
 
-  it('keeps waiting and working rows name-stable', () => {
+  it('keeps waiting and working rows entry-stable', () => {
     const rows = buildSwitcherRows(
       [
         session({ sessionId: '02', title: 'zebra' }),
@@ -146,16 +143,16 @@ describe('buildSwitcherRows', () => {
       ],
       labelFor,
       [
-        { ...item('awaiting'), sessionId: '02' },
-        { ...item('awaiting'), sessionId: '01' },
-        { ...item('working'), sessionId: '03' },
-        { ...item('working'), sessionId: '04' },
+        { ...item('awaiting'), sessionId: '02', queuedAt: 20 },
+        { ...item('awaiting'), sessionId: '01', queuedAt: 10 },
+        { ...item('working'), sessionId: '03', queuedAt: 40 },
+        { ...item('working'), sessionId: '04', queuedAt: 30 },
       ],
     )
-    // stable order follows session id, not label or digest input order
+    // entry order decides, not label or digest input order
     expect(groupSwitcherRows(rows).map((g) => g.rows.map((r) => r.sessionId))).toEqual([
       ['01', '02'],
-      ['03', '04'],
+      ['04', '03'],
     ])
   })
 
@@ -240,8 +237,9 @@ describe('buildSwitcherRows', () => {
     )
     const [first, second] = rows
     expect(first!.pid).toBe(102)
-    expect(first!.section).toBe('needs-input')
+    expect(first!.section).toBe('needs')
     expect(second!.pid).toBe(101)
+    expect(second!.section).toBe('waiting')
     expect(second!.status).toBe('waiting')
   })
 
@@ -271,19 +269,25 @@ describe('buildSwitcherRows', () => {
     const sessions = attentionItems.map((i) => session({ sessionId: i.sessionId }))
     const rows = buildSwitcherRows(sessions, labelFor, attentionItems)
 
-    // the sheet mirrors the rail buckets: each row renders under its own kind
+    // the sheet mirrors the rail queues: human-waiting rows under Needs
+    // input by oldest wait, idle agents under Waiting, busy rows under Working
     const ranked = rankAttention(attentionItems)
     expect(ranked.needs.map((i) => i.sessionId)).toEqual([
       'e-dialog',
+      'f-turn',
       'a-dialog',
       'd-turn',
-      'f-turn',
     ])
-    expect(rows.map((r) => r.section)).toEqual(
-      [...ranked.needs, ...ranked.awaiting, ...ranked.working].map((i) => i.kind),
-    )
+    expect(rows.map((r) => r.section)).toEqual([
+      'needs',
+      'needs',
+      'needs',
+      'needs',
+      'waiting',
+      'working',
+    ])
     expect(rows.map((r) => r.sessionId)).toEqual(
-      [...ranked.needs, ...ranked.awaiting, ...ranked.working].map((i) => i.sessionId),
+      [...ranked.needs, ...ranked.waiting, ...ranked.working].map((i) => i.sessionId),
     )
   })
 
@@ -304,26 +308,15 @@ describe('buildSwitcherRows', () => {
 describe('groupSwitcherRows', () => {
   it('titles sections in desktop order and drops empty ones', () => {
     const groups = groupSwitcherRows([
-      row({ sessionId: '01', section: 'needs-input' }),
-      row({ sessionId: '02', section: 'needs-review' }),
-      row({ sessionId: '03', section: 'awaiting' }),
+      row({ sessionId: '01', section: 'needs' }),
+      row({ sessionId: '02', section: 'needs' }),
+      row({ sessionId: '03', section: 'waiting' }),
       row({ sessionId: '04', section: 'working' }),
     ])
-    expect(groups.map((g) => g.section)).toEqual([
-      'needs-input',
-      'needs-review',
-      'awaiting',
-      'working',
-    ])
-    expect(groups.map((g) => g.title)).toEqual([
-      'Needs input',
-      'Ready to review',
-      'Waiting',
-      'Working',
-    ])
+    expect(groups.map((g) => g.section)).toEqual(['needs', 'waiting', 'working'])
+    expect(groups.map((g) => g.title)).toEqual(['Needs input', 'Waiting', 'Working'])
     expect(groups.map((g) => g.rows.map((r) => r.sessionId))).toEqual([
-      ['01'],
-      ['02'],
+      ['01', '02'],
       ['03'],
       ['04'],
     ])
@@ -331,9 +324,9 @@ describe('groupSwitcherRows', () => {
 
   it('preserves incoming order without re-sorting', () => {
     const groups = groupSwitcherRows([
-      row({ sessionId: '03', section: 'needs-input' }),
-      row({ sessionId: '01', section: 'needs-input' }),
-      row({ sessionId: '02', section: 'needs-input' }),
+      row({ sessionId: '03', section: 'needs' }),
+      row({ sessionId: '01', section: 'needs' }),
+      row({ sessionId: '02', section: 'needs' }),
     ])
     expect(groups[0]!.rows.map((r) => r.sessionId)).toEqual(['03', '01', '02'])
   })

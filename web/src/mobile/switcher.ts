@@ -1,15 +1,16 @@
 // The switcher's pure model: rows for the bottom sheet and the home launcher,
 // derived from the fleet listing plus the shared attention digest. Alive rows
-// rank like the desktop rail and carry the section they render under, with a
+// rank like the desktop rail and carry the queue they render under, with a
 // trailing Recent section of ended runs so a fresh exit stays one tap from
 // resume: at least minEndedRows always, plus every exit inside the recent
 // window however many ran.
 import { childEnded, type SessionStatus } from '../api/types'
 import {
+  attentionQueue,
   attentionSectionTitles,
   compareAttention,
   type AttentionItem,
-  type AttentionKind,
+  type AttentionQueue,
   type AttentionSort,
 } from '../workspace/attention'
 
@@ -23,17 +24,17 @@ const endedWindowMs = 2 * 60 * 60 * 1000
 
 type SwitcherStatus = 'running' | 'waiting' | 'idle' | 'ended'
 
-// SwitcherSection mirrors the desktop rail's grouping: each attention kind
-// renders under its own shared heading, digest-less rows beside working, and
-// the exited tail last.
-type SwitcherSection = AttentionKind | 'ended'
+// SwitcherSection mirrors the desktop rail's three queues: states wanting a
+// human answer render under Needs input, idle agents under Waiting, busy and
+// digest-less rows under Working, and the exited tail last.
+type SwitcherSection = AttentionQueue | 'ended'
 
 export interface SwitcherRow {
   sessionId: string
   pid?: number // instance discriminator: twin rows share a session id
   label: string // rendered through the shared display-name helper upstream
   status: SwitcherStatus
-  section: SwitcherSection // desktop rail grouping, fixed at build time
+  section: SwitcherSection // rail queue, fixed at build time
   needsInput: boolean // open dialogs; badged, counts toward the attention count
   reason: string // one-line digest reason when attention knows this session
   queued: number // prompts waiting in the session's queue; badged on launcher rows
@@ -42,7 +43,7 @@ export interface SwitcherRow {
   exitedAt?: number // unix milliseconds, ended sessions
 }
 
-// GroupedSwitcherRows is one rendered section: its id keys and styles the
+// GroupedSwitcherRows is one rendered queue: its id keys and styles the
 // block, the title heads it, and the rows keep their incoming order.
 interface GroupedSwitcherRows {
   section: SwitcherSection
@@ -50,14 +51,8 @@ interface GroupedSwitcherRows {
   rows: SwitcherRow[]
 }
 
-// Desktop order: dialogs, completions, waiting agents, working, ended last.
-const sectionOrder: readonly SwitcherSection[] = [
-  'needs-input',
-  'needs-review',
-  'awaiting',
-  'working',
-  'ended',
-]
+// Desktop order: needs, waiting, working, ended last.
+const sectionOrder: readonly SwitcherSection[] = ['needs', 'waiting', 'working', 'ended']
 
 // buildSwitcherRows folds the listing and attention items into sheet rows.
 // Attention is optional: a missing digest merely drops badges and reasons
@@ -94,18 +89,22 @@ export function buildSwitcherRows(
       continue
     }
     const item = digestFor(s)
-    alive.push({
+    const entry: AttentionSort = {
       sessionId: s.sessionId,
       kind: item?.kind,
       since: item?.since,
+      queuedAt: item?.queuedAt,
+    }
+    alive.push({
+      ...entry,
       row: {
         sessionId: s.sessionId,
         pid: s.pid,
         label: labelFor(s),
         status: statusOf(s, item),
-        // the row's rail heading: digest-less rows share Working, exactly as
+        // the row's rail queue: digest-less rows share Working, exactly as
         // attentionRank places them
-        section: item?.kind ?? 'working',
+        section: attentionQueue(entry),
         needsInput: item?.kind === 'needs-input',
         reason: item?.reason ?? '',
         queued: s.queued,
@@ -144,9 +143,9 @@ function capEnded(rows: readonly SwitcherRow[]): SwitcherRow[] {
   return rows.slice(0, kept)
 }
 
-// groupSwitcherRows slices rows into desktop-ordered sections for rendering,
-// keeping each section's incoming order rather than re-sorting, so mobile and
-// desktop can never disagree. Empty sections drop out and the ended tail
+// groupSwitcherRows slices rows into rail-ordered queues for rendering,
+// keeping each queue's incoming order rather than re-sorting, so mobile and
+// desktop can never disagree. Empty queues drop out and the ended tail
 // keeps its window rule even when a producer skips it.
 export function groupSwitcherRows(rows: readonly SwitcherRow[]): GroupedSwitcherRows[] {
   return sectionOrder.flatMap((section): GroupedSwitcherRows[] => {
@@ -155,7 +154,7 @@ export function groupSwitcherRows(rows: readonly SwitcherRow[]): GroupedSwitcher
     const sectionRows = section === 'ended' ? capEnded(matched) : matched
     if (sectionRows.length === 0) return []
     // only the ended tail is switcher-specific; alive headings read the
-    // shared rail titles so the sheet cannot drift from the desktop sections
+    // shared queue titles so the sheet cannot drift from the desktop rail
     const title = section === 'ended' ? 'Recent' : attentionSectionTitles[section]
     return [{ section, title, rows: sectionRows }]
   })

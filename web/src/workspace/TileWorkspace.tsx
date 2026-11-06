@@ -14,6 +14,7 @@ import type { Direction } from './keys'
 import { ShortcutOverlay } from './ShortcutOverlay'
 import type { AttentionItem } from './attention'
 import {
+  activateTab,
   closeTab,
   findPane,
   moveTab,
@@ -31,10 +32,11 @@ const resizeStep = 0.05
 // tree with per-pane tab strips, drag-to-split and drag-to-reorder, full
 // keyboard management. The tree persists in the layout profile, so reloads
 // and mode switches never disturb the arrangement; ended sessions stay as
-// tabs with their final state until closed. An explicit ?open= list — the
-// Tile button's live set or a sessions-grid selection — retiles from scratch,
-// while a plain visit restores whatever was arranged before. Closing the last
-// pane hands the screen back to Sessions, where the next session is picked.
+// tabs with their final state until closed. An explicit ?open= list (the
+// Tile button's live set or a sessions-grid selection) retiles from scratch
+// on every fresh navigation carrying it, while a plain visit restores
+// whatever was arranged before. Closing the last pane hands the screen back
+// to Sessions, where the next session is picked.
 
 export default function TileWorkspace() {
   const { sessions } = useSwarm()
@@ -96,6 +98,9 @@ export default function TileWorkspace() {
       setTileLayout({ tree: next, focusedPaneId: paneIds(next)[0] })
       return
     }
+    // no ?open= means no request is pending: re-arm the once guard so a
+    // repeat navigation retiles even with an unchanged live set
+    openedRef.current = null
     if (tree !== null) {
       seenTreeRef.current = true
       return
@@ -113,6 +118,15 @@ export default function TileWorkspace() {
   }, [tree, sessions, setTileLayout, searchParams])
 
   const focusPane = useCallback((paneId: string) => commit(tree, paneId), [commit, tree])
+
+  // activateInPane switches a pane to one of its existing tabs, focusing it
+  const activateInPane = useCallback(
+    (paneId: string, sessionId: string) => {
+      if (!tree) return
+      commit(activateTab(tree, paneId, sessionId), paneId)
+    },
+    [commit, tree],
+  )
 
   const nameFor = useCallback(
     (sessionId: string) => {
@@ -314,6 +328,7 @@ export default function TileWorkspace() {
           itemFor={itemFor}
           nameFor={nameFor}
           onFocusPane={focusPane}
+          onActivateTab={activateInPane}
           onCloseTab={closeInPane}
           onOpenSession={openInTree}
           onStartDrag={startDrag}
@@ -336,6 +351,7 @@ interface NodeProps {
   itemFor: (sessionId: string) => AttentionItem | undefined
   nameFor: (sessionId: string) => string
   onFocusPane: (paneId: string) => void
+  onActivateTab: (paneId: string, sessionId: string) => void
   onCloseTab: (paneId: string, sessionId: string) => void
   onOpenSession: (sessionId: string, paneId?: string, split?: boolean) => void
   onStartDrag: (ev: DragEvent, sessionId: string, paneId: string) => void
@@ -416,6 +432,7 @@ function PaneView({
   itemFor,
   nameFor,
   onFocusPane,
+  onActivateTab,
   onCloseTab,
   onOpenSession,
   onStartDrag,
@@ -465,7 +482,8 @@ function PaneView({
               onDragEnd={onDragEnd}
               onDragOver={(ev) => onAllowDrop(ev, pane.id, `tab:${index}`)}
               onDrop={drop(`tab:${index}`)}
-              onClick={() => onFocusPane(pane.id)}
+              // activation focuses the pane through its commit too
+              onClick={() => onActivateTab(pane.id, sessionId)}
               title={nameFor(sessionId)}
             >
               {badge !== null && <span className={`tab-badge ${badge}`} aria-label={badge} />}

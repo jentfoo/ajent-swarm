@@ -33,6 +33,7 @@ interface StoreEntry {
 export class SessionStore {
   private readonly stream: SwarmStream
   private readonly entries = new Map<string, StoreEntry>()
+  private readonly digestListeners = new Set<() => void>()
   private disposed = false
 
   constructor(stream: SwarmStream) {
@@ -63,6 +64,15 @@ export class SessionStore {
   // peek returns the current state object; stable identity between actions.
   peek(sessionId: string): AppliedSessionState {
     return this.entries.get(sessionId)?.state ?? emptyState
+  }
+
+  // onDigestChange observes attention-relevant state changes across every
+  // tracked session, so the provider can refresh the focus queue the moment
+  // the stream moves a session between queues instead of waiting out the
+  // digest poll.
+  onDigestChange(cb: () => void): () => void {
+    this.digestListeners.add(cb)
+    return () => this.digestListeners.delete(cb)
   }
 
   // dispatch feeds local actions through the same reducer the frames use.
@@ -154,6 +164,9 @@ export class SessionStore {
     if (next === prev) return
     entry.state = next
     for (const cb of [...entry.listeners]) cb()
+    if (digestSignature(prev) !== digestSignature(next)) {
+      for (const cb of [...this.digestListeners]) cb()
+    }
 
     // A finished turn is the resnapshot trigger: usage totals ride poll-only.
     if (action.type === 'event' && next.lastTurnEndAt !== prev.lastTurnEndAt) {
@@ -228,3 +241,20 @@ export class SessionStore {
 // Shared empty state for sessions with no store entry: useSyncExternalStore
 // needs a stable identity between renders, not a fresh object per read.
 const emptyState = initialSessionState()
+
+// digestSignature folds one applied state down to the facts the attention
+// digest ranks on: the open dialog set, busy flags and the last turn end. A
+// change between two states means the focus queue may re-sort, so only those
+// transitions are worth an out-of-band digest refresh; transcript and
+// activity churn keep riding the poll cadence.
+function digestSignature(state: AppliedSessionState): string {
+  const snap = state.snapshot
+  return [
+    (snap.interactions ?? []).map((d) => d.id).join(','),
+    snap.running,
+    snap.spinning,
+    snap.idle,
+    state.lastTurnEndAt,
+    state.exitReason !== undefined,
+  ].join('|')
+}

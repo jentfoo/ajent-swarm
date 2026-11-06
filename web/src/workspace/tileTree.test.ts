@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  activateTab,
   clampRatio,
   closeTab,
   findPane,
@@ -72,6 +73,29 @@ describe('tile tree operations', () => {
     const again = openTab(grown, 's1')
     expect(again).not.toBe(grown)
     expect((again as TilePane).active).toBe('s1')
+  })
+
+  it('activates an existing tab in place', () => {
+    const stacked = pane('p1', ['s1', 's2'], 's2')
+    const next = activateTab(stacked, 'p1', 's1') as TilePane
+    expect(next.active).toBe('s1')
+    expect(next.tabs).toEqual(['s1', 's2'])
+
+    // activating the shown tab or naming an absent session keeps identity
+    expect(activateTab(stacked, 'p1', 's2')).toBe(stacked)
+    const tree = twoByTwo()
+    expect(activateTab(tree, 'rightTop', 's9')).toBe(tree)
+    expect(activateTab(tree, 'nope', 's1')).toBe(tree)
+
+    // activation reaches panes nested under splits
+    const nested = split(
+      'row1',
+      'row',
+      0.5,
+      pane('left', ['s1']),
+      pane('right', ['s2', 's3'], 's2'),
+    )
+    expect(((activateTab(nested, 'right', 's3') as TileSplit).b as TilePane).active).toBe('s3')
   })
 
   it('splits panes in a direction and reports the new pane', () => {

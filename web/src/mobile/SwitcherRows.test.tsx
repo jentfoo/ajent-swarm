@@ -14,9 +14,10 @@ import { resetLedger } from '../workspace/attention'
 // muted desktop-rail headings, rename via long-press or the explicit action
 // shares one editor that writes swarm storage and suppresses the tap,
 // awaiting rows never offer a check-off, live needs-input rows offer one
-// backed by the digest, stop arms before it fires and disarms on a poll
-// re-render or sheet scroll, and the trailing actions hit their endpoints and
-// rebind a single pushed settings screen without tripping the row's own gestures.
+// backed by the digest, stop arms before it fires and holds across listing
+// polls of the same instance (a relaunch swaps the row), and the trailing
+// actions hit their endpoints and rebind a single pushed settings screen
+// without tripping the row's own gestures.
 
 function row(overrides: Partial<SwitcherRow> = {}): SwitcherRow {
   return {
@@ -78,6 +79,7 @@ describe('SwitcherRows', () => {
   })
 
   afterEach(() => {
+    vi.restoreAllMocks()
     vi.unstubAllGlobals()
   })
 
@@ -197,7 +199,7 @@ describe('SwitcherRows', () => {
       }),
     )
 
-    renderRows([row({ status: 'waiting', section: 'awaiting', reason: 'waiting for a prompt' })])
+    renderRows([row({ status: 'waiting', section: 'waiting', reason: 'waiting for a prompt' })])
     await screen.findByText('waiting')
 
     // neutral waiting badge, no actionable control beside it
@@ -218,7 +220,7 @@ describe('SwitcherRows', () => {
     renderRows([
       row({
         sessionId: '01A',
-        section: 'needs-input',
+        section: 'needs',
         needsInput: true,
         reason: 'Allow write access?',
         checkOff: true,
@@ -252,7 +254,7 @@ describe('SwitcherRows', () => {
   it('heads each non-empty section with its count', async () => {
     stubFacts()
     const { container } = renderRows([
-      row({ sessionId: '01A', section: 'needs-input' }),
+      row({ sessionId: '01A', section: 'needs' }),
       row({ sessionId: '01B', label: 'other', section: 'working' }),
       row({ sessionId: '01C', label: 'old', status: 'ended', section: 'ended' }),
     ])
@@ -266,18 +268,18 @@ describe('SwitcherRows', () => {
   it('moves rows under the right heading as attention shifts', async () => {
     stubFacts()
     const view = renderRows([
-      row({ sessionId: '01A', status: 'waiting', section: 'awaiting' }),
+      row({ sessionId: '01A', status: 'waiting', section: 'waiting' }),
       row({
         sessionId: '01B',
         label: 'other',
         needsInput: true,
         reason: 'Allow write access?',
         checkOff: true,
-        section: 'needs-input',
+        section: 'needs',
       }),
     ])
     await screen.findByText('Needs input')
-    // each row sits under its own shared heading
+    // each row sits under its own queue, badged by its own state
     expect(sectionOfRow(view.container, '01A')).toBe('Waiting (1)')
     expect(sectionOfRow(view.container, '01B')).toBe('Needs input (1)')
 
@@ -367,7 +369,7 @@ describe('SwitcherRows', () => {
     expect(screen.getByRole('button', { name: 'Stop' })).toBeEnabled()
   })
 
-  it('resets the armed stop when a poll re-renders rows', async () => {
+  it('keeps the armed stop across listing polls', async () => {
     stubFacts()
     const view = renderRows([row()])
     await screen.findByText('project')
@@ -376,8 +378,26 @@ describe('SwitcherRows', () => {
     await user.click(screen.getByRole('button', { name: 'Stop' }))
     expect(screen.getByRole('button', { name: 'Stop?' })).toBeInTheDocument()
 
-    // a listing poll rebuilds every row object, same facts included
+    // a listing poll rebuilds every row object, same instance included; the
+    // arm must survive it or no human taps twice within one poll cadence
     view.rerender(tree([row()]))
+    expect(screen.getByRole('button', { name: 'Stop?' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Stop?' }))
+    expect(fetchSpyCalled('/api/sessions/01A/stop')).toBe(true)
+  })
+
+  it('resets the armed stop on an instance swap', async () => {
+    stubFacts()
+    const view = renderRows([row({ pid: 11 })])
+    await screen.findByText('project')
+
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Stop' }))
+    expect(screen.getByRole('button', { name: 'Stop?' })).toBeInTheDocument()
+
+    // the same id relaunched under a fresh pid remounts the row disarmed
+    view.rerender(tree([row({ pid: 12 })]))
     expect(screen.getByRole('button', { name: 'Stop' })).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Stop' }))
@@ -385,7 +405,7 @@ describe('SwitcherRows', () => {
     expect(fetchSpyCalled('/api/sessions/01A/stop')).toBe(false)
   })
 
-  it('resets the armed stop when the sheet scrolls', async () => {
+  it('keeps the armed stop while the sheet scrolls it in view', async () => {
     stubFacts()
     const { container } = renderRows([row()])
     await screen.findByText('project')
@@ -394,10 +414,45 @@ describe('SwitcherRows', () => {
     await user.click(screen.getByRole('button', { name: 'Stop' }))
     expect(screen.getByRole('button', { name: 'Stop?' })).toBeInTheDocument()
 
+    // momentum tails and anchoring nudge the sheet without moving the row
+    // out of sight: the confirm must survive them
+    act(() => {
+      container.querySelector('.switcher-rows')!.dispatchEvent(new Event('scroll'))
+    })
+    expect(screen.getByRole('button', { name: 'Stop?' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Stop?' }))
+    expect(fetchSpyCalled('/api/sessions/01A/stop')).toBe(true)
+  })
+
+  it('resets the armed stop once the sheet scrolls it out of view', async () => {
+    stubFacts()
+    const { container } = renderRows([row()])
+    await screen.findByText('project')
+
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Stop' }))
+    const armed = screen.getByRole('button', { name: 'Stop?' })
+    vi.spyOn(armed, 'getBoundingClientRect').mockReturnValue({
+      width: 60,
+      height: 40,
+      top: window.innerHeight + 50,
+      bottom: window.innerHeight + 90,
+      left: 10,
+      right: 70,
+      x: 10,
+      y: window.innerHeight + 50,
+      toJSON: () => ({}),
+    } as DOMRect)
+
     act(() => {
       container.querySelector('.switcher-rows')!.dispatchEvent(new Event('scroll'))
     })
     expect(screen.getByRole('button', { name: 'Stop' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Stop' }))
+    expect(screen.getByRole('button', { name: 'Stop?' })).toBeInTheDocument()
+    expect(fetchSpyCalled('/api/sessions/01A/stop')).toBe(false)
   })
 
   it('offers resume only on ended rows with a workspace', async () => {

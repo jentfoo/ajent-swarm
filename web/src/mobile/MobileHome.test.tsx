@@ -101,6 +101,14 @@ describe('MobileHome', () => {
     expect(screen.getByText('ended')).toBeInTheDocument()
   })
 
+  it('places the launch section above the session list', async () => {
+    renderHome()
+
+    const launch = await screen.findByRole('button', { name: 'Launch…' })
+    const list = screen.getByLabelText('Live sessions')
+    expect(launch.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
   it('shows launcher sections for jobs and settings', async () => {
     renderHome()
 

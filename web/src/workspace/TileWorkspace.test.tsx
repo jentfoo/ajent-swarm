@@ -1,6 +1,6 @@
 import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter, Route, Routes } from 'react-router'
+import { MemoryRouter, Route, Routes, useNavigate } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import TileWorkspace from './TileWorkspace'
@@ -36,6 +36,17 @@ const stackedTree = {
   active: RIGHT,
 }
 
+// TileAgain mimics the shell's Tile switcher: tiling is a verb carried by a
+// fresh navigation to an explicit open list, identical here across two clicks.
+function TileAgain({ open }: { open: string }) {
+  const navigate = useNavigate()
+  return (
+    <button type="button" data-testid="tile-again" onClick={() => navigate(`/tile?open=${open}`)}>
+      tile again
+    </button>
+  )
+}
+
 function attention(): AttentionRow[] {
   return [
     {
@@ -60,6 +71,14 @@ function pendingDialog(id: number, prompt: string) {
 
 function paneAnswer(paneId: string): HTMLInputElement | null {
   return document.querySelector<HTMLInputElement>(`[data-pane-id="${paneId}"] .dialog-card input`)
+}
+
+// domPaneIds reads the mounted panes in document order. tileFor mints fresh
+// node ids on every run, so a re-tile always lands a different list.
+function domPaneIds(): (string | null)[] {
+  return [...document.querySelectorAll('[data-pane-id]')].map((el) =>
+    el.getAttribute('data-pane-id'),
+  )
 }
 
 describe('TileWorkspace', () => {
@@ -115,12 +134,13 @@ describe('TileWorkspace', () => {
     vi.unstubAllGlobals()
   })
 
-  function renderTile(initial = '/tile') {
+  function renderTile(initial = '/tile', retileOpen?: string) {
     return render(
       <MemoryRouter initialEntries={[initial]}>
         <AuthProvider>
           <SwarmProvider>
             <WorkspaceProvider>
+              {retileOpen !== undefined && <TileAgain open={retileOpen} />}
               <Routes>
                 <Route path="/tile" element={<TileWorkspace />} />
                 {/* last-pane close lands here instead of an empty tile screen */}
@@ -287,6 +307,23 @@ describe('TileWorkspace', () => {
     expect(names).toEqual(['left', 'left'])
   })
 
+  it('retiles on a repeated identical open request', async () => {
+    localStorage.setItem(
+      'swarm.workspace.v1',
+      JSON.stringify({ mode: 'tile', focused: {}, tile: { tree: null } }),
+    )
+    renderTile('/tile?open=' + LEFT + ',' + RIGHT, LEFT + ',' + RIGHT)
+
+    await waitFor(() => expect(domPaneIds()).toHaveLength(2))
+    const first = domPaneIds()
+
+    // the same live set navigates again: every pane is rebuilt, not swallowed
+    const user = userEvent.setup()
+    await user.click(screen.getByTestId('tile-again'))
+    await waitFor(() => expect(domPaneIds()).not.toEqual(first))
+    expect(domPaneIds()).toHaveLength(2)
+  })
+
   it('leaves tile mode for sessions when the last pane closes', async () => {
     localStorage.setItem(
       'swarm.workspace.v1',
@@ -358,6 +395,39 @@ describe('TileWorkspace', () => {
       const opens = sockets[0].sent.map((raw) => JSON.parse(raw))
       expect(opens).toContainEqual({ type: 'subscribe', sessionId: LEFT })
     })
+  })
+
+  it('activates a background tab when clicked', async () => {
+    localStorage.setItem(
+      'swarm.workspace.v1',
+      JSON.stringify({
+        mode: 'tile',
+        focused: {},
+        tile: { tree: stackedTree, focusedPaneId: 'p1' },
+      }),
+    )
+    renderTile()
+    await waitFor(() => expect(sockets.length).toBeGreaterThan(0))
+    act(() => sockets[0].open())
+    await screen.findAllByText('right') // the persisted tree landed
+
+    const activeName = () => document.querySelector('.tile-tab.active .tab-name')?.textContent
+    expect(activeName()).toBe('right')
+
+    const user = userEvent.setup()
+    await user.click(screen.getByText('left', { selector: '.tab-name' }))
+
+    // the pane swapped to the clicked session, which mounts its own view
+    expect(activeName()).toBe('left')
+    await waitFor(() => {
+      const opens = sockets[0].sent.map((raw) => JSON.parse(raw))
+      expect(opens).toContainEqual({ type: 'subscribe', sessionId: LEFT })
+    })
+
+    // the swap persists with focus kept on the pane
+    const stored = JSON.parse(localStorage.getItem('swarm.workspace.v1') ?? '{}')
+    expect(stored.tile.tree.active).toBe(LEFT)
+    expect(stored.tile.focusedPaneId).toBe('p1')
   })
 
   it('shows the empty state when no sessions are live', async () => {

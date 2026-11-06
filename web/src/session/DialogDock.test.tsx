@@ -17,6 +17,23 @@ const base = (overrides: Partial<InteractionPending>): InteractionPending => ({
   ...overrides,
 })
 
+const noop = () => {}
+
+// renderDock mounts one dock shape; autoFocusDialogs false stands in for a
+// background pane. Returns the view so a case can rerender the stack.
+function renderDock(dialogs: InteractionPending[], autoFocusDialogs?: boolean) {
+  return render(
+    <DialogDock
+      sessionId="01S"
+      dialogs={dialogs}
+      outcomes={[]}
+      autoFocusDialogs={autoFocusDialogs}
+      onAnsweredLocally={noop}
+      onOutcomeDismissed={noop}
+    />,
+  )
+}
+
 function dock(dialogs: InteractionPending[], outcomes: DialogOutcome[] = []) {
   const onAnsweredLocally = vi.fn()
   const onOutcomeDismissed = vi.fn()
@@ -380,30 +397,133 @@ describe('DialogDock permit note flow', () => {
   })
 })
 
+// Digit answers: while the focused pane's head card answers by option index,
+// 1..9 pick that option through the same resolve path as a click, and every
+// other shape — inputs, multi lists, background panes — leaves the digits to
+// the workspace jumps.
+describe('DialogDock digit answers', () => {
+  // labels clear of decisionNote's permit markers, so the card has no note input
+  const optionsDialog = (id: number): InteractionPending => ({
+    id,
+    kind: 'pick',
+    prompt: `question ${id}`,
+    options: ['yes', 'no'],
+  })
+  const permitDialog = (id: number): InteractionPending => ({
+    id,
+    kind: 'decision',
+    prompt: 'Allow `rm`?',
+    options: ['Allow', 'Deny'],
+  })
+
+  // digit presses one key and flushes the answer round trip it starts
+  async function digit(key: string, target: EventTarget = window): Promise<boolean> {
+    const ev = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
+    let prevented = false
+    await act(async () => {
+      target.dispatchEvent(ev)
+      prevented = ev.defaultPrevented
+    })
+    return prevented
+  }
+
+  it('answers the head card option by digit', async () => {
+    const bodies = stubFetch({ settled: false })
+    renderDock([optionsDialog(7)])
+
+    expect(await digit('2')).toBe(true)
+    expect(bodies.at(-1)).toEqual({ dialogId: 7, index: 1 })
+  })
+
+  it('records the note intent a clicked deny would', async () => {
+    const user = userEvent.setup()
+    const bodies = stubFetch({ settled: false })
+    const view = renderDock([permitDialog(7)])
+    await user.type(screen.getByPlaceholderText('Note for the agent (optional)'), 'too risky')
+    // the caret leaves the note, so the digits answer instead of typing
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+
+    await digit('2') // Deny rides its note exactly like the button
+    expect(bodies[0]).toEqual({ dialogId: 7, index: 1 })
+    view.rerender(
+      <DialogDock
+        sessionId="01S"
+        dialogs={[{ id: 8, kind: 'ask', prompt: 'reason for denying', text: true }]}
+        outcomes={[]}
+        onAnsweredLocally={noop}
+        onOutcomeDismissed={noop}
+      />,
+    )
+    await vi.waitFor(() => expect(bodies[1]).toEqual({ dialogId: 8, text: 'too risky' }))
+  })
+
+  it('answers nothing past the option list', async () => {
+    const bodies = stubFetch({ settled: false })
+    renderDock([optionsDialog(7)])
+
+    expect(await digit('5')).toBe(true) // claimed, so no pane jump either
+    expect(bodies).toHaveLength(0)
+  })
+
+  it('keeps digits while the note input holds the caret', async () => {
+    const bodies = stubFetch({ settled: false })
+    renderDock([permitDialog(7)])
+    const note = screen.getByPlaceholderText('Note for the agent (optional)')
+    expect(document.activeElement).toBe(note) // the head card took the caret
+
+    expect(await digit('2', note)).toBe(false)
+    expect(bodies).toHaveLength(0)
+  })
+
+  it('never claims digits from a background pane', async () => {
+    const bodies = stubFetch({ settled: false })
+    renderDock([optionsDialog(7)], false)
+
+    expect(await digit('2')).toBe(false) // the digit stays with the pane jumps
+    expect(bodies).toHaveLength(0)
+  })
+
+  it('leaves multi and text shapes to their own controls', async () => {
+    const bodies = stubFetch({ settled: false })
+    renderDock([{ ...optionsDialog(7), multi: true }])
+    expect(await digit('1')).toBe(false)
+
+    renderDock([{ id: 8, kind: 'input', prompt: 'name?', text: true }])
+    expect(await digit('1')).toBe(false)
+    expect(bodies).toHaveLength(0)
+  })
+
+  it('hands the digits to the next head after one settles', async () => {
+    const bodies = stubFetch({ settled: false })
+    const view = renderDock([optionsDialog(7), { ...optionsDialog(8), prompt: 'second' }])
+
+    await digit('1')
+    expect(bodies.at(-1)).toEqual({ dialogId: 7, index: 0 })
+    view.rerender(
+      <DialogDock
+        sessionId="01S"
+        dialogs={[{ ...optionsDialog(8), prompt: 'second' }]}
+        outcomes={[]}
+        onAnsweredLocally={noop}
+        onOutcomeDismissed={noop}
+      />,
+    )
+
+    await digit('2')
+    expect(bodies.at(-1)).toEqual({ dialogId: 8, index: 1 })
+  })
+})
+
 // Focus policy (dialog-focus-policy.md): autofocus belongs to the focused pane,
 // and within a focused dock only the head card takes the caret, on mount. A
 // text dialog exercises the rule; the secret variant shares the same path.
 describe('DialogDock focus policy', () => {
-  const noop = () => {}
   const textDialog = (id: number): InteractionPending => ({
     id,
     kind: 'input',
     prompt: `question ${id}`,
     text: true,
   })
-
-  function renderDock(dialogs: InteractionPending[], autoFocusDialogs?: boolean) {
-    return render(
-      <DialogDock
-        sessionId="01S"
-        dialogs={dialogs}
-        outcomes={[]}
-        autoFocusDialogs={autoFocusDialogs}
-        onAnsweredLocally={noop}
-        onOutcomeDismissed={noop}
-      />,
-    )
-  }
 
   const answerFor = (id: number) =>
     document.querySelector<HTMLInputElement>(`[data-dialog-id="${id}"] input`)

@@ -149,6 +149,7 @@ export function JobEditor({
     <ModalShell
       label={job !== undefined ? `Edit job ${draft.name}` : 'New job'}
       className="job-editor"
+      showClose
       onClose={onCancel}
     >
       <form onSubmit={save}>

@@ -2,6 +2,7 @@ import { render } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
 import { ModalShell } from '../ui/ModalShell'
+import { useDialogAnswerKeys } from '../session/dialogKeys'
 import { useWorkspaceKeys } from './keys'
 import type { WorkspaceKeyHandlers } from './keys'
 
@@ -9,8 +10,9 @@ import type { WorkspaceKeyHandlers } from './keys'
 // each preventDefault claim shows up in defaultPrevented. Shifted keys carry
 // their produced character ('|') and only ev.code names the physical key.
 
-function Harness(props: WorkspaceKeyHandlers & { modal?: boolean }) {
+function Harness(props: WorkspaceKeyHandlers & { modal?: boolean; dialogDigits?: boolean }) {
   useWorkspaceKeys(props)
+  useDialogAnswerKeys(props.dialogDigits === true, () => {})
   if (props.modal !== true) return null
   return (
     <ModalShell label="Test dialog" onClose={() => {}}>
@@ -135,5 +137,27 @@ describe('useWorkspaceKeys', () => {
     expect(handlers.onEscape).not.toHaveBeenCalled()
 
     expect(press({ key: 'j' })).toBe(true) // unclaimed keys keep their bindings
+  })
+
+  it('rests its digits while a head dialog answers them', () => {
+    const onDigit = vi.fn()
+    const onNext = vi.fn()
+    const view = render(<Harness onDigit={onDigit} onNext={onNext} />)
+
+    expect(press({ key: '4' })).toBe(true) // no claim yet: the jump fires
+    expect(onDigit).toHaveBeenCalledWith(4)
+
+    // the focused pane's head options card claims the digits
+    view.rerender(<Harness onDigit={onDigit} onNext={onNext} dialogDigits />)
+    onDigit.mockClear()
+    expect(press({ key: '4' })).toBe(true) // claimed by the dialog, not a jump
+    expect(onDigit).not.toHaveBeenCalled()
+    // only the digits rest; the rest of the workspace keeps its keys
+    expect(press({ key: 'j' })).toBe(true)
+    expect(onNext).toHaveBeenCalledOnce()
+
+    view.rerender(<Harness onDigit={onDigit} onNext={onNext} />)
+    expect(press({ key: '4' })).toBe(true)
+    expect(onDigit).toHaveBeenCalledWith(4)
   })
 })

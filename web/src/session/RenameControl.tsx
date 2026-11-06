@@ -75,7 +75,7 @@ export function RenameEditorModal({
   }
 
   return (
-    <ModalShell label="Rename session" className="rename-modal" onClose={onDone}>
+    <ModalShell label="Rename session" className="rename-modal" showClose onClose={onDone}>
       <form onSubmit={(ev) => void submit(ev)} data-testid={`rename-${sessionId}`}>
         <label>
           Display title

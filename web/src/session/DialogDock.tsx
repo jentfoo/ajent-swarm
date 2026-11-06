@@ -5,6 +5,7 @@ import { ApiError } from '../api/client'
 import { sessions } from '../api/endpoints'
 import type { InteractionPending, ResolveAnswer } from '../api/types'
 import type { DialogOutcome } from '../state/eventApplier'
+import { useDialogAnswerKeys } from './dialogKeys'
 import {
   denyAskOption,
   isPermitDialog,
@@ -30,6 +31,10 @@ const outcomeTtlMs = 4_000
 // autoFocusDialogs marks the dock whose session holds keyboard focus, and only
 // that dock's head card may take the caret — on mount, so later arrivals and
 // background panes never steal it. Unfocused panes surface through attention.
+//
+// Digits follow the same focus rule live: while the focused pane's head card
+// answers by option index, 1..9 pick that option (dialogKeys.ts), so approvals
+// clear from the keys the way the rail jumps panes.
 export function DialogDock({
   sessionId,
   dialogs,
@@ -60,7 +65,7 @@ export function DialogDock({
           key={dlg.id}
           dialog={dlg}
           sessionId={sessionId}
-          autoFocusAnswer={autoFocusDialogs && i === 0}
+          head={autoFocusDialogs && i === 0}
           onAnsweredLocally={onAnsweredLocally}
           onNoteIntent={recordIntent}
         />
@@ -122,19 +127,21 @@ function ResolvedChip({
 function DialogCard({
   dialog,
   sessionId,
-  autoFocusAnswer,
+  head,
   onAnsweredLocally,
   onNoteIntent,
 }: {
   dialog: InteractionPending
   sessionId: string
-  autoFocusAnswer: boolean
+  // the focused dock's head card: it alone may take the caret, and it answers
+  // digit keys while it shows a plain option list
+  head: boolean
   onAnsweredLocally: (dialogId: number) => void
   onNoteIntent: (answeredId: number, text: string, deny: boolean) => void
 }) {
   // The autofocus decision pins at card mount: a stack position or dock focus
   // gained later never moves the caret, even if this card becomes the head.
-  const [mayFocus] = useState(autoFocusAnswer)
+  const [mayFocus] = useState(head)
 
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -163,6 +170,21 @@ function DialogCard({
 
   const multi = dialog.multi === true && dialog.options !== undefined
   const permit = isPermitDialog(dialog) && !multi
+
+  // pickOption is the one by-index answer: option buttons and the digit keys
+  // both route here, so busy, settled and note-intent handling stay identical
+  const pickOption = (i: number) => {
+    const opt = dialog.options?.[i]
+    if (busy || opt === undefined) return // digits past the list answer nothing
+    if (permit && noteAskOption(opt)) {
+      onNoteIntent(dialog.id, note, denyAskOption(opt))
+    }
+    void resolve({ dialogId: dialog.id, index: i })
+  }
+  useDialogAnswerKeys(head && !multi && dialog.options !== undefined, (position) =>
+    pickOption(position - 1),
+  )
+
   return (
     <div className="card dialog-card" data-dialog-id={dialog.id}>
       {dialog.subject && <p className="muted mono">{dialog.subject}</p>}
@@ -206,17 +228,7 @@ function DialogCard({
           </button>
         ) : dialog.options !== undefined ? (
           dialog.options.map((opt: string, i: number) => (
-            <button
-              key={i}
-              type="button"
-              disabled={busy}
-              onClick={() => {
-                if (permit && noteAskOption(opt)) {
-                  onNoteIntent(dialog.id, note, denyAskOption(opt))
-                }
-                void resolve({ dialogId: dialog.id, index: i })
-              }}
-            >
+            <button key={i} type="button" disabled={busy} onClick={() => pickOption(i)}>
               {opt}
             </button>
           ))

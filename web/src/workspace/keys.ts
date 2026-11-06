@@ -2,9 +2,11 @@
 // focus queue and pane digits, mod (Ctrl/Cmd) drives tile management, Alt
 // arrows resize. Editable targets always win: typing in the composer or a
 // dialog answer must never move the workspace. An event another listener
-// already claimed (defaultPrevented) is left alone entirely.
+// already claimed (defaultPrevented) is left alone entirely, and the digits
+// rest while a focused pane's head dialog answers them itself.
 import { useEffect, useRef } from 'react'
 
+import { caretInInput, dialogDigitsClaimed } from '../session/dialogKeys'
 import { modalOpen } from '../ui/ModalShell'
 
 export type Direction = 'left' | 'right' | 'up' | 'down'
@@ -24,12 +26,6 @@ export interface WorkspaceKeyHandlers {
   onResize?: (dir: Direction) => void // alt+arrow
 }
 
-function isEditable(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false
-  if (target.isContentEditable) return true
-  return ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)
-}
-
 // useWorkspaceKeys binds the workspace's global keys; pass null handlers to
 // unbind. Handled events preventDefault so the browser never scrolls or
 // closes the tab out from under the shortcut.
@@ -46,7 +42,7 @@ export function useWorkspaceKeys(handlers: WorkspaceKeyHandlers): void {
       if (ev.defaultPrevented) return
       // editable targets win; behind any open ModalShell every binding rests,
       // leaving keys to the dialog instead of rows the backdrop hides
-      if (isEditable(ev.target) || modalOpen()) return
+      if (caretInInput(ev.target) || modalOpen()) return
       const h = ref.current
       const mod = ev.ctrlKey || ev.metaKey
 
@@ -138,7 +134,8 @@ export function useWorkspaceKeys(handlers: WorkspaceKeyHandlers): void {
           fire(h.onReview)
           return
         default:
-          if (/^[1-9]$/.test(ev.key) && h.onDigit) {
+          // the focused pane's head dialog owns the digits while it answers
+          if (/^[1-9]$/.test(ev.key) && h.onDigit && !dialogDigitsClaimed()) {
             ev.preventDefault()
             h.onDigit(Number(ev.key))
           }

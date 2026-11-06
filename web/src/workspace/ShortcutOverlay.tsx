@@ -24,6 +24,30 @@ const tileBindings: [string, string][] = [
   ['?', 'toggle this overlay'],
 ]
 
+// Dialog affordances shared by both modes: the ✕ every closable modal shows,
+// and the digits a focused pane's head options card answers.
+const dialogBindings: [string, string][] = [
+  ['Esc / ✕', 'close a centered modal'],
+  ['1 – 9', "answer the head dialog's option (focused pane)"],
+]
+
+// BindingTable renders one shortcut list; the overlay shows the mode's own
+// bindings, then the dialog affordances both modes share.
+function BindingTable({ bindings }: { bindings: [string, string][] }) {
+  return (
+    <table className="shortcut-table">
+      <tbody>
+        {bindings.map(([keys, what]) => (
+          <tr key={keys}>
+            <td className="mono">{keys}</td>
+            <td>{what}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )
+}
+
 // ShortcutOverlay is the one keyboard map shared by both workspace modes; ?
 // toggles it while Escape and clicks outside close it through ModalShell,
 // which also holds the workspace's own bindings down while it shows.
@@ -44,16 +68,9 @@ export function ShortcutOverlay({ mode, onClose }: { mode: WorkspaceMode; onClos
       <p className="muted" style={{ marginTop: 0 }}>
         {mode === 'tile' ? 'Tile mode' : 'Focused mode'} · Mod is Ctrl or ⌘
       </p>
-      <table className="shortcut-table">
-        <tbody>
-          {bindings.map(([keys, what]) => (
-            <tr key={keys}>
-              <td className="mono">{keys}</td>
-              <td>{what}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <BindingTable bindings={bindings} />
+      <h3>Dialogs</h3>
+      <BindingTable bindings={dialogBindings} />
     </ModalShell>
   )
 }

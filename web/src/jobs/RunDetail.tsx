@@ -15,7 +15,7 @@ export function RunDetail({ run, onClose }: { run: Run; onClose: () => void }) {
   const status = useSwarm().sessions.find((s) => s.sessionId === run.sessionId)
 
   return (
-    <ModalShell label={`Run ${run.id}`} className="run-detail" onClose={onClose}>
+    <ModalShell label={`Run ${run.id}`} className="run-detail" showClose onClose={onClose}>
       <h2 style={{ marginTop: 0, fontSize: 'inherit' }}>
         Run #{run.id}{' '}
         <span className={runStatusClass(run.status)} data-testid="detail-status">

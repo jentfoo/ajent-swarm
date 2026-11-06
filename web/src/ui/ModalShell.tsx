@@ -46,15 +46,18 @@ function cycleFocus(card: HTMLElement, ev: KeyboardEvent): void {
 // calls `onClose`, Tab cycles inside, focus that escapes is pulled back while
 // open, and closing returns focus to the element focused before opening.
 // `label` names the dialog for assistive technology; `className` adds classes
-// beside `card modal` so per-dialog widths still apply (e.g. rename-modal).
+// beside `card modal` so per-dialog widths still apply (e.g. rename-modal);
+// `showClose` adds a visible ✕ in the card's corner beside the Esc convention.
 export function ModalShell({
   label,
   className,
+  showClose = false,
   onClose,
   children,
 }: {
   label: string
   className?: string
+  showClose?: boolean
   onClose: () => void
   children: ReactNode
 }): ReactElement {
@@ -119,6 +122,11 @@ export function ModalShell({
         tabIndex={-1}
         onClick={(ev) => ev.stopPropagation()}
       >
+        {showClose && (
+          <button type="button" className="modal-close" aria-label="Close" onClick={onClose}>
+            ×
+          </button>
+        )}
         {children}
       </div>
     </div>

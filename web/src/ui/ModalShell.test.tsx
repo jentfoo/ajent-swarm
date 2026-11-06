@@ -10,7 +10,15 @@ import { ModalShell } from './ModalShell'
 // Tab cycles inside the card, stray focus is recaptured while open, and
 // closing restores focus to the element focused before opening.
 
-function Harness({ label = 'Test dialog', className }: { label?: string; className?: string }) {
+function Harness({
+  label = 'Test dialog',
+  className,
+  showClose,
+}: {
+  label?: string
+  className?: string
+  showClose?: boolean
+}) {
   const [open, setOpen] = useState(false)
   return (
     <>
@@ -18,7 +26,12 @@ function Harness({ label = 'Test dialog', className }: { label?: string; classNa
         open
       </button>
       {open && (
-        <ModalShell label={label} className={className} onClose={() => setOpen(false)}>
+        <ModalShell
+          label={label}
+          className={className}
+          showClose={showClose}
+          onClose={() => setOpen(false)}
+        >
           <button type="button">first</button>
           <button type="button">second</button>
         </ModalShell>
@@ -181,5 +194,21 @@ describe('ModalShell', () => {
     await user.click(openTrigger())
     screen.getByRole('button', { name: 'outside' }).focus()
     expect(dialog()).toHaveFocus()
+  })
+
+  it('shows the corner close button only when asked', async () => {
+    const user = userEvent.setup()
+    const plain = render(<Harness />)
+    await user.click(openTrigger())
+    expect(screen.queryByRole('button', { name: 'Close' })).not.toBeInTheDocument()
+    plain.unmount()
+
+    render(<Harness showClose />)
+    await user.click(openTrigger())
+    const close = screen.getByRole('button', { name: 'Close' })
+    // rides the dialog card, so a tap never reads as a backdrop click
+    expect(dialog()).toContainElement(close)
+    await user.click(close)
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 })

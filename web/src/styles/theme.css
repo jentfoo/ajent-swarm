@@ -609,21 +609,25 @@ label {
   max-height: 80vh;
   overflow-y: auto;
 }
-.rewind-list {
+/* the rewind modal is a column: the list is the one scroll container, header
+   and footer stay put */
+.modal.rewind-modal {
   display: flex;
   flex-direction: column;
-  gap: calc(var(--unit) * 1);
+  overflow: hidden;
 }
-.rewind-list button {
-  text-align: left;
+.rewind-modal > .rewind-list {
+  min-height: 0; /* lets the capped modal shrink the list, not overflow it */
+}
+.rewind-foot {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: calc(var(--unit) * 2);
+  margin-top: calc(var(--unit) * 3);
 }
-.rewind-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.rewind-hint {
+  font-size: var(--fs-small);
 }
 
 /* toasts */
@@ -901,37 +905,82 @@ label {
   background: color-mix(in srgb, var(--accent) 25%, transparent);
 }
 
-/* rewind picker rows carry their tree placement inline */
+/* rewind picker rows: one grid row per candidate, columns shared through
+   subgrid so guide, tag, label and detail line up down the whole tree */
 .rewind-list {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  max-height: 55vh;
+  display: grid;
+  grid-template-columns: max-content max-content minmax(0, 1fr) max-content;
+  gap: 1px calc(var(--unit) * 3);
+  align-content: start;
   overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.rewind-list > p {
+  grid-column: 1 / -1; /* load states never squeeze into the guide track */
 }
 .rewind-row {
-  font-family: var(--font-mono);
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  align-items: center;
+  min-height: calc(var(--unit) * 8);
+  padding: 0 calc(var(--unit) * 2);
+  border-radius: var(--radius);
   text-align: left;
   white-space: nowrap;
-  display: flex;
-  align-items: center;
-  gap: calc(var(--unit) * 1);
-  max-width: 100%;
+  cursor: pointer;
+  user-select: none;
 }
-.rewind-row.active-branch {
-  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+.rewind-row:not([aria-disabled='true']):hover,
+.rewind-row[data-cursor='true'] {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.rewind-row[aria-disabled='true'] {
+  cursor: default;
+}
+.rewind-row.head {
+  box-shadow: inset 2px 0 0 var(--accent); /* the one head marker */
+}
+.rewind-row.off {
+  opacity: 0.55; /* abandoned forks recede, ajent's Off shading */
+}
+/* kind colors follow ajent's marks: prompts accent, replies plain, rest muted */
+.rewind-row .kind-user {
+  --rewind-kind: var(--accent);
+}
+.rewind-row .kind-assistant {
+  --rewind-kind: var(--text);
+}
+.rewind-row .kind-compaction {
+  --rewind-kind: var(--muted);
 }
 .rewind-guide {
-  flex: none;
-  white-space: pre;
+  font-family: var(--font-mono);
+  font-size: var(--fs-small);
+  color: var(--muted);
+  white-space: pre; /* connector cells are four-column mono runs */
+}
+.rewind-tag {
+  font-size: var(--fs-small);
+  color: var(--rewind-kind, var(--muted));
+}
+.rewind-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--rewind-kind, var(--muted));
 }
 .rewind-label {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.ok-badge {
-  background: color-mix(in srgb, var(--ok) 25%, transparent);
-  color: var(--ok);
+.rewind-detail {
+  font-size: var(--fs-small);
+  color: var(--muted);
+  padding-left: calc(var(--unit) * 2);
+}
+.rewind-row.head .rewind-detail {
+  color: var(--accent);
 }
 
 /* tile mode */
@@ -1539,10 +1588,22 @@ label {
 .bottom-sheet > * {
   min-height: 0;
 }
-.switcher-rows,
-.rewind-list {
+.switcher-rows {
   overflow-y: auto;
   padding: 0 calc(var(--unit) * 3) calc(var(--unit) * 4);
+}
+
+/* mobile rewind rows: the desktop picker's row language at touch scale — kind
+   dot, label, age — as single-line cards inside the sheet */
+.bottom-sheet .rewind-list {
+  grid-template-columns: auto minmax(0, 1fr) max-content;
+  gap: calc(var(--unit) * 1);
+  padding: 0 calc(var(--unit) * 3) calc(var(--unit) * 4);
+}
+.bottom-sheet .rewind-row {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  min-height: 44px; /* touch floor */
 }
 
 /* mobile session screen: compact sticky header, shared status bar under the
@@ -1681,8 +1742,7 @@ label {
 .pushed-screen > .pushed-header {
   padding-top: calc(env(safe-area-inset-top, 0px) + var(--unit) * 2);
 }
-.tools-hint,
-.rewind-list {
+.tools-hint {
   padding-left: calc(var(--unit) * 3);
   padding-right: calc(var(--unit) * 3);
 }
@@ -1711,23 +1771,6 @@ label {
 .tool-source {
   margin-left: auto;
   font-size: var(--fs-small);
-}
-.rewind-list .rewind-row {
-  display: flex;
-  flex-direction: column;
-  gap: calc(var(--unit) * 1);
-  text-align: left;
-  width: 100%;
-  cursor: pointer;
-}
-.rewind-list .rewind-row.head {
-  opacity: 0.6;
-}
-.rewind-text {
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
 }
 
 /* full-screen settings */

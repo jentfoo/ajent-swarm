@@ -179,9 +179,7 @@ describe('deriveBlocks assistant shape', () => {
     ])
     const map = new Map([assistant].map((e) => [e.id, e]))
     const out = deriveBlocks(['01A'], map, undefined, verdicts)
-    expect(callPartsOf(out[0])).toEqual([
-      { id: 'c1', name: 'bash', verdict: 'auto allowed' },
-    ])
+    expect(callPartsOf(out[0])).toEqual([{ id: 'c1', name: 'bash', verdict: 'auto allowed' }])
 
     // no verdicts captured: cards render exactly as before
     const bare = deriveBlocks(['01A'], map)

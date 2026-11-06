@@ -409,8 +409,10 @@ label {
   background: var(--surface-2);
   padding: calc(var(--unit) * 1) calc(var(--unit) * 3);
   font-size: var(--fs-small);
+  /* long workspace paths wrap instead of widening the card on phones */
+  overflow-wrap: anywhere;
 }
-.diff-card > pre {
+.diff-pre {
   margin: 0;
   overflow-x: auto;
 }
@@ -458,6 +460,11 @@ label {
   white-space: pre-wrap;
   word-break: break-word;
   margin: calc(var(--unit) * 1) 0 0;
+}
+/* edit input preview: per-op fragment diffs under the path chip; rows keep
+   their own nowrap so long hunks scroll inside the card */
+.edit-input {
+  margin-top: calc(var(--unit) * 1);
 }
 
 /* live stream */

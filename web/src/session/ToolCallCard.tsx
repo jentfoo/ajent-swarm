@@ -1,7 +1,10 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import type { ActivityRow } from '../api/types'
 import type { ImageView, ToolResultView } from '../state/derive'
 import type { ToolProgressView } from '../state/eventApplier'
+
+import { EditOpDiff, splitRows } from './DiffCard'
+import { parseEditInput } from './editInput'
 
 // ToolCardView is what a card renders: a committed call's info or the live
 // shape with its streamed outputs. Live output appends while running; once
@@ -16,6 +19,10 @@ export interface ToolCardView {
   verdict?: string // permit outcome riding the card, e.g. 'auto allowed'
   closed?: boolean // the turn ended before a result arrived
 }
+
+// Bodies past this many lines collapse behind the header's line count instead
+// of a first-line preview
+const longBodyLines = 30
 
 export function ToolCallCard({
   call,
@@ -39,6 +46,10 @@ export function ToolCallCard({
   const closed = call.closed === true && call.result === undefined
   const done = call.result !== undefined || closed
   const label = call.name || call.progress?.path || call.id
+  const bodyLines = body === '' ? 0 : splitRows(body).length
+  // Only a body nobody watched stream collapses behind a count: a streamed
+  // body keeps its live first-line preview
+  const counted = streamed === '' && bodyLines > longBodyLines
 
   return (
     <div className={`tool-card ${failedCard ? 'error' : ''}`} data-tool-id={call.id}>
@@ -56,11 +67,15 @@ export function ToolCallCard({
             <span className="badge ok">done</span>
           ))}
         {call.verdict && <span className="badge">{call.verdict}</span>}
-        {body !== '' && !open && <span className="muted tool-preview">{oneLine(body)}</span>}
+        {body !== '' && !open && (
+          <span className="muted tool-preview">
+            {counted ? `Output · ${bodyLines} lines` : oneLine(body)}
+          </span>
+        )}
       </button>
       {(call.input !== undefined || open) && (
         <div className="tool-body">
-          {call.input !== undefined && <pre className="mono muted">{inputPreview(call.input)}</pre>}
+          {call.input !== undefined && <ToolInputView name={call.name} input={call.input} />}
           {open && body !== '' && <pre className="mono">{body}</pre>}
           {images.map((img, i) => (
             <ToolImage key={i} image={img} />
@@ -70,6 +85,29 @@ export function ToolCallCard({
       {!done && agents !== undefined && agents.length > 0 && <SubAgentState rows={agents} />}
     </div>
   )
+}
+
+// ToolInputView renders a call's arguments: edit calls as one diff per op,
+// every other shape pretty-printed. Unparseable edit input pretty-prints with
+// the rest rather than risking a half-read diff.
+function ToolInputView({ name, input }: { name?: string; input: unknown }) {
+  // Memoized on the input's identity, which the applier preserves across
+  // events, so live streaming never rediffs a settled call per frame.
+  const edit = useMemo(() => (name === 'edit' ? parseEditInput(input) : undefined), [name, input])
+  if (edit !== undefined) {
+    return (
+      <div className="edit-input">
+        <div className="diff-path mono">
+          {edit.path}
+          {edit.ops.length > 1 ? ` · ${edit.ops.length} edits` : ''}
+        </div>
+        {edit.ops.map((op, i) => (
+          <EditOpDiff key={i} op={op} />
+        ))}
+      </div>
+    )
+  }
+  return <pre className="mono muted">{prettyInput(input)}</pre>
 }
 
 // SubAgentState lists each sub-agent job's own state line, so queued work is
@@ -116,10 +154,13 @@ function ToolImage({ image }: { image: ImageView }) {
   return <img alt="" src={`data:${image.mediaType};base64,${image.data}`} className="entry-image" />
 }
 
-function inputPreview(input: unknown): string {
+// prettyInput renders arguments readably: strings verbatim, objects and arrays
+// two-space indented. A value JSON cannot express (cyclic) degrades to String.
+function prettyInput(input: unknown): string {
   if (typeof input === 'string') return input
   try {
-    return JSON.stringify(input)
+    const text = JSON.stringify(input, null, 2)
+    return text === undefined ? String(input) : text
   } catch {
     return String(input)
   }

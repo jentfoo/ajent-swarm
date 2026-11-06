@@ -1,7 +1,8 @@
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
-import { DiffCard } from './DiffCard'
+import { DiffCard, EditOpDiff } from './DiffCard'
+import type { EditOp } from './editInput'
 
 // Marker-prefixed content (frontmatter fences, "--foo") is legitimate body
 // text; dropping it would hide deletions and mislead review.
@@ -36,5 +37,42 @@ describe('DiffCard', () => {
   it('renders nothing for unchanged content', () => {
     const { container } = render(<DiffCard path="f" before={'same\n'} after={'same\n'} />)
     expect(container.querySelector('[data-testid="diff-card"]')).toBeNull()
+  })
+})
+
+const op = (overrides: Partial<EditOp> = {}): EditOp => ({
+  oldText: 'one\n',
+  newText: 'ONE\n',
+  replaceAll: false,
+  ...overrides,
+})
+
+describe('EditOpDiff', () => {
+  it('renders the replacement as del and add rows', () => {
+    render(<EditOpDiff op={op({ oldText: 'one\ntwo\n', newText: 'one\nTWO\n' })} />)
+    expect(diffLines('del')).toEqual(['two'])
+    expect(diffLines('add')).toEqual(['TWO'])
+    expect(diffLines('ctx')).toEqual(['one'])
+  })
+
+  it('carries no hunk meta rows', () => {
+    render(<EditOpDiff op={op()} />)
+    expect(document.querySelectorAll('.diff-line.meta')).toHaveLength(0)
+  })
+
+  it('marks a replace-all op with a meta row', () => {
+    render(<EditOpDiff op={op({ replaceAll: true })} />)
+    expect(diffLines('meta')).toEqual(['replace every occurrence'])
+  })
+
+  it('renders a pure deletion as del rows only', () => {
+    render(<EditOpDiff op={op({ newText: '' })} />)
+    expect(diffLines('del')).toEqual(['one'])
+    expect(diffLines('add')).toEqual([])
+  })
+
+  it('renders nothing for identical texts', () => {
+    const { container } = render(<EditOpDiff op={op({ newText: 'one\n' })} />)
+    expect(container.querySelector('.diff-line')).toBeNull()
   })
 })

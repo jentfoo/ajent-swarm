@@ -5,7 +5,7 @@ import { useSessionChannel } from '../hooks/useSessionChannel'
 import { useWorkspace } from '../providers/workspace'
 import { sessionBusy } from '../state/eventApplier'
 import { Composer } from '../session/Composer'
-import { phaseText } from '../session/phases'
+import { PhaseBanner } from '../session/phases'
 import { DialogDock } from '../session/DialogDock'
 import { Notices } from '../session/Notices'
 import { QueuedPrompts } from '../session/QueuedPrompts'
@@ -80,11 +80,7 @@ function SessionSurface({ sessionId, focused }: { sessionId: string; focused: bo
         </button>
       </StatusHeader>
 
-      {phase !== 'live' && phase !== 'ended' && (
-        <div className="banner info" role="status">
-          {phaseText(phase)}
-        </div>
-      )}
+      <PhaseBanner phase={phase} />
       {(phase === 'ended' || state.exitReason !== undefined) && (
         <div className="banner warn" role="status">
           Session ended{state.exitReason ? `: ${state.exitReason}` : '.'}

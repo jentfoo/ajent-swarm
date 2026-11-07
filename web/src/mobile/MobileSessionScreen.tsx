@@ -6,7 +6,7 @@ import { sessionBusy } from '../state/eventApplier'
 import { Composer } from '../session/Composer'
 import { SeatBadge } from '../session/SeatBadge'
 import { Notices } from '../session/Notices'
-import { phaseText } from '../session/phases'
+import { isTransientPhase, PhaseBanner } from '../session/phases'
 import { QueuedPrompts } from '../session/QueuedPrompts'
 import { ModeMenu } from '../session/StatusHeader'
 import { StatusBar } from '../session/StatusBar'
@@ -32,6 +32,9 @@ import { useSwitcherRows } from './useSwitcherRows'
 // edgeSwipePx is how far right a touch starting in the left edge zone must
 // travel to reopen the switcher sheet.
 const edgeSwipePx = 56
+
+// edgeZonePx is the left strip a swipe must start in.
+const edgeZonePx = 24
 
 // MobileSessionScreen drives one session on a phone. The component tree stays
 // shared with desktop (TranscriptView, notices, dialogs, queue chips, Composer,
@@ -108,7 +111,7 @@ function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElemen
         const start = edgeStart.current
         edgeStart.current = null
         // an open overlay layer owns the screen, so the swipe stands down
-        if (start === null || start.x > 24 || overlayOpen()) return
+        if (start === null || start.x > edgeZonePx || overlayOpen()) return
         // a finger still down or several lifted together was never a swipe
         if (ev.touches.length > 0 || ev.changedTouches.length !== 1) return
         const end = ev.changedTouches[0]
@@ -130,7 +133,7 @@ function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElemen
         <span className="session-title">{label}</span>
         <ModelChip sessionId={sessionId} snap={snap} onToast={pushToast} />
         <ModeMenu sessionId={sessionId} mode={snap.permission} onToast={pushToast} />
-        {phase !== 'live' && phase !== 'ended' && (
+        {isTransientPhase(phase) && (
           <span className={`badge ${phase === 'resyncing' ? 'warn' : ''}`}>{phase}</span>
         )}
         <span className="spacer" />
@@ -158,11 +161,7 @@ function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElemen
           from the launcher.
         </div>
       )}
-      {phase !== 'live' && phase !== 'ended' && (
-        <div className="banner info" role="status">
-          {phaseText(phase)}
-        </div>
-      )}
+      <PhaseBanner phase={phase} />
 
       <TranscriptView
         sessionId={sessionId}

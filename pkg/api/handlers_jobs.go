@@ -135,11 +135,15 @@ func (s *apiServer) handleJobCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	j.NextRunAt = next
+	createJobReply(s, w, r, j)
+}
 
+// createJobReply stores one validated job and answers with the stored row.
+func createJobReply(s *apiServer, w http.ResponseWriter, r *http.Request, j store.Job) {
 	id, err := s.sched.CreateJob(r.Context(), j)
 	switch {
 	case errors.Is(err, store.ErrConflict):
-		writeError(w, http.StatusConflict, "conflict", err.Error())
+		writeError(w, http.StatusConflict, codeConflict, err.Error())
 	case err != nil:
 		writeError(w, http.StatusInternalServerError, codeInternalError, "")
 	default: // CreateJob nudged the trigger loop
@@ -152,17 +156,28 @@ func (s *apiServer) handleJobCreate(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// writeJobError answers a job lookup error: unknown id as 404, anything else
+// as 500. It reports whether a reply was written, so callers still owe the
+// success body when it returns false.
+func writeJobError(w http.ResponseWriter, err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, codeJobNotFound, "")
+		return true
+	}
+	writeError(w, http.StatusInternalServerError, codeInternalError, "")
+	return true
+}
+
 // handleJobGet serves one job by id.
 func (s *apiServer) handleJobGet(w http.ResponseWriter, r *http.Request) {
 	j, err := s.sched.JobByID(r.Context(), pathID(r))
-	switch {
-	case err == nil:
-		writeJSON(w, http.StatusOK, j)
-	case errors.Is(err, store.ErrNotFound):
-		writeError(w, http.StatusNotFound, "job_not_found", "")
-	default:
-		writeError(w, http.StatusInternalServerError, codeInternalError, "")
+	if writeJobError(w, err) {
+		return
 	}
+	writeJSON(w, http.StatusOK, j)
 }
 
 // handleJobUpdate replaces one job's fields. Schedule edits recompute the
@@ -170,12 +185,7 @@ func (s *apiServer) handleJobGet(w http.ResponseWriter, r *http.Request) {
 func (s *apiServer) handleJobUpdate(w http.ResponseWriter, r *http.Request) {
 	id := pathID(r)
 	current, err := s.sched.JobByID(r.Context(), id)
-	switch {
-	case errors.Is(err, store.ErrNotFound):
-		writeError(w, http.StatusNotFound, "job_not_found", "")
-		return
-	case err != nil:
-		writeError(w, http.StatusInternalServerError, codeInternalError, "")
+	if writeJobError(w, err) {
 		return
 	}
 
@@ -217,9 +227,9 @@ func (s *apiServer) handleJobUpdate(w http.ResponseWriter, r *http.Request) {
 	case err == nil:
 		writeJSON(w, http.StatusOK, j)
 	case errors.Is(err, store.ErrConflict):
-		writeError(w, http.StatusConflict, "conflict", err.Error())
+		writeError(w, http.StatusConflict, codeConflict, err.Error())
 	case errors.Is(err, store.ErrNotFound):
-		writeError(w, http.StatusNotFound, "job_not_found", "")
+		writeError(w, http.StatusNotFound, codeJobNotFound, "")
 	default:
 		writeError(w, http.StatusInternalServerError, codeInternalError, "")
 	}
@@ -278,21 +288,7 @@ func (s *apiServer) handleJobQueue(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, codeInvalidRequest, err.Error())
 		return
 	}
-
-	id, err := s.sched.CreateJob(r.Context(), j)
-	switch {
-	case errors.Is(err, store.ErrConflict):
-		writeError(w, http.StatusConflict, "conflict", err.Error())
-	case err != nil:
-		writeError(w, http.StatusInternalServerError, codeInternalError, "")
-	default:
-		created, err := s.sched.JobByID(r.Context(), id)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, codeInternalError, "")
-			return
-		}
-		writeJSON(w, http.StatusCreated, created)
-	}
+	createJobReply(s, w, r, j)
 }
 
 // nextRunFor resolves the stored next fire for a job write: disabled jobs
@@ -310,14 +306,10 @@ func nextRunFor(j store.Job, enabled bool, recompute bool) (*time.Time, error) {
 // handleJobDelete removes one job; its run history survives unlinked.
 func (s *apiServer) handleJobDelete(w http.ResponseWriter, r *http.Request) {
 	err := s.sched.DeleteJob(r.Context(), pathID(r))
-	switch {
-	case err == nil:
-		w.WriteHeader(http.StatusNoContent)
-	case errors.Is(err, store.ErrNotFound):
-		writeError(w, http.StatusNotFound, "job_not_found", "")
-	default:
-		writeError(w, http.StatusInternalServerError, codeInternalError, "")
+	if writeJobError(w, err) {
+		return
 	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleJobFire records and launches one manual fire of the job, disabled or
@@ -328,9 +320,9 @@ func (s *apiServer) handleJobFire(w http.ResponseWriter, r *http.Request) {
 	case err == nil:
 		writeJSON(w, http.StatusAccepted, run)
 	case errors.Is(err, store.ErrNotFound):
-		writeError(w, http.StatusNotFound, "job_not_found", "")
+		writeError(w, http.StatusNotFound, codeJobNotFound, "")
 	case errors.Is(err, store.ErrLiveRun), errors.Is(err, store.ErrCapacity):
-		writeError(w, http.StatusConflict, "conflict", err.Error())
+		writeError(w, http.StatusConflict, codeConflict, err.Error())
 	default:
 		writeError(w, http.StatusInternalServerError, codeInternalError, "")
 	}

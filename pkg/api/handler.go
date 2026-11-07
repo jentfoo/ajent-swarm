@@ -138,7 +138,7 @@ func Handler(cfg Config) http.Handler {
 			writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "")
 			return
 		}
-		writeError(w, http.StatusNotFound, "not_found", "")
+		writeError(w, http.StatusNotFound, codeNotFound, "")
 	})
 
 	root := http.NewServeMux()

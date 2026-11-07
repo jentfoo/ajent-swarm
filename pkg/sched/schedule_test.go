@@ -546,11 +546,10 @@ func TestSchedule(t *testing.T) {
 	})
 
 	t.Run("weekdays_default_zone", func(t *testing.T) {
-		// interval schedules carry no Loc of their own; the weekday check must not
-		// panic on a nil location and answers in server-local time instead
+		// interval slots evaluate the weekday restriction in server-local time
 		created := time.Date(2025, 5, 1, 12, 0, 0, 0, time.Local) // a thursday
 		s := schedule{Kind: store.ScheduleInterval, Interval: time.Hour,
-			Weekdays: []time.Weekday{time.Friday}}
+			Loc: time.Local, Weekdays: []time.Weekday{time.Friday}}
 
 		next, err := s.NextAfter(created, created.Add(30*time.Minute))
 		require.NoError(t, err)

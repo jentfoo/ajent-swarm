@@ -25,20 +25,20 @@ func TestNamer(t *testing.T) {
 			in   string
 			want string
 		}{
-			{"plain one line", "Fix the login flow", "Fix the login flow"},
-			{"padded spaces collapse", "  padded   spaces  collapse ", "padded spaces collapse"},
-			{"first line wins", "first line only\nsecond line dropped", "first line only"},
-			{"blank output", "\n", ""},
-			{"empty output", "", ""},
-			{"tool call then title",
+			{"plain_one_line", "Fix the login flow", "Fix the login flow"},
+			{"padded_spaces_collapse", "  padded   spaces  collapse ", "padded spaces collapse"},
+			{"first_line_wins", "first line only\nsecond line dropped", "first line only"},
+			{"blank_output", "\n", ""},
+			{"empty_output", "", ""},
+			{"tool_call_then_title",
 				"<tool_call>\n{\"name\": \"agent_start\"}\n</tool_call>\nFix the login flow", "Fix the login flow"},
-			{"interleaved tags skip to last",
+			{"interleaved_tags_skip_to_last",
 				"first try\n<arg_key>\nsecond try\n</tool_call>\nreal title", "real title"},
-			{"markup only", "<tool_call>\n{\"name\": \"read\"}\n</tool_call>\n", ""},
-			{"blank lines after tag skipped", "</tool_call>\n\n   \nFix the login flow", "Fix the login flow"},
-			{"indented closing tag", "\t </tool_call>  \nFix the login flow", "Fix the login flow"},
-			{"brackets with spaces are content", "<invoke some tool>", "<invoke some tool>"},
-			{"markup inside prose kept", "Fix <div> layout now", "Fix <div> layout now"},
+			{"markup_only", "<tool_call>\n{\"name\": \"read\"}\n</tool_call>\n", ""},
+			{"blank_lines_after_tag_skipped", "</tool_call>\n\n   \nFix the login flow", "Fix the login flow"},
+			{"indented_closing_tag", "\t </tool_call>  \nFix the login flow", "Fix the login flow"},
+			{"brackets_with_spaces_are_content", "<invoke some tool>", "<invoke some tool>"},
+			{"markup_inside_prose_kept", "Fix <div> layout now", "Fix <div> layout now"},
 		}
 		for _, tc := range cases {
 			t.Run(tc.name, func(t *testing.T) {

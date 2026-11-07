@@ -186,17 +186,8 @@ export function setRatio(tree: TileNode, splitId: string, ratio: number): TileNo
 
 // firstPane returns the leftmost pane of the tree, null when empty.
 function firstPane(tree: TileNode): TilePane | null {
-  let out: TilePane | null = null
-  const walk = (node: TileNode): void => {
-    if (out || node.kind === 'pane') {
-      out ??= node.kind === 'pane' ? node : null
-      return
-    }
-    walk(node.a)
-    walk(node.b)
-  }
-  walk(tree)
-  return out
+  if (tree.kind === 'pane') return tree
+  return firstPane(tree.a) ?? firstPane(tree.b)
 }
 
 // Panes per row in grids tileFor generates.
@@ -276,7 +267,6 @@ function replacePane(tree: TileNode, paneId: string, pane: TilePane): TileNode {
 // --- serialization: the layout profile persists the tree as plain JSON ---
 
 export function parseTree(raw: unknown): TileNode | null {
-  if (raw === null || raw === undefined) return null
   return validNode(raw)
 }
 

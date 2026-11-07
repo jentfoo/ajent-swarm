@@ -3,9 +3,10 @@ import type { FormEvent } from 'react'
 
 import { ApiError } from '../api/client'
 import { jobsApi } from '../api/endpoints'
-import type { Job, ToolState, TriggerOn } from '../api/types'
+import type { Job, ToolState } from '../api/types'
 import { defaultDraft, draftFromJob, idleDelayOptions, toPayload, validateDraft } from './jobDraft'
 import type { DraftErrors, JobDraft } from './jobDraft'
+import { TriggerCommandFields } from './TriggerCommandFields'
 import { FieldError, JobFactsFields } from './JobFactsFields'
 import {
   formatSlot,
@@ -273,68 +274,49 @@ export function JobEditor({
           )}
 
           {draft.scheduleKind !== 'once' && (
-            <div className="weekday-picker" role="group" aria-label="Days of the week">
-              <span className="muted">On days</span>
-              {weekdayTokens.map((token) => (
-                <label key={token} className="weekday-chip">
-                  <input
-                    type="checkbox"
-                    checked={draft.weekdays.includes(token)}
-                    onChange={(ev) =>
-                      patch({
-                        weekdays: ev.target.checked
-                          ? [...draft.weekdays, token]
-                          : draft.weekdays.filter((d) => d !== token),
-                      })
-                    }
-                  />
-                  {weekdayShort[weekdayTokens.indexOf(token)]}
-                </label>
-              ))}
-            </div>
-          )}
+            <>
+              <div className="weekday-picker" role="group" aria-label="Days of the week">
+                <span className="muted">On days</span>
+                {weekdayTokens.map((token, i) => (
+                  <label key={token} className="weekday-chip">
+                    <input
+                      type="checkbox"
+                      checked={draft.weekdays.includes(token)}
+                      onChange={(ev) =>
+                        patch({
+                          weekdays: ev.target.checked
+                            ? [...draft.weekdays, token]
+                            : draft.weekdays.filter((d) => d !== token),
+                        })
+                      }
+                    />
+                    {weekdayShort[i]}
+                  </label>
+                ))}
+              </div>
 
-          {draft.scheduleKind !== 'once' && (
-            <label>
-              Missed run
-              <select
-                value={draft.onMissed}
-                onChange={(ev) => patch({ onMissed: ev.target.value as JobDraft['onMissed'] })}
-              >
-                <option value="skip">Skip and continue</option>
-                <option value="fire_late">Fire once late</option>
-              </select>
-            </label>
+              <label>
+                Missed run
+                <select
+                  value={draft.onMissed}
+                  onChange={(ev) => patch({ onMissed: ev.target.value as JobDraft['onMissed'] })}
+                >
+                  <option value="skip">Skip and continue</option>
+                  <option value="fire_late">Fire once late</option>
+                </select>
+              </label>
+            </>
           )}
         </div>
 
         {/* the pre-run command is part of the firing decision, so it sits inside
             the trigger block ahead of the preview and idle policy */}
-        <div className="form-grid">
-          <label>
-            Pre-run command (optional)
-            <input
-              placeholder="e.g. git pull --ff-only"
-              value={draft.triggerCommand}
-              onChange={(ev) => patch({ triggerCommand: ev.target.value })}
-              aria-invalid={errors.triggerCommand !== undefined}
-            />
-            {errors.triggerCommand && <FieldError text={errors.triggerCommand} />}
-          </label>
-
-          {draft.triggerCommand.trim() !== '' && (
-            <label>
-              Run the job when the command
-              <select
-                value={draft.triggerOn}
-                onChange={(ev) => patch({ triggerOn: ev.target.value as TriggerOn })}
-              >
-                <option value="success">Succeeds (exit zero)</option>
-                <option value="error">Errors (non-zero exit)</option>
-              </select>
-            </label>
-          )}
-        </div>
+        <TriggerCommandFields
+          draft={draft}
+          patch={patch}
+          errors={errors}
+          label="Pre-run command (optional)"
+        />
         {draft.triggerCommand.trim() !== '' && (
           <p className="muted small-note">
             The command runs via sh -c before each fire; a non-matching outcome records the fire as

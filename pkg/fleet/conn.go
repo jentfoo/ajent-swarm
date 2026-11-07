@@ -528,6 +528,8 @@ func (a *sessionActor) handleTakeControl(msg msgTakeControl) {
 // as seat-held rather than displacing its holder.
 func (a *sessionActor) handleStop(msg msgStop) {
 	if !a.ready() {
+		// deliberately uncoded: StopSession falls through to signals unless the
+		// child itself answers with a coded refusal
 		msg.reply <- errors.New("session is not connected")
 		return
 	}
@@ -546,12 +548,7 @@ func (a *sessionActor) exit(reason string) {
 		return
 	}
 	a.closeConn()
-	a.state = ChildExited
-	a.detail = reason
-	a.hub.publishChild(ChildFrame{
-		Type: FrameChild, SessionID: a.key.sessionID, State: ChildExited, Detail: reason,
-	})
-	a.refreshStatus()
+	a.publishChild(ChildExited, reason)
 	a.log.Info("session exited", "reason", reason)
 }
 
@@ -651,7 +648,7 @@ func mailboxCall[T any](ctx context.Context, a *sessionActor, build func(chan T)
 		var zero T
 		return zero, errShuttingDown
 	}
-	select {
+	select { // a queued reply wins outright over a racing cancel
 	case v := <-reply:
 		return v, nil
 	default:

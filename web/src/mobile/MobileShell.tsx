@@ -4,6 +4,7 @@ import type { ReactNode } from 'react'
 import { useSwarm } from '../providers/swarm'
 import { useWorkspace } from '../providers/workspace'
 import { ConnectionBanner } from '../ui/ConnectionBanner'
+import { attendBadgeLabels } from '../workspace/attention'
 import NotificationPrompt from './NotificationPrompt'
 
 // MobileShell is the small-screen chrome: a slim top bar with the attention
@@ -18,12 +19,7 @@ export default function MobileShell({ children }: { children: ReactNode }) {
       <header className="topbar mobile-topbar">
         <span className="spacer" />
         {needsInputCount > 0 && (
-          <Link
-            to="/"
-            className="attend-badge"
-            title={`${needsInputCount} session(s) need input`}
-            aria-label={`${needsInputCount} sessions need input`}
-          >
+          <Link to="/" className="attend-badge" {...attendBadgeLabels(needsInputCount)}>
             {needsInputCount}
           </Link>
         )}

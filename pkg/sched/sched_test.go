@@ -118,11 +118,8 @@ func (f *fakeRunner) deliverToWatcher() {
 	}
 	pid := f.submits[len(f.submits)-1].PendingID
 	go func() {
-		deliver(mustFrame(ctl.EventEntryAppend, ctl.EntryData{
-			Entry: ctl.Entry{ID: "e-" + pid, Type: "message",
-				Data: json.RawMessage(`{"queueIds":["` + pid + `"]}`)},
-		}))
-		deliver(mustFrame(ctl.EventIdle, ctl.IdleData{Idle: true}))
+		deliver(landingFrame(pid))
+		deliver(idleFrame())
 	}()
 }
 
@@ -154,23 +151,11 @@ func (f *fakeRunner) replay(pid string) {
 	f.mu.Lock()
 	deliver := f.deliver
 	f.mu.Unlock()
-	deliver(mustFrame(ctl.EventEntryAppend, ctl.EntryData{
-		Entry: ctl.Entry{ID: "e-" + pid, Type: "message",
-			Data: json.RawMessage(`{"queueIds":["` + pid + `"]}`)},
-	}))
-	deliver(mustFrame(ctl.EventIdle, ctl.IdleData{Idle: true}))
+	deliver(landingFrame(pid))
+	deliver(idleFrame())
 }
 
 func (f *fakeRunner) Unsubscribe(*fleet.Subscription) {}
-
-// mustFrame encodes one event as the stream frame the manager forwards.
-func mustFrame(name string, data any) []byte {
-	return mustJSON(fleet.EventFrame{
-		Type:      fleet.FrameEvent,
-		SessionID: "01RUNFAKESESSION00",
-		Event:     ctl.NewEvent(name, 1, data),
-	})
-}
 
 // mustJSON encodes v; only unreachable types fail.
 func mustJSON(v any) []byte {

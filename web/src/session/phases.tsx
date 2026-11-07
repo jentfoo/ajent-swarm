@@ -16,3 +16,20 @@ export function phaseText(phase: SessionPhase): string {
       return ''
   }
 }
+
+// isTransientPhase marks the phases that show the shared banner and header
+// badge; live and ended render their own chrome.
+export function isTransientPhase(phase: SessionPhase): boolean {
+  return phase !== 'live' && phase !== 'ended'
+}
+
+// PhaseBanner is the shared transient-phase banner both session surfaces
+// render while the stream is not live.
+export function PhaseBanner({ phase }: { phase: SessionPhase }) {
+  if (!isTransientPhase(phase)) return null
+  return (
+    <div className="banner info" role="status">
+      {phaseText(phase)}
+    </div>
+  )
+}

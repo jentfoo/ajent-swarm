@@ -1793,9 +1793,21 @@ label {
   display: inline-flex;
 }
 
-/* segment chip inside a status line */
+/* segment chip inside a status line; both label lengths render and the bar's
+   width picks, standing in for upstream's terminal-width collapse ladder */
 .strip-segment {
   flex-shrink: 0;
+}
+.strip-segment .seg-short {
+  display: none;
+}
+@container (max-width: 44rem) {
+  .strip-segment .seg-text {
+    display: none;
+  }
+  .strip-segment .seg-short {
+    display: inline;
+  }
 }
 
 /* touch dialogs: full-width stacked cards, big answer buttons; every
@@ -1990,6 +2002,8 @@ label {
   padding: calc(var(--unit) * 1.5) 0;
   font-size: var(--fs-small);
   min-height: 2em;
+  /* inline-size container so segment chips trade long labels for short forms */
+  container-type: inline-size;
 }
 .bar-activity {
   color: var(--text);

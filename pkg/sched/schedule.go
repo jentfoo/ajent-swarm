@@ -46,7 +46,8 @@ func scheduleOf(j store.Job) (schedule, error) {
 	switch j.ScheduleKind {
 	case store.ScheduleInterval:
 		return schedule{Kind: j.ScheduleKind,
-			Interval: time.Duration(j.IntervalSeconds) * time.Second, Weekdays: weekdays}, nil
+			Interval: time.Duration(j.IntervalSeconds) * time.Second, Loc: time.Local,
+			Weekdays: weekdays}, nil
 	case store.ScheduleDaily:
 		loc, err := locationOf(j.TZ)
 		if err != nil {
@@ -85,15 +86,11 @@ func (s schedule) NextAfter(created time.Time, from time.Time) (time.Time, error
 			return time.Time{}, errors.New("interval must be positive")
 		}
 		steps := int(from.Sub(created)/s.Interval) + 1
-		loc := s.Loc
-		if loc == nil {
-			loc = time.Local // interval slots have no zone of their own
-		}
 		// A week plus a day of slots always probes every weekday, so the bound
 		// turns an unreachable restriction into an error instead of a spin.
 		for range max(16, (8*24*3600+int(s.Interval.Seconds())-1)/int(s.Interval.Seconds())) {
 			next := created.Add(time.Duration(steps) * s.Interval)
-			if len(s.Weekdays) == 0 || slices.Contains(s.Weekdays, next.In(loc).Weekday()) {
+			if len(s.Weekdays) == 0 || slices.Contains(s.Weekdays, next.In(s.Loc).Weekday()) {
 				return next, nil
 			}
 			steps++

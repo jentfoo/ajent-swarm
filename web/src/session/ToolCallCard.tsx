@@ -31,7 +31,7 @@ export function ToolCallCard({
 }: {
   call: ToolCardView
   // Sub-agent job rows (sub-N keys): agent_start and agent_poll cards show
-  // the queued/running state of every job instead of a bare spinner.
+  // the queued/running state of every job while any row is live.
   agents?: ActivityRow[]
 }) {
   const [open, setOpen] = useState(false)
@@ -83,7 +83,7 @@ export function ToolCallCard({
           ))}
         </div>
       )}
-      {!done && agents !== undefined && agents.length > 0 && <SubAgentState rows={agents} />}
+      {agents !== undefined && agents.length > 0 && <SubAgentState rows={agents} />}
     </div>
   )
 }
@@ -112,9 +112,11 @@ function ToolInputView({ name, input }: { name?: string; input: unknown }) {
 }
 
 // SubAgentState lists each sub-agent job's own state line, so queued work is
-// visible before it starts and progress replaces a generic spinner. Upstream
-// rows run long (~2048 runes): CSS clamps them to one line and title keeps
-// the full text on hover.
+// visible before it starts and progress replaces a generic spinner. Rows live
+// only while their job does: a poll timeout result lands while siblings still
+// run, so chips stay put until each row clears upstream instead of vanishing
+// with the card's own result. Upstream rows run long (~2048 runes): CSS clamps
+// them to one line and title keeps the full text on hover.
 function SubAgentState({ rows }: { rows: ActivityRow[] }) {
   return (
     <div className="subagent-state" aria-label="Sub-agent jobs">

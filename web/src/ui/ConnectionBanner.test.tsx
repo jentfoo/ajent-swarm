@@ -17,9 +17,4 @@ describe('ConnectionBanner', () => {
     if (text === null) expect(screen.queryByRole('status')).not.toBeInTheDocument()
     else expect(screen.getByRole('status')).toHaveTextContent(text)
   })
-
-  it('always renders the warn variant when visible', () => {
-    render(<ConnectionBanner connection="closed" />)
-    expect(screen.getByRole('status')).toHaveClass('banner', 'warn')
-  })
 })

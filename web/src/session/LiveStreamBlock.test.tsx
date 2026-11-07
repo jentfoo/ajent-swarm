@@ -124,4 +124,27 @@ describe('LiveStreamBlock tool cards', () => {
     expect(screen.getByText('! make test')).toBeInTheDocument()
     expect(screen.queryByText('bash')).not.toBeInTheDocument()
   })
+
+  it('keeps sub-agent rows on a resolved poll card while siblings still run', () => {
+    // A poll timeout lands as the card's result; its job and any sibling stay
+    // live until upstream clears their rows.
+    render(
+      <LiveStreamBlock
+        live={liveFor({
+          tools: [
+            {
+              id: 'p1',
+              name: 'agent_poll',
+              outputs: [],
+              result: { output: 'sub-agent sub-2 still running after 3m', error: false },
+            },
+          ],
+        })}
+        activity={[{ key: 'sub-2', text: 'sub-2  reading files', rank: 2 }]}
+      />,
+    )
+    const poll = document.querySelector('[data-tool-id="p1"]')!
+    expect(poll.querySelector('.badge.ok')).toBeInTheDocument()
+    expect(poll.querySelector('.subagent-state')).toBeInTheDocument()
+  })
 })

@@ -14,16 +14,9 @@ import { useSwarm } from '../providers/swarm'
 import { useAuth } from '../providers/auth'
 import { AgentSettingsMenu } from '../session/AgentSettingsMenu'
 import { RenameControl } from '../session/RenameControl'
-import { displayName, shortID, tildePath } from '../session/names'
-import { describeStop } from '../workspace/attention'
-import { ModelSelectOptions } from '../ui/ModelSelectOptions'
-
-// rowKey identifies one listing row: two processes serving one session (a
-// resume of an already running run) list twice, so id alone cannot key or
-// select them.
-function rowKey(s: SessionStatus): string {
-  return `${s.sessionId}:${s.pid ?? 0}`
-}
+import { displayName, shortID } from '../session/names'
+import { describeStop, instanceKey } from '../workspace/attention'
+import { ModelSelect, WorkspaceSelect } from '../ui/LaunchFormFields'
 
 // SessionsHome is the live instance grid: state, workspace and seat badges
 // beside quick actions per session, with a compact launch panel. Checkboxes
@@ -58,7 +51,7 @@ export default function SessionsHome() {
   // rows repeat their session id so both tile.
   const openWorkspace = () => {
     if (selected.length > 0) {
-      const idsOf = new Map(sessions.map((s) => [rowKey(s), s.sessionId]))
+      const idsOf = new Map(sessions.map((s) => [instanceKey(s.sessionId, s.pid), s.sessionId]))
       const ids = selected
         .map((k) => idsOf.get(k))
         .filter((id): id is string => id !== undefined)
@@ -96,12 +89,12 @@ export default function SessionsHome() {
         <div className="grid">
           {sessions.map((s) => (
             <SessionCard
-              key={rowKey(s)}
+              key={instanceKey(s.sessionId, s.pid)}
               status={s}
               home={home}
               twin={twinIds.has(s.sessionId)}
-              selected={selected.includes(rowKey(s))}
-              onSelect={() => toggleSelected(rowKey(s))}
+              selected={selected.includes(instanceKey(s.sessionId, s.pid))}
+              onSelect={() => toggleSelected(instanceKey(s.sessionId, s.pid))}
             />
           ))}
         </div>
@@ -305,30 +298,7 @@ function LaunchPanel({ home }: { home?: string }) {
 
   return (
     <form className="card" onSubmit={submit} style={{ marginBottom: '1em' }}>
-      <label>
-        Working directory
-        <select
-          value={form.workspaceChoice}
-          onChange={(ev) => form.setWorkspaceChoice(ev.target.value)}
-        >
-          <option value="">Custom path…</option>
-          {workspaceOptions.map((w) => (
-            <option key={w} value={w}>
-              {tildePath(w, home)}
-            </option>
-          ))}
-        </select>
-      </label>
-      {form.workspaceChoice === '' && (
-        <label>
-          Directory path
-          <input
-            placeholder="/home/you/project"
-            value={form.customWorkspace}
-            onChange={(ev) => form.setCustomWorkspace(ev.target.value)}
-          />
-        </label>
-      )}
+      <WorkspaceSelect form={form} workspaceOptions={workspaceOptions} home={home} />
       <div style={{ display: 'flex', gap: '0.5em', flexWrap: 'wrap' }}>
         <label>
           Session id or name (optional)
@@ -338,13 +308,7 @@ function LaunchPanel({ home }: { home?: string }) {
             onChange={(ev) => setTarget(ev.target.value)}
           />
         </label>
-        <label>
-          Model
-          <select value={form.model} onChange={(ev) => form.setModel(ev.target.value)}>
-            <option value="">ajent default</option>
-            <ModelSelectOptions models={models} />
-          </select>
-        </label>
+        <ModelSelect form={form} models={models} />
       </div>
       {form.error && <p className="error-text">{form.error}</p>}
       <button className="primary" type="submit" disabled={form.busy}>

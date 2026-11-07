@@ -135,7 +135,7 @@ describe('RunsHistory', () => {
             ]),
           )
         }
-        if (base === '/api/attention' || base === '/api/models')
+        if (base === '/api/attention' || base === '/api/models/options')
           return Promise.resolve(Response.json([]))
         if (base === '/api/jobs') {
           const jobParam = new URLSearchParams(path.split('?')[1] ?? '').get('job')
@@ -340,7 +340,11 @@ describe('RunsHistory', () => {
         if (!init?.method || init.method === 'GET') requested.push(path)
         if (base === '/api/me')
           return Promise.resolve(Response.json({ username: 'you', via: 'cookie' }))
-        if (base === '/api/sessions' || base === '/api/attention' || base === '/api/models') {
+        if (
+          base === '/api/sessions' ||
+          base === '/api/attention' ||
+          base === '/api/models/options'
+        ) {
           return Promise.resolve(Response.json([]))
         }
         if (base === '/api/jobs') return Promise.resolve(Response.json(jobs))
@@ -388,7 +392,11 @@ describe('RunsHistory', () => {
         const base = path.split('?')[0]
         if (base === '/api/me')
           return Promise.resolve(Response.json({ username: 'you', via: 'cookie' }))
-        if (base === '/api/sessions' || base === '/api/attention' || base === '/api/models') {
+        if (
+          base === '/api/sessions' ||
+          base === '/api/attention' ||
+          base === '/api/models/options'
+        ) {
           return Promise.resolve(Response.json([]))
         }
         if (base === '/api/jobs') return Promise.resolve(Response.json(jobs))

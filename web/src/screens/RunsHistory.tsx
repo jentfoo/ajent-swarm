@@ -15,6 +15,8 @@ import { RunDetail } from '../jobs/RunDetail'
 
 const pollRunsMs = 10_000
 
+const runStatuses: RunStatus[] = ['running', 'awaiting_input', 'ok', 'failed', 'timeout', 'skipped']
+
 // RunHistory is the filterable table over /api/runs: by job through the
 // backend's ?job= parameter, by status client-side. Clicking a row explains
 // what happened without opening logs. The detail modal resolves its run from
@@ -191,5 +193,3 @@ export default function RunsHistory() {
     </div>
   )
 }
-
-const runStatuses: RunStatus[] = ['running', 'awaiting_input', 'ok', 'failed', 'timeout', 'skipped']

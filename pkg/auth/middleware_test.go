@@ -47,14 +47,16 @@ func TestMiddleware(t *testing.T) {
 
 		t.Run("bootstrap_required_everywhere", func(t *testing.T) {
 			for _, path := range []string{"/api/secret", "/api/me"} {
-				req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil)
-				rec := httptest.NewRecorder()
-				handler.ServeHTTP(rec, req)
+				t.Run(path, func(t *testing.T) {
+					req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil)
+					rec := httptest.NewRecorder()
+					handler.ServeHTTP(rec, req)
 
-				assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
-				var body map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
-				assert.Equal(t, "bootstrap_required", body["error"])
+					assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
+					var body map[string]string
+					require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+					assert.Equal(t, "bootstrap_required", body["error"])
+				})
 			}
 		})
 

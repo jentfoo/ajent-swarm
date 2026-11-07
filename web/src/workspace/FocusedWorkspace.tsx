@@ -7,7 +7,8 @@ import { useWorkspace } from '../providers/workspace'
 import { useNow } from '../hooks/useNow'
 import SessionView from '../screens/SessionView'
 import { RenameControl } from '../session/RenameControl'
-import { displayName, shortID, tildePath } from '../session/names'
+import { tildePath } from '../session/names'
+import { useSessionNamer } from '../session/useSessionLabel'
 import { useWorkspaceKeys } from './keys'
 import { ShortcutOverlay } from './ShortcutOverlay'
 import { attentionSectionTitles } from './attention'
@@ -44,13 +45,7 @@ export default function FocusedWorkspace() {
   )
   const cursor = rows[cursorIndex]?.sessionId ?? null
 
-  const nameFor = useCallback(
-    (sessionId: string) => {
-      const s = sessions.find((row) => row.sessionId === sessionId)
-      return s ? displayName(s, auth.home) : shortID(sessionId)
-    },
-    [sessions, auth.home],
-  )
+  const nameFor = useSessionNamer()
 
   const railRef = useRef<HTMLDivElement>(null)
   const [showShortcuts, setShowShortcuts] = useState(false)

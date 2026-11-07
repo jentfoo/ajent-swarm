@@ -23,11 +23,14 @@ export function isPermitDialog(dialog: InteractionPending): boolean {
   return dialog.options?.some(noteAskOption) ?? false
 }
 
-// matchesReasonAsk tolerantly matches the barrier's follow-up note ask by
-// prompt: "reason for denying" or "note for allowing" today.
-export function matchesReasonAsk(prompt: string): boolean {
+// reasonAskDeny tolerantly matches the barrier's follow-up note ask by
+// prompt: "reason for denying" or "note for allowing" today. It reports the
+// ask's flavor; undefined when the prompt is not the note ask at all.
+export function reasonAskDeny(prompt: string): boolean | undefined {
   const p = prompt.toLowerCase()
-  return p.includes(denyAskMarker) || p.includes(allowAskMarker)
+  if (p.includes(denyAskMarker)) return true
+  if (p.includes(allowAskMarker)) return false
+  return undefined
 }
 
 // noteAskOption reports whether picking this permit option opens the follow-up
@@ -146,8 +149,9 @@ export function usePermitNoteAutoAnswer(
     for (const ask of dialogs) {
       live.add(ask.id)
       if (inFlightRef.current.has(ask.id) || ask.text !== true || ask.secret === true) continue
-      if (!matchesReasonAsk(ask.prompt)) continue
-      const text = takeIntent(intentsRef.current, ask.prompt.toLowerCase().includes(denyAskMarker))
+      const denyAsk = reasonAskDeny(ask.prompt)
+      if (denyAsk === undefined) continue
+      const text = takeIntent(intentsRef.current, denyAsk)
       if (text !== undefined) taken.push({ id: ask.id, text })
     }
     if (taken.length === 0) {

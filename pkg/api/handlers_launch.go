@@ -22,6 +22,10 @@ func (s *apiServer) handleLaunch(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, res)
 	case errors.Is(err, fleet.ErrInvalidLaunch):
 		writeError(w, http.StatusBadRequest, codeInvalidRequest, err.Error())
+	case errors.Is(err, fleet.ErrUnknownSaved):
+		// an unrecorded resume target: the transcript never landed or ajent
+		// dropped it on exit, so no child is spawned to rediscover that
+		writeError(w, http.StatusNotFound, codeSessionNotFound, err.Error())
 	default:
 		writeError(w, http.StatusInternalServerError, "launch_failed", err.Error())
 	}
@@ -67,7 +71,7 @@ func (s *apiServer) handleSavedEntries(w http.ResponseWriter, r *http.Request) {
 	case err == nil:
 		writeJSON(w, http.StatusOK, page)
 	case errors.Is(err, fleet.ErrUnknownSaved):
-		writeError(w, http.StatusNotFound, "session_not_found", "")
+		writeError(w, http.StatusNotFound, codeSessionNotFound, "")
 	case errors.Is(err, fleet.ErrAmbiguousSaved):
 		writeError(w, http.StatusBadRequest, codeInvalidRequest, err.Error())
 	case errors.Is(err, session.ErrNewerFormat):

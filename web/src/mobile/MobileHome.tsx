@@ -9,7 +9,7 @@ import { useAuth } from '../providers/auth'
 import { useSwarm } from '../providers/swarm'
 import { displayName, tildePath } from '../session/names'
 import { relativeTime } from '../session/rewind'
-import { ModelSelectOptions } from '../ui/ModelSelectOptions'
+import { ModelSelect, WorkspaceSelect } from '../ui/LaunchFormFields'
 import { SwitcherRows } from './SwitcherRows'
 import { switcherRoute, type SwitcherRow } from './switcher'
 import { usePullToRefresh } from './usePullToRefresh'
@@ -115,38 +115,13 @@ function LaunchForm({
 
   return (
     <div className="card launch-form">
-      <label>
-        Working directory
-        <select
-          value={form.workspaceChoice}
-          onChange={(ev) => form.setWorkspaceChoice(ev.target.value)}
-        >
-          <option value="">Custom path…</option>
-          {workspaceOptions.map((w) => (
-            <option key={w} value={w}>
-              {tildePath(w, home)}
-            </option>
-          ))}
-        </select>
-      </label>
-      {form.workspaceChoice === '' && (
-        <label>
-          Directory path
-          <input
-            placeholder="/home/you/project"
-            value={form.customWorkspace}
-            onChange={(ev) => form.setCustomWorkspace(ev.target.value)}
-            data-testid="custom-workspace"
-          />
-        </label>
-      )}
-      <label>
-        Model
-        <select value={form.model} onChange={(ev) => form.setModel(ev.target.value)}>
-          <option value="">ajent default</option>
-          <ModelSelectOptions models={models} />
-        </select>
-      </label>
+      <WorkspaceSelect
+        form={form}
+        workspaceOptions={workspaceOptions}
+        home={home}
+        customPathTestId="custom-workspace"
+      />
+      <ModelSelect form={form} models={models} />
       {form.error && <p className="error-text">{form.error}</p>}
       <button
         className="primary"

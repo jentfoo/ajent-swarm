@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { denyAskOption, isPermitDialog, matchesReasonAsk, noteAskOption } from './decisionNote'
+import { denyAskOption, isPermitDialog, noteAskOption, reasonAskDeny } from './decisionNote'
 import type { InteractionPending } from '../api/types'
 
 // Matching keys on the barrier's rendered labels, not the kind hint, and
@@ -42,18 +42,18 @@ describe('isPermitDialog', () => {
   }
 })
 
-describe('matchesReasonAsk', () => {
-  const cases: { name: string; prompt: string; want: boolean }[] = [
-    { name: 'matches deny reason ask', prompt: 'reason for denying', want: true },
-    { name: 'matches allow note ask', prompt: 'note for allowing', want: true },
+describe('reasonAskDeny', () => {
+  const cases: { name: string; prompt: string; want: boolean | undefined }[] = [
+    { name: 'deny reason ask reads deny', prompt: 'reason for denying', want: true },
+    { name: 'allow note ask reads allow', prompt: 'note for allowing', want: false },
     { name: 'matches case and padding drift', prompt: 'Add a Reason For Denying:', want: true },
-    { name: 'rejects unrelated prompts', prompt: 'Pick a branch to restore', want: false },
-    { name: 'rejects empty prompt', prompt: '', want: false },
+    { name: 'rejects unrelated prompts', prompt: 'Pick a branch to restore', want: undefined },
+    { name: 'rejects empty prompt', prompt: '', want: undefined },
   ]
 
   for (const tc of cases) {
     it(tc.name, () => {
-      expect(matchesReasonAsk(tc.prompt)).toBe(tc.want)
+      expect(reasonAskDeny(tc.prompt)).toBe(tc.want)
     })
   }
 })

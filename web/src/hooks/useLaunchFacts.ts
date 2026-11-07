@@ -20,8 +20,8 @@ export interface LaunchFacts {
 }
 
 // useLaunchFacts gathers what the launch surfaces suggest from: known
-// workspaces across live and saved sessions, one deduped model listing per
-// distinct key, and the saved rows resume pickers render. Reads are best
+// workspaces across live and saved sessions, the deduped union of live model
+// registries, and the saved rows resume pickers render. Reads are best
 // effort; a refused one leaves that section empty instead of blocking a form.
 export function useLaunchFacts(): LaunchFacts {
   const { sessions } = useSwarm()
@@ -53,16 +53,9 @@ export function useLaunchFacts(): LaunchFacts {
   useEffect(() => {
     let alive = true
     modelsAPI
-      .list()
-      .then((rows) => {
-        if (!alive) return
-        // every live session reports its own registry: keep first row per key
-        const byKey = new Map<string, ModelState>()
-        for (const r of rows) {
-          if (!byKey.has(r.current.key)) byKey.set(r.current.key, r.current)
-        }
-        setModels([...byKey.values()].sort((a, b) => a.key.localeCompare(b.key)))
-      })
+      .options()
+      // the server unions every live registry by key; an empty fleet answers null
+      .then((rows) => alive && setModels(rows ?? []))
       .catch(() => {})
     return () => {
       alive = false

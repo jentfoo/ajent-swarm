@@ -77,13 +77,73 @@ describe('StatusBar segments', () => {
       />,
     )
     expect(screen.getByText('1.2k')).toBeInTheDocument()
+    // both label lengths render; CSS picks one by bar width
+    expect(screen.getByText('1.2k tok')).toBeInTheDocument()
     expect(screen.queryByText(/path/)).not.toBeInTheDocument() // empty removed
     expect(screen.queryByText('auto+write')).not.toBeInTheDocument() // header owns mode
     expect(screen.queryByText('auto+w')).not.toBeInTheDocument() // no short shadow either
     expect(screen.getByText('2 queued')).toBeInTheDocument()
     expect(screen.getByText('reading files')).toBeInTheDocument()
-    // sub-agent jobs land in the segment row as a count
-    expect(screen.getByText(/1 agent/)).toBeInTheDocument()
+    // sub-agent jobs land as a tally instead of vanishing into the activity mix
+    expect(screen.getByText('agents 1 active')).toBeInTheDocument()
+  })
+
+  it('tallies sub-agents as active, total and done', () => {
+    render(
+      <StatusBar
+        snap={snapFor({
+          activity: [
+            { key: 'sub-1', text: 'sub-1 reading files', rank: 0 },
+            { key: 'sub-2', text: 'sub-2 scanning tests', rank: 1 },
+            { key: 'sub-3', text: 'sub-3 drafting report', rank: 2 },
+          ],
+          status: {
+            segments: [
+              {
+                key: 'subagents',
+                text: 'subagents: 2 running (oldest 30s), 1 queued, 4 done',
+                short: 'sub 3',
+                order: 40,
+              },
+            ],
+          },
+        })}
+      />,
+    )
+    expect(screen.getByText('agents 3 active · 7 total · 4 done')).toBeInTheDocument()
+    // the short form never renders beside the tally
+    expect(screen.queryByText('sub 3')).not.toBeInTheDocument()
+  })
+
+  it('reports a finished batch from the segment alone', () => {
+    render(
+      <StatusBar
+        snap={snapFor({
+          status: { segments: [{ key: 'subagents', text: 'subagents: 6 done', order: 40 }] },
+        })}
+      />,
+    )
+    expect(screen.getByText('agents 6 total · 6 done')).toBeInTheDocument()
+  })
+
+  it('falls back to live rows without an upstream segment', () => {
+    render(
+      <StatusBar
+        snap={snapFor({ activity: [{ key: 'sub-2', text: 'sub-2 reading files', rank: 0 }] })}
+      />,
+    )
+    expect(screen.getByText('agents 1 active')).toBeInTheDocument()
+  })
+
+  it('keeps upstream wording when its tally drifts', () => {
+    render(
+      <StatusBar
+        snap={snapFor({
+          status: { segments: [{ key: 'subagents', text: 'subagents: unclear', order: 40 }] },
+        })}
+      />,
+    )
+    expect(screen.getByText('subagents: unclear')).toBeInTheDocument()
   })
 
   it('leads with the working glyph colored by the turn state', () => {
@@ -180,31 +240,26 @@ describe('ToolsPanel disabled states', () => {
     expect(screen.getByRole('checkbox')).not.toBeDisabled()
   })
 
-  it('toggles read-only-classified tools freely at both densities', async () => {
+  it('toggles read-only-classified tools freely', async () => {
     const user = userEvent.setup()
     const fetchSpy = vi.fn(async () => Response.json({ rows: [] }))
     vi.stubGlobal('fetch', fetchSpy)
-    for (const density of ['cozy', 'compact'] as const) {
-      document.documentElement.dataset.density = density
-      const { unmount } = render(
-        <ToolsPanel
-          sessionId="01S"
-          snap={snapFor({ tools: [tool({ name: 'read', readOnly: true })] })}
-          onToast={vi.fn()}
-        />,
-      )
-      await user.click(screen.getByRole('button', { name: '/tools' }))
-      const box = screen.getByRole('checkbox')
-      expect(box).not.toBeDisabled()
-      await user.click(box) // disabling rides tools.set's free replacement
-      await waitFor(() =>
-        expect(fetchSpy).toHaveBeenCalledWith(
-          expect.stringContaining('/api/sessions/01S/tools'),
-          expect.objectContaining({ method: 'POST' }),
-        ),
-      )
-      unmount()
-    }
-    document.documentElement.dataset.density = 'cozy'
+    render(
+      <ToolsPanel
+        sessionId="01S"
+        snap={snapFor({ tools: [tool({ name: 'read', readOnly: true })] })}
+        onToast={vi.fn()}
+      />,
+    )
+    await user.click(screen.getByRole('button', { name: '/tools' }))
+    const box = screen.getByRole('checkbox')
+    expect(box).not.toBeDisabled()
+    await user.click(box) // disabling rides tools.set's free replacement
+    await waitFor(() =>
+      expect(fetchSpy).toHaveBeenCalledWith(
+        expect.stringContaining('/api/sessions/01S/tools'),
+        expect.objectContaining({ method: 'POST' }),
+      ),
+    )
   })
 })

@@ -3,16 +3,15 @@ import type { DragEvent, PointerEvent as ReactPointerEvent } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
 
 import { useSwarm } from '../providers/swarm'
-import { useAuth } from '../providers/auth'
 import { useWorkspace } from '../providers/workspace'
 import { reachableSession } from '../shell/AppShell'
 import SessionView from '../screens/SessionView'
-import { displayName, shortID } from '../session/names'
+import { useSessionNamer } from '../session/useSessionLabel'
 import { MenuPopover } from '../ui/MenuPopover'
 import { useWorkspaceKeys } from './keys'
 import type { Direction } from './keys'
 import { ShortcutOverlay } from './ShortcutOverlay'
-import type { AttentionItem } from './attention'
+import { isActionable, type AttentionItem } from './attention'
 import {
   activateTab,
   closeTab,
@@ -40,7 +39,6 @@ const resizeStep = 0.05
 
 export default function TileWorkspace() {
   const { sessions } = useSwarm()
-  const auth = useAuth()
   const { profile, setTileLayout, itemFor } = useWorkspace()
   const [searchParams, setSearchParams] = useSearchParams()
   const navigate = useNavigate()
@@ -113,9 +111,8 @@ export default function TileWorkspace() {
     // focus lands on the first pane: focusedPaneId is a pane id in the
     // persisted layout profile, not a session id
     setTileLayout({ tree: next, focusedPaneId: paneIds(next)[0] })
-    // seeding runs once; tree and params are read at that moment only
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally excludes tree/setTileLayout/searchParams
-  }, [tree, sessions, setTileLayout, searchParams])
+    // seeding runs once per mount; guards above keep later dep changes quiet
+  }, [tree, sessions, setTileLayout, setSearchParams, searchParams])
 
   const focusPane = useCallback((paneId: string) => commit(tree, paneId), [commit, tree])
 
@@ -128,13 +125,7 @@ export default function TileWorkspace() {
     [commit, tree],
   )
 
-  const nameFor = useCallback(
-    (sessionId: string) => {
-      const s = sessions.find((row) => row.sessionId === sessionId)
-      return s ? displayName(s, auth.home) : shortID(sessionId)
-    },
-    [sessions, auth.home],
-  )
+  const nameFor = useSessionNamer()
 
   // The next session nowhere open in the tree, for splits and pickers.
   const nextCandidate = useCallback((): string | null => {
@@ -239,7 +230,7 @@ export default function TileWorkspace() {
         return false
       }
       if (!walk(tree)) return
-      const hit = [...path].reverse().find((p) => p.node.dir === want)
+      const hit = path.findLast((p) => p.node.dir === want)
       if (!hit) return
       const growing = (dir === 'right' || dir === 'down') === hit.inA
       commit(setRatio(tree, hit.node.id, hit.node.ratio + (growing ? resizeStep : -resizeStep)))
@@ -311,7 +302,7 @@ export default function TileWorkspace() {
       {tree === null ? (
         <div className="tile-empty">
           <p className="muted">No panes open.</p>
-          {sessions.filter(reachableSession).length === 0 && <span>No live sessions to open.</span>}
+          {!sessions.some(reachableSession) && <span>No live sessions to open.</span>}
         </div>
       ) : (
         <NodeView
@@ -440,8 +431,7 @@ function PaneView({
   // A tab badges while its attention rises and it is not the focused view.
   const badgeFor = (sessionId: string): string | null => {
     const item = itemFor(sessionId)
-    if (item === undefined) return null
-    if (item.kind !== 'needs-input' && item.kind !== 'needs-review') return null
+    if (item === undefined || !isActionable(item.kind)) return null
     if (isFocused && pane.active === sessionId) return null
     return item.kind
   }

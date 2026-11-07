@@ -100,7 +100,11 @@ describe('JobsHome', () => {
         const base = path.split('?')[0]
         if (base === '/api/me')
           return Promise.resolve(Response.json({ username: 'you', via: 'cookie' }))
-        if (base === '/api/sessions' || base === '/api/attention' || base === '/api/models') {
+        if (
+          base === '/api/sessions' ||
+          base === '/api/attention' ||
+          base === '/api/models/options'
+        ) {
           return Promise.resolve(Response.json([]))
         }
         // the job forms load tool options beside the models listing
@@ -317,8 +321,8 @@ describe('JobsHome', () => {
       workspace: '/repo',
       prompt: 'review the diff',
     })
-    // the composer closed back to the list, which reloaded with the new row
-    expect(screen.queryByRole('dialog', { name: 'Queue a prompt' })).toBeNull()
+    // the composer closes a fetch tick after the status lands, so wait it out
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Queue a prompt' })).toBeNull())
   })
 
   it('marks queued rows with a badge and the idle wait', async () => {

@@ -4,6 +4,7 @@ import type { ReactNode } from 'react'
 import { useSwarm } from '../providers/swarm'
 import { useWorkspace } from '../providers/workspace'
 import { useAuth } from '../providers/auth'
+import { attendBadgeLabels } from '../workspace/attention'
 import { ChildState } from '../api/types'
 import type { SessionStatus } from '../api/types'
 import { GlobalSettingsMenu } from './GlobalSettingsMenu'
@@ -93,8 +94,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
           <button
             type="button"
             className="attend-badge"
-            title={`${needsInputCount} session(s) need input`}
-            aria-label={`${needsInputCount} sessions need input`}
+            {...attendBadgeLabels(needsInputCount)}
             onClick={() => navigate('/focused')}
           >
             {needsInputCount}

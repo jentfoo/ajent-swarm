@@ -72,7 +72,7 @@ func (s *apiServer) handleTokenDelete(w http.ResponseWriter, r *http.Request) {
 	case err != nil:
 		writeError(w, http.StatusInternalServerError, codeInternalError, "delete failed")
 	case !removed:
-		writeError(w, http.StatusNotFound, "not_found", "")
+		writeError(w, http.StatusNotFound, codeNotFound, "")
 	default:
 		w.WriteHeader(http.StatusNoContent)
 	}

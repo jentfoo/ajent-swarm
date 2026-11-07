@@ -203,9 +203,7 @@ func (m *Manager) Start(ctx context.Context) {
 // outlive it unless the operator asked for them to be taken down too.
 func (m *Manager) Stop() {
 	m.stopOnce.Do(func() {
-		if m.cancel != nil {
-			m.cancel()
-		}
+		m.cancel()
 		m.wg.Wait()
 
 		m.mu.Lock()
@@ -445,12 +443,11 @@ func (m *Manager) registerLocked(sub *subscription) {
 	set[sub.id] = sub
 }
 
-// preferActor picks who serves a session with several live instances: an
-// online actor beats a degraded one, then the oldest instance wins.
-func preferActor(a, b *sessionActor) *sessionActor {
-	rank := func(x *sessionActor) int {
-		st := x.status.Load()
-		switch st.State {
+// actorForLocked returns the actor serving a session; mu must be held. With
+// several live instances an online actor beats a degraded one.
+func (m *Manager) actorForLocked(sessionID string) *sessionActor {
+	rank := func(a *sessionActor) int {
+		switch a.status.Load().State {
 		case ChildOnline:
 			return 0
 		case ChildReconnecting:
@@ -459,10 +456,16 @@ func preferActor(a, b *sessionActor) *sessionActor {
 			return 2
 		}
 	}
-	if a == nil || rank(b) < rank(a) {
-		return b
+	var best *sessionActor
+	for key, a := range m.actors {
+		if key.sessionID != sessionID {
+			continue
+		}
+		if best == nil || rank(a) < rank(best) {
+			best = a
+		}
 	}
-	return a
+	return best
 }
 
 // Subscribe registers one viewer on a session's stream. deliver receives
@@ -504,12 +507,24 @@ func (m *Manager) Subscribe(sessionID string, deliver func([]byte), onDrop func(
 	return &Subscription{s: sub}, nil
 }
 
-// Unsubscribe ends one subscription.
+// Unsubscribe ends one subscription everywhere and closes it.
 func (m *Manager) Unsubscribe(s *Subscription) {
 	if s == nil {
 		return
 	}
-	m.detachSub(s.s)
+	sub := s.s
+	m.mu.Lock()
+	host := m.actors[sub.hostKey]
+	m.forgetLocked(sub)
+	m.mu.Unlock()
+	sub.close()
+
+	if host != nil {
+		select { // best effort; a stopping actor needs no detach
+		case host.mailbox <- msgDetach{sub: sub}:
+		default:
+		}
+	}
 }
 
 // Resync re-pushes the init frame for an existing subscription, so a client
@@ -525,22 +540,6 @@ func (m *Manager) Resync(s *Subscription) {
 	select {
 	case a.mailbox <- msgSync{sub: sub}:
 	default:
-	}
-}
-
-// detachSub removes one subscription everywhere and closes it.
-func (m *Manager) detachSub(sub *subscription) {
-	m.mu.Lock()
-	host := m.actors[sub.hostKey]
-	m.forgetLocked(sub)
-	m.mu.Unlock()
-	sub.close()
-
-	if host != nil {
-		select { // best effort; a stopping actor needs no detach
-		case host.mailbox <- msgDetach{sub: sub}:
-		default:
-		}
 	}
 }
 
@@ -560,17 +559,6 @@ func (m *Manager) forgetLocked(sub *subscription) {
 		}
 	}
 	sub.hostKey = actorKey{}
-}
-
-// actorForLocked returns the actor serving a session; mu must be held.
-func (m *Manager) actorForLocked(sessionID string) *sessionActor {
-	var best *sessionActor
-	for key, a := range m.actors {
-		if key.sessionID == sessionID {
-			best = preferActor(best, a)
-		}
-	}
-	return best
 }
 
 // TakeControl issues one force claim on user command for the session.
@@ -633,7 +621,7 @@ func (m *Manager) Sessions() []Status {
 		}
 		tracked[st.SessionID] = struct{}{}
 	}
-	said := make(map[string]bool, len(recs))
+	listed := make(map[string]struct{}, len(recs))
 	for _, rec := range recs { // newest first: the latest record describes the session
 		if rec.SessionID == "" {
 			continue // never served: the launch error told its story
@@ -644,12 +632,15 @@ func (m *Manager) Sessions() []Status {
 		}
 		// a replaced record's session owns one row already: the tracked
 		// instance serving it now, or the newest untracked record before it
-		if _, ok := tracked[rec.SessionID]; ok || said[rec.SessionID] {
+		if _, ok := tracked[rec.SessionID]; ok {
+			continue
+		}
+		if _, ok := listed[rec.SessionID]; ok {
 			continue
 		}
 		row := childStatus(rec)
 		rows = append(rows, &row)
-		said[rec.SessionID] = true
+		listed[rec.SessionID] = struct{}{}
 	}
 
 	alive := make([]Status, 0, len(rows))
@@ -722,20 +713,28 @@ type Attention struct {
 	Activity     string `json:"activity,omitempty"`
 }
 
+// servingStatuses snapshots the listing row of every actor whose session
+// still serves; the best-effort listing feeds filter on it.
+func (m *Manager) servingStatuses() []*Status {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]*Status, 0, len(m.actors))
+	for _, a := range m.actors {
+		if st := a.status.Load(); st.serving() {
+			out = append(out, st)
+		}
+	}
+	return out
+}
+
 // Attention summarizes every live session from its actor's reconciled view,
 // one row each, sorted by session id. Exited sessions drop out; a degraded
 // connection keeps its last known facts until tracking ends.
 func (m *Manager) Attention() []Attention {
-	m.mu.Lock()
-	actors := bulk.MapValuesSlice(m.actors)
-	m.mu.Unlock()
+	statuses := m.servingStatuses()
 
-	out := make([]Attention, 0, len(actors))
-	for _, a := range actors {
-		st := a.status.Load()
-		if !st.serving() {
-			continue // never attached or already ended: nothing to attend to
-		}
+	out := make([]Attention, 0, len(statuses))
+	for _, st := range statuses {
 		out = append(out, Attention{
 			SessionID:        st.SessionID,
 			PID:              st.PID,
@@ -760,17 +759,9 @@ func (m *Manager) Attention() []Attention {
 // for one still working, otherwise its most recent turn end. The zero time
 // means nothing is known to have worked, so run-when-idle jobs may fire.
 func (m *Manager) LastBusyAt() time.Time {
-	m.mu.Lock()
-	actors := bulk.MapValuesSlice(m.actors)
-	m.mu.Unlock()
-
 	var last time.Time
 	now := time.Now()
-	for _, a := range actors {
-		st := a.status.Load()
-		if !st.serving() {
-			continue // ended sessions are not working on anything anymore
-		}
+	for _, st := range m.servingStatuses() {
 		if st.Running || st.Spinning || st.OpenInteractions > 0 {
 			return now // a turn is live or parked at a dialog right now
 		}

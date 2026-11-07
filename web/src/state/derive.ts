@@ -132,7 +132,7 @@ function deriveMessage(
     return undefined
   }
 
-  const text = joinText(blocks, ['text'])
+  const text = joinText(blocks)
   if (d.injected) {
     // injected context opens no turn; it draws only when replay-marked,
     // matching replay's InjectBlock path
@@ -226,7 +226,7 @@ function isCarrier(blocks: ContentBlockView[]): boolean {
 // the model saw, else the joined content text.
 function resultText(block: ContentBlockView): string {
   if (block.data?.display !== undefined && block.data.display !== '') return block.data.display
-  return joinText(resultContent(block), ['text'])
+  return joinText(resultContent(block))
 }
 
 function resultContent(block: ContentBlockView): unknown[] {
@@ -239,10 +239,10 @@ function collectBlocks(blocks: readonly unknown[], types: string[]): ContentBloc
   )
 }
 
-// joinText concatenates one block family's bodies, the JoinText shape labels
-// and rewind candidates use.
-function joinText(blocks: readonly unknown[], types: string[]): string {
-  const texts = collectBlocks(blocks, types)
+// joinText concatenates the text bodies, the JoinText shape labels and
+// rewind candidates use.
+function joinText(blocks: readonly unknown[]): string {
+  const texts = collectBlocks(blocks, ['text'])
     .map((b) => str(b.data?.text))
     .filter((t) => t !== '')
   return texts.join('\n\n')

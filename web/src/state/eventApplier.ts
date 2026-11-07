@@ -384,15 +384,11 @@ function applyEvent(state: AppliedSessionState, ev: WireEvent): AppliedSessionSt
       const row = decode<{ key?: string; text?: string; rank?: number }>(ev.data)
       if (!row || !isValidId(row.key)) return next
       const { key, text, rank } = row
-      // Keyed family: non-empty text adds or replaces, empty text removes.
-      const activity =
-        text !== undefined && text !== ''
-          ? upsertByKey(next.snapshot.activity ?? [], key, () => ({
-              key,
-              text,
-              rank: rank ?? 0,
-            }))
-          : (next.snapshot.activity ?? []).filter((r) => r.key !== key)
+      const activity = keyedFamily(
+        next.snapshot.activity,
+        key,
+        text !== undefined && text !== '' ? { key, text, rank: rank ?? 0 } : null,
+      )
       next.snapshot = { ...next.snapshot, activity }
       return next
     }
@@ -650,18 +646,16 @@ function permitVerdict(text: string): string | undefined {
 function attachPermitVerdict(state: AppliedSessionState, label: string): boolean {
   const tools = state.live?.tools
   if (!tools) return false
-  for (let i = tools.length - 1; i >= 0; i--) {
-    if (tools[i].result !== undefined) continue
-    state.permitVerdicts = [...state.permitVerdicts, { id: tools[i].id, text: label }].slice(
-      -maxPermitVerdicts,
-    )
-    state.live = {
-      ...state.live!,
-      tools: tools.map((t, j) => (j === i ? { ...t, verdict: label } : t)),
-    }
-    return true
+  const idx = tools.findLastIndex((t) => t.result === undefined)
+  if (idx < 0) return false
+  state.permitVerdicts = [...state.permitVerdicts, { id: tools[idx].id, text: label }].slice(
+    -maxPermitVerdicts,
+  )
+  state.live = {
+    ...state.live!,
+    tools: tools.map((t, j) => (j === idx ? { ...t, verdict: label } : t)),
   }
-  return false
+  return true
 }
 
 function applyStatus(next: AppliedSessionState, ev: WireEvent): AppliedSessionState {
@@ -676,16 +670,13 @@ function applyStatus(next: AppliedSessionState, ev: WireEvent): AppliedSessionSt
     const seg = d.segment
     if (!isValidId(seg.key)) return next
     const { key } = seg
-    // Keyed family: non-empty text adds or replaces, empty text removes.
-    const segments =
+    const segments = keyedFamily(
+      next.snapshot.status?.segments,
+      key,
       seg.text !== undefined && seg.text !== ''
-        ? upsertByKey(next.snapshot.status?.segments ?? [], key, () => ({
-            key,
-            text: seg.text!,
-            short: seg.short,
-            order: seg.order ?? 0,
-          }))
-        : (next.snapshot.status?.segments ?? []).filter((s) => s.key !== key)
+        ? { key, text: seg.text, short: seg.short, order: seg.order ?? 0 }
+        : null,
+    )
     next.snapshot = { ...next.snapshot, status: { segments } }
     return next
   }
@@ -769,9 +760,9 @@ function applyToolEvent(next: AppliedSessionState, ev: WireEvent): AppliedSessio
       if (result.error && result.output !== '') {
         // Upstream's recover path emits its fault-location notice immediately
         // before this result; surface it on the failed card.
-        const fault = [...next.notices]
-          .reverse()
-          .find((n) => n.level === 'error' && n.text.startsWith(result.output))
+        const fault = next.notices.findLast(
+          (n) => n.level === 'error' && n.text.startsWith(result.output),
+        )
         if (fault !== undefined) result.fault = fault.text
       }
       return withLive(
@@ -1101,6 +1092,17 @@ function upsertByKey<T extends { key: string }>(rows: T[], key: string, build: (
   const idx = rows.findIndex((row) => row.key === key)
   if (idx < 0) return [...rows, build()]
   return rows.map((row, i) => (i === idx ? build() : row))
+}
+
+// keyedFamily applies the keyed family contract: a row adds or replaces by
+// key, null removes.
+function keyedFamily<T extends { key: string }>(
+  rows: T[] | undefined,
+  key: string,
+  row: T | null,
+): T[] {
+  if (row === null) return (rows ?? []).filter((r) => r.key !== key)
+  return upsertByKey(rows ?? [], key, () => row)
 }
 
 function boundedAppend<T>(list: T[], item: T, max: number): T[] {

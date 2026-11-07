@@ -3,9 +3,10 @@ import type { FormEvent } from 'react'
 
 import { ApiError } from '../api/client'
 import { jobsApi } from '../api/endpoints'
-import type { Job, ToolState, TriggerOn } from '../api/types'
+import type { Job, ToolState } from '../api/types'
 import { defaultDraft, validateDraft } from './jobDraft'
 import type { DraftErrors, JobDraft } from './jobDraft'
+import { TriggerCommandFields } from './TriggerCommandFields'
 import { FieldError, JobFactsFields } from './JobFactsFields'
 import { ModalShell } from '../ui/ModalShell'
 
@@ -94,31 +95,7 @@ export function QueueComposer({
         </label>
 
         <h3>Pre-run command (optional)</h3>
-        <div className="form-grid">
-          <label>
-            Pre-run command
-            <input
-              placeholder="e.g. git pull --ff-only"
-              value={draft.triggerCommand}
-              onChange={(ev) => patch({ triggerCommand: ev.target.value })}
-              aria-invalid={errors.triggerCommand !== undefined}
-            />
-            {errors.triggerCommand && <FieldError text={errors.triggerCommand} />}
-          </label>
-
-          {draft.triggerCommand.trim() !== '' && (
-            <label>
-              Run the job when the command
-              <select
-                value={draft.triggerOn}
-                onChange={(ev) => patch({ triggerOn: ev.target.value as TriggerOn })}
-              >
-                <option value="success">Succeeds (exit zero)</option>
-                <option value="error">Errors (non-zero exit)</option>
-              </select>
-            </label>
-          )}
-        </div>
+        <TriggerCommandFields draft={draft} patch={patch} errors={errors} label="Pre-run command" />
 
         <p className="muted small-note">
           Runs in a new session once no session has been active for 10 minutes; the session stays

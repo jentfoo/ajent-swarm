@@ -1,7 +1,6 @@
 package sched
 
 import (
-	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,11 +10,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-// quietLogger drops everything, keeping sweep output out of test logs.
-func quietLogger() *slog.Logger {
-	return slog.New(slog.DiscardHandler)
-}
 
 func TestRetention(t *testing.T) {
 	t.Parallel()
@@ -38,7 +32,7 @@ func TestRetention(t *testing.T) {
 		}
 		require.NoError(t, os.Mkdir(filepath.Join(dir, "500.dir.log"), 0o700))
 
-		pruneChildLogs(dir, time.Now().Add(-30*time.Minute), quietLogger())
+		pruneChildLogs(dir, time.Now().Add(-30*time.Minute), testLogger())
 
 		assert.FileExists(t, fresh)
 		assert.NoFileExists(t, stale)
@@ -54,7 +48,7 @@ func TestRetention(t *testing.T) {
 		require.NoError(t, os.WriteFile(path, []byte(strings.Repeat("x", 64)), 0o600))
 		require.NoError(t, os.WriteFile(filepath.Join(dir, "notes.txt"), []byte(strings.Repeat("x", 64)), 0o600))
 
-		RotateChildLogs(dir, 32, 1, quietLogger())
+		RotateChildLogs(dir, 32, 1, testLogger())
 
 		live, err := os.ReadFile(path)
 		require.NoError(t, err)
@@ -72,12 +66,12 @@ func TestRetention(t *testing.T) {
 		path := filepath.Join(dir, "4242.log")
 		require.NoError(t, os.WriteFile(path, []byte(strings.Repeat("x", 64)), 0o600))
 
-		RotateChildLogs(dir, 0, 1, quietLogger())
+		RotateChildLogs(dir, 0, 1, testLogger())
 		got, err := os.ReadFile(path)
 		require.NoError(t, err)
 		assert.Len(t, got, 64)
 
-		RotateChildLogs(filepath.Join(dir, "absent"), 32, 1, quietLogger())
+		RotateChildLogs(filepath.Join(dir, "absent"), 32, 1, testLogger())
 		assert.NoFileExists(t, filepath.Join(dir, "absent"))
 	})
 }

@@ -10,10 +10,14 @@ import (
 // maxBodyBytes bounds every request body; the API carries small JSON only.
 const maxBodyBytes = 1 << 20
 
-// The two wire codes shared across handlers; clients branch on codes, not prose.
+// Wire codes shared across handlers; clients branch on codes, not prose.
 const (
-	codeInternalError  = "internal_error"
-	codeInvalidRequest = "invalid_request"
+	codeInternalError   = "internal_error"
+	codeInvalidRequest  = "invalid_request"
+	codeNotFound        = "not_found"
+	codeConflict        = "conflict"
+	codeJobNotFound     = "job_not_found"
+	codeSessionNotFound = "session_not_found"
 )
 
 // errorBody is the one error envelope every failure uses, so clients branch

@@ -38,7 +38,6 @@ function row(overrides: Partial<SwitcherRow> = {}): SwitcherRow {
     label: 'project',
     status: 'idle',
     section: 'working',
-    needsInput: false,
     reason: '',
     queued: 0,
     checkOff: false,
@@ -121,16 +120,15 @@ describe('buildSwitcherRows', () => {
       ],
     )
     expect(rows.map((r) => r.sessionId)).toEqual(['03', '02', '01'])
-    expect(rows[0]!.status).toBe('idle')
+    // a dialog outranks the turn still running behind it
+    expect(rows[0]!.status).toBe('input')
+    expect(rows[1]!.status).toBe('idle')
     expect(rows[2]!.status).toBe('waiting')
 
     // waiting rows offer no check-off; actionable ones do
     expect(rows[0]!.checkOff).toBe(true)
     expect(rows[1]!.checkOff).toBe(true)
     expect(rows[2]!.checkOff).toBe(false)
-    for (const row of rows) {
-      if (row.status === 'waiting') expect(row.needsInput).toBe(false)
-    }
   })
 
   it('keeps waiting and working rows entry-stable', () => {
@@ -238,6 +236,8 @@ describe('buildSwitcherRows', () => {
     const [first, second] = rows
     expect(first!.pid).toBe(102)
     expect(first!.section).toBe('needs')
+    // the dialog parks the running turn: blocked on the human, not working
+    expect(first!.status).toBe('input')
     expect(second!.pid).toBe(101)
     expect(second!.section).toBe('waiting')
     expect(second!.status).toBe('waiting')
@@ -251,7 +251,6 @@ describe('buildSwitcherRows', () => {
     expect(rows[0]!.status).toBe('running')
     expect(rows[1]!.status).toBe('idle')
     for (const row of rows) {
-      expect(row.needsInput).toBe(false)
       expect(row.checkOff).toBe(false)
       expect(row.section).toBe('working')
     }

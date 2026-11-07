@@ -759,8 +759,8 @@ func TestManager(t *testing.T) {
 			assert.False(t, m.LastBusyAt().IsZero())
 		})
 
-		t.Run("aged_turn_end_still_busy", func(t *testing.T) {
-			// a long-quiet session stops counting once its turn end ages out of memory
+		t.Run("aged_turn_end_reported", func(t *testing.T) {
+			// a serving session's last turn end is reported however old it is
 			now := time.Now()
 			actor(now.Add(-time.Hour).UnixMilli(), false)
 			busy := m.LastBusyAt()

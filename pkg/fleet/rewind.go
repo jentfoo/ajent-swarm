@@ -123,7 +123,7 @@ func rewindCandidates(entries []session.Entry, head string) RewindCandidates {
 			continue
 		}
 
-		picker := strings.TrimSpace(label) // labels stay one line, picker-sized
+		picker := strings.TrimSpace(label) // trim the ends; the cap below keeps it list-sized
 		if runes := []rune(picker); len(runes) > candidateLabelMax {
 			picker = string(runes[:candidateLabelMax-1]) + "…"
 		}
@@ -139,20 +139,16 @@ func rewindCandidates(entries []session.Entry, head string) RewindCandidates {
 			c.Depth, c.Guide, c.Active = row.Depth, row.Guide, row.Active
 		}
 		if kind == CandidateUser { // the prefill a rewind-and-edit starts from
-			c.Text, c.Truncated = candidateText(label)
+			runes := []rune(label)
+			if len(runes) <= rewindTextMax {
+				c.Text, c.Truncated = label, false
+			} else {
+				c.Text, c.Truncated = string(runes[:rewindTextMax]), true
+			}
 		}
 		out.Candidates = append(out.Candidates, c)
 	}
 	return out
-}
-
-// candidateText bounds one prompt's full text, reporting when it was cut.
-func candidateText(s string) (string, bool) {
-	runes := []rune(s)
-	if len(runes) <= rewindTextMax {
-		return s, false
-	}
-	return string(runes[:rewindTextMax]), true
 }
 
 // isUserPrompt applies ajent's own prompt classification: typed user text,

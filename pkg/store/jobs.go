@@ -523,17 +523,21 @@ func (s *Store) PruneAbandonedQueued(ctx context.Context) (int64, error) {
 }
 
 // PruneRuns deletes run rows older than cutoff and then keeps at most keepMax
-// of the newest; zero keepMax skips the count cap. Returns how many rows went.
+// of the newest; zero keepMax skips the count cap. A zero cutoff skips the age
+// prune. Returns how many rows went.
 func (s *Store) PruneRuns(ctx context.Context, cutoff time.Time, keepMax int) (int64, error) {
-	res, err := s.db.ExecContext(ctx,
-		`DELETE FROM runs WHERE started_at < ?`, unixMilli(cutoff))
-	if err != nil {
-		return 0, fmt.Errorf("prune runs: %w", err)
+	var total int64
+	if !cutoff.IsZero() {
+		res, err := s.db.ExecContext(ctx,
+			`DELETE FROM runs WHERE started_at < ?`, unixMilli(cutoff))
+		if err != nil {
+			return 0, fmt.Errorf("prune runs: %w", err)
+		}
+		total, _ = res.RowsAffected()
 	}
-	total, _ := res.RowsAffected()
 
 	if keepMax > 0 {
-		res, err = s.db.ExecContext(ctx, `DELETE FROM runs WHERE id IN (
+		res, err := s.db.ExecContext(ctx, `DELETE FROM runs WHERE id IN (
             SELECT id FROM runs ORDER BY id DESC LIMIT -1 OFFSET ?)`, keepMax)
 		if err != nil {
 			return total, fmt.Errorf("prune runs: %w", err)

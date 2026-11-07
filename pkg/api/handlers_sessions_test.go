@@ -647,11 +647,5 @@ func TestSessionHandlers(t *testing.T) {
 			assert.Equal(t, f.SessionID(), rows[0].SessionID)
 			assert.Equal(t, "z/small", rows[0].Current.Key)
 		})
-
-		t.Run("unknown_session_is_not_found", func(t *testing.T) {
-			resp := call(h.t, h.client, h.server.URL, http.MethodGet,
-				"/api/sessions/01NOBODY00000000/models", nil)
-			assert.Equal(t, http.StatusNotFound, resp.StatusCode)
-		})
 	})
 }

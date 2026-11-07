@@ -29,37 +29,63 @@ func (a settingsStore) SetSetting(ctx context.Context, key, value string) error 
 
 func TestSettingsHandlers(t *testing.T) {
 	t.Run("global_settings_endpoints", func(t *testing.T) {
-		h := newSessionAPI(t)
+		t.Run("default_ships_unset", func(t *testing.T) {
+			h := newSessionAPI(t)
 
-		code, got := get[struct {
-			TitleModel string `json:"titleModel"`
-		}](h, "/api/settings")
-		require.Equal(t, http.StatusOK, code)
-		assert.Empty(t, got.TitleModel) // the default ships unset
+			code, got := get[struct {
+				TitleModel string `json:"titleModel"`
+			}](h, "/api/settings")
+			require.Equal(t, http.StatusOK, code)
+			assert.Empty(t, got.TitleModel)
+		})
 
-		code, got = put[struct {
-			TitleModel string `json:"titleModel"`
-		}](h, "/api/settings", map[string]string{"titleModel": " namer-model "})
-		require.Equal(t, http.StatusOK, code)
-		assert.Equal(t, "namer-model", got.TitleModel)
+		t.Run("put_trims_the_model", func(t *testing.T) {
+			h := newSessionAPI(t)
 
-		// the write-through survives a read and lands in swarm's own database
-		code, got = get[struct {
-			TitleModel string `json:"titleModel"`
-		}](h, "/api/settings")
-		require.Equal(t, http.StatusOK, code)
-		assert.Equal(t, "namer-model", got.TitleModel)
+			code, got := put[struct {
+				TitleModel string `json:"titleModel"`
+			}](h, "/api/settings", map[string]string{"titleModel": " namer-model "})
+			require.Equal(t, http.StatusOK, code)
+			assert.Equal(t, "namer-model", got.TitleModel)
+		})
 
-		// an empty model clears the setting back to the per-session default
-		code, got = put[struct {
-			TitleModel string `json:"titleModel"`
-		}](h, "/api/settings", map[string]string{"titleModel": ""})
-		require.Equal(t, http.StatusOK, code)
-		assert.Empty(t, got.TitleModel)
+		t.Run("write_through_survives_reread", func(t *testing.T) {
+			h := newSessionAPI(t)
+			code, _ := put[struct {
+				TitleModel string `json:"titleModel"`
+			}](h, "/api/settings", map[string]string{"titleModel": " namer-model "})
+			require.Equal(t, http.StatusOK, code)
 
-		// a body without the field is a bad request, not a silent clear
-		code, _ = put[struct{}](h, "/api/settings", map[string]string{})
-		assert.Equal(t, http.StatusBadRequest, code)
+			// the write lands in swarm's own database, not just the reply
+			code, got := get[struct {
+				TitleModel string `json:"titleModel"`
+			}](h, "/api/settings")
+			require.Equal(t, http.StatusOK, code)
+			assert.Equal(t, "namer-model", got.TitleModel)
+		})
+
+		t.Run("empty_model_clears", func(t *testing.T) {
+			h := newSessionAPI(t)
+			code, _ := put[struct {
+				TitleModel string `json:"titleModel"`
+			}](h, "/api/settings", map[string]string{"titleModel": "namer-model"})
+			require.Equal(t, http.StatusOK, code)
+
+			// an empty model clears the setting back to the per-session default
+			code, got := put[struct {
+				TitleModel string `json:"titleModel"`
+			}](h, "/api/settings", map[string]string{"titleModel": ""})
+			require.Equal(t, http.StatusOK, code)
+			assert.Empty(t, got.TitleModel)
+		})
+
+		t.Run("missing_field_bad_request", func(t *testing.T) {
+			h := newSessionAPI(t)
+
+			// a body without the field is a bad request, not a silent clear
+			code, _ := put[struct{}](h, "/api/settings", map[string]string{})
+			assert.Equal(t, http.StatusBadRequest, code)
+		})
 	})
 
 	t.Run("model_options_endpoint", func(t *testing.T) {

@@ -25,16 +25,10 @@ type ModelRow struct {
 
 // ModelRows lists one row per live session with the model its snapshot holds.
 func (m *Manager) ModelRows(ctx context.Context) []ModelRow {
-	m.mu.Lock()
-	actors := bulk.MapValuesSlice(m.actors)
-	m.mu.Unlock()
+	statuses := m.servingStatuses()
 
-	out := make([]ModelRow, 0, len(actors))
-	for _, a := range actors {
-		st := a.status.Load()
-		if !st.serving() {
-			continue
-		}
+	out := make([]ModelRow, 0, len(statuses))
+	for _, st := range statuses {
 		rctx, cancel := context.WithTimeout(ctx, modelRowWait)
 		state, err := m.Snapshot(rctx, st.SessionID)
 		cancel()
@@ -51,16 +45,8 @@ func (m *Manager) ModelRows(ctx context.Context) []ModelRow {
 // key list: the choices a swarm-level picker (the titling model) offers. A
 // session that will not answer just drops out of the union.
 func (m *Manager) ModelOptions(ctx context.Context) []ctl.ModelState {
-	m.mu.Lock()
-	actors := bulk.MapValuesSlice(m.actors)
-	m.mu.Unlock()
-
 	byKey := make(map[string]ctl.ModelState)
-	for _, a := range actors {
-		st := a.status.Load()
-		if !st.serving() {
-			continue
-		}
+	for _, st := range m.servingStatuses() {
 		rctx, cancel := context.WithTimeout(ctx, modelRowWait)
 		listing, err := m.Models(rctx, st.SessionID)
 		cancel()

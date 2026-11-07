@@ -16,6 +16,17 @@ import type { AttentionRow } from '../api/types'
 
 export type AttentionKind = 'needs-input' | 'needs-review' | 'awaiting' | 'working'
 
+// instanceKey names one listing row: twin instances share a session id and
+// are told apart by pid, with 0 standing in for an unknown one.
+export function instanceKey(sessionId: string, pid?: number): string {
+  return `${sessionId}:${pid ?? 0}`
+}
+
+// isActionable marks the attention kinds a check-off can settle.
+export function isActionable(kind: AttentionKind): boolean {
+  return kind === 'needs-input' || kind === 'needs-review'
+}
+
 export interface AttentionItem {
   sessionId: string
   kind: AttentionKind
@@ -288,8 +299,9 @@ export function compareAttention(a: AttentionSort, b: AttentionSort): number {
 // Reloads re-stamp; settled order is cosmetic and never persisted.
 const queueEntries = new Map<string, { kind: AttentionKind; at: number }>()
 
+// queueKey pairs queue entries by instance.
 function queueKey(item: Pick<AttentionItem, 'sessionId' | 'pid'>): string {
-  return `${item.sessionId}:${item.pid}`
+  return instanceKey(item.sessionId, item.pid)
 }
 
 // stampQueueEntries pairs every item with its queue entry time, stamping
@@ -347,6 +359,15 @@ export function acknowledgeItem(item: AttentionItem): void {
   }
   if (item.kind === 'needs-review' && item.turnEnd !== undefined) {
     ackTurn(item.sessionId, item.turnEnd)
+  }
+}
+
+// attendBadgeLabels is the copy every shell's rising-attention count badge
+// shares, so the surfaces never drift apart.
+export function attendBadgeLabels(count: number): { title: string; ariaLabel: string } {
+  return {
+    title: `${count} session(s) need input`,
+    ariaLabel: `${count} sessions need input`,
   }
 }
 

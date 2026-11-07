@@ -123,6 +123,12 @@ routes, wire types) → `state/` → `ui/` → `workspace/` and `jobs/` → `mob
   badges, notifications, and the mobile switcher. Cross-surface agreements are shared,
   never copied: attention ordering, model menus, `phaseText` for transient phases,
   `names.ts` display names, and the tools widen-only derivation.
+- `ui/overlayStack.ts` is the one overlay layer order behind ModalShell, MenuPopover and
+  the mobile sheets and pushed screens: only the topmost layer answers Escape, key
+  bindings that act on page content stand down behind any open layer, and closing
+  returns focus to the opener. `mobile/useOverlayBack.ts` rides that contract on phones,
+  pushing a history entry per overlay so platform back closes the topmost layer instead
+  of leaving the session.
 - The 48rem mobile breakpoint is duplicated in `styles/theme.css` (change both together).
 - Session surfaces key the inner component on `sessionId` so a swap remounts: drafts
   restore from the store while sheets, menus and toasts reset.

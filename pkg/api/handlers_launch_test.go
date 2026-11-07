@@ -195,6 +195,25 @@ func TestLaunchHandlers(t *testing.T) {
 			assert.Equal(t, http.StatusBadRequest, code)
 		})
 
+		t.Run("unrecorded_resume_is_404", func(t *testing.T) {
+			server, client, home := newLaunchAPI(t)
+			fix := writeSavedFixtures(t, home)
+
+			// a target the listing answers gets past the pre-check and fails on
+			// the unwired fleet instead: 500, never the unrecorded 404
+			code, _ := callJSON[struct{}](t, client, server.URL, http.MethodPost, "/api/sessions",
+				fleet.LaunchRequest{Workspace: home, Mode: fleet.LaunchResume, Target: fix.plainID})
+			assert.Equal(t, http.StatusInternalServerError, code)
+
+			code, body := callJSON[struct {
+				Error string `json:"error"`
+			}](t, client, server.URL,
+				http.MethodPost, "/api/sessions",
+				fleet.LaunchRequest{Workspace: home, Mode: fleet.LaunchResume, Target: "01NOPE00000000000000"})
+			require.Equal(t, http.StatusNotFound, code)
+			assert.Equal(t, "session_not_found", body.Error)
+		})
+
 		t.Run("unknown_stop_is_404", func(t *testing.T) {
 			code, _ := callJSON[struct{}](t, client, server.URL,
 				http.MethodPost, "/api/sessions/01NOPE/stop", nil)

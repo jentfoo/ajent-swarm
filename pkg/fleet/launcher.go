@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -16,6 +17,10 @@ import (
 	"github.com/go-analyze/bulk"
 	"github.com/jentfoo/ajent/pkg/ctl"
 )
+
+// resumePathSuffix targets ajent resolves by transcript path inside the
+// workspace, which the cross-workspace listing never carries.
+const resumePathSuffix = ".jsonl"
 
 // Launch and stop tuning. The launch window must cover a resuming child
 // replaying a large transcript before it serves.
@@ -75,6 +80,14 @@ func (m *Manager) Launch(ctx context.Context, req LaunchRequest) (LaunchResult, 
 	norm := req.normalized()
 	if err := norm.validate(); err != nil {
 		return LaunchResult{}, err
+	}
+	// a resume target must name a recorded transcript before anything spawns:
+	// ajent resolves it against the workspace alone, and a sighting of a session
+	// whose recording was dropped on exit would fail the child after the fact.
+	if norm.Mode == LaunchResume && !strings.HasSuffix(norm.Target, resumePathSuffix) {
+		if _, err := m.savedRow(norm.Target); errors.Is(err, ErrUnknownSaved) {
+			return LaunchResult{}, err
+		}
 	}
 	if m.ctx == nil {
 		return LaunchResult{}, errors.New("manager is not started")
@@ -209,10 +222,10 @@ func (m *Manager) awaitSocket(ctx context.Context, cp *childProc) (string, error
 		if err != nil {
 			m.log.Debug("discovery while awaiting child failed", "err", err)
 		} else {
-			for _, in := range live {
-				if in.PID == cp.rec.PID && in.SessionID != "" {
-					return in.SessionID, nil
-				}
+			if i := slices.IndexFunc(live, func(in ctl.Instance) bool {
+				return in.PID == cp.rec.PID && in.SessionID != ""
+			}); i >= 0 {
+				return live[i].SessionID, nil
 			}
 		}
 		select {
@@ -448,7 +461,8 @@ func (m *Manager) adopt(ctx context.Context) {
 func (m *Manager) reconcileAdopted() {
 	m.mu.Lock()
 	candidates := bulk.SliceFilter(func(cp *childProc) bool {
-		return cp.adopted && !reaped(cp) && cp.rec.ExitedAt.IsZero()
+		// adopted cps have no reaper, so only the exited flag ends one
+		return cp.adopted && cp.rec.ExitedAt.IsZero()
 	}, bulk.MapValuesSlice(m.children))
 	m.mu.Unlock()
 
@@ -457,24 +471,24 @@ func (m *Manager) reconcileAdopted() {
 
 	for _, cp := range lost {
 		m.mu.Lock()
-		if cp.rec.ExitedAt.IsZero() { // a concurrent stop may have marked it
-			cp.rec.ExitedAt = time.Now()
-			cp.rec.ExitNote = "gone"
-			if cp.stopping { // the stop path claims the attribution
-				cp.rec.ExitNote = "stopped by swarm"
-			}
-			rec := cp.rec
+		if !cp.rec.ExitedAt.IsZero() { // a concurrent stop may have marked it
 			m.mu.Unlock()
-			m.persistChild(rec)
-			if rec.SessionID != "" {
-				m.publishChildEvent(rec.SessionID, ChildFrame{
-					Type: FrameChild, SessionID: rec.SessionID, State: ChildExited, Detail: rec.ExitNote,
-				})
-			}
-			m.log.Info("adopted child gone", "pid", rec.PID, "session", rec.SessionID)
 			continue
 		}
+		cp.rec.ExitedAt = time.Now()
+		cp.rec.ExitNote = "gone"
+		if cp.stopping { // the stop path claims the attribution
+			cp.rec.ExitNote = "stopped by swarm"
+		}
+		rec := cp.rec
 		m.mu.Unlock()
+		m.persistChild(rec)
+		if rec.SessionID != "" {
+			m.publishChildEvent(rec.SessionID, ChildFrame{
+				Type: FrameChild, SessionID: rec.SessionID, State: ChildExited, Detail: rec.ExitNote,
+			})
+		}
+		m.log.Info("adopted child gone", "pid", rec.PID, "session", rec.SessionID)
 	}
 }
 

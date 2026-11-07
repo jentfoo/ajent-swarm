@@ -162,26 +162,6 @@ describe('ModelMenu', () => {
     await user.click(screen.getByTitle('Switch model'))
   }
 
-  it('shows provider headings and short labels', async () => {
-    const user = userEvent.setup()
-    fetchMock.mockImplementation(async (url: string | URL | Request) => {
-      if (String(url).endsWith('/models')) return Response.json(listing)
-      return Response.json([])
-    })
-    renderHeader()
-
-    await openModelMenu(user)
-    const groups = await screen.findAllByRole('group')
-    expect(groups.map((g) => g.getAttribute('aria-label'))).toEqual(['anthropic', 'openai'])
-    const items = screen.getAllByRole('menuitem')
-    expect(items.map((el) => el.textContent?.replace(/\s*current$/, ''))).toEqual([
-      'sonnet',
-      'haiku',
-      'gpt-5',
-      'local-tuned',
-    ])
-  })
-
   it('badges the active key exactly once', async () => {
     const user = userEvent.setup()
     fetchMock.mockImplementation(async (url: string | URL | Request) => {

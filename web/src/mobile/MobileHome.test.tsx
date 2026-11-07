@@ -58,7 +58,7 @@ describe('MobileHome', () => {
         return Response.json({ username: 'you', via: 'cookie', home: '/home/you' })
       if (path === '/api/sessions') return Response.json(liveRow())
       if (path === '/api/attention') return Response.json([])
-      if (path === '/api/models') return Response.json([])
+      if (path === '/api/models/options') return Response.json([])
       if (path === '/api/saved-sessions') return Response.json([])
       throw new Error(`unexpected fetch ${String(url)}`)
     })
@@ -127,7 +127,7 @@ describe('MobileHome', () => {
         return Response.json({ username: 'you', via: 'cookie', home: '/home/you' })
       if (path === '/api/sessions') return Response.json(liveRow())
       if (path === '/api/attention') return Response.json([])
-      if (path === '/api/models') return Response.json([])
+      if (path === '/api/models/options') return Response.json([])
       if (path === '/api/saved-sessions') {
         return Response.json([{ id: ENDED, target: ENDED, workspace: '/home/you/old' }])
       }
@@ -161,7 +161,7 @@ describe('MobileHome', () => {
       }
       if (path === '/api/sessions') return Response.json(liveRow())
       if (path === '/api/attention') return Response.json([])
-      if (path === '/api/models') return Response.json([])
+      if (path === '/api/models/options') return Response.json([])
       if (path === '/api/saved-sessions') {
         return Response.json([{ id: ENDED, target: ENDED, workspace: '/home/you/old' }])
       }
@@ -207,7 +207,7 @@ describe('MobileHome', () => {
         return Response.json(liveRow())
       }
       if (path === '/api/attention') return Response.json([])
-      if (path === '/api/models') return Response.json([])
+      if (path === '/api/models/options') return Response.json([])
       if (path === '/api/saved-sessions') {
         savedCalls++
         return savedCalls > 1 ? gate.then(() => Response.json([])) : Response.json([])

@@ -24,6 +24,7 @@ import (
 	"github.com/jentfoo/ajent-swarm/pkg/testutil"
 	"github.com/jentfoo/ajent/pkg/client"
 	"github.com/jentfoo/ajent/pkg/ctl"
+	"github.com/jentfoo/ajent/pkg/session"
 )
 
 // fakeChildStore keeps child rows in memory, mirroring the SQLite store's
@@ -212,6 +213,43 @@ func TestLauncher(t *testing.T) {
 		require.NoError(t, rerr)
 		require.Len(t, logs, 1)
 		assert.Empty(t, env.m.Sessions())
+	})
+
+	t.Run("resume_refuses_unrecorded_target", func(t *testing.T) {
+		env := newLaunchEnv(t, false)
+		ws := launchWorkspace(t, env.home)
+
+		res, err := env.m.Launch(t.Context(), LaunchRequest{
+			Workspace: ws, Mode: LaunchResume, Target: "06GMISSING00000000000000",
+		})
+		require.ErrorIs(t, err, ErrUnknownSaved)
+		assert.Empty(t, res.SessionID)
+
+		// refused before any process work: no child log appeared
+		_, serr := os.Stat(filepath.Join(env.home, "children"))
+		assert.True(t, os.IsNotExist(serr))
+	})
+
+	t.Run("resume_recorded_target_serves", func(t *testing.T) {
+		env := newLaunchEnv(t, true)
+		ws := launchWorkspace(t, env.home)
+
+		store, serr := session.NewStore()
+		require.NoError(t, serr)
+		w, werr := store.Create(ws, session.SessionData{Version: session.Version(), Workspace: ws})
+		require.NoError(t, werr)
+		target := w.Head() // the root entry id is what --resume takes back
+		require.NoError(t, w.Close())
+
+		const sid = "01STUBSERVE0000002"
+		t.Setenv("STUB_CHILD_MODE", "serve")
+		setStubRecord(t, env.home, sid)
+
+		res, err := env.m.Launch(t.Context(), LaunchRequest{
+			Workspace: ws, Mode: LaunchResume, Target: target,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, sid, res.SessionID)
 	})
 
 	t.Run("await_deadline_keeps_child_running", func(t *testing.T) {

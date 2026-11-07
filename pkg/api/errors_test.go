@@ -22,14 +22,14 @@ func TestErrors(t *testing.T) {
 			code string
 			want int
 		}{
-			{"bad request", ctl.CodeBadRequest, http.StatusBadRequest},
-			{"not found", ctl.CodeNotFound, http.StatusNotFound},
-			{"unavailable conflicts", ctl.CodeUnavailable, http.StatusConflict},
-			{"settled conflicts", ctl.CodeSettled, http.StatusConflict},
-			{"busy conflicts", ctl.CodeBusy, http.StatusConflict},
-			{"seat held conflicts", ctl.CodeSeatHeld, http.StatusConflict},
-			{"observer conflicts", ctl.CodeObserver, http.StatusConflict},
-			{"unknown code", "no-such-code", http.StatusInternalServerError},
+			{"bad_request", ctl.CodeBadRequest, http.StatusBadRequest},
+			{"not_found", ctl.CodeNotFound, http.StatusNotFound},
+			{"unavailable_conflicts", ctl.CodeUnavailable, http.StatusConflict},
+			{"settled_conflicts", ctl.CodeSettled, http.StatusConflict},
+			{"busy_conflicts", ctl.CodeBusy, http.StatusConflict},
+			{"seat_held_conflicts", ctl.CodeSeatHeld, http.StatusConflict},
+			{"observer_conflicts", ctl.CodeObserver, http.StatusConflict},
+			{"unknown_code", "no-such-code", http.StatusInternalServerError},
 		}
 		for _, tc := range cases {
 			t.Run(tc.name, func(t *testing.T) {

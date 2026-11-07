@@ -130,6 +130,7 @@ describe('useSessionLabel', () => {
     const user = userEvent.setup()
     await user.click(screen.getByRole('button', { name: 'refresh' }))
 
-    expect(view.result.current).toBe('after')
+    // the label lands when the refreshed listing fetch resolves
+    await waitFor(() => expect(view.result.current).toBe('after'))
   })
 })

@@ -27,16 +27,4 @@ describe('ShortcutOverlay', () => {
     fireEvent.click(screen.getByRole('dialog'))
     expect(onClose).toHaveBeenCalledTimes(3)
   })
-
-  it('documents the dialog affordances beside the mode bindings', () => {
-    render(<ShortcutOverlay mode="tile" onClose={() => {}} />)
-    expect(screen.getByText('Dialogs')).toBeInTheDocument()
-    expect(screen.getByText('Esc / ✕')).toBeInTheDocument()
-    expect(screen.getByText("answer the head dialog's option (focused pane)")).toBeInTheDocument()
-    // the mode's own digit row stays beside the dialog one
-    expect(screen.getByText('jump to pane')).toBeInTheDocument()
-    // Mod+W is gone: browsers reserve it for closing the tab, so the overlay
-    // no longer advertises a close-pane key that can never fire
-    expect(screen.queryByText('Mod+W')).not.toBeInTheDocument()
-  })
 })

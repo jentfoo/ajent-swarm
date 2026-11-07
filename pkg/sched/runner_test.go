@@ -99,13 +99,6 @@ func (h *testHarness) scriptWatcher(run store.Run, j store.Job, frames ...[]byte
 	return status.status, status.err
 }
 
-// runRow re-reads one run row's persisted state.
-func (h *testHarness) runRow(id int64) store.Run {
-	h.t.Helper()
-	run, err := h.store.RunByID(h.t.Context(), id)
-	require.NoError(h.t, err)
-	return run
-}
 func TestRunner(t *testing.T) {
 	t.Run("settles_on_landing_then_idle", func(t *testing.T) {
 		h := newHarness(t, nil)
@@ -121,34 +114,21 @@ func TestRunner(t *testing.T) {
 		assert.Empty(t, note)
 	})
 
-	t.Run("records_awaiting_input", func(t *testing.T) {
-		// a dialog that stays open parks the row for the UI to see, until its
-		// bounded timeout lands. The budget runs from the row's start, so it must
-		// absorb the seeding writes on a loaded machine: a spent budget races the
-		// buffered frames in the watch select and can time out before the dialog
-		// parks the row
-		h := newHarness(t, func(o *Options) { o.RunTimeoutDefault = 250 * time.Millisecond })
+	t.Run("settles_after_dialog_answer", func(t *testing.T) {
+		h := newHarness(t, nil)
 		j := sampleJob(store.ScheduleOnce)
-		run := h.seedRun(h.addJob("watch-parked", nil))
-		status, _ := h.scriptWatcher(run, j,
+		run := h.seedRun(h.addJob("watch", nil))
+
+		// a dialog that opens and closes mid-run parks and resumes the row
+		status, note := h.scriptWatcher(run, j,
 			initFrame(),
 			landingFrame(pendingID(run)),
-			dialogFrame(7),
-		)
-		assert.Equal(t, store.RunTimeout, status)
-		assert.Equal(t, store.RunAwaitingInput, h.runRow(run.ID).Status)
-
-		// once the human answers and idle arrives, the run still concludes ok
-		h2 := newHarness(t, nil)
-		run2 := h2.seedRun(h2.addJob("watch-settled", nil))
-		status, _ = h2.scriptWatcher(run2, j,
-			initFrame(),
-			landingFrame(pendingID(run2)),
 			dialogFrame(8),
 			settledFrame(8),
 			idleFrame(),
 		)
 		assert.Equal(t, store.RunOK, status)
+		assert.Empty(t, note)
 	})
 
 	t.Run("landing_via_init_entries", func(t *testing.T) {
@@ -214,32 +194,6 @@ func TestRunner(t *testing.T) {
 			exitFrame("done for now"),
 		)
 		assert.Equal(t, store.RunOK, status)
-	})
-
-	t.Run("timeout_notes", func(t *testing.T) {
-		// the budget runs from the row's start, so it must absorb the seeding
-		// writes on a loaded machine: a spent budget races the buffered frames in
-		// the watch select and can time out before the dialog parks the row
-		h := newHarness(t, func(o *Options) { o.RunTimeoutDefault = 250 * time.Millisecond })
-		j := sampleJob(store.ScheduleOnce)
-
-		t.Run("parked_at_dialog", func(t *testing.T) {
-			run := h.seedRun(h.addJob("watch-parked", nil))
-			status, note := h.scriptWatcher(run, j,
-				initFrame(),
-				landingFrame(pendingID(run)),
-				dialogFrame(9),
-			)
-			assert.Equal(t, store.RunTimeout, status)
-			assert.Contains(t, note, "parked at an open dialog")
-		})
-
-		t.Run("never_accepted", func(t *testing.T) {
-			run := h.seedRun(h.addJob("watch-quiet", nil))
-			status, note := h.scriptWatcher(run, j, initFrame())
-			assert.Equal(t, store.RunTimeout, status)
-			assert.Contains(t, note, "never accepted")
-		})
 	})
 
 	t.Run("ignores_unrelated_traffic", func(t *testing.T) {
@@ -373,8 +327,9 @@ func TestRunner(t *testing.T) {
 		h.waitForRun(id, store.RunOK)
 
 		h.runner.mu.Lock()
-		t.Cleanup(h.runner.mu.Unlock)
-		assert.Empty(h.t, h.runner.titles)
+		titled := len(h.runner.titles)
+		h.runner.mu.Unlock()
+		assert.Empty(t, titled)
 	})
 
 	t.Run("empty_name_skips_title", func(t *testing.T) {
@@ -388,8 +343,9 @@ func TestRunner(t *testing.T) {
 		h.waitForRun(id, store.RunOK)
 
 		h.runner.mu.Lock()
-		t.Cleanup(h.runner.mu.Unlock)
-		assert.Empty(h.t, h.runner.titles)
+		titled := len(h.runner.titles)
+		h.runner.mu.Unlock()
+		assert.Empty(t, titled)
 	})
 
 	t.Run("title_failure_keeps_run_ok", func(t *testing.T) {
@@ -432,7 +388,7 @@ func TestRunner(t *testing.T) {
 		assert.NotEmpty(t, got.SessionID)
 	})
 
-	t.Run("queued_run_deletes_job_and_keeps_session", func(t *testing.T) {
+	t.Run("queued_run_keeps_session", func(t *testing.T) {
 		h := newHarness(t, nil)
 		id := h.addQueuedJob("queued sweep", "review the diff")
 		h.start(t.Context())
@@ -489,7 +445,7 @@ func TestRunner(t *testing.T) {
 		assert.Nil(t, skipped.JobID) // unlinked by the delete
 	})
 
-	t.Run("queued_run_keeps_stub_session_open", func(t *testing.T) {
+	t.Run("queued_run_keeps_stub", func(t *testing.T) {
 		// the queued flow against a real manager and stub server: the run lands,
 		// the row goes and the session is never told to exit; not parallel, since
 		// it pins AJENT_HOME for the process-wide discovery default

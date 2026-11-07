@@ -8,6 +8,7 @@ import { useResume } from '../hooks/useResume'
 import { RenameEditorModal } from '../session/RenameControl'
 import { useSwarm } from '../providers/swarm'
 import { useWorkspace } from '../providers/workspace'
+import { instanceKey, isActionable } from '../workspace/attention'
 import { SettingsScreen } from './SettingsScreen'
 import { useLongPress } from './useLongPress'
 import { groupSwitcherRows } from './switcher'
@@ -46,8 +47,7 @@ export function SwitcherRows({
           </div>
           {group.rows.map((row) => (
             <SwitchRow
-              // pid joins the key: twin instances share a session id
-              key={`${row.sessionId}:${row.pid ?? 0}`}
+              key={instanceKey(row.sessionId, row.pid)}
               row={row}
               onOpen={onOpen}
               onRename={() => setRenaming(row)}
@@ -89,10 +89,7 @@ function SwitchRow({
   const { pressed, ...pressProps } = useLongPress(onRename)
   // the check-off resolves live from the digest so a settled row never offers one
   const item = itemFor(row.sessionId)
-  const canCheckOff =
-    row.checkOff &&
-    item !== undefined &&
-    (item.kind === 'needs-input' || item.kind === 'needs-review')
+  const canCheckOff = row.checkOff && item !== undefined && isActionable(item.kind)
 
   return (
     <div
@@ -105,11 +102,6 @@ function SwitchRow({
       <span className="switch-top">
         <span className="switch-name">{row.label}</span>
         <StatusBadge status={row.status} />
-        {row.needsInput && (
-          <span className="badge danger" aria-label={`${row.sessionId} needs input`}>
-            input
-          </span>
-        )}
         {row.queued > 0 && <span className="badge">{row.queued} queued</span>}
       </span>
       <span className="switch-bottom">
@@ -216,6 +208,8 @@ function RowActions({
 
 function StatusBadge({ status }: { status: SwitcherRow['status'] }): ReactElement {
   switch (status) {
+    case 'input':
+      return <span className="badge danger">needs input</span>
     case 'running':
       return <span className="badge accent">running</span>
     case 'waiting':

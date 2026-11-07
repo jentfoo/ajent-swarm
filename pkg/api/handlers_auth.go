@@ -84,7 +84,8 @@ func (s *apiServer) handleMe(w http.ResponseWriter, r *http.Request) {
 // a failed bootstrap is a failed credential attempt.
 func (s *apiServer) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 	key := remoteKey(r)
-	if !s.allowRemoteBootstrap && !isLoopback(r) {
+	ip := net.ParseIP(key) // loopback peers only unless --allow-remote-bootstrap
+	if !s.allowRemoteBootstrap && (ip == nil || !ip.IsLoopback()) {
 		writeError(w, http.StatusForbidden, "remote_bootstrap_forbidden",
 			"the first password can be set from loopback only; pass --allow-remote-bootstrap for remote setups")
 		return
@@ -142,12 +143,6 @@ func writeRetryAfter(w http.ResponseWriter, wait time.Duration) {
 	w.Header().Set("Retry-After", strconv.Itoa(secs))
 	writeError(w, http.StatusTooManyRequests, "rate_limited",
 		"too many failed attempts; retry later")
-}
-
-// isLoopback reports whether the request arrived from a loopback peer.
-func isLoopback(r *http.Request) bool {
-	ip := net.ParseIP(remoteKey(r))
-	return ip != nil && ip.IsLoopback()
 }
 
 // secureCookie marks a cookie Secure when the request arrived over TLS or

@@ -208,24 +208,9 @@ func pageBranch(branch []session.Entry, before string, limit int) ([]ctl.Entry, 
 		}
 		end = idx
 	}
-	limit = min(max(limit, 1), pageMaxEntries)
-
-	out := make([]ctl.Entry, 0, min(end, limit))
-	used := 0
-	i := end - 1
-	for ; i >= 0; i-- {
-		if len(out) > 0 && (len(out) >= limit || used >= initMaxBytes) {
-			break
-		}
-		out = append(out, wireEntry(branch[i]))
-		used += len(branch[i].Data) + 128
-	}
-	slices.Reverse(out)
-	cursor := ""
-	if i >= 0 && len(out) > 0 {
-		cursor = out[0].ID
-	}
-	return out, cursor
+	return tailEntries(branch, end, min(max(limit, 1), pageMaxEntries),
+		func(e session.Entry) int { return len(e.Data) + 128 },
+		wireEntry)
 }
 
 // unixMilli renders a listing timestamp; zero stays zero.

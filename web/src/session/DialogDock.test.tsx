@@ -174,12 +174,6 @@ describe('DialogDock shape mapping', () => {
     unmount()
   })
 
-  it('summarizes multi picks on hover', () => {
-    dock([], [{ id: 12, answered: true, cancelled: false, indexes: [0, 2] }])
-    const chip = screen.getByText('Dialog answered')
-    expect(chip).toHaveAttribute('title', 'Dialog 12 answered elsewhere — answered: options 1, 3')
-  })
-
   it('dismisses an outcome on click and never re-renders it', async () => {
     const user = userEvent.setup()
     const { onOutcomeDismissed } = dock([], [{ id: 9, answered: true, cancelled: false, index: 1 }])

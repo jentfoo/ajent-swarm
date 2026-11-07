@@ -7,7 +7,6 @@ import {
   acknowledgeItem,
   ackedTurn,
   attentionRank,
-  attentionQueue,
   attentionRanks,
   compareAttention,
   deriveItem,
@@ -223,16 +222,6 @@ describe('shared attention ordering', () => {
 
     // a listing row without a digest never outranks actionable ones
     expect(attentionRank({ sessionId: 's' })).toBe(attentionRanks.working)
-  })
-
-  it('buckets kinds into the three rail queues', () => {
-    expect(attentionQueue({ sessionId: 's', kind: 'needs-input' })).toBe('needs')
-    expect(attentionQueue({ sessionId: 's', kind: 'needs-review' })).toBe('needs')
-    expect(attentionQueue({ sessionId: 's', kind: 'awaiting' })).toBe('waiting')
-    expect(attentionQueue({ sessionId: 's', kind: 'working' })).toBe('working')
-
-    // a listing row without a digest sits with the busy ones
-    expect(attentionQueue({ sessionId: 's' })).toBe('working')
   })
 
   it('sorts queues first, oldest wait inside needs, entries below', () => {

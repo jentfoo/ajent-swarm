@@ -105,7 +105,14 @@ func (s *Scheduler) execute(run store.Run, j store.Job) {
 	// that never applies fails the run like a refused submit, since the job
 	// asked for a shape the session does not have.
 	if j.ToolsCustom {
-		if err := s.applyTools(ctx, run.SessionID, parseToolList(j.Tools)); err != nil {
+		// unknown names are ignored upstream, so a workspace missing a tool
+		// degrades to the rest of the set; resumed or kept-alive sessions past
+		// their first prompt follow the widen-only rule
+		err := s.controlRetry(ctx, "tools", func() error {
+			_, err := s.runner.ToolsSet(ctx, run.SessionID, parseToolList(j.Tools))
+			return err
+		})
+		if err != nil {
 			s.finish(run, j, store.RunFailed, err.Error())
 			return
 		}
@@ -121,7 +128,14 @@ func (s *Scheduler) execute(run store.Run, j store.Job) {
 	go s.pump(res.SessionID, frames, watching)
 	defer close(watching)
 
-	if err = s.submitPrompt(ctx, run); err != nil {
+	// the prompt carries its synthetic pendingId, matching the stream watcher
+	err = s.controlRetry(ctx, "submit", func() error {
+		return s.runner.Submit(ctx, run.SessionID, ctl.SubmitParams{
+			Line:      run.Prompt,
+			PendingID: pendingID(run),
+		})
+	})
+	if err != nil {
 		s.finish(run, j, store.RunFailed, err.Error())
 		return
 	}
@@ -176,9 +190,9 @@ func (s *Scheduler) pump(sessionID string, out chan<- []byte, done <-chan struct
 }
 
 // controlRetry drives one launch-time control call through the bounded retry
-// window submitPrompt and applyTools share: a still-starting session refuses
-// briefly, so retriable refusals wait theirs out while real rejections fail at
-// once. A refusal after the window lands in history instead of hanging.
+// window: a still-starting session refuses briefly, so retriable refusals wait
+// theirs out while real rejections fail at once. A refusal after the window
+// lands in history instead of hanging.
 func (s *Scheduler) controlRetry(ctx context.Context, verb string, call func() error) error {
 	deadline := time.Now().Add(submitWait)
 	var last error
@@ -205,27 +219,6 @@ func (s *Scheduler) controlRetry(ctx context.Context, verb string, call func() e
 			return fmt.Errorf("%s refused: %s", verb, err.Error())
 		}
 	}
-}
-
-// submitPrompt delivers the run's prompt with its synthetic pendingId.
-func (s *Scheduler) submitPrompt(ctx context.Context, run store.Run) error {
-	return s.controlRetry(ctx, "submit", func() error {
-		return s.runner.Submit(ctx, run.SessionID, ctl.SubmitParams{
-			Line:      run.Prompt,
-			PendingID: pendingID(run),
-		})
-	})
-}
-
-// applyTools reshapes one launched session's enabled tool set. Unknown names
-// are ignored upstream, so a workspace missing a tool degrades to the rest of
-// the set; resumed or kept-alive sessions past their first prompt follow the
-// widen-only rule.
-func (s *Scheduler) applyTools(ctx context.Context, sessionID string, names []string) error {
-	return s.controlRetry(ctx, "tools", func() error {
-		_, err := s.runner.ToolsSet(ctx, sessionID, names)
-		return err
-	})
 }
 
 // titleFromJob labels a freshly launched session with the job's name, so its

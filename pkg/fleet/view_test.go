@@ -34,9 +34,9 @@ func TestView(t *testing.T) {
 			seq  uint64
 			want bool // whether the event applies
 		}{
-			{"below watermark", 9, false},
-			{"at watermark", 10, false},
-			{"above watermark", 11, true},
+			{"below_watermark", 9, false},
+			{"at_watermark", 10, false},
+			{"above_watermark", 11, true},
 		}
 		for _, tc := range cases {
 			t.Run(tc.name, func(t *testing.T) {

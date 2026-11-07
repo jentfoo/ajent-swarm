@@ -5,7 +5,7 @@ import { MarkdownBlock } from './MarkdownBlock'
 import { ToolCallCard } from './ToolCallCard'
 import type { DerivedBlock, ImageView } from '../state/derive'
 
-// EntryBlocks renders one committed entry's derived block. Memoized on the
+// EntryBlock renders one committed entry's derived block. Memoized on the
 // block object itself: derivation rebuilds only when the chain changes, so a
 // streaming turn never re-renders settled history.
 export const EntryBlock = React.memo(EntryBlockImpl)

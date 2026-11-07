@@ -1,7 +1,6 @@
 package api
 
 import (
-	"cmp"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -68,7 +67,7 @@ type resolveReply struct {
 // codes, anything else answers a bare 500.
 func writeCommandFailure(w http.ResponseWriter, err error) {
 	if errors.Is(err, fleet.ErrUnknownSession) {
-		writeError(w, http.StatusNotFound, "session_not_found", "")
+		writeError(w, http.StatusNotFound, codeSessionNotFound, "")
 		return
 	}
 	var ce *ctl.Error
@@ -77,13 +76,6 @@ func writeCommandFailure(w http.ResponseWriter, err error) {
 		return
 	}
 	writeError(w, http.StatusInternalServerError, codeInternalError, "")
-}
-
-// newPendingID mints the correlation a submit echoes back to its caller.
-func newPendingID() string {
-	var b [8]byte
-	rand.Read(b[:]) // crypto/rand never fails; nothing sensible to answer anyway
-	return hex.EncodeToString(b[:])
 }
 
 // handleSessionSubmit routes one prompt line exactly as typed in the session's
@@ -101,7 +93,12 @@ func (s *apiServer) handleSessionSubmit(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, codeInvalidRequest, "pendingId is too long")
 		return
 	}
-	pendingID := cmp.Or(req.PendingID, newPendingID())
+	pendingID := req.PendingID
+	if pendingID == "" {
+		var b [8]byte
+		rand.Read(b[:]) // crypto/rand never fails; nothing sensible to answer anyway
+		pendingID = hex.EncodeToString(b[:])
+	}
 	err := s.fleet.Submit(r.Context(), r.PathValue("id"), ctl.SubmitParams{Line: req.Line, PendingID: pendingID})
 	if err != nil {
 		writeCommandFailure(w, err)
@@ -178,10 +175,11 @@ func (s *apiServer) handleSessionResolve(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	err := s.fleet.Resolve(r.Context(), r.PathValue("id"), params)
+	var ce *ctl.Error
 	switch {
 	case err == nil:
 		writeJSON(w, http.StatusOK, resolveReply{Settled: false})
-	case settledDialog(err):
+	case errors.As(err, &ce) && ce.Code == ctl.CodeSettled: // already answered
 		writeJSON(w, http.StatusOK, resolveReply{Settled: true})
 	default:
 		writeCommandFailure(w, err)
@@ -212,12 +210,6 @@ func (req resolveRequest) params() (ctl.ResolveParams, bool) {
 		return ctl.ResolveParams{}, false
 	}
 	return p, true
-}
-
-// settledDialog reports whether the refusal says the dialog already resolved.
-func settledDialog(err error) bool {
-	var ce *ctl.Error
-	return errors.As(err, &ce) && ce.Code == ctl.CodeSettled
 }
 
 // handleSessionRecall pops the newest queued prompt by row id for

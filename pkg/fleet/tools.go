@@ -15,16 +15,8 @@ import (
 // here only means no live session reported it. A session that will not answer
 // just drops out of the union.
 func (m *Manager) ToolOptions(ctx context.Context) []ctl.ToolState {
-	m.mu.Lock()
-	actors := bulk.MapValuesSlice(m.actors)
-	m.mu.Unlock()
-
 	byName := make(map[string]ctl.ToolState)
-	for _, a := range actors {
-		st := a.status.Load()
-		if !st.serving() {
-			continue
-		}
+	for _, st := range m.servingStatuses() {
 		rctx, cancel := context.WithTimeout(ctx, modelRowWait)
 		state, err := m.Snapshot(rctx, st.SessionID)
 		cancel()

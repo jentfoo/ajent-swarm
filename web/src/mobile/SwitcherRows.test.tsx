@@ -25,7 +25,6 @@ function row(overrides: Partial<SwitcherRow> = {}): SwitcherRow {
     label: 'project',
     status: 'idle',
     section: 'working',
-    needsInput: false,
     reason: '',
     queued: 0,
     checkOff: false,
@@ -220,8 +219,8 @@ describe('SwitcherRows', () => {
     renderRows([
       row({
         sessionId: '01A',
+        status: 'input',
         section: 'needs',
-        needsInput: true,
         reason: 'Allow write access?',
         checkOff: true,
       }),
@@ -229,9 +228,10 @@ describe('SwitcherRows', () => {
     ])
 
     // the badge and the check-off both ride the digest; only the dialog row
-    await screen.findByText('input')
+    await screen.findByText('needs input')
     const user = userEvent.setup()
-    await user.click(screen.getByRole('button', { name: /reviewed/ }))
+    // the check-off button lands a fetch tick after the badge, so wait for it
+    await user.click(await screen.findByRole('button', { name: /reviewed/ }))
 
     // the check-off landed in the persisted ledger, so the row stays settled
     await vi.waitFor(() => {
@@ -272,7 +272,7 @@ describe('SwitcherRows', () => {
       row({
         sessionId: '01B',
         label: 'other',
-        needsInput: true,
+        status: 'input',
         reason: 'Allow write access?',
         checkOff: true,
         section: 'needs',

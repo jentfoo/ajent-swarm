@@ -51,8 +51,9 @@ function stamp(): number | undefined {
   return typeof value === 'number' ? value : undefined
 }
 
-// settle delivers the popstate a mocked history.back would have produced, so
-// the module's pending counter ends the test at zero
+// settle delivers the popstate a mocked history.back would have fired. The
+// mocked traversal leaves history in place, so a settle can read as a foreign
+// back that closes the top layer — a no-op once no layers remain
 function settle(): void {
   window.dispatchEvent(new PopStateEvent('popstate'))
 }
@@ -90,7 +91,7 @@ describe('useOverlayBack', () => {
     expect(closeA).not.toHaveBeenCalled()
 
     // the state change the close drives unmounts the layer and consumes it;
-    // each settle drains one consume, so none bleeds into the next test
+    // each settle delivers the pop the mocked traversal skipped
     rerender(<Harness a onCloseA={closeA} />)
     expect(back).toHaveBeenCalledTimes(1)
     settle()
@@ -136,6 +137,22 @@ describe('useOverlayBack', () => {
     settle()
   })
 
+  it('a cancelled consume never swallows the next back', () => {
+    const closeA = vi.fn()
+    const back = vi.spyOn(window.history, 'back').mockImplementation(() => {})
+    const view = render(<Harness a onCloseA={closeA} />)
+
+    // the close queues a consume traversal; a later push cancels it in jsdom
+    // and in browsers, so its landing popstate never arrives and its land
+    // expectation must stay behind unused
+    view.rerender(<Harness />)
+    expect(back).toHaveBeenCalledTimes(1)
+    view.rerender(<Harness a onCloseA={closeA} />)
+
+    window.dispatchEvent(new PopStateEvent('popstate'))
+    expect(closeA).toHaveBeenCalledTimes(1)
+  })
+
   it('leaves history alone once the router pushed past the entry', () => {
     const back = vi.spyOn(window.history, 'back').mockImplementation(() => {})
     const { rerender } = render(<Harness a />)
@@ -164,7 +181,8 @@ describe('useOverlayBack', () => {
     // still steps back over the leftover rather than wedging above it
     await vi.waitFor(() => expect(back).toHaveBeenCalledTimes(2))
     // jsdom cancels the first queued traversal when the remount pushes its
-    // entry, so the popstate it would have fired is drained by hand
+    // entry, so the popstates it would have fired are settled by hand and the
+    // unused land expectation just stays behind
     settle()
     settle()
   })

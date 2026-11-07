@@ -212,18 +212,6 @@ func (s *Scheduler) fireDue(j store.Job, now time.Time) bool {
 		return false
 	}
 
-	// decide what happens to this slot before claiming it: the claim itself
-	// advances next_run_at optimistically, so restarts never double-fire
-	var newNext *time.Time // nil clears the schedule (a fired one-shot)
-	if j.ScheduleKind != store.ScheduleOnce {
-		next, err := InitialNext(j, now)
-		if err != nil {
-			s.log.Error("job schedule is broken", "job", j.Name, "err", err)
-			return false
-		}
-		newNext = next
-	}
-
 	run := s.baseRun(j, store.TriggerSchedule, now)
 	late := !j.RunWhenIdle && // an idle wait delays by design, never late
 		now.Sub(slot) > s.opts.MissedGrace
@@ -237,12 +225,7 @@ func (s *Scheduler) fireDue(j store.Job, now time.Time) bool {
 		}
 	}
 
-	id, final, claimed, err := s.store.StartScheduledFire(s.ctx, j.ID, slot, newNext,
-		j.Overlap == store.OverlapSkipIfRunning, s.opts.MaxConcurrent, run)
-	if err != nil {
-		s.log.Warn("claiming a fire failed", "job", j.Name, "err", err)
-		return false
-	}
+	id, final, claimed := s.claimFire(j, slot, now, run)
 	if !claimed { // advanced or deleted elsewhere; nothing to do
 		return false
 	}
@@ -268,28 +251,37 @@ func (s *Scheduler) fireDue(j store.Job, now time.Time) bool {
 // advancing the schedule like any other claim so restarts never re-decide it.
 func (s *Scheduler) skipDue(j store.Job, slot time.Time, reason string) {
 	now := time.Now()
-	var newNext *time.Time
-	if j.ScheduleKind != store.ScheduleOnce {
-		next, err := InitialNext(j, now)
-		if err != nil {
-			s.log.Error("job schedule is broken", "job", j.Name, "err", err)
-			return
-		}
-		newNext = next
-	}
 	run := s.baseRun(j, store.TriggerSchedule, now)
 	run.Status = store.RunSkipped
 	run.Error = reason
-	id, final, claimed, err := s.store.StartScheduledFire(s.ctx, j.ID, slot, newNext,
-		j.Overlap == store.OverlapSkipIfRunning, s.opts.MaxConcurrent, run)
-	if err != nil {
-		s.log.Warn("claiming a skip failed", "job", j.Name, "err", err)
-		return
-	}
+	id, final, claimed := s.claimFire(j, slot, now, run)
 	if claimed && final == store.RunSkipped {
 		s.log.Info("run skipped", "job", j.Name, "reason", reason,
 			"run", id)
 	}
+}
+
+// claimFire advances the slot and records one scheduled run, claiming it so
+// restarts never double-fire. It reports the claimed run's id and final
+// status; claimed is false when the schedule is broken or another pass
+// advanced or deleted the slot first.
+func (s *Scheduler) claimFire(j store.Job, slot, now time.Time, run store.Run) (int64, string, bool) {
+	var newNext *time.Time // nil clears the schedule (a fired one-shot)
+	if j.ScheduleKind != store.ScheduleOnce {
+		next, err := InitialNext(j, now)
+		if err != nil {
+			s.log.Error("job schedule is broken", "job", j.Name, "err", err)
+			return 0, "", false
+		}
+		newNext = next
+	}
+	id, final, claimed, err := s.store.StartScheduledFire(s.ctx, j.ID, slot, newNext,
+		j.Overlap == store.OverlapSkipIfRunning, s.opts.MaxConcurrent, run)
+	if err != nil {
+		s.log.Warn("claiming a fire failed", "job", j.Name, "err", err)
+		return 0, "", false
+	}
+	return id, final, claimed
 }
 
 // formatDelay renders a wait for skip reasons: 90s, 45m, 2h.

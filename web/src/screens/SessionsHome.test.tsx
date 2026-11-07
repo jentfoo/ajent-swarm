@@ -55,7 +55,11 @@ describe('SessionsHome', () => {
       if (base === '/api/sessions/01A/stop') {
         return Promise.resolve(new Response(null, { status: 204 }))
       }
-      if (base === '/api/attention' || base === '/api/models' || base === '/api/tools/options') {
+      if (
+        base === '/api/attention' ||
+        base === '/api/models/options' ||
+        base === '/api/tools/options'
+      ) {
         return Promise.resolve(Response.json([]))
       }
       throw new Error(`unexpected fetch ${init?.method ?? 'GET'} ${base}`)

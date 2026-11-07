@@ -112,7 +112,8 @@ func TestSessionAttachments(t *testing.T) {
 
 		resp, body := postAttachment(t, client, server.URL, "01ABC", "../../etc/passwd", []byte("x"))
 		require.Equal(t, http.StatusCreated, resp.StatusCode)
-		path := body["path"].(string)
+		path, ok := body["path"].(string)
+		require.True(t, ok)
 		assert.Empty(t, filepath.Ext(path))
 		assert.NotContains(t, path, "..")
 

@@ -259,7 +259,7 @@ describe('MobileSessionScreen', () => {
     // sub-agent chips
     expect(screen.getByText('2 queued')).toBeInTheDocument()
     expect(screen.getByText('ctx 40k')).toBeInTheDocument()
-    expect(screen.getByText(/1 agent/)).toBeInTheDocument()
+    expect(screen.getByText('agents 1 active')).toBeInTheDocument()
   })
 
   it('keeps the status bar visible on an idle session', async () => {

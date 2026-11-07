@@ -9,6 +9,8 @@ import {
   attentionQueue,
   attentionSectionTitles,
   compareAttention,
+  instanceKey,
+  isActionable,
   type AttentionItem,
   type AttentionQueue,
   type AttentionSort,
@@ -22,7 +24,7 @@ const minEndedRows = 4
 // mirrors pkg/fleet's listing cap, so both surfaces agree by construction.
 const endedWindowMs = 2 * 60 * 60 * 1000
 
-type SwitcherStatus = 'running' | 'waiting' | 'idle' | 'ended'
+type SwitcherStatus = 'input' | 'running' | 'waiting' | 'idle' | 'ended'
 
 // SwitcherSection mirrors the desktop rail's three queues: states wanting a
 // human answer render under Needs input, idle agents under Waiting, busy and
@@ -35,7 +37,6 @@ export interface SwitcherRow {
   label: string // rendered through the shared display-name helper upstream
   status: SwitcherStatus
   section: SwitcherSection // rail queue, fixed at build time
-  needsInput: boolean // open dialogs; badged, counts toward the attention count
   reason: string // one-line digest reason when attention knows this session
   queued: number // prompts waiting in the session's queue; badged on launcher rows
   checkOff: boolean // a row that may be acknowledged; waiting rows refuse
@@ -79,7 +80,6 @@ export function buildSwitcherRows(
         label: labelFor(s),
         status: 'ended',
         section: 'ended',
-        needsInput: false,
         reason: s.detail ?? '',
         queued: 0, // waiting work cannot outlive the run
         checkOff: false,
@@ -105,12 +105,10 @@ export function buildSwitcherRows(
         // the row's rail queue: digest-less rows share Working, exactly as
         // attentionRank places them
         section: attentionQueue(entry),
-        needsInput: item?.kind === 'needs-input',
         reason: item?.reason ?? '',
         queued: s.queued,
         workspace: s.workspace,
-        checkOff:
-          item !== undefined && (item.kind === 'needs-input' || item.kind === 'needs-review'),
+        checkOff: item !== undefined && isActionable(item.kind),
       },
     })
   }
@@ -118,12 +116,6 @@ export function buildSwitcherRows(
   alive.sort(compareAttention)
   exited.sort((a, b) => (b.exitedAt ?? 0) - (a.exitedAt ?? 0))
   return [...alive.map((a) => a.row), ...capEnded(exited)]
-}
-
-// instanceKey names one listing row: twin instances share a session id and
-// are told apart by pid, with 0 standing in for an unknown one.
-function instanceKey(sessionId: string, pid?: number): string {
-  return `${sessionId}:${pid ?? 0}`
 }
 
 // capEnded keeps the pinned minimum plus every exit inside the recent window;
@@ -176,7 +168,11 @@ interface AliveRow extends AttentionSort {
   row: SwitcherRow
 }
 
+// statusOf reads one row's badge state from the listing plus the digest. A
+// pending dialog parks the turn upstream, so needs-input outranks running:
+// the run is blocked on this human, not making progress.
 function statusOf(s: SessionStatus, item: AttentionItem | undefined): SwitcherStatus {
+  if (item?.kind === 'needs-input') return 'input'
   const busy = s.running || (item?.running ?? false)
   if (busy) return 'running'
   if (item?.kind === 'awaiting') return 'waiting'

@@ -7,7 +7,7 @@ import (
 	"github.com/jentfoo/ajent/pkg/ctl"
 )
 
-// defaultPageLimit matches the fleet package's init tail sizing.
+// defaultPageLimit matches the web client's page size.
 const defaultPageLimit = 200
 
 // handleSessionList serves the fleet listing: one row per tracked instance.

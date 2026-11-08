@@ -6,6 +6,7 @@ import { jobsApi, runsApi, tools as toolsApi } from '../api/endpoints'
 import type { Job, Run, ToolState } from '../api/types'
 import { useLaunchFacts } from '../hooks/useLaunchFacts'
 import { usePoll } from '../hooks/usePoll'
+import { mobileLayout, useMediaQuery } from '../hooks/useMediaQuery'
 import { useAuth } from '../providers/auth'
 import { tildePath } from '../session/names'
 import { JobEditor } from '../jobs/JobEditor'
@@ -20,13 +21,17 @@ const pollJobsMs = 10_000
 const lastRunPage = 200
 
 // JobsHome lists scheduled jobs over /api/jobs: plain-language schedules,
-// next fire times, an optimistic enabled toggle and manual fires. The editor
-// rides the same route tree (/jobs/new, /jobs/:id) as a modal on desktop and
-// a full-screen form under the mobile breakpoint.
+// next fire times, an optimistic enabled toggle and manual fires. Each row's
+// display data derives once and renders twice: the desktop table above the
+// shared 48rem breakpoint (hooks/useMediaQuery.mobileLayout), stacked cards
+// below it. The editor rides the same route tree (/jobs/new, /jobs/:id) as a
+// modal on desktop and a full-screen form under the mobile breakpoint.
 export default function JobsHome() {
   const { jobId } = useParams()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
+  const mobile = useMediaQuery(mobileLayout)
+  const { home } = useAuth()
 
   const [jobs, setJobs] = useState<Job[] | null>(null)
   const [lastRuns, setLastRuns] = useState<Map<number, Run>>(new Map())
@@ -71,6 +76,14 @@ export default function JobsHome() {
   // Rows render soonest next fire first, display only: jobs keeps its stored
   // order for the toggle holds and editor lookups above.
   const sortedJobs = useMemo(() => (jobs ? sortJobsForDisplay(jobs) : []), [jobs])
+
+  // One derivation feeds both presentations, so a phone card can never show a
+  // fact the table row would have rendered differently. The breakpoint swap is
+  // presentational only: state, polling and actions live in JobsHome itself.
+  const rows = useMemo(
+    () => sortedJobs.map((job) => ({ job, facts: jobRowFacts(job, home, lastRuns.get(job.id)) })),
+    [sortedJobs, home, lastRuns],
+  )
 
   const load = useCallback(async () => {
     const token = ++loadToken.current
@@ -195,9 +208,20 @@ export default function JobsHome() {
           No scheduled jobs yet. Create one to launch ajent on a schedule, or queue a single prompt
           for the next idle moment.
         </p>
-      ) : (
-        jobs !== null &&
-        jobs.length > 0 && (
+      ) : jobs !== null && jobs.length > 0 ? (
+        mobile ? (
+          <div className="job-cards" role="list">
+            {rows.map(({ job, facts }) => (
+              <JobCard
+                key={job.id}
+                job={job}
+                facts={facts}
+                onToggle={() => void toggle(job)}
+                onFire={() => void fire(job)}
+              />
+            ))}
+          </div>
+        ) : (
           <table className="jobs-table">
             <thead>
               <tr>
@@ -209,11 +233,11 @@ export default function JobsHome() {
               </tr>
             </thead>
             <tbody>
-              {sortedJobs.map((job) => (
-                <JobRow
+              {rows.map(({ job, facts }) => (
+                <JobTableRow
                   key={job.id}
                   job={job}
-                  lastRun={lastRuns.get(job.id)}
+                  facts={facts}
                   onToggle={() => void toggle(job)}
                   onFire={() => void fire(job)}
                 />
@@ -221,7 +245,7 @@ export default function JobsHome() {
             </tbody>
           </table>
         )
-      )}
+      ) : null}
 
       {typeof editingId === 'number' && Number.isNaN(editingId) ? (
         <p className="error-text">That job id is not a number.</p>
@@ -327,63 +351,104 @@ function QueueWithFacts({
   )
 }
 
-function JobRow({
-  job,
-  lastRun,
-  onToggle,
-  onFire,
-}: {
+// Excerpt pairs a row's clipped text with what the clip hides, so every
+// presentation carries the same tooltip.
+type Excerpt = {
+  text: string
+  title: string
+}
+
+// JobRowFacts is one job's display data shared by the desktop table row and
+// the phone card, derived once per load so the two layouts cannot drift.
+type JobRowFacts = {
+  path: string
+  prompt?: Excerpt
+  queued: boolean
+  scheduleText: string
+  nextRunText: string
+  lastStatus?: { label: string; className: string }
+  errorExcerpt?: Excerpt
+}
+
+// jobRowFacts reduces a job and its newest run to the strings both layouts
+// render: tilde workspace, prompt excerpt, cadence or queued badge, next slot
+// and last outcome. A disabled or unscheduled row shows an em dash slot.
+function jobRowFacts(job: Job, home: string | undefined, lastRun?: Run): JobRowFacts {
+  return {
+    path: tildePath(job.workspace, home),
+    prompt: job.prompt ? { text: job.prompt.slice(0, 80), title: job.prompt } : undefined,
+    queued: Boolean(job.queued),
+    scheduleText: scheduleSummary(job),
+    nextRunText: job.queued
+      ? job.nextRunAt
+        ? 'when idle'
+        : '—'
+      : job.enabled && job.nextRunAt
+        ? formatSlot(job.nextRunAt, job.tz)
+        : '—',
+    lastStatus:
+      lastRun === undefined
+        ? undefined
+        : { label: lastRun.status, className: runStatusClass(lastRun.status) },
+    errorExcerpt: lastRun?.error ? { text: lastRun.error, title: lastRun.error } : undefined,
+  }
+}
+
+type JobRowProps = {
   job: Job
-  lastRun?: Run
+  facts: JobRowFacts
   onToggle: () => void
   onFire: () => void
-}) {
-  const auth = useAuth()
+}
+
+// JobExcerpt renders one clipped row line with the full text as its tooltip.
+function JobExcerpt({ className, excerpt }: { className: string; excerpt: Excerpt }) {
+  return (
+    <div className={`muted small-note ${className}`} title={excerpt.title}>
+      {excerpt.text}
+    </div>
+  )
+}
+
+// JobToggle is the optimistic enabled switch; JobsHome reverts on refusal.
+function JobToggle({ job, onToggle }: { job: Job; onToggle: () => void }) {
+  return (
+    <label className="toggle-row">
+      <input
+        type="checkbox"
+        checked={job.enabled}
+        onChange={onToggle}
+        aria-label={`${job.enabled ? 'Disable' : 'Enable'} ${job.name}`}
+      />
+      enabled
+    </label>
+  )
+}
+
+function JobTableRow({ job, facts, onToggle, onFire }: JobRowProps) {
   return (
     <tr data-testid={`job-${job.id}`}>
       <td>
         <Link to={`/jobs/${job.id}`}>{job.name}</Link>
-        <div className="muted small-note">{tildePath(job.workspace, auth.home)}</div>
-        {job.prompt && (
-          <div className="muted small-note run-prompt-cell" title={job.prompt}>
-            {job.prompt.slice(0, 80)}
-          </div>
-        )}
+        <div className="muted small-note">{facts.path}</div>
+        {facts.prompt && <JobExcerpt className="run-prompt-cell" excerpt={facts.prompt} />}
       </td>
-      <td>{job.queued ? <span className="badge accent">queued</span> : scheduleSummary(job)}</td>
+      <td>{facts.queued ? <span className="badge accent">queued</span> : facts.scheduleText}</td>
+      <td>{facts.nextRunText}</td>
       <td>
-        {job.queued
-          ? job.nextRunAt
-            ? 'when idle'
-            : '—'
-          : job.enabled && job.nextRunAt
-            ? formatSlot(job.nextRunAt, job.tz)
-            : '—'}
-      </td>
-      <td>
-        {lastRun === undefined ? (
+        {facts.lastStatus === undefined ? (
           '—'
         ) : (
           <>
-            <span className={runStatusClass(lastRun.status)}>{lastRun.status}</span>
-            {lastRun.error && (
-              <div className="muted small-note run-error-excerpt" title={lastRun.error}>
-                {lastRun.error}
-              </div>
+            <span className={facts.lastStatus.className}>{facts.lastStatus.label}</span>
+            {facts.errorExcerpt && (
+              <JobExcerpt className="run-error-excerpt" excerpt={facts.errorExcerpt} />
             )}
           </>
         )}
       </td>
       <td>
-        <label className="toggle-row">
-          <input
-            type="checkbox"
-            checked={job.enabled}
-            onChange={onToggle} // optimistic; JobsHome reverts on refusal
-            aria-label={`${job.enabled ? 'Disable' : 'Enable'} ${job.name}`}
-          />
-          enabled
-        </label>
+        <JobToggle job={job} onToggle={onToggle} />
         <div className="job-row-actions">
           <Link to={`/jobs/new?from=${job.id}`}>
             <button type="button" aria-label={`Copy ${job.name}`}>
@@ -396,5 +461,50 @@ function JobRow({
         </div>
       </td>
     </tr>
+  )
+}
+
+// JobCard is the phone presentation: one stacked card per job wearing the
+// switcher rows' touch language — last-run status beside the label, 44px
+// action floors — with labeled lines standing in for the table headers.
+function JobCard({ job, facts, onToggle, onFire }: JobRowProps) {
+  return (
+    <div className="job-card" role="listitem" data-testid={`job-${job.id}`}>
+      <span className="switch-top">
+        <span className="switch-name">{job.name}</span>
+        {facts.lastStatus && (
+          <span className={facts.lastStatus.className}>{facts.lastStatus.label}</span>
+        )}
+      </span>
+      <div className="muted small-note">{facts.path}</div>
+      {facts.prompt && <JobExcerpt className="run-prompt-cell" excerpt={facts.prompt} />}
+      {/* the schedule cell's badge-or-summary beside the next-run slot, with a
+          label since phones have no column headers to read them from */}
+      <div className="job-card-when">
+        {facts.queued ? <span className="badge accent">queued</span> : facts.scheduleText}
+        <span className="muted">Next run: {facts.nextRunText}</span>
+      </div>
+      {facts.errorExcerpt && (
+        <JobExcerpt className="run-error-excerpt" excerpt={facts.errorExcerpt} />
+      )}
+      {/* switch-actions carries the 44px floors and wrap; the toggle joins it
+          so every card control sits in one touch-sized action row */}
+      <div className="switch-actions">
+        <JobToggle job={job} onToggle={onToggle} />
+        <Link to={`/jobs/new?from=${job.id}`}>
+          <button type="button" aria-label={`Copy ${job.name}`}>
+            Copy
+          </button>
+        </Link>
+        <button type="button" aria-label={`Run ${job.name} now`} onClick={onFire}>
+          Run
+        </button>
+        <Link to={`/jobs/${job.id}`}>
+          <button type="button" aria-label={`Edit ${job.name}`}>
+            Edit
+          </button>
+        </Link>
+      </div>
+    </div>
   )
 }

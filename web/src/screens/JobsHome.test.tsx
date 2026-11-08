@@ -8,6 +8,7 @@ import JobsHome from './JobsHome'
 import { AuthProvider } from '../providers/auth'
 import { SwarmProvider } from '../providers/swarm'
 import { MockWebSocket } from '../test/mockWebSocket'
+import { mobileLayout } from '../hooks/useMediaQuery'
 import type { Job, Run } from '../api/types'
 
 // The jobs list renders over the real provider stack with fetch and WebSocket
@@ -190,6 +191,19 @@ describe('JobsHome', () => {
     )
   }
 
+  // stubPhoneLayout reports only the shared 48rem breakpoint as matching, so
+  // JobsHome mounts its card presentation; everything else stays desktop.
+  function stubPhoneLayout(): void {
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query === mobileLayout,
+      media: query,
+      onchange: null,
+      addEventListener() {},
+      removeEventListener() {},
+      dispatchEvent: () => false,
+    }))
+  }
+
   // NavButton drives MemoryRouter between routes directly, standing in for the
   // URL edits and back-forward navigation that reuse one JobsHome instance.
   function NavButton({ to, children }: { to: string; children: string }): ReactElement {
@@ -209,6 +223,53 @@ describe('JobsHome', () => {
     expect(row.textContent).toContain('every 30 minutes')
     expect(row.textContent).toContain('failed') // the latest run's status
     expect(screen.queryByText(/No scheduled jobs yet/)).not.toBeInTheDocument()
+  })
+
+  it('keeps the desktop table above the phone breakpoint', async () => {
+    renderJobs()
+
+    expect(await screen.findByTestId('job-5')).toHaveProperty('tagName', 'TR')
+    expect(document.querySelector('.jobs-table')).not.toBeNull()
+    expect(document.querySelector('.job-card')).toBeNull()
+  })
+
+  it('renders each job as one card with every action on phones', async () => {
+    stubPhoneLayout()
+    jobsReply = { rows: [job, queuedJob] }
+    renderJobs()
+
+    const card = await screen.findByTestId('job-5')
+    expect(card).toHaveClass('job-card')
+    expect(card.textContent).toContain('every 30 minutes') // schedule summary
+    expect(screen.getByText('failed')).toBeInTheDocument() // status beside the label
+    expect(document.querySelector('.jobs-table')).toBeNull()
+
+    // the excerpts keep their tooltips, like the table cells they stand in for
+    expect(card.querySelector('.run-prompt-cell')).toHaveAttribute('title', 'sweep the logs')
+    expect(card.querySelector('.run-error-excerpt')).toHaveAttribute(
+      'title',
+      'submit refused: dialog holds input',
+    )
+
+    // every action is reachable from the card, including an explicit Edit that
+    // replaces tapping the row's name link
+    expect(screen.getByRole('checkbox', { name: 'Disable nightly sweep' })).toBeChecked()
+    expect(screen.getByRole('button', { name: 'Copy nightly sweep' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Run nightly sweep now' })).toBeInTheDocument()
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Edit nightly sweep' }))
+    expect(await screen.findByText('Edit “nightly sweep”')).toBeInTheDocument()
+  })
+
+  it('badges queued jobs on phone cards with their idle wait', async () => {
+    stubPhoneLayout()
+    jobsReply = { rows: [job, queuedJob] }
+    renderJobs()
+
+    const card = await screen.findByTestId('job-7')
+    expect(card.textContent).toContain('queued')
+    expect(card.textContent).toContain('when idle')
+    expect(card.textContent).not.toContain('once at') // no schedule summary
   })
 
   it('carries full text in tooltips where rows truncate', async () => {
@@ -309,6 +370,28 @@ describe('JobsHome', () => {
     expect(box()).not.toBeChecked()
 
     // the accepted update re-syncs through its own load, still flipped
+    jobsReply = { rows: [{ ...job, enabled: false }] }
+    updateWaiters.shift()!(Response.json({ ...job, enabled: false }))
+    await waitFor(() => expect(jobsFetches).toBe(3))
+    expect(box()).not.toBeChecked()
+  })
+
+  it('shields card toggles from poll overwrites on phones', async () => {
+    stubPhoneLayout()
+    const user = userEvent.setup()
+    renderJobs()
+    await screen.findByTestId('job-5')
+
+    await user.click(screen.getByRole('checkbox', { name: 'Disable nightly sweep' }))
+    const box = () => screen.getByRole('checkbox', { name: 'Enable nightly sweep' })
+    expect(box()).not.toBeChecked()
+
+    // the same poll shield holds in the card layout, which renders from the
+    // one shared toggle path
+    act(() => document.dispatchEvent(new Event('visibilitychange')))
+    await waitFor(() => expect(jobsFetches).toBe(2))
+    expect(box()).not.toBeChecked()
+
     jobsReply = { rows: [{ ...job, enabled: false }] }
     updateWaiters.shift()!(Response.json({ ...job, enabled: false }))
     await waitFor(() => expect(jobsFetches).toBe(3))

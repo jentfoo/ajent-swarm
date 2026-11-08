@@ -1607,6 +1607,41 @@ label {
   margin-top: calc(var(--unit) * 4);
 }
 
+/* phone layout swaps the jobs table for stacked cards over the same row data;
+   chrome follows the switcher rows: surface cards, status beside the label,
+   touch-sized controls (JobsHome mounts these under hooks/useMediaQuery's
+   shared 48rem breakpoint, so no media query is needed here) */
+.job-cards {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--unit) * 2);
+}
+.job-card {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--unit) * 1);
+  padding: calc(var(--unit) * 3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  touch-action: manipulation; /* no double-tap zoom lag on cards */
+}
+/* cadence or queued badge beside the next-run slot, wrapping when both want
+   the width; the badge's trailing margin would double the column gap */
+.job-card-when {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: calc(var(--unit) * 1) calc(var(--unit) * 3);
+}
+.job-card-when .badge {
+  margin-right: 0;
+}
+/* the toggle's label is its touch target, matching the card's buttons */
+.job-card .toggle-row {
+  min-height: 44px;
+}
+
 /* weekday picker: one row of day chips inside the job editor's schedule grid */
 .weekday-picker {
   grid-column: 1 / -1;

@@ -281,8 +281,6 @@ describe('FocusedWorkspace', () => {
     renderFocused()
     await openSocket()
 
-    // no inline check-off renders; acknowledgment happens via the 'r' shortcut
-    expect(screen.queryByLabelText(/Mark .* reviewed/)).not.toBeInTheDocument()
     const user = userEvent.setup()
     await user.keyboard('j') // review -> dialog
     await user.keyboard('r')
@@ -293,6 +291,78 @@ describe('FocusedWorkspace', () => {
     expect(railRows()[0].textContent).toContain('review session')
     const settled = railRows().find((row) => row.textContent?.includes('dialog session'))
     expect(settled?.textContent).not.toContain('input')
+  })
+
+  it('offers check-offs only on actionable rows', async () => {
+    attention = [...attentionRows(), waitingRow()]
+    renderFocused()
+    await openSocket()
+
+    // the two needs rows carry one each; waiting and working offer no ack
+    const checks = screen.getAllByLabelText(/Mark .* reviewed/)
+    expect(checks.map((b) => b.getAttribute('aria-label'))).toEqual([
+      'Mark review session reviewed',
+      'Mark dialog session reviewed',
+    ])
+  })
+
+  it('checks a row off from the rail button', async () => {
+    renderFocused()
+    await openSocket()
+
+    const user = userEvent.setup()
+    await user.click(screen.getByLabelText('Mark dialog session reviewed'))
+
+    // the ack posts, the digest re-reads settled and nothing opens: the row
+    // drops its reason line and check-off, exactly as the r key settles it
+    await waitFor(() => {
+      expect(screen.queryByLabelText('Mark dialog session reviewed')).not.toBeInTheDocument()
+    })
+    await waitFor(() => expect(screen.queryByText('allow write access?')).not.toBeInTheDocument())
+    const sent = sockets[0].sent.map((raw) => JSON.parse(raw))
+    expect(sent).not.toContainEqual({ type: 'subscribe', sessionId: DIALOG })
+  })
+
+  it('checks off from the keyboard on the button', async () => {
+    renderFocused()
+    await openSocket()
+
+    const user = userEvent.setup()
+    screen.getByLabelText('Mark dialog session reviewed').focus()
+    await user.keyboard('{Enter}')
+
+    // the row's own Enter binding stands down for its inner control: the
+    // native button acknowledges and nothing opens the session
+    await waitFor(() => expect(screen.queryByText('allow write access?')).not.toBeInTheDocument())
+    const sent = sockets[0].sent.map((raw) => JSON.parse(raw))
+    expect(sent).not.toContainEqual({ type: 'subscribe', sessionId: DIALOG })
+  })
+
+  it('activates the focused row with Enter and Space', async () => {
+    renderFocused()
+    await openSocket()
+
+    for (const row of railRows()) expect(row.getAttribute('tabindex')).toBe('0')
+
+    const user = userEvent.setup()
+    // focus diverges from the j/k cursor: activation follows focus, not the
+    // cursor the workspace Enter binding would answer
+    railRows()[1].focus() // dialog row, while the cursor tops on review
+    await user.keyboard('{Enter}')
+    await waitFor(() => {
+      const opens = sockets[0].sent.map((raw) => JSON.parse(raw))
+      expect(opens).toEqual([{ type: 'subscribe', sessionId: DIALOG }])
+    })
+
+    railRows()[0].focus()
+    await user.keyboard(' ') // Space activates like a native button
+    await waitFor(() => {
+      const opens = sockets[0].sent.map((raw) => JSON.parse(raw))
+      expect(opens).toEqual([
+        { type: 'subscribe', sessionId: DIALOG },
+        { type: 'subscribe', sessionId: REVIEW },
+      ])
+    })
   })
 
   it('drives the queue with the keyboard: j, k, Enter and r', async () => {

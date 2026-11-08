@@ -1039,27 +1039,41 @@ label {
 .rail-wait {
   font-size: var(--fs-small);
 }
+/* the reason line carries the row's check-off at its end, mirroring the
+   switcher rows' bottom line */
+.rail-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(var(--unit) * 2);
+}
 .rail-reason {
   font-size: var(--fs-small);
   color: var(--muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  min-width: 0; /* the flex line lets a long reason ellipsize */
 }
-/* the check-off rides only the mobile switcher rows today, so it carries the
-   touch floor outright rather than behind a breakpoint */
+/* the check-off rides the switcher and rail rows, so only phones carry the
+   touch floor while the rail keeps its density */
 .rail-check {
   border: none;
   background: none;
   color: var(--muted);
   cursor: pointer;
   padding: 0 2px;
-  min-width: 44px;
-  min-height: 44px;
   font-size: var(--fs-small);
 }
 .rail-check:hover {
   color: var(--ok);
+}
+@media (max-width: 48rem) {
+  /* the switcher's large rows meet the touch floor */
+  .rail-check {
+    min-width: 44px;
+    min-height: 44px;
+  }
 }
 .workspace-main {
   flex: 1;

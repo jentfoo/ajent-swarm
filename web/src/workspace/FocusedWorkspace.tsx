@@ -11,14 +11,16 @@ import { tildePath } from '../session/names'
 import { useSessionNamer } from '../session/useSessionLabel'
 import { useWorkspaceKeys } from './keys'
 import { ShortcutOverlay } from './ShortcutOverlay'
-import { attentionSectionTitles } from './attention'
+import { attentionSectionTitles, isActionable } from './attention'
 import type { AttentionItem } from './attention'
 
 // FocusedWorkspace answers "what needs me right now": a ranked rail split
 // in three queues — states wanting a human answer above, idle agents
 // waiting below them, busy sessions last — beside exactly one SessionView.
-// The selected session persists in the layout profile; recently viewed
-// sessions stay warm in the store, so swapping rows is instant.
+// Rows are tabbable buttons with an inline check-off on actionable ones,
+// matching the j/k shortcuts and mobile's switcher rows. The selected
+// session persists in the layout profile; recently viewed sessions stay
+// warm in the store, so swapping rows is instant.
 export default function FocusedWorkspace() {
   const { sessions } = useSwarm()
   const auth = useAuth()
@@ -102,19 +104,29 @@ export default function FocusedWorkspace() {
     // the stored swarm title leads, its workspace path sits below in small
     // muted text so long titles keep the whole line
     const row = sessions.find((s) => s.sessionId === item.sessionId)
+    const label = nameFor(item.sessionId)
     return (
       <div
         key={`${item.sessionId}:${item.pid}`}
         role="button"
-        tabIndex={-1}
+        tabIndex={0}
         className={`rail-row kind-${item.kind} ${isSelected ? 'selected' : ''}`}
         data-cursor={isCursor || undefined}
         data-session-id={item.sessionId}
         onClick={() => open(item.sessionId)}
+        onKeyDown={(ev) => {
+          // a tabbable row activates itself like the native button it imitates;
+          // preventDefault stands the global Enter binding down, inner controls
+          // keep their own activation
+          if (ev.target !== ev.currentTarget) return
+          if (ev.key !== 'Enter' && ev.key !== ' ') return
+          ev.preventDefault()
+          open(item.sessionId)
+        }}
       >
         <span className="rail-top">
-          <span className="rail-name">{nameFor(item.sessionId)}</span>
-          <RenameControl sessionId={item.sessionId} label={nameFor(item.sessionId)} />
+          <span className="rail-name">{label}</span>
+          <RenameControl sessionId={item.sessionId} label={label} />
           <span className="rail-meta">
             {item.kind === 'needs-input' && <span className="badge danger">input</span>}
             {item.kind === 'needs-review' && <span className="badge warn">review</span>}
@@ -133,8 +145,25 @@ export default function FocusedWorkspace() {
             {tildePath(row.workspace, auth.home)}
           </span>
         )}
-        <span className="rail-reason">
-          {item.reason || (item.kind === 'working' ? 'working…' : '')}
+        {/* the check-off mirrors mobile's switcher: one shared ack path,
+            settled on every device */}
+        <span className="rail-bottom">
+          <span className="rail-reason">
+            {item.reason || (item.kind === 'working' ? 'working…' : '')}
+          </span>
+          {isActionable(item.kind) && (
+            <button
+              type="button"
+              className="rail-check"
+              aria-label={`Mark ${label} reviewed`}
+              onClick={(ev) => {
+                ev.stopPropagation()
+                acknowledgeItem(item)
+              }}
+            >
+              ✓
+            </button>
+          )}
         </span>
       </div>
     )

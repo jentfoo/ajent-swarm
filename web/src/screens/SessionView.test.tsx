@@ -9,7 +9,6 @@ import { SwarmProvider } from '../providers/swarm'
 import { WorkspaceProvider } from '../providers/workspace'
 import { MockWebSocket } from '../test/mockWebSocket'
 import { resetDrafts } from '../session/draftStore'
-import { resetLedger } from '../workspace/attention'
 
 // The backend round trip runs against fetch mocks shaped exactly like the Go
 // handlers answer; the stream rides a mock WebSocket through the real client.
@@ -116,7 +115,6 @@ describe('SessionView', () => {
   beforeEach(() => {
     localStorage.clear()
     resetDrafts() // drafts persist by session, so tests start from a clean slate
-    resetLedger() // submits acknowledge turns into module state storage misses
     vi.stubGlobal(
       'WebSocket',
       class extends MockWebSocket {
@@ -131,6 +129,8 @@ describe('SessionView', () => {
       .on('/api/me', () => Response.json({ username: 'you', via: 'cookie' }))
       .on('/api/sessions', () => Response.json([]))
       .on('/api/attention', () => Response.json([]))
+      // submits acknowledge the session's turn server-side
+      .on('/api/attention/ack', () => new Response(null, { status: 204 }))
       .on(`/api/sessions/${VIEW}/snapshot`, () => Response.json(snapshotFor(VIEW)))
     vi.stubGlobal('fetch', fetcher.handler)
   })

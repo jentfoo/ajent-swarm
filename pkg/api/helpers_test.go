@@ -169,6 +169,41 @@ func (a recallStore) RecallLines(ctx context.Context,
 	return out, nil
 }
 
+// ackStore adapts the SQLite store to fleet's AckStore interface, mirroring
+// pkg/app's production adapter.
+type ackStore struct{ st *store.Store }
+
+func (a ackStore) AckDialog(ctx context.Context,
+	sessionID string, pid int, dialogID uint64, at time.Time,
+) error {
+	return a.st.AckDialog(ctx, sessionID, pid, dialogID, at)
+}
+
+func (a ackStore) AckTurn(ctx context.Context,
+	sessionID string, turnEnd int64, at time.Time,
+) error {
+	return a.st.AckTurn(ctx, sessionID, turnEnd, at)
+}
+
+func (a ackStore) DialogAcks(ctx context.Context) ([]fleet.DialogAck, error) {
+	rows, err := a.st.DialogAcks(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]fleet.DialogAck, len(rows))
+	for i, r := range rows {
+		out[i] = fleet.DialogAck{
+			SessionID: r.SessionID, PID: r.PID,
+			DialogID: r.DialogID, AckedAt: r.AckedAt,
+		}
+	}
+	return out, nil
+}
+
+func (a ackStore) TurnAcks(ctx context.Context) (map[string]int64, error) {
+	return a.st.TurnAcks(ctx)
+}
+
 // bootstrapAndLogin brings a fresh service past bootstrap and signs in.
 func bootstrapAndLogin(t *testing.T, client *http.Client, baseURL string) {
 	t.Helper()
@@ -258,6 +293,7 @@ func newSessionAPI(t *testing.T) *sessionHarness {
 		TitleStore:   titleStore{st: st},
 		SettingStore: settingsStore{st: st},
 		RecallStore:  recallStore{st: st},
+		AckStore:     ackStore{st: st},
 	})
 	mgr.Start(t.Context())
 	t.Cleanup(mgr.Stop)

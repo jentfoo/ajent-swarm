@@ -120,6 +120,7 @@ func serve(opts Options, stderr io.Writer) int {
 		TitleStore:   titleStore{st: st},
 		SettingStore: settingsStore{st: st},
 		RecallStore:  recallStore{st: st},
+		AckStore:     ackStore{st: st},
 		KillOnExit:   opts.KillChildren,
 		NoNaming:     opts.NoSessionNaming,
 	})

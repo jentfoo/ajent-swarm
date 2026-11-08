@@ -315,6 +315,8 @@ describe('StatusHeader badge', () => {
         idle: false,
         dialogId: 4,
         dialogPrompt: 'allow write?',
+        kind: 'needs-input',
+        reason: 'allow write?',
       },
     ])
 

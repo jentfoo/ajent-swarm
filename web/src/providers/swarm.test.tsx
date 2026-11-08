@@ -120,7 +120,16 @@ describe('SwarmProvider digest sync', () => {
   })
 
   it('lands the refreshed rows in the context consumers read', async () => {
-    attentionRows = [{ sessionId: 's1', openInteractions: 1, running: false, idle: false }]
+    attentionRows = [
+      {
+        sessionId: 's1',
+        openInteractions: 1,
+        running: false,
+        idle: false,
+        kind: 'needs-input',
+        reason: 'Allow write access?',
+      },
+    ]
     render(
       <SwarmProvider>
         <Probe sessionId="s1" />

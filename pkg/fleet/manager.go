@@ -81,6 +81,11 @@ type Options struct {
 	// RecallStore persists the workspace-wide recall mirror of typed submits;
 	// nil disables recording and every recall-lines listing reads empty.
 	RecallStore RecallStore
+
+	// AckStore persists attention acknowledgments, so one device's check-off
+	// settles the row for every device and survives restarts; nil keeps every
+	// item unacknowledged and refuses writes.
+	AckStore AckStore
 }
 
 // Manager tracks every live ajent instance and owns its actors' lifecycles.
@@ -104,6 +109,7 @@ type Manager struct {
 	titleStore   TitleStore
 	settingStore SettingsStore
 	recallStore  RecallStore
+	ackStore     AckStore
 
 	ctx      context.Context
 	cancel   context.CancelFunc
@@ -119,10 +125,12 @@ type Manager struct {
 	nudge          chan struct{}
 	children       map[int]*childProc // by pid, running and exited
 	childBySession map[string]*childProc
-	externals      map[int]ChildRecord // retained external session rows, by pid
-	named          map[string]struct{} // sessions whose auto-name already ran
-	titles         map[string]string   // cached display titles, mirrored from TitleStore
-	titleModel     string              // cached titling model, mirrored from SettingStore
+	externals      map[int]ChildRecord       // retained external session rows, by pid
+	named          map[string]struct{}       // sessions whose auto-name already ran
+	titles         map[string]string         // cached display titles, mirrored from TitleStore
+	titleModel     string                    // cached titling model, mirrored from SettingStore
+	dialogAcks     map[dialogAckKey]struct{} // cached settled dialogs, mirrored from AckStore
+	turnAcks       map[string]int64          // cached acknowledged turn ends, mirrored from AckStore
 }
 
 // New builds a manager; Start begins the registry watch.
@@ -149,6 +157,7 @@ func New(opts Options) *Manager {
 		titleStore:      opts.TitleStore,
 		settingStore:    opts.SettingStore,
 		recallStore:     opts.RecallStore,
+		ackStore:        opts.AckStore,
 		actors:          make(map[actorKey]*sessionActor),
 		subs:            make(map[int64]*subscription),
 		bySession:       make(map[string]map[int64]*subscription),
@@ -158,6 +167,8 @@ func New(opts Options) *Manager {
 		externals:       make(map[int]ChildRecord),
 		named:           make(map[string]struct{}),
 		titles:          make(map[string]string),
+		dialogAcks:      make(map[dialogAckKey]struct{}),
+		turnAcks:        make(map[string]int64),
 	}
 	if m.optsOwned == nil {
 		m.optsOwned = func(ctl.Instance) bool { return false }
@@ -196,6 +207,9 @@ func (m *Manager) Start(ctx context.Context) {
 	}
 	if m.settingStore != nil {
 		m.loadSettings(ctx)
+	}
+	if m.ackStore != nil {
+		m.loadAcks(ctx)
 	}
 	m.adopt(ctx)
 	m.wg.Add(1)
@@ -727,6 +741,17 @@ type Attention struct {
 	LastStop     string `json:"lastStop,omitempty"`
 	LastStopErr  string `json:"lastStopErr,omitempty"`
 	Activity     string `json:"activity,omitempty"`
+
+	// Acknowledgment facts from the server-side ledger: whether this row's
+	// oldest open dialog is settled, and the session's acknowledged turn end.
+	AckedDialog bool  `json:"ackedDialog,omitempty"`
+	AckedTurn   int64 `json:"ackedTurn,omitempty"` // unix milliseconds
+
+	// Derived attention; clients render these verbatim. Since drives the
+	// needs queue's oldest-wait order (a dialog's wait or a turn end).
+	Kind   string `json:"kind"`
+	Reason string `json:"reason,omitempty"`
+	Since  int64  `json:"since,omitempty"` // unix milliseconds
 }
 
 // servingStatuses snapshots the listing row of every actor whose session
@@ -745,27 +770,16 @@ func (m *Manager) servingStatuses() []*Status {
 
 // Attention summarizes every live session from its actor's reconciled view,
 // one row each, sorted by session id. Exited sessions drop out; a degraded
-// connection keeps its last known facts until tracking ends.
+// connection keeps its last known facts until tracking ends. Kind, reason and
+// wait are derived server-side against the acknowledgment ledger, so every
+// device renders one attention state.
 func (m *Manager) Attention() []Attention {
 	statuses := m.servingStatuses()
+	facts := m.ackFactsFor(statuses)
 
 	out := make([]Attention, 0, len(statuses))
-	for _, st := range statuses {
-		out = append(out, Attention{
-			SessionID:        st.SessionID,
-			PID:              st.PID,
-			OpenInteractions: st.OpenInteractions,
-			Running:          st.Running,
-			Spinning:         st.Spinning,
-			Idle:             st.Idle,
-			LastTurnEnd:      st.LastTurnEnd,
-			DialogID:         st.DialogID,
-			DialogPrompt:     st.DialogPrompt,
-			DialogAt:         st.DialogAt,
-			LastStop:         st.LastStop,
-			LastStopErr:      st.LastStopErr,
-			Activity:         st.Activity,
-		})
+	for i, st := range statuses {
+		out = append(out, deriveAttention(st, facts[i]))
 	}
 	slices.SortFunc(out, func(a, b Attention) int { return strings.Compare(a.SessionID, b.SessionID) })
 	return out

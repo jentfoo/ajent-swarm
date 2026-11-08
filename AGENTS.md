@@ -70,9 +70,10 @@ wiring layer, and the frontend starts at `web/src/main.tsx` → `App.tsx` → pr
   policy: swarm force-claims the seat (holder `swarm`) only for children it spawned, a held
   seat surfaces a coded refusal rather than being displaced, and swarm never signals a
   process it did not spawn. Also owns launch/stop, swarm-side titles, settings and the
-  one-shot auto-namer (never touches ajent's own session names), saved-transcript browsing,
-  the rewind picker, model/tool unions, and composer `@`-file completion. `fleettest/`
-  provides a stub control-socket server for tests.
+  one-shot auto-namer (never touches ajent's own session names), the server-side attention
+  ledger and digest kinds (any device's check-off settles every device), saved-transcript
+  browsing, the rewind picker, model/tool unions, and composer `@`-file completion.
+  `fleettest/` provides a stub control-socket server for tests.
 - `pkg/sched`: one trigger goroutine claims due jobs, applies an optional shell trigger
   gate, launches through the `Runner` interface (satisfied by `*fleet.Manager`), applies
   custom tool sets, submits with a deterministic `run-<id>` pending id, and watches the
@@ -122,9 +123,12 @@ routes, wire types) → `state/` → `ui/` → `workspace/` and `jobs/` → `mob
   notifications). `stream/swarmStream.ts` is the single multiplexed WebSocket:
   reference-counted subscriptions, heartbeat watchdog, backoff, resync on tab visibility.
 - `workspace/attention.ts` is the one attention model, consumed by the desktop rail, tile
-  badges, notifications, and the mobile switcher. Cross-surface agreements are shared,
-  never copied: attention ordering, model menus, `phaseText` for transient phases,
-  `names.ts` display names, and the tools widen-only derivation.
+  badges, notifications, and the mobile switcher. Kinds, reasons and waits arrive derived
+  on the `/api/attention` digest against the server-side acknowledgment ledger
+  (`POST /api/attention/ack`), so every device renders one attention state; only queue-entry
+  stamping stays client-side. Cross-surface agreements are shared, never copied: attention
+  ordering, model menus, `phaseText` for transient phases, `names.ts` display names, and the
+  tools widen-only derivation.
 - `ui/overlayStack.ts` is the one overlay layer order behind ModalShell, MenuPopover and
   the mobile sheets and pushed screens: only the topmost layer answers Escape, key
   bindings that act on page content stand down behind any open layer, and closing
@@ -139,9 +143,9 @@ routes, wire types) → `state/` → `ui/` → `workspace/` and `jobs/` → `mob
   accepted. Oversize drafts stay memory-only rather than truncating.
 - Model output renders through the sanitizer with raw HTML disabled. Hard requirement, the
   content is untrusted.
-- localStorage keys are versioned (`swarm.attention.v1`, `swarm.workspace.v1`); corrupt or
-  unreadable storage degrades to defaults, never throws. The pre-paint theme script in
-  `index.html` is pinned by a test to SwarmProvider's logic.
+- localStorage keys are versioned (`swarm.workspace.v1`); corrupt or unreadable storage
+  degrades to defaults, never throws. The pre-paint theme script in `index.html` is pinned
+  by a test to SwarmProvider's logic.
 - `jobs/` validation mirrors but never overrides the server. Duplicated jobs are forced
   disabled. Recurring updates omit `nextRunAt` so the server recomputes the slot.
 
@@ -192,7 +196,7 @@ Test helpers:
 - `pkg/testutil.IsolateHome(t)` pins `AJENT_HOME` so tests never touch the real ajent home
 - `web/src/test/mockWebSocket.ts` is the shared WebSocket test double
 - `web/tests/setup.ts` fixes element geometry so the virtualizer is deterministic in jsdom
-- `resetDrafts()` / `resetLedger()` reset localStorage-backed state between tests
+- `resetDrafts()` resets localStorage-backed state between tests
 
 Verification:
 - Verify with `make test-all` and `make lint` (frontend: `make web-check`) before considering a change complete

@@ -335,6 +335,51 @@ func (s *apiServer) handleAttention(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, orEmptySlice(s.fleet.Attention()))
 }
 
+// ackRequest settles one attention item on POST /api/attention/ack. Exactly
+// one target shape rides: a dialog named by session plus pid (twin instances
+// share a session id), or the session's turn-end watermark.
+type ackRequest struct {
+	SessionID string `json:"sessionId"`
+	PID       int    `json:"pid,omitempty"`
+	DialogID  uint64 `json:"dialogId,omitempty"`
+	TurnEnd   int64  `json:"turnEnd,omitempty"` // unix milliseconds
+}
+
+// handleAttentionAck records one acknowledgment in the server-side ledger, so
+// every device's digest settles together. A session that already ended still
+// acknowledges: the row settles in storage and nothing re-raises later.
+func (s *apiServer) handleAttentionAck(w http.ResponseWriter, r *http.Request) {
+	var req ackRequest
+	if !readRequest(w, r, &req) {
+		return
+	}
+	if strings.TrimSpace(req.SessionID) == "" {
+		writeError(w, http.StatusBadRequest, codeInvalidRequest, "sessionId must not be empty")
+		return
+	}
+	if (req.DialogID > 0) == (req.TurnEnd > 0) {
+		writeError(w, http.StatusBadRequest, codeInvalidRequest,
+			"exactly one of dialogId or turnEnd is required")
+		return
+	}
+
+	var err error
+	if req.DialogID > 0 {
+		err = s.fleet.AckDialog(r.Context(), req.SessionID, req.PID, req.DialogID)
+	} else {
+		err = s.fleet.AckTurn(r.Context(), req.SessionID, req.TurnEnd)
+	}
+	switch {
+	case err == nil:
+		w.WriteHeader(http.StatusNoContent)
+	case errors.Is(err, fleet.ErrNoAckStore):
+		writeError(w, http.StatusServiceUnavailable, "unavailable",
+			"attention acknowledgments are not configured")
+	default:
+		writeCommandFailure(w, err)
+	}
+}
+
 // handleModels serves the models listing: one row per live session whose
 // current model comes from its snapshot. Switching goes through POST /model
 // against the same registry models.get lists.

@@ -32,6 +32,9 @@ interface SwarmContextValue {
   // refreshSessions forces the discovery poll; label edits use it so rows
   // re-render without waiting out the cadence.
   refreshSessions: () => Promise<void>
+  // refreshAttention forces the digest poll; acknowledgments use it so settled
+  // rows drop now instead of waiting out the cadence.
+  refreshAttention: () => Promise<void>
 }
 
 const SwarmContext = createContext<SwarmContextValue | null>(null)
@@ -137,8 +140,9 @@ export function SwarmProvider({ children }: { children: ReactNode }) {
       theme,
       setTheme: setThemeState,
       refreshSessions,
+      refreshAttention,
     }),
-    [stream, store, sessions, attention, connection, theme, refreshSessions],
+    [stream, store, sessions, attention, connection, theme, refreshSessions, refreshAttention],
   )
 
   return <SwarmContext.Provider value={value}>{children}</SwarmContext.Provider>

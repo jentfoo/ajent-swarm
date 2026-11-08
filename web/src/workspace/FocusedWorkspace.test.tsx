@@ -8,12 +8,13 @@ import { AuthProvider } from '../providers/auth'
 import { SwarmProvider } from '../providers/swarm'
 import { WorkspaceProvider } from '../providers/workspace'
 import { MockWebSocket } from '../test/mockWebSocket'
-import { resetLedger, resetQueueEntries } from './attention'
+import { resetQueueEntries } from './attention'
 import type { AttentionRow } from '../api/types'
 
 // The rail renders over the real provider stack with fetch and WebSocket
-// mocks: mixed attention rows fill the three queues, acting on a row clears
-// it, and the keyboard drives the queue.
+// mocks: mixed attention rows fill the three queues, acting on a row posts
+// one acknowledgment and re-reads the digest, and the keyboard drives the
+// queue.
 const DIALOG = '01AAAAAAAAAAAAAA'
 const REVIEW = '01BBBBBBBBBBBBBB'
 const WORKER = '01CCCCCCCCCCCCCC'
@@ -28,6 +29,9 @@ function attentionRows(): AttentionRow[] {
       idle: true,
       lastTurnEnd: Date.now() - 60_000,
       lastStop: 'end_turn',
+      kind: 'needs-review',
+      reason: 'turn complete',
+      since: Date.now() - 60_000,
     },
     {
       sessionId: DIALOG,
@@ -38,6 +42,9 @@ function attentionRows(): AttentionRow[] {
       dialogId: 7,
       dialogPrompt: 'allow write access?',
       dialogAt: Date.now() - 30_000,
+      kind: 'needs-input',
+      reason: 'allow write access?',
+      since: Date.now() - 30_000,
     },
     {
       sessionId: WORKER,
@@ -46,6 +53,8 @@ function attentionRows(): AttentionRow[] {
       running: true,
       idle: false,
       activity: 'reading main.go',
+      kind: 'working',
+      reason: 'reading main.go',
     },
   ]
 }
@@ -57,6 +66,8 @@ function waitingRow(): AttentionRow {
     openInteractions: 0,
     running: false,
     idle: true,
+    kind: 'awaiting',
+    reason: 'waiting for a prompt',
   }
 }
 
@@ -95,12 +106,11 @@ function snapshotFor(sessionId: string) {
 
 describe('FocusedWorkspace', () => {
   let sockets: MockWebSocket[]
-  let routes: Map<string, () => Response>
+  let routes: Map<string, (init?: RequestInit) => Response>
   let attention: AttentionRow[]
 
   beforeEach(() => {
     localStorage.clear()
-    resetLedger()
     resetQueueEntries()
     vi.stubGlobal(
       'WebSocket',
@@ -117,10 +127,38 @@ describe('FocusedWorkspace', () => {
       ['/api/me', () => Response.json({ username: 'you', via: 'cookie' })],
       ['/api/sessions', () => Response.json(sessionsList())],
       ['/api/attention', () => Response.json(attention)],
+      // the server settles the ack, then this device's digest re-reads settled
+      [
+        '/api/attention/ack',
+        (init?: RequestInit) => {
+          const body = JSON.parse(String(init?.body ?? '{}')) as {
+            sessionId: string
+            dialogId?: number
+            turnEnd?: number
+          }
+          attention = attention.map((row) => {
+            if (row.sessionId !== body.sessionId) return row
+            const settled = {
+              ...row,
+              kind: 'awaiting' as const,
+              reason: 'waiting for a prompt',
+              since: 0,
+            }
+            if (body.dialogId !== undefined && row.dialogId === body.dialogId) {
+              return { ...settled, ackedDialog: true }
+            }
+            if (body.turnEnd !== undefined && row.lastTurnEnd === body.turnEnd) {
+              return { ...settled, ackedTurn: body.turnEnd }
+            }
+            return row
+          })
+          return new Response(null, { status: 204 })
+        },
+      ],
     ])
     vi.stubGlobal(
       'fetch',
-      vi.fn((url: string | URL | Request) => {
+      vi.fn((url: string | URL | Request, init?: RequestInit) => {
         const path = String(url)
           .replace(/^https?:\/\/[^/]+/, '')
           .split('?')[0]
@@ -128,7 +166,7 @@ describe('FocusedWorkspace', () => {
         if (snap) return Promise.resolve(Response.json(snapshotFor(snap[1])))
         const respond = routes.get(path)
         if (!respond) throw new Error(`unexpected fetch ${path}`)
-        return Promise.resolve(respond())
+        return Promise.resolve(respond(init))
       }),
     )
   })

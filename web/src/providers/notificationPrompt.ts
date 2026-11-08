@@ -6,7 +6,7 @@
 //   - the retry's own dismissal ends the prompting for good
 //
 // Corrupt or unreadable storage degrades to showing the prompt again, which is
-// acceptable for an opt-in (see swarm.attention.v1 handling).
+// acceptable for an opt-in (see swarm.notifyPrompt.v1 handling).
 import type { NotificationPermission } from './notifications'
 
 const storageKey = 'swarm.notifyPrompt.v1'

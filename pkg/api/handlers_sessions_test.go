@@ -558,6 +558,7 @@ func TestSessionHandlers(t *testing.T) {
 			rows := attention()
 			return len(rows) == 1 && rows[0].SessionID == f.SessionID() && rows[0].Running
 		}, 2*time.Second, 5*time.Millisecond)
+		assert.Equal(t, fleet.AttentionWorking, attention()[0].Kind) // derived server-side
 
 		f.Broadcast(ctl.EventActivity, ctl.ActivityRow{Key: "k", Text: "reading main.go", Rank: 1})
 		f.Broadcast(ctl.EventInteractionPending, ctl.InteractionPendingData{
@@ -569,6 +570,13 @@ func TestSessionHandlers(t *testing.T) {
 				rows[0].DialogID == 3 && rows[0].DialogPrompt == "allow write? be careful" &&
 				rows[0].DialogAt > 0
 		}, 2*time.Second, 5*time.Millisecond)
+		{
+			row := attention()[0]
+			assert.Equal(t, fleet.AttentionNeedsInput, row.Kind)
+			assert.Equal(t, "allow write? be careful", row.Reason)
+			assert.Equal(t, row.DialogAt, row.Since)
+			assert.False(t, row.AckedDialog)
+		}
 
 		f.Broadcast(ctl.EventTurnEnd, ctl.TurnEndData{Stop: "end_turn"})
 		require.Eventually(h.t, func() bool {
@@ -576,6 +584,8 @@ func TestSessionHandlers(t *testing.T) {
 			return len(rows) == 1 && rows[0].LastTurnEnd > 0 && !rows[0].Running &&
 				rows[0].LastStop == "end_turn" && rows[0].Activity == "reading main.go"
 		}, 2*time.Second, 5*time.Millisecond)
+		// the dialog still parks the turn, so needs input outranks the review
+		assert.Equal(t, fleet.AttentionNeedsInput, attention()[0].Kind)
 
 		t.Run("settled_drops_digest_facts", func(t *testing.T) {
 			f.Broadcast(ctl.EventInteractionSettled, ctl.InteractionSettledData{ID: 3, Kind: "decision", Answered: true})
@@ -584,6 +594,11 @@ func TestSessionHandlers(t *testing.T) {
 				return len(rows) > 0 && rows[0].OpenInteractions == 0 &&
 					rows[0].DialogID == 0 && rows[0].DialogPrompt == "" && rows[0].DialogAt == 0
 			}, 2*time.Second, 5*time.Millisecond)
+			// the unacked turn end surfaces as a review with its one-line summary
+			row := attention()[0]
+			assert.Equal(t, fleet.AttentionNeedsReview, row.Kind)
+			assert.Equal(t, "turn complete", row.Reason)
+			assert.Equal(t, row.LastTurnEnd, row.Since)
 		})
 
 		t.Run("digest_caps_one_line", func(t *testing.T) {
@@ -602,6 +617,94 @@ func TestSessionHandlers(t *testing.T) {
 			f.Exit("all done")
 			require.Eventually(h.t, func() bool { return len(attention()) == 0 },
 				2*time.Second, 5*time.Millisecond)
+		})
+	})
+
+	t.Run("attention_ack_handler", func(t *testing.T) {
+		h := newSessionAPI(t)
+		f := h.newStub("01ATTNACK0000000000", fleettest.Options{})
+		f.SetSnapshot(ctl.State{Model: ctl.ModelState{Key: "p/m"}})
+		h.serve(f)
+
+		attention := func() []fleet.Attention {
+			code, rows := get[[]fleet.Attention](h, "/api/attention")
+			require.Equal(t, http.StatusOK, code)
+			return rows
+		}
+		ack := func(body any) int {
+			code, _ := post[struct{}](h, "/api/attention/ack", body)
+			return code
+		}
+
+		f.Broadcast(ctl.EventInteractionPending, ctl.InteractionPendingData{ID: 5, Prompt: "allow write?"})
+		f.Broadcast(ctl.EventTurnEnd, ctl.TurnEndData{Stop: "end_turn"})
+		require.Eventually(h.t, func() bool {
+			rows := attention()
+			return len(rows) == 1 && rows[0].Kind == fleet.AttentionNeedsInput &&
+				rows[0].DialogID == 5 && rows[0].LastTurnEnd > 0
+		}, 2*time.Second, 5*time.Millisecond)
+
+		t.Run("dialog_ack_settles_the_digest", func(t *testing.T) {
+			row := attention()[0]
+			code := ack(map[string]any{"sessionId": f.SessionID(), "pid": row.PID, "dialogId": 5})
+			require.Equal(t, http.StatusNoContent, code)
+
+			// the dialog stays open upstream, yet the row settles for every device
+			// and the unreviewed turn surfaces next
+			require.Eventually(h.t, func() bool {
+				rows := attention()
+				return len(rows) == 1 && rows[0].Kind == fleet.AttentionNeedsReview &&
+					rows[0].AckedDialog && rows[0].AckedTurn == 0
+			}, 2*time.Second, 5*time.Millisecond)
+
+			dialogs, err := h.st.DialogAcks(t.Context())
+			require.NoError(t, err)
+			require.Len(t, dialogs, 1)
+			assert.Equal(t, f.SessionID(), dialogs[0].SessionID)
+			assert.Equal(t, row.PID, dialogs[0].PID)
+			assert.Equal(t, uint64(5), dialogs[0].DialogID)
+		})
+
+		t.Run("turn_ack_settles_the_review", func(t *testing.T) {
+			turnEnd := attention()[0].LastTurnEnd
+			code := ack(map[string]any{"sessionId": f.SessionID(), "turnEnd": turnEnd})
+			require.Equal(t, http.StatusNoContent, code)
+
+			require.Eventually(h.t, func() bool {
+				rows := attention()
+				return len(rows) == 1 && rows[0].Kind == fleet.AttentionAwaiting &&
+					rows[0].AckedTurn == turnEnd
+			}, 2*time.Second, 5*time.Millisecond)
+
+			turns, err := h.st.TurnAcks(t.Context())
+			require.NoError(t, err)
+			assert.Equal(t, map[string]int64{f.SessionID(): turnEnd}, turns)
+
+			// an older watermark is a benign no-op, never a step back
+			code = ack(map[string]any{"sessionId": f.SessionID(), "turnEnd": turnEnd - 1})
+			require.Equal(t, http.StatusNoContent, code)
+			assert.Equal(t, turnEnd, attention()[0].AckedTurn)
+		})
+
+		t.Run("rejects_malformed_bodies", func(t *testing.T) {
+			for _, body := range []map[string]any{
+				{"sessionId": ""},            // no session
+				{"sessionId": f.SessionID()}, // no target
+				{"sessionId": f.SessionID(), "dialogId": 5, "turnEnd": 9}, // both targets
+			} {
+				require.Equal(t, http.StatusBadRequest, ack(body))
+			}
+			code, body := post[errorBody](h, "/api/attention/ack", jsonBody(map[string]any{
+				"sessionId": f.SessionID(), "dialogId": 5, "bogus": true}))
+			require.Equal(t, http.StatusBadRequest, code)
+			assert.Equal(t, codeInvalidRequest, body.Error) // strict: unknown fields refuse
+		})
+
+		t.Run("requires_auth", func(t *testing.T) {
+			anon := &http.Client{} // no cookie jar: nothing authenticated
+			code, _ := callJSON[struct{}](h.t, anon, h.server.URL, http.MethodPost,
+				"/api/attention/ack", jsonBody(map[string]any{"sessionId": "01A", "turnEnd": 1}))
+			require.Equal(t, http.StatusUnauthorized, code)
 		})
 	})
 

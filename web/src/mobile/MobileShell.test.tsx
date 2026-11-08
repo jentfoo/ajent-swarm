@@ -9,7 +9,6 @@ import { AuthProvider } from '../providers/auth'
 import { SwarmProvider } from '../providers/swarm'
 import { WorkspaceProvider } from '../providers/workspace'
 import { MockWebSocket } from '../test/mockWebSocket'
-import { resetLedger } from '../workspace/attention'
 
 // The shell rides the real provider stack over fetch and WebSocket mocks, and
 // the route table stays a catch-all: the pathname decides the active tab, not
@@ -25,7 +24,6 @@ describe('MobileShell', () => {
 
   beforeEach(() => {
     localStorage.clear()
-    resetLedger()
     vi.stubGlobal('WebSocket', MockWebSocket)
     routes = new Map<string, () => Response>([
       ['/api/me', () => Response.json({ username: 'you', via: 'cookie' })],
@@ -36,7 +34,16 @@ describe('MobileShell', () => {
         '/api/attention',
         () =>
           Response.json([
-            { sessionId: 's1', pid: 7, openInteractions: 1, dialogId: 3, running: false },
+            {
+              sessionId: 's1',
+              pid: 7,
+              openInteractions: 1,
+              dialogId: 3,
+              running: false,
+              idle: true,
+              kind: 'needs-input',
+              reason: 'Allow write access?',
+            },
           ]),
       ],
     ])

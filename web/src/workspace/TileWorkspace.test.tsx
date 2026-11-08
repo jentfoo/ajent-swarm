@@ -8,7 +8,6 @@ import { AuthProvider } from '../providers/auth'
 import { SwarmProvider } from '../providers/swarm'
 import { WorkspaceProvider } from '../providers/workspace'
 import { MockWebSocket } from '../test/mockWebSocket'
-import { resetLedger } from './attention'
 import type { AttentionRow } from '../api/types'
 
 // The tile surface renders the persisted tree as panes with tab strips,
@@ -58,8 +57,19 @@ function attention(): AttentionRow[] {
       dialogId: 3,
       dialogPrompt: 'allow write?',
       dialogAt: Date.now() - 5_000,
+      kind: 'needs-input',
+      reason: 'allow write?',
+      since: Date.now() - 5_000,
     },
-    { sessionId: LEFT, pid: 1, openInteractions: 0, running: false, idle: true },
+    {
+      sessionId: LEFT,
+      pid: 1,
+      openInteractions: 0,
+      running: false,
+      idle: true,
+      kind: 'awaiting',
+      reason: 'waiting for a prompt',
+    },
   ]
 }
 
@@ -92,7 +102,6 @@ describe('TileWorkspace', () => {
 
   beforeEach(() => {
     localStorage.clear()
-    resetLedger()
     localStorage.setItem(
       'swarm.workspace.v1',
       JSON.stringify({ mode: 'tile', focused: {}, tile: { tree, focusedPaneId: 'p1' } }),

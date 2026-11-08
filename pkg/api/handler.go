@@ -101,6 +101,7 @@ func Handler(cfg Config) http.Handler {
 		{http.MethodPost, "/api/sessions/{id}/setting", srv.handleSessionSettingSet},
 		{http.MethodPost, "/api/sessions/{id}/title", srv.handleSessionTitle},
 		{http.MethodGet, "/api/attention", srv.handleAttention},
+		{http.MethodPost, "/api/attention/ack", srv.handleAttentionAck},
 		{http.MethodGet, "/api/models", srv.handleModels},
 		{http.MethodGet, "/api/models/options", srv.handleModelOptions},
 		{http.MethodGet, "/api/tools/options", srv.handleToolOptions},

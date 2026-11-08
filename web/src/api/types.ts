@@ -210,8 +210,14 @@ export interface SessionStatus {
   logTail?: string
 }
 
+// AttentionKind is the server-derived attention class of one digest row:
+// what holds input, what awaits review, and how busy the session is.
+export type AttentionKind = 'needs-input' | 'needs-review' | 'awaiting' | 'working'
+
 // AttentionRow is one live session's row of GET /api/attention. The digest
-// facts (dialog, last stop, activity) carry the focus rail's one-line reasons.
+// facts (dialog, last stop, activity) carry the focus rail's one-line reasons,
+// the ack facts settle rows server-side, and the kind, reason and wait arrive
+// derived: clients render them verbatim.
 export interface AttentionRow {
   sessionId: string
   pid?: number
@@ -226,6 +232,21 @@ export interface AttentionRow {
   lastStop?: string // stop reason of the last turn
   lastStopErr?: string
   activity?: string // top activity row, one line
+  ackedDialog?: boolean // the oldest open dialog is settled already
+  ackedTurn?: number // the session's acknowledged turn end, unix milliseconds
+  kind: AttentionKind
+  reason?: string // one line: the dialog prompt or the turn's stop summary
+  since?: number // unix ms the state started; drives waits and ranking
+}
+
+// AttentionAck is the POST /api/attention/ack body: exactly one target shape,
+// either one dialog (pid tells twin instances apart) or the session's
+// turn-end watermark. Any device's check-off settles the row everywhere.
+export interface AttentionAck {
+  sessionId: string
+  pid?: number
+  dialogId?: number
+  turnEnd?: number // unix milliseconds
 }
 
 // EntriesPage is one page of committed history plus the cursor to continue.

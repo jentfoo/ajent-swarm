@@ -3,7 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { useSessionCompose } from './useSessionCompose'
 import { resetDrafts } from './draftStore'
-import { resetLedger } from '../workspace/attention'
 import { SwarmProvider } from '../providers/swarm'
 import { MockWebSocket } from '../test/mockWebSocket'
 
@@ -82,7 +81,6 @@ describe('useSessionCompose', () => {
   beforeEach(() => {
     localStorage.clear()
     resetDrafts() // drafts persist by session, so tests start from a clean slate
-    resetLedger() // submits acknowledge turns into module state storage misses
     vi.stubGlobal(
       'WebSocket',
       class extends MockWebSocket {
@@ -97,6 +95,8 @@ describe('useSessionCompose', () => {
     fetcher
       .on('/api/sessions', () => Response.json([]))
       .on('/api/attention', () => Response.json([]))
+      // submits acknowledge the session's turn server-side
+      .on('/api/attention/ack', () => new Response(null, { status: 204 }))
       .on(`/api/sessions/${VIEW}/recall-lines`, () => Response.json({ items: [] }))
     vi.stubGlobal('fetch', fetcher.handler)
   })

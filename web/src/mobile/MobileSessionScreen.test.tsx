@@ -12,7 +12,6 @@ import { WorkspaceProvider } from '../providers/workspace'
 import { resetDrafts } from '../session/draftStore'
 import { stubCoarsePointer } from '../test/matchMedia'
 import { MockWebSocket } from '../test/mockWebSocket'
-import { resetLedger } from '../workspace/attention'
 
 // The mobile single-session screen over the real stream client: compact
 // chrome, keyboard-aware padding against a mocked visualViewport, tools as a
@@ -84,7 +83,6 @@ describe('MobileSessionScreen', () => {
   beforeEach(() => {
     localStorage.clear()
     resetDrafts() // drafts persist by session, so tests start from a clean slate
-    resetLedger()
     vvHeight = window.innerHeight // keyboard closed by default
 
     // visualViewport stand-in with a mutable height for the inset hook
@@ -123,6 +121,8 @@ describe('MobileSessionScreen', () => {
         ]),
       )
       .on('/api/attention', () => Response.json([]))
+      // submits and dialog answers acknowledge server-side
+      .on('/api/attention/ack', () => new Response(null, { status: 204 }))
       .on(`/api/sessions/${VIEW}/snapshot`, () => Response.json(snapshotFor(VIEW)))
     vi.stubGlobal(
       'WebSocket',
@@ -901,6 +901,8 @@ describe('MobileSessionScreen', () => {
           idle: false,
           dialogId: 5,
           dialogPrompt: 'allow write?',
+          kind: 'needs-input',
+          reason: 'allow write?',
         },
       ]),
     )

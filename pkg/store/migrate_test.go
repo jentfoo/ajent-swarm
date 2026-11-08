@@ -111,6 +111,31 @@ func TestMigrate(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("attention_acks_upgrade", func(t *testing.T) {
+		// upgrades a database built by every migration before the attention
+		// tables, so the new schema lands over existing state and acks round-trip
+		path := filepath.Join(t.TempDir(), FileName)
+		db := openBeforeVersion(t, path, 11)
+		require.NoError(t, db.Close())
+
+		st, err := Open(path) // applies the attention migration over the database
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = st.Close() })
+
+		ctx := t.Context()
+		at := time.Unix(1_700_000_000, 0)
+		require.NoError(t, st.AckDialog(ctx, "01ACKED0000000000", 5, 9, at))
+		require.NoError(t, st.AckTurn(ctx, "01ACKED0000000000", at.UnixMilli(), at))
+
+		acks, err := st.DialogAcks(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, []DialogAck{{SessionID: "01ACKED0000000000", PID: 5, DialogID: 9,
+			AckedAt: at.UnixMilli()}}, acks)
+		turns, err := st.TurnAcks(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, map[string]int64{"01ACKED0000000000": at.UnixMilli()}, turns)
+	})
 }
 
 // openBeforeVersion replays every migration below want onto a fresh database,

@@ -8,7 +8,6 @@ import type { SwitcherRow } from './switcher'
 import { AuthProvider } from '../providers/auth'
 import { SwarmProvider } from '../providers/swarm'
 import { WorkspaceProvider } from '../providers/workspace'
-import { resetLedger } from '../workspace/attention'
 
 // The switcher's interactive contract at its breakpoint: rows group under
 // muted desktop-rail headings, rename via long-press or the explicit action
@@ -57,8 +56,10 @@ function stubFacts() {
 }
 
 // needsInputDialog is one attention digest row with an open dialog, the same
-// shape GET /api/attention answers with.
-const needsInputDialog = [
+// shape GET /api/attention answers with; settled flips it to the settled read
+// the server answers after one acknowledgment lands.
+let attention: unknown[]
+const needsInputDialog = () => [
   {
     sessionId: '01A',
     pid: 1,
@@ -68,13 +69,31 @@ const needsInputDialog = [
     dialogId: 3,
     dialogPrompt: 'Allow write access?',
     dialogAt: 1_000,
+    kind: 'needs-input',
+    reason: 'Allow write access?',
+    since: 1_000,
+  },
+]
+const settledDialog = () => [
+  {
+    sessionId: '01A',
+    pid: 1,
+    openInteractions: 1,
+    running: false,
+    idle: true,
+    dialogId: 3,
+    dialogPrompt: 'Allow write access?',
+    dialogAt: 1_000,
+    ackedDialog: true,
+    kind: 'awaiting',
+    reason: 'waiting for a prompt',
   },
 ]
 
 describe('SwitcherRows', () => {
   beforeEach(() => {
     localStorage.clear()
-    resetLedger()
+    attention = needsInputDialog()
   })
 
   afterEach(() => {
@@ -227,12 +246,19 @@ describe('SwitcherRows', () => {
   })
 
   it('offers the check-off on live needs-input rows and counts them', async () => {
+    const ackBodies: string[] = []
     vi.stubGlobal(
       'fetch',
-      vi.fn(async (url: string | URL) => {
+      vi.fn(async (url: string | URL, init?: RequestInit) => {
         const path = String(url).split('?')[0]
         if (path === '/api/me') return Response.json({ username: 'you', via: 'cookie' })
-        if (path === '/api/attention') return Response.json(needsInputDialog)
+        if (path === '/api/attention') return Response.json(attention)
+        if (path === '/api/attention/ack') {
+          // the server settles the ack, so the digest re-reads settled
+          ackBodies.push(String(init?.body))
+          attention = settledDialog()
+          return new Response(null, { status: 204 })
+        }
         return Response.json([])
       }),
     )
@@ -254,12 +280,14 @@ describe('SwitcherRows', () => {
     // the check-off button lands a fetch tick after the badge, so wait for it
     await user.click(await screen.findByRole('button', { name: /reviewed/ }))
 
-    // the check-off landed in the persisted ledger, so the row stays settled
+    // the check-off posted one dialog acknowledgment with its pid scope, and
+    // the settled digest re-read leaves the row without a check-off
     await vi.waitFor(() => {
-      const ledger = JSON.parse(localStorage.getItem('swarm.attention.v1')!)
-      expect(ledger.dialogs['01A']['1:3']).toBeGreaterThan(0)
+      expect(ackBodies).toEqual(['{"sessionId":"01A","pid":1,"dialogId":3}'])
     })
-    expect(screen.queryByRole('button', { name: /reviewed/ })).not.toBeInTheDocument()
+    await vi.waitFor(() => {
+      expect(screen.queryByRole('button', { name: /reviewed/ })).not.toBeInTheDocument()
+    })
   })
 
   it('badges queued prompts beside the status', async () => {

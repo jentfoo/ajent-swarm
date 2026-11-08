@@ -1,20 +1,14 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 
+import { fleet } from '../api/endpoints'
+import type { AttentionAck } from '../api/types'
 import { useSwarm } from './swarm'
 import { createNotificationBridge } from './notifications'
 import type { NotificationPermission } from './notifications'
 import { useLayoutProfile } from '../workspace/layoutProfile'
 import type { LayoutProfile, TileLayout, WorkspaceMode } from '../workspace/layoutProfile'
-import {
-  acknowledgeItem,
-  ackDialog,
-  ackTurn,
-  deriveItem,
-  rankAttention,
-  subscribeLedger,
-  ledgerVersionNow,
-} from '../workspace/attention'
+import { ackBodyFor, deriveItem, rankAttention } from '../workspace/attention'
 import type { AttentionItem } from '../workspace/attention'
 
 interface WorkspaceContextValue {
@@ -30,7 +24,9 @@ interface WorkspaceContextValue {
   needsInputCount: number
   itemFor(sessionId: string): AttentionItem | undefined
 
-  // Acknowledgments by acting or explicit check-off.
+  // Acknowledgments by acting or explicit check-off. Either way the ledger is
+  // server state: one POST settles every device, this one on the refresh that
+  // follows.
   acknowledgeDialog: (sessionId: string, dialogId: number) => void
   acknowledgeTurn: (sessionId: string, turnEnd: number) => void
   acknowledgeItem: (item: AttentionItem) => void
@@ -47,18 +43,12 @@ const WorkspaceContext = createContext<WorkspaceContextValue | null>(null)
 // consumes: the focus rail, tile badges, the title bar count and the desktop
 // notification bridge.
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
-  const { attention } = useSwarm()
+  const { attention, refreshAttention } = useSwarm()
   const { profile, setMode, selectFocusedSession, setTileLayout } = useLayoutProfile()
   const [bridge] = useState(() => createNotificationBridge())
   const [permission, setPermission] = useState(bridge.permission())
-  const [ledgerVersion, setLedgerVersion] = useState(ledgerVersionNow)
 
-  useEffect(() => subscribeLedger(() => setLedgerVersion(ledgerVersionNow())), [])
-
-  const items = useMemo(() => {
-    void ledgerVersion // acknowledgments change the derivation, not attention
-    return attention.map(deriveItem)
-  }, [attention, ledgerVersion])
+  const items = useMemo(() => attention.map(deriveItem), [attention])
   const ranked = useMemo(() => rankAttention(items), [items])
 
   const itemFor = useCallback(
@@ -66,12 +56,39 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     [items],
   )
 
+  // the ack lands server-side, then the digest re-reads so this device's rows
+  // settle immediately too; a failed POST leaves the row raised, and the next
+  // check-off is the retry
+  const acknowledge = useCallback(
+    (body: AttentionAck) => {
+      void fleet
+        .ackAttention(body)
+        .then(refreshAttention)
+        .catch(() => {})
+    },
+    [refreshAttention],
+  )
+
   const acknowledgeDialog = useCallback(
     (sessionId: string, dialogId: number) => {
-      const pid = attention.find((row) => row.sessionId === sessionId)?.pid ?? 0
-      ackDialog(sessionId, pid, dialogId)
+      // twin instances share a session id; the digest row names the pid
+      const pid = attention.find((row) => row.sessionId === sessionId)?.pid
+      acknowledge({ sessionId, pid, dialogId })
     },
-    [attention],
+    [attention, acknowledge],
+  )
+
+  const acknowledgeTurn = useCallback(
+    (sessionId: string, turnEnd: number) => acknowledge({ sessionId, turnEnd }),
+    [acknowledge],
+  )
+
+  const acknowledgeItem = useCallback(
+    (item: AttentionItem) => {
+      const body = ackBodyFor(item)
+      if (body !== undefined) acknowledge(body)
+    },
+    [acknowledge],
   )
 
   const requestNotifications = useCallback(() => {
@@ -110,7 +127,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       needsInputCount: ranked.needsInputCount,
       itemFor,
       acknowledgeDialog,
-      acknowledgeTurn: ackTurn,
+      acknowledgeTurn,
       acknowledgeItem,
       notificationPermission: permission,
       requestNotifications,
@@ -123,6 +140,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       ranked,
       itemFor,
       acknowledgeDialog,
+      acknowledgeTurn,
+      acknowledgeItem,
       permission,
       requestNotifications,
     ],

@@ -17,7 +17,15 @@ let permission: 'default' | 'granted' | 'denied'
 let requestPermission: ReturnType<typeof vi.fn>
 
 function needRow(sessionId = 's1'): AttentionRow {
-  return { sessionId, pid: 1, openInteractions: 1, running: false, idle: false }
+  return {
+    sessionId,
+    pid: 1,
+    openInteractions: 1,
+    running: false,
+    idle: false,
+    kind: 'needs-input',
+    reason: 'Allow write access?',
+  }
 }
 
 describe('NotificationPrompt', () => {

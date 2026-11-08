@@ -3,6 +3,7 @@ import type {
   AgentsListResult,
   AgentsStopResult,
   AttachmentReply,
+  AttentionAck,
   AttentionRow,
   CtlState,
   EntriesPage,
@@ -47,6 +48,8 @@ export const auth = {
 export const fleet = {
   sessions: () => get<SessionStatus[]>('/api/sessions'),
   attention: () => get<AttentionRow[]>('/api/attention'),
+  // Server-side attention acknowledgments: one check-off settles every device.
+  ackAttention: (req: AttentionAck) => post<void>('/api/attention/ack', req),
   launch: (req: LaunchRequest) => post<LaunchResult>('/api/sessions', req),
   saved: () => get<SavedSession[]>('/api/saved-sessions'),
   // Offline transcript read for a recorded session; before continues the walk

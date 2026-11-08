@@ -10,7 +10,6 @@ import { SwarmProvider } from '../providers/swarm'
 import { WorkspaceProvider } from '../providers/workspace'
 import { MockWebSocket } from '../test/mockWebSocket'
 import { mobileLayout } from '../hooks/useMediaQuery'
-import { resetLedger } from '../workspace/attention'
 
 // The shell rides the real provider stack over fetch and WebSocket mocks, so
 // the switcher gating reads exactly what production renders. The route table
@@ -26,7 +25,6 @@ describe('AppShell', () => {
 
   beforeEach(() => {
     localStorage.clear()
-    resetLedger()
     vi.stubGlobal('WebSocket', MockWebSocket)
     routes = new Map<string, () => Response>([
       ['/api/me', () => Response.json({ username: 'you', via: 'cookie' })],
@@ -141,7 +139,16 @@ describe('AppShell', () => {
   it('names the attention badge for screen readers', async () => {
     routes.set('/api/attention', () =>
       Response.json([
-        { sessionId: 's1', pid: 7, openInteractions: 1, dialogId: 3, running: false, idle: true },
+        {
+          sessionId: 's1',
+          pid: 7,
+          openInteractions: 1,
+          dialogId: 3,
+          running: false,
+          idle: true,
+          kind: 'needs-input',
+          reason: 'Allow write access?',
+        },
       ]),
     )
     await renderShell('/')

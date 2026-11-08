@@ -393,11 +393,12 @@ export function acknowledgeItem(item: AttentionItem): void {
 }
 
 // attendBadgeLabels is the copy every shell's rising-attention count badge
-// shares, so the surfaces never drift apart.
-export function attendBadgeLabels(count: number): { title: string; ariaLabel: string } {
+// shares, so the surfaces never drift apart. Keys spread straight onto DOM,
+// so aria keeps its attribute spelling.
+export function attendBadgeLabels(count: number): { title: string; 'aria-label': string } {
   return {
     title: `${count} session(s) need input`,
-    ariaLabel: `${count} sessions need input`,
+    'aria-label': `${count} sessions need input`,
   }
 }
 

@@ -22,11 +22,13 @@ function LocationProbe(): ReactElement {
 }
 
 describe('AppShell', () => {
+  let routes: Map<string, () => Response>
+
   beforeEach(() => {
     localStorage.clear()
     resetLedger()
     vi.stubGlobal('WebSocket', MockWebSocket)
-    const routes = new Map<string, () => Response>([
+    routes = new Map<string, () => Response>([
       ['/api/me', () => Response.json({ username: 'you', via: 'cookie' })],
       ['/api/sessions', () => Response.json([])],
       ['/api/attention', () => Response.json([])],
@@ -134,6 +136,19 @@ describe('AppShell', () => {
     expect(switcher()).toBeInTheDocument()
     // the removed bottom navigation stays gone
     expect(document.querySelector('.mobile-nav')).not.toBeInTheDocument()
+  })
+
+  it('names the attention badge for screen readers', async () => {
+    routes.set('/api/attention', () =>
+      Response.json([
+        { sessionId: 's1', pid: 7, openInteractions: 1, dialogId: 3, running: false, idle: true },
+      ]),
+    )
+    await renderShell('/')
+
+    const badge = screen.getByRole('button', { name: '1 sessions need input' })
+    expect(badge).toHaveAttribute('aria-label', '1 sessions need input')
+    expect(badge).toHaveAttribute('title', '1 session(s) need input')
   })
 
   it('keeps the switcher when a mode press navigates within workspaces', async () => {

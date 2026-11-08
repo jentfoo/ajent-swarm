@@ -6,6 +6,7 @@ import {
   ackTurn,
   acknowledgeItem,
   ackedTurn,
+  attendBadgeLabels,
   attentionRank,
   attentionRanks,
   compareAttention,
@@ -309,6 +310,15 @@ describe('attention ledger events', () => {
     expect(seen).toHaveBeenCalledTimes(1)
 
     stop()
+  })
+})
+
+describe('attend badge labels', () => {
+  it('returns dom attribute spelling for the shells', () => {
+    expect(attendBadgeLabels(2)).toEqual({
+      title: '2 session(s) need input',
+      'aria-label': '2 sessions need input',
+    })
   })
 })
 

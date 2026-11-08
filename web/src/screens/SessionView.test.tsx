@@ -870,6 +870,17 @@ describe('SessionView', () => {
     expect(await screen.findByText('Session ended.')).toBeInTheDocument()
   })
 
+  it('banners a replayed exit without the phase settling', async () => {
+    renderView()
+    const ws = await openSocket()
+
+    frame(ws, { type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
+    // session.exit applies while no child frame has flipped the phase to ended
+    frame(ws, wireEvent('session.exit', 1, { reason: 'sigterm' }))
+
+    expect(await screen.findByText('Session ended: sigterm.')).toBeInTheDocument()
+  })
+
   it('hides the seat takeover when the seat is free or already ours', async () => {
     renderView()
     const ws = await openSocket()

@@ -8,7 +8,7 @@ import { Composer } from '../session/Composer'
 import { SeatBadge } from '../session/SeatBadge'
 import { Notices } from '../session/Notices'
 import { StatusBadge } from '../session/StatusBadge'
-import { isTransientPhase, PhaseBanner } from '../session/phases'
+import { endedBanner, isTransientPhase, PhaseBanner } from '../session/phases'
 import { QueuedPrompts } from '../session/QueuedPrompts'
 import { ModeMenu } from '../session/StatusHeader'
 import { StatusBar } from '../session/StatusBar'
@@ -87,6 +87,7 @@ function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElemen
   const edgeStart = useRef<{ x: number; y: number } | null>(null)
 
   const working = sessionBusy(snap)
+  const ended = endedBanner(phase, state.exitReason)
   // sub-agent job records are pull-only: re-listed while any job is live, so
   // the chips band and poll cards carry stop controls and real statuses
   const agentJobs = useAgentJobs(sessionId, snap.activity, snap.status?.segments, pushToast)
@@ -156,9 +157,9 @@ function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElemen
         />
       </header>
 
-      {phase === 'ended' && (
+      {ended.show && (
         <div className="banner warn" role="status">
-          Session ended.{' '}
+          {ended.text}{' '}
           <Link to={`/m/read/${encodeURIComponent(sessionId)}`}>Read the transcript</Link> or resume
           from the launcher.
         </div>

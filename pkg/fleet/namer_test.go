@@ -169,6 +169,23 @@ func TestNamer(t *testing.T) {
 		})
 	})
 
+	t.Run("scratch_transcript_removed", func(t *testing.T) {
+		testutil.IsolateHome(t)
+		scratch := t.TempDir()
+
+		store, err := session.NewStore()
+		require.NoError(t, err)
+		saved, err := store.Dir(scratch)
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(
+			filepath.Join(saved, "run.jsonl"), []byte("{}\n"), 0o600))
+
+		removeScratchTranscript(scratch)
+
+		_, statErr := os.Stat(saved)
+		assert.True(t, os.IsNotExist(statErr))
+	})
+
 	t.Run("skipped_without_bin", func(t *testing.T) {
 		store := newTitleMemStore()
 		m, home := newTestFleetWithTitles(t, store)

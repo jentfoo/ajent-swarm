@@ -23,6 +23,23 @@ export function isTransientPhase(phase: SessionPhase): boolean {
   return phase !== 'live' && phase !== 'ended'
 }
 
+// EndedBanner holds one ended-session warn banner's facts: whether any surface
+// renders it, and the sentence it opens with.
+export interface EndedBanner {
+  show: boolean
+  text: string // 'Session ended.' or 'Session ended: <reason>.'
+}
+
+// endedBanner is the one derivation both session surfaces consume for the
+// ended banner, so trigger condition and copy cannot drift apart. A session
+// that exited shows it even while the phase has not settled on 'ended'.
+export function endedBanner(phase: SessionPhase, exitReason?: string): EndedBanner {
+  return {
+    show: phase === 'ended' || exitReason !== undefined,
+    text: `Session ended${exitReason ? `: ${exitReason}` : ''}.`,
+  }
+}
+
 // PhaseBanner is the shared transient-phase banner both session surfaces
 // render while the stream is not live.
 export function PhaseBanner({ phase }: { phase: SessionPhase }) {

@@ -5,7 +5,7 @@ import { useSessionChannel } from '../hooks/useSessionChannel'
 import { useWorkspace } from '../providers/workspace'
 import { sessionBusy } from '../state/eventApplier'
 import { Composer } from '../session/Composer'
-import { PhaseBanner } from '../session/phases'
+import { endedBanner, PhaseBanner } from '../session/phases'
 import { DialogDock } from '../session/DialogDock'
 import { Notices } from '../session/Notices'
 import { QueuedPrompts } from '../session/QueuedPrompts'
@@ -66,6 +66,7 @@ function SessionSurface({ sessionId, focused }: { sessionId: string; focused: bo
   const [showRewind, setShowRewind] = useState(false)
 
   const working = sessionBusy(snap)
+  const ended = endedBanner(phase, state.exitReason)
   // the wire's queuedRows is optional; chips and the recall gate share one read
   const queuedRows = snap.queuedRows ?? []
   // sub-agent job records are pull-only: re-listed while any job is live, so
@@ -110,9 +111,9 @@ function SessionSurface({ sessionId, focused }: { sessionId: string; focused: bo
       </StatusHeader>
 
       <PhaseBanner phase={phase} />
-      {(phase === 'ended' || state.exitReason !== undefined) && (
+      {ended.show && (
         <div className="banner warn" role="status">
-          Session ended{state.exitReason ? `: ${state.exitReason}` : '.'}
+          {ended.text}
         </div>
       )}
 

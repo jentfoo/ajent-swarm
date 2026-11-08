@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 	"unicode"
+
+	"github.com/jentfoo/ajent/pkg/session"
 )
 
 // Session auto-titling: the first typed prompt triggers one tiny ajent run
@@ -88,13 +90,16 @@ func (m *Manager) autoName(sessionID, startPrompt string) error {
 // titling model rides along; when the run fails with it, the setting drops
 // back to the default (each session's own model) for this naming and beyond.
 // Tools stay off via --no-tools and the scratch working directory keeps any
-// stray output away from real workspaces.
+// stray output away from real workspaces. The transcript ajent saves for that
+// scratch run is dropped afterwards, so titling never adds a session to the
+// active ajent home.
 func (m *Manager) sessionTitleFor(ctx context.Context, startPrompt string) (string, error) {
 	dir, err := os.MkdirTemp("", "swarm-name-")
 	if err != nil {
 		return "", fmt.Errorf("namer scratch dir: %w", err)
 	}
 	defer func() { _ = os.RemoveAll(dir) }()
+	defer removeScratchTranscript(dir)
 
 	prompt := fmt.Sprintf(
 		"A coding agent session started with this request:\n\n%s\n\n"+
@@ -115,6 +120,20 @@ func (m *Manager) sessionTitleFor(ctx context.Context, startPrompt string) (stri
 		}
 	}
 	return runNamer(ctx, m.bin, dir, prompt, "")
+}
+
+// removeScratchTranscript deletes the transcript ajent persisted for a namer
+// scratch workspace, keeping one-shot titling runs out of saved sessions.
+func removeScratchTranscript(dir string) {
+	store, err := session.NewStore()
+	if err != nil {
+		return
+	}
+	saved, err := store.Dir(dir)
+	if err != nil {
+		return
+	}
+	_ = os.RemoveAll(saved)
 }
 
 // runNamer executes one one-shot ajent run and sanitizes its answer; model

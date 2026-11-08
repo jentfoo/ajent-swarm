@@ -691,6 +691,34 @@ describe('MobileSessionScreen', () => {
     expect(await screen.findByText('Connecting to the session stream…')).toBeInTheDocument()
   })
 
+  it('banners a replayed exit without the phase settling', async () => {
+    renderScreen()
+    const ws = await openSocket()
+    act(() => {
+      ws.message({ type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
+      // session.exit applies while no child frame has flipped the phase to ended
+      ws.message(wireEvent('session.exit', 1, { reason: 'sigterm' }))
+    })
+
+    // the warn banner rides the exit reason off the shared derivation, like desktop
+    expect(await screen.findByText(/Session ended: sigterm\./)).toBeInTheDocument()
+    // and the surface's own transcript affordance survives the widened condition
+    expect(screen.getByRole('link', { name: 'Read the transcript' })).toBeInTheDocument()
+  })
+
+  it('keeps the transcript link on a settled end', async () => {
+    renderScreen()
+    const ws = await openSocket()
+    act(() => {
+      ws.message({ type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
+      // a clean end announces itself with the backend's child fact
+      ws.message({ type: 'child', sessionId: VIEW, state: 'exited' })
+    })
+
+    expect(await screen.findByText(/Session ended\./)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Read the transcript' })).toBeInTheDocument()
+  })
+
   it('opens the switcher from a dominant horizontal edge swipe', async () => {
     renderScreen()
     const ws = await openSocket()

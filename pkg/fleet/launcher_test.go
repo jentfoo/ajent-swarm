@@ -874,13 +874,16 @@ func TestLauncher(t *testing.T) {
 		})
 
 		t.Run("stop_exits_and_reaps", func(t *testing.T) {
-			// the stop path ends the child and reaps it cleanly
+			// the stop path ends the child without signals; this run is provably
+			// empty, so like stopped_fresh_session_dropped its rows drop instead of
+			// tombstoning with an exit code nothing can resume from
 			require.NoError(t, env.m.StopSession(t.Context(), res.SessionID))
+			require.Eventually(t, func() bool { return pidGone(res.PID) }, 15*time.Second, testPoll)
 			require.Eventually(t, func() bool {
-				st, ok := rowFor(env.m.Sessions(), res.SessionID)
-				return ok && st.State == ChildExited && st.ExitCode != nil && *st.ExitCode == 0
+				_, listed := rowFor(env.m.Sessions(), res.SessionID)
+				_, stored := env.cs.byPID(res.PID)
+				return !listed && !stored
 			}, 15*time.Second, testPoll)
-			assert.True(t, pidGone(res.PID))
 		})
 
 		t.Run("external_session_joins_as_external", func(t *testing.T) {

@@ -61,7 +61,7 @@ func TestRetention(t *testing.T) {
 		assert.Len(t, txt, 64)
 	})
 
-	t.Run("zero_cap_and_missing_dir", func(t *testing.T) {
+	t.Run("zero_cap_disables_rotation", func(t *testing.T) {
 		dir := t.TempDir()
 		path := filepath.Join(dir, "4242.log")
 		require.NoError(t, os.WriteFile(path, []byte(strings.Repeat("x", 64)), 0o600))

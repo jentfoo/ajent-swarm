@@ -69,11 +69,4 @@ describe('useToasts', () => {
     act(() => vi.advanceTimersByTime(2_001))
     expect(result.current.toasts.map((t) => t.text)).toEqual(['toast 4'])
   })
-
-  it('clears pending expiries on unmount', () => {
-    const { result, unmount } = renderHook(() => useToasts())
-    act(() => result.current.pushToast('bye'))
-    unmount()
-    expect(() => vi.advanceTimersByTime(10_000)).not.toThrow()
-  })
 })

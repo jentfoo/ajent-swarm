@@ -20,7 +20,6 @@ func TestProc(t *testing.T) {
 			req  LaunchRequest
 			want []string
 		}{
-			{"new", LaunchRequest{Workspace: "/w"}, []string{"ajent", "--serve"}},
 			{"empty_mode_is_new", LaunchRequest{Workspace: "/w", Mode: ""}, []string{"ajent", "--serve"}},
 			{"resume_by_id", LaunchRequest{Workspace: "/w", Mode: LaunchResume, Target: "01JABC"},
 				[]string{"ajent", "--serve", "--resume", "01JABC"}},

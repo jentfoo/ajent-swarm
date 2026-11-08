@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  agentJobStatusClass,
   barActivity,
   capRows,
   cardSubAgentRow,
@@ -183,18 +182,6 @@ describe('stoppableJob', () => {
     ['aborted', job('aborted'), false],
   ])('%s', (_name, jobOrUndefined, want) => {
     expect(stoppableJob(jobOrUndefined)).toBe(want)
-  })
-})
-
-describe('agentJobStatusClass', () => {
-  it.each([
-    ['running', 'accent'],
-    ['done', 'ok'],
-    ['error', 'danger'],
-    ['aborted', 'warn'],
-    ['queued', ''],
-  ])('%s', (status, want) => {
-    expect(agentJobStatusClass(status as AgentJob['status'])).toBe(want)
   })
 })
 

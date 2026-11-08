@@ -427,12 +427,10 @@ func (m *Manager) markExternalGone(a *sessionActor) {
 // session's next tracked instance can adopt them, returning who was detached.
 // mu must be held.
 func (m *Manager) orphanLocked(key actorKey) []*subscription {
-	var out []*subscription
-	for _, sub := range m.bySession[key.sessionID] {
-		if sub.hostKey == key {
-			sub.hostKey = actorKey{}
-			out = append(out, sub)
-		}
+	out := bulk.SliceFilter(func(sub *subscription) bool { return sub.hostKey == key },
+		bulk.MapValuesSlice(m.bySession[key.sessionID]))
+	for _, sub := range out {
+		sub.hostKey = actorKey{}
 	}
 	return out
 }

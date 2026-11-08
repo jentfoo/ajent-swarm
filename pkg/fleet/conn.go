@@ -166,19 +166,15 @@ type sessionActor struct {
 	recallOrder []string
 }
 
-// atomicStatus keeps the listing row readable off the actor goroutine.
+// atomicStatus keeps the listing row readable off the actor goroutine. Every
+// actor stores a status before it becomes reachable through the manager.
 type atomicStatus struct {
 	p atomic.Pointer[Status]
 }
 
 func (s *atomicStatus) Store(st *Status) { s.p.Store(st) }
 
-func (s *atomicStatus) Load() *Status {
-	if st := s.p.Load(); st != nil {
-		return st
-	}
-	return &Status{} // never connected
-}
+func (s *atomicStatus) Load() *Status { return s.p.Load() }
 
 func newSessionActor(mgr *Manager, inst ctl.Instance) *sessionActor {
 	a := &sessionActor{

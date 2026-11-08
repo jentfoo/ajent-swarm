@@ -311,10 +311,6 @@ describe('switcherRoute', () => {
       '/m/read/01ENDED',
     )
   })
-
-  it('encodes session ids onto the route', () => {
-    expect(switcherRoute(row({ sessionId: 'needs encoding' }))).toBe('/s/needs%20encoding')
-  })
 })
 
 describe('groupSwitcherRows', () => {

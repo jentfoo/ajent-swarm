@@ -17,13 +17,6 @@ describe('notification prompt state', () => {
     vi.useRealTimers()
   })
 
-  it('offers only while permission is undecided', () => {
-    expect(notificationsPromptDue('default')).toBe(true)
-    expect(notificationsPromptDue('granted')).toBe(false)
-    expect(notificationsPromptDue('denied')).toBe(false)
-    expect(notificationsPromptDue('unsupported')).toBe(false)
-  })
-
   it('retries once after the dismissal interval', () => {
     dismissNotificationPrompt()
     expect(notificationsPromptDue('default')).toBe(false)

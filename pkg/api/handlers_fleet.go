@@ -12,7 +12,7 @@ const defaultPageLimit = 200
 
 // handleSessionList serves the fleet listing: one row per tracked instance.
 func (s *apiServer) handleSessionList(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, s.fleet.Sessions())
+	writeJSON(w, http.StatusOK, orEmptySlice(s.fleet.Sessions()))
 }
 
 // handleSessionEntries pages through one session's committed entries with the

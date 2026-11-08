@@ -202,7 +202,6 @@ export class SwarmStream {
   // destroy tears the client down permanently; used by tests.
   destroy(): void {
     this.destroyed = true
-    document.removeEventListener('visibilitychange', this.handleVisibility)
     this.disconnect()
   }
 

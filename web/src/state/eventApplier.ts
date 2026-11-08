@@ -42,7 +42,7 @@ export interface ToolProgressView {
   lines?: number
 }
 
-export interface ToolCallView {
+interface ToolCallView {
   id: string
   name: string
   label?: string // header text, kept only for user-shell cards ('! cmd')
@@ -82,7 +82,7 @@ export interface NoticeView {
 
 // PermitVerdict is one tool call's approval outcome, captured from upstream's
 // resolve notices so it rides its card instead of stacking above the composer.
-export interface PermitVerdict {
+interface PermitVerdict {
   id: string // tool call id the verdict was gated against
   text: string // chip label shown on both the live and committed cards
 }
@@ -343,14 +343,11 @@ function applyInit(prev: AppliedSessionState, frame: InitFrame): AppliedSessionS
 }
 
 function resolveCommittedPendingIds(entries: Entry[]): Set<string> {
-  const out = new Set<string>()
-  for (const entry of entries) {
-    if (entry.type !== 'message') continue
-    for (const id of decode<MessageEntryData>(entry.data)?.queueIds ?? []) {
-      out.add(id)
-    }
-  }
-  return out
+  return new Set(
+    entries
+      .filter((entry) => entry.type === 'message')
+      .flatMap((entry) => decode<MessageEntryData>(entry.data)?.queueIds ?? []),
+  )
 }
 
 function applyEvent(state: AppliedSessionState, ev: WireEvent): AppliedSessionState {
@@ -527,10 +524,12 @@ function applyEvent(state: AppliedSessionState, ev: WireEvent): AppliedSessionSt
         d.level === 'warn' || d.level === 'error' ? d.level : 'info'
       if (d.key) {
         // Keyed notices replace in place instead of stacking.
-        next.notices = [
-          ...next.notices.filter((n) => n.key !== d.key),
+        const kept = next.notices.filter((n) => n.key !== d.key)
+        next.notices = boundedAppend(
+          kept,
           { key: d.key, text: d.text, level, at: Date.now() },
-        ].slice(-maxNotices)
+          maxNotices,
+        )
       } else {
         next.notices = boundedAppend(
           next.notices,
@@ -723,13 +722,14 @@ function applyToolEvent(next: AppliedSessionState, ev: WireEvent): AppliedSessio
       if (!isValidId(d?.id)) return next
       // ajent's stager labels a staged user run with the bangs typed
       // ('! cmd' staged onto context, '!! cmd' excluded from it)
-      const shell = typeof d.label === 'string' && d.label.startsWith('!')
-      const excluded = typeof d.label === 'string' && d.label.startsWith('!!')
+      const label = typeof d.label === 'string' ? d.label : ''
+      const shell = label.startsWith('!')
+      const excluded = label.startsWith('!!')
       const tools = upsertTool(live.tools, d.id!, (t) => ({
         ...t,
         name: d.name ?? t.name,
         input: d.input !== undefined ? d.input : t.input,
-        label: shell ? d.label : t.label,
+        label: shell ? label : t.label,
         shell: shell || t.shell,
         excluded: excluded || t.excluded,
       }))

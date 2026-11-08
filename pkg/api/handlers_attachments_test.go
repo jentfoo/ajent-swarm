@@ -116,13 +116,6 @@ func TestSessionAttachments(t *testing.T) {
 		require.True(t, ok)
 		assert.Empty(t, filepath.Ext(path))
 		assert.NotContains(t, path, "..")
-
-		// URL traversal never reaches the handler (the fetcher and mux normalize
-		// it away), so the session-id sanitizer is covered directly below: every
-		// separator and dot-segment reduces into one contained element.
-		assert.Equal(t, "etc", sanitizeAttachmentName("../../etc"))
-		assert.Equal(t, "swarm-state", sanitizeAttachmentName("../../swarm-state"))
-		assert.Equal(t, "01-ABC_2", sanitizeAttachmentName("../01-ABC_2/"))
 	})
 
 	t.Run("rejects_bad_requests", func(t *testing.T) {
@@ -138,21 +131,35 @@ func TestSessionAttachments(t *testing.T) {
 		t.Cleanup(func() { _ = resp.Body.Close() })
 		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 	})
+}
 
-	t.Run("name_keeps_only_extension", func(t *testing.T) {
-		now := time.Now()
-		name := attachmentName(now, "shot.PNG")
-		assert.Regexp(t, `^\d{8}-\d{6}-[0-9a-f]{16}\.PNG$`, name)
+// TestSanitizeAttachmentName covers the session-id sanitizer directly, since
+// URL traversal never reaches the handler (the fetcher and mux normalize it
+// away): every separator and dot-segment reduces into one contained element.
+func TestSanitizeAttachmentName(t *testing.T) {
+	t.Parallel()
 
-		// A hostile or overlong extension reduces to word characters.
-		assert.Empty(t, sanitizeAttachmentExt("....//"))
-		assert.Equal(t, "png", sanitizeAttachmentExt(".p/n/g?."))
-	})
+	assert.Equal(t, "etc", sanitizeAttachmentName("../../etc"))
+	assert.Equal(t, "swarm-state", sanitizeAttachmentName("../../swarm-state"))
+	assert.Equal(t, "01-ABC_2", sanitizeAttachmentName("../01-ABC_2/"))
 
-	t.Run("sanitize_empty_edge_cases", func(t *testing.T) {
-		for _, in := range []string{"", ".", "..", "/"} {
-			assert.Empty(t, sanitizeAttachmentName(in))
-		}
-		assert.Equal(t, "a.b.c", sanitizeAttachmentName(" a.b.c "))
-	})
+	for _, in := range []string{"", ".", "..", "/"} {
+		assert.Empty(t, sanitizeAttachmentName(in))
+	}
+	assert.Equal(t, "a.b.c", sanitizeAttachmentName(" a.b.c "))
+}
+
+func TestSanitizeAttachmentExt(t *testing.T) {
+	t.Parallel()
+
+	// A hostile or overlong extension reduces to word characters.
+	assert.Empty(t, sanitizeAttachmentExt("....//"))
+	assert.Equal(t, "png", sanitizeAttachmentExt(".p/n/g?."))
+}
+
+func TestAttachmentName(t *testing.T) {
+	t.Parallel()
+
+	name := attachmentName(time.Now(), "shot.PNG")
+	assert.Regexp(t, `^\d{8}-\d{6}-[0-9a-f]{16}\.PNG$`, name)
 }

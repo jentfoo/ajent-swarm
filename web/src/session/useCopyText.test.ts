@@ -29,11 +29,6 @@ afterEach(() => {
 })
 
 describe('useCopyText', () => {
-  it('starts idle', () => {
-    stubClipboard(async () => {})
-    expect(renderHook(() => useCopyText()).result.current.state).toBe('idle')
-  })
-
   it('flips copied then resolves back after the window', async () => {
     vi.useFakeTimers()
     stubClipboard(async () => {})

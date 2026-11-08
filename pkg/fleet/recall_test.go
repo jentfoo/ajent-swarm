@@ -234,7 +234,7 @@ func TestRecallLedger(t *testing.T) {
 			ctl.SubmitParams{Line: "odd landing", PendingID: "c1"}))
 		promptCommit(t, f, "01LR2", true, "c1")
 
-		assert.Eventually(t, func() bool { return len(rs.scrubbed()) == 1 },
+		require.Eventually(t, func() bool { return len(rs.scrubbed()) == 1 },
 			2*time.Second, testPoll)
 		assert.Contains(t, rs.texts(), "/repo|")
 	})
@@ -246,7 +246,7 @@ func TestRecallLedger(t *testing.T) {
 			ctl.SubmitParams{Line: "turned secret", PendingID: "c1"}))
 		f.Broadcast(ctl.EventQueued, ctl.QueuedData{Rows: []ctl.QueueRow{{ID: "c1"}}})
 
-		assert.Eventually(t, func() bool { return len(rs.scrubbed()) == 1 },
+		require.Eventually(t, func() bool { return len(rs.scrubbed()) == 1 },
 			2*time.Second, testPoll)
 		assert.Contains(t, rs.texts(), "/repo|")
 	})
@@ -304,7 +304,7 @@ func TestRecallLedger(t *testing.T) {
 			QueuedRows: []ctl.QueueRow{{ID: "c1"}}})
 		f.DropConns()
 		waitForState(t, m, f.SessionID(), ChildOnline) // backfill runs during prepare
-		assert.Eventually(t, func() bool { return len(rs.scrubbed()) == 1 },
+		require.Eventually(t, func() bool { return len(rs.scrubbed()) == 1 },
 			2*time.Second, testPoll)
 	})
 }

@@ -18,7 +18,6 @@ const maxRecallLines = 1000
 // row, one whose content the upstream secret discipline refuses to store.
 type RecallLine struct {
 	ID        int64
-	Workspace string
 	Text      string
 	CreatedAt time.Time
 }
@@ -117,7 +116,7 @@ func (s *Store) RecallLines(ctx context.Context, workspace, query string, limit 
 		return nil, errors.New("workspace must not be empty")
 	}
 	limit = min(max(limit, 1), maxRecallLines)
-	rows, err := s.db.QueryContext(ctx, `SELECT id, workspace, text, created_at
+	rows, err := s.db.QueryContext(ctx, `SELECT id, text, created_at
 	    FROM recall_lines WHERE workspace = ? ORDER BY created_at DESC, id DESC`, workspace)
 	if err != nil {
 		return nil, fmt.Errorf("read recall lines: %w", err)
@@ -132,7 +131,7 @@ func (s *Store) RecallLines(ctx context.Context, workspace, query string, limit 
 			r      RecallLine
 			thenMS int64
 		)
-		if err = rows.Scan(&r.ID, &r.Workspace, &r.Text, &thenMS); err != nil {
+		if err = rows.Scan(&r.ID, &r.Text, &thenMS); err != nil {
 			return nil, fmt.Errorf("scan recall line: %w", err)
 		}
 		r.CreatedAt = fromUnixMilli(thenMS)

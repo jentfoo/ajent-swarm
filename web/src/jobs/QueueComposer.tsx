@@ -28,7 +28,7 @@ export function QueueComposer({
   onQueued: (job: Job) => void
   onCancel: () => void
 }) {
-  const [draft, setDraft] = useState<JobDraft>(() => defaultDraft())
+  const [draft, setDraft] = useState(defaultDraft)
   // the queue always wants a prompt, unlike the editor's optional one
   const errors: DraftErrors = useMemo(() => {
     const found = validateDraft(draft)

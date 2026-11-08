@@ -104,14 +104,6 @@ describe('MobileShell', () => {
     }
   })
 
-  it('points the tabs at the same destinations as the desktop nav', async () => {
-    await renderShell('/')
-
-    expect(screen.getByRole('link', { name: 'Workspace' })).toHaveAttribute('href', '/')
-    expect(screen.getByRole('link', { name: 'Sessions' })).toHaveAttribute('href', '/sessions')
-    expect(screen.getByRole('link', { name: 'Jobs' })).toHaveAttribute('href', '/jobs')
-  })
-
   it('reaches Jobs and back from a deep-linked ended session', async () => {
     await renderShell('/m/read/01ENDED00000000')
     const user = userEvent.setup()

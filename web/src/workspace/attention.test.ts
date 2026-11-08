@@ -6,9 +6,6 @@ import {
   ackTurn,
   acknowledgeItem,
   ackedTurn,
-  attendBadgeLabels,
-  attentionRank,
-  attentionRanks,
   compareAttention,
   deriveItem,
   describeStop,
@@ -261,16 +258,6 @@ describe('session badge states', () => {
 })
 
 describe('shared attention ordering', () => {
-  it('ranks queues in rail order, digest-less rows with working', () => {
-    expect(attentionRank({ sessionId: 's', kind: 'needs-input' })).toBe(attentionRanks.needs)
-    expect(attentionRank({ sessionId: 's', kind: 'needs-review' })).toBe(attentionRanks.needs)
-    expect(attentionRank({ sessionId: 's', kind: 'awaiting' })).toBe(attentionRanks.waiting)
-    expect(attentionRank({ sessionId: 's', kind: 'working' })).toBe(attentionRanks.working)
-
-    // a listing row without a digest never outranks actionable ones
-    expect(attentionRank({ sessionId: 's' })).toBe(attentionRanks.working)
-  })
-
   it('sorts queues first, oldest wait inside needs, entries below', () => {
     const rows: AttentionSort[] = [
       { sessionId: 'zzz-busy', kind: 'working', queuedAt: 50 },
@@ -310,15 +297,6 @@ describe('attention ledger events', () => {
     expect(seen).toHaveBeenCalledTimes(1)
 
     stop()
-  })
-})
-
-describe('attend badge labels', () => {
-  it('returns dom attribute spelling for the shells', () => {
-    expect(attendBadgeLabels(2)).toEqual({
-      title: '2 session(s) need input',
-      'aria-label': '2 sessions need input',
-    })
   })
 })
 

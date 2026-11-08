@@ -9,21 +9,25 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/jentfoo/ajent-swarm/pkg/auth"
 	"github.com/jentfoo/ajent-swarm/pkg/fleet"
+	fleettest "github.com/jentfoo/ajent-swarm/pkg/fleet/fleettest"
 	"github.com/jentfoo/ajent-swarm/pkg/store"
 	"github.com/jentfoo/ajent-swarm/pkg/testutil"
 
 	"github.com/jentfoo/ajent/pkg/ctl"
 	"github.com/jentfoo/ajent/pkg/llm"
+	"github.com/jentfoo/ajent/pkg/paths"
 	"github.com/jentfoo/ajent/pkg/session"
 )
 
@@ -220,4 +224,142 @@ func entryOf(id, parent string) session.Entry {
 		panic(err)
 	}
 	return session.Entry{ID: id, ParentID: parent, Type: session.TypeMessage, Data: data}
+}
+
+// sessionHarness serves the phase 05 endpoints over a temp ajent home whose
+// fleet discovers real stub sessions and persists titles to its own store.
+type sessionHarness struct {
+	t      *testing.T
+	server *httptest.Server
+	client *http.Client
+	mgr    *fleet.Manager
+	st     *store.Store
+}
+
+// newSessionAPI builds the harness with an authenticated client. The ajent
+// home stays short, since unix socket paths cap at ~108 bytes.
+func newSessionAPI(t *testing.T) *sessionHarness {
+	t.Helper()
+	testutil.IsolateHome(t)
+
+	st, err := store.Open(filepath.Join(t.TempDir(), store.FileName))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = st.Close() })
+
+	svc, err := auth.NewService(st, auth.WithBcryptCost(bcrypt.MinCost))
+	require.NoError(t, err)
+	require.NoError(t, svc.EnsureUser(t.Context(), "jent"))
+
+	mgr := fleet.New(fleet.Options{
+		Log:          testLogger(),
+		PollInterval: 10 * time.Millisecond,
+		BackoffBase:  5 * time.Millisecond,
+		BackoffMax:   50 * time.Millisecond,
+		TitleStore:   titleStore{st: st},
+		SettingStore: settingsStore{st: st},
+		RecallStore:  recallStore{st: st},
+	})
+	mgr.Start(t.Context())
+	t.Cleanup(mgr.Stop)
+
+	server := httptest.NewServer(Handler(Config{Auth: svc, Fleet: mgr, Log: testLogger()}))
+	t.Cleanup(server.Close)
+
+	jar, err := cookiejar.New(nil)
+	require.NoError(t, err)
+	client := &http.Client{Jar: jar}
+	bootstrapAndLogin(t, client, server.URL)
+	return &sessionHarness{t: t, server: server, client: client, mgr: mgr, st: st}
+}
+
+// newStub binds one stub session without the fleet watching it yet, so tests
+// can script snapshots and transcripts before attach.
+func (h *sessionHarness) newStub(id string, opts fleettest.Options) *fleettest.Stub {
+	h.t.Helper()
+	opts.SessionID = id
+	return fleettest.New(h.t, os.Getenv(paths.EnvHome), opts)
+}
+
+// serve publishes a stub's registry record and waits for the fleet to attach.
+func (h *sessionHarness) serve(f *fleettest.Stub) {
+	h.t.Helper()
+	f.WriteRegistry(h.t, os.Getpid(), time.Now())
+	h.awaitOnline(f)
+}
+
+func (h *sessionHarness) awaitOnline(f *fleettest.Stub) {
+	h.t.Helper()
+	require.Eventually(h.t, func() bool {
+		for _, st := range h.mgr.Sessions() {
+			if st.SessionID == f.SessionID() && st.State == fleet.ChildOnline {
+				return true
+			}
+		}
+		return false
+	}, 2*time.Second, 5*time.Millisecond)
+}
+
+// addSession registers one stub session and waits for the fleet to attach.
+func (h *sessionHarness) addSession(id string, opts fleettest.Options) *fleettest.Stub {
+	h.t.Helper()
+	f := h.newStub(id, opts)
+	h.serve(f)
+	return f
+}
+
+// get issues one authenticated GET and decodes the body into T.
+func get[T any](h *sessionHarness, path string) (int, T) {
+	h.t.Helper()
+	return callJSON[T](h.t, h.client, h.server.URL, http.MethodGet, path, nil)
+}
+
+// post issues one authenticated POST with a JSON body and decodes into T.
+func post[T any](h *sessionHarness, path string, body any) (int, T) {
+	h.t.Helper()
+	return callJSON[T](h.t, h.client, h.server.URL, http.MethodPost, path, body)
+}
+
+// put issues one authenticated PUT with a JSON body and decodes into T.
+func put[T any](h *sessionHarness, path string, body any) (int, T) {
+	h.t.Helper()
+	return callJSON[T](h.t, h.client, h.server.URL, http.MethodPut, path, body)
+}
+
+// requireCoded asserts one refusal reached the browser with its code intact.
+func requireCoded(h *sessionHarness, status int, wantCode string, got int, body errorBody) {
+	h.t.Helper()
+	require.Equal(h.t, status, got)
+	assert.Equal(h.t, wantCode, body.Error)
+}
+
+// receivedParams collects every recorded request of one method, decoded.
+func receivedParams[T any](h *sessionHarness, f *fleettest.Stub, method string) []T {
+	h.t.Helper()
+	var out []T
+	for _, req := range f.Received() {
+		if req.Method != method {
+			continue
+		}
+		var p T
+		require.NoError(h.t, json.Unmarshal(req.Params, &p))
+		out = append(out, p)
+	}
+	return out
+}
+
+func ptr[T any](v T) *T { return &v }
+
+// transcriptEntry marshals one payload into a stub transcript entry.
+func transcriptEntry(t *testing.T, id, parent string, typ session.Type, data any) fleettest.Entry {
+	t.Helper()
+	raw, err := json.Marshal(data)
+	require.NoError(t, err)
+	return fleettest.Entry{ID: id, ParentID: parent, Type: typ, TS: 100, Data: raw}
+}
+
+// promptEntry builds one user-prompt transcript entry.
+func promptEntry(t *testing.T, id, parent, text string) fleettest.Entry {
+	t.Helper()
+	return transcriptEntry(t, id, parent, session.TypeMessage,
+		session.MessageData{Message: llm.Text(llm.RoleUser, text)})
 }

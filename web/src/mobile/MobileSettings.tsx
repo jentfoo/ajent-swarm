@@ -24,7 +24,7 @@ export default function MobileSettings(): ReactElement {
           <SegmentedToggle
             options={['dark', 'light'] as const}
             value={theme}
-            onChange={(v) => setTheme(v)}
+            onChange={setTheme}
             labels={{ dark: 'Dark', light: 'Light' }}
           />
         </div>

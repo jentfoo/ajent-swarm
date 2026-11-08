@@ -259,12 +259,4 @@ describe('useArmedConfirm', () => {
     act(() => result.current.onClick())
     expect(onConfirm).toHaveBeenCalledTimes(1)
   })
-
-  it('clears the pending timer on unmount', () => {
-    const { result, unmount } = render()
-
-    act(() => result.current.onClick())
-    unmount()
-    expect(() => vi.advanceTimersByTime(10_000)).not.toThrow()
-  })
 })

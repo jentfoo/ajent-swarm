@@ -267,13 +267,17 @@ func TestRunner(t *testing.T) {
 		go func() { done <- h.sched.awaitSettled(run, j, frames) }()
 		h.sched.Stop()
 
-		select {
-		case o := <-done:
-			assert.Equal(t, store.RunFailed, o.status)
-			assert.Contains(t, o.err, "interrupt")
-		case <-time.After(settleWindow):
-			t.Fatal("unbounded watcher never concluded on shutdown")
-		}
+		var o outcome
+		require.Eventually(t, func() bool {
+			select {
+			case o = <-done:
+				return true
+			default:
+				return false
+			}
+		}, settleWindow, 10*time.Millisecond)
+		assert.Equal(t, store.RunFailed, o.status)
+		assert.Contains(t, o.err, "interrupt")
 	})
 
 	t.Run("applies_custom_tools_before_submit", func(t *testing.T) {

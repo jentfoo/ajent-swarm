@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useParams } from 'react-router'
 
+import { Toasts } from '../hooks/Toasts'
 import { useSessionChannel } from '../hooks/useSessionChannel'
 import { useWorkspace } from '../providers/workspace'
 import { sessionBusy } from '../state/eventApplier'
@@ -170,13 +171,7 @@ function SessionSurface({ sessionId, focused }: { sessionId: string; focused: bo
 
       <StatusBar snap={snap} live={state.live} />
 
-      <div className="toasts" aria-live="polite">
-        {toasts.map((t) => (
-          <div key={t.id} className={`toast ${t.level}`}>
-            {t.text}
-          </div>
-        ))}
-      </div>
+      <Toasts toasts={toasts} />
     </div>
   )
 }

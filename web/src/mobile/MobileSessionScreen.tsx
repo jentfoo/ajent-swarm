@@ -17,6 +17,7 @@ import { useAgentJobs } from '../session/useAgentJobs'
 import { useInterruptStream } from '../session/useInterruptStream'
 import { useSessionCompose } from '../session/useSessionCompose'
 import { useSessionLabel } from '../session/useSessionLabel'
+import { Toasts } from '../hooks/Toasts'
 import { useKeyboardInset, keyboardInsetStyle } from '../hooks/useKeyboardInset'
 import { useSessionChannel } from '../hooks/useSessionChannel'
 import { overlayOpen } from '../ui/overlayStack'
@@ -233,13 +234,7 @@ function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElemen
       {/* the switcher rides over any session view, reopened by edge swipe */}
       <SwitcherOverlay open={sheetOpen} onClose={() => setSheetOpen(false)} />
 
-      <div className="toasts" aria-live="polite">
-        {toasts.map((t) => (
-          <div key={t.id} className={`toast ${t.level}`}>
-            {t.text}
-          </div>
-        ))}
-      </div>
+      <Toasts toasts={toasts} />
     </div>
   )
 }

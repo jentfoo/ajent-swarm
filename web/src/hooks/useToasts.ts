@@ -6,7 +6,7 @@ const maxStackedToasts = 4
 
 export type ToastLevel = 'info' | 'error'
 
-// ToastView is one live toast; rendering stays with the consumer's chrome.
+// ToastView is one live toast row rendered by the shared <Toasts> stack.
 export interface ToastView {
   id: number
   text: string

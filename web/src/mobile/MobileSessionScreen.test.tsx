@@ -16,7 +16,7 @@ import { resetLedger } from '../workspace/attention'
 
 // The mobile single-session screen over the real stream client: compact
 // chrome, keyboard-aware padding against a mocked visualViewport, tools as a
-// pushed sheet, rewind as a flat recent-prompt list, and the edge-swipe
+// pushed sheet, rewind as the shared picker in a sheet, and the edge-swipe
 // switcher gesture.
 
 const VIEW = '01MOBILEVIEW00000'
@@ -482,7 +482,7 @@ describe('MobileSessionScreen', () => {
     expect(await screen.findByRole('dialog', { name: 'Agent settings' })).toBeInTheDocument()
   })
 
-  it('presents rewind as a flat list of recent prompts that prefills', async () => {
+  it('presents rewind as the shared candidate list that prefills', async () => {
     renderScreen()
     const ws = await openSocket()
     act(() => {
@@ -499,6 +499,7 @@ describe('MobileSessionScreen', () => {
             kind: 'user',
             ts: 1000,
             isHead: false,
+            label: 'first prompt text',
             text: 'first prompt text',
           },
           {
@@ -506,13 +507,14 @@ describe('MobileSessionScreen', () => {
             kind: 'assistant',
             ts: 2000,
             isHead: false,
-            label: 'reply',
+            label: "it's started",
           },
           {
             id: '01C3',
             kind: 'user',
             ts: 3000,
             isHead: true,
+            label: 'current prompt',
             text: 'current prompt',
           },
         ],
@@ -524,10 +526,10 @@ describe('MobileSessionScreen', () => {
     await openHeaderMenu(user, 'Rewind')
     expect(await screen.findByRole('dialog', { name: /Rewind/ })).toBeInTheDocument()
 
-    // assistant replies stay out; only recent prompts list, head disabled
+    // every kind lists, desktop's set verbatim; the head stays inert
     expect(screen.getByText('first prompt text')).toBeInTheDocument()
-    expect(screen.queryByText('reply')).not.toBeInTheDocument()
-    expect(screen.getByTestId('rewind-01C3')).toBeDisabled()
+    expect(screen.getByTestId('rewind-01C2')).toHaveTextContent("it's started")
+    expect(screen.getByTestId('rewind-01C3')).toHaveAttribute('aria-disabled', 'true')
 
     // a draft in the composer survives: the rewind lands above it
     await user.type(screen.getByLabelText('Prompt'), 'my draft')

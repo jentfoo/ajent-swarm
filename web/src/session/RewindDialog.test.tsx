@@ -171,7 +171,11 @@ describe('RewindDialog', () => {
     stubAPI(() => Response.json(listing))
     const { onToast } = renderDialog()
 
-    await user.click(await screen.findByText('big'))
+    // the row flags its cut tail before the pick ever warns
+    expect(await screen.findByText('big')).toBeInTheDocument()
+    expect(screen.getByTestId('rewind-01C1')).toHaveTextContent('· truncated')
+
+    await user.click(screen.getByText('big'))
     await vi.waitFor(() =>
       expect(onToast).toHaveBeenCalledWith('The prompt was too large to prefill in full.', 'error'),
     )

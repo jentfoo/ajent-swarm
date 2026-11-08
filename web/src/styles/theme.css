@@ -1267,6 +1267,7 @@ label {
   color: var(--rewind-kind, var(--muted));
 }
 .rewind-dot {
+  display: none; /* the dot is the sheet's kind mark; the tree shows the tag */
   width: 8px;
   height: 8px;
   border-radius: 50%;
@@ -1965,8 +1966,8 @@ label {
   padding: 0 calc(var(--unit) * 3) calc(var(--unit) * 4);
 }
 
-/* mobile rewind rows: the desktop picker's row language at touch scale — kind
-   dot, label, age — as single-line cards inside the sheet */
+/* mobile rewind rows: the shared picker row at touch scale — the kind dot
+   replaces the tree chrome, single-line cards meet the 44px floor */
 .bottom-sheet .rewind-list {
   grid-template-columns: auto minmax(0, 1fr) max-content;
   gap: calc(var(--unit) * 1);
@@ -1976,6 +1977,16 @@ label {
   background: var(--surface);
   border: 1px solid var(--border);
   min-height: 44px; /* touch floor */
+}
+.bottom-sheet .rewind-guide,
+.bottom-sheet .rewind-tag {
+  display: none; /* the dot carries the kind where the tree folds away */
+}
+.bottom-sheet .rewind-dot {
+  display: block;
+}
+.bottom-sheet .rewind-row[aria-disabled='true'] {
+  opacity: 0.55; /* the head row reads inert among the touch cards */
 }
 
 /* mobile session screen: compact sticky header, shared status bar under the

@@ -9,6 +9,7 @@
 // subscription and one AppliedSessionState.
 import { applierReducer, initialSessionState } from '../state/eventApplier'
 import type { ApplierAction, AppliedSessionState } from '../state/eventApplier'
+import { ApiError } from '../api/client'
 import { sessions as sessionAPI } from '../api/endpoints'
 import type { SwarmStream } from './swarmStream'
 
@@ -18,6 +19,11 @@ const resnapshotMs = 20_000
 const resnapshotAfterTurnMs = 100
 const pageLimit = 200
 const maxHealPages = 5
+
+// LoadOlderResult tells one paging attempt's outcomes apart for viewers: a
+// delivered page, a dry server and a failed request render differently.
+export type LoadOlderResult =
+  { kind: 'loaded' } | { kind: 'dry' } | { kind: 'failed'; message: string }
 
 interface StoreEntry {
   state: AppliedSessionState
@@ -82,17 +88,21 @@ export class SessionStore {
     this.apply(sessionId, entry, action)
   }
 
-  // loadOlder pages one block of committed history older than what we hold,
-  // answering whether a page arrived (false when the server ran dry).
-  async loadOlder(sessionId: string): Promise<boolean> {
+  // loadOlder pages one block of committed history older than what we hold. A
+  // dry or failed read leaves state untouched; the result says which happened.
+  async loadOlder(sessionId: string): Promise<LoadOlderResult> {
     const entry = this.entries.get(sessionId)
-    if (!entry || entry.state.chain.oldestId === '') return false
+    if (!entry || entry.state.chain.oldestId === '') return { kind: 'dry' } // nothing to page from
     try {
       const res = await sessionAPI.entries(sessionId, entry.state.chain.oldestId, pageLimit)
+      if (res.entries.length === 0) return { kind: 'dry' }
       this.apply(sessionId, entry, { type: 'backfill', entries: res.entries })
-      return res.entries.length > 0
-    } catch {
-      return false // a failed page leaves state untouched; the button stays
+      return { kind: 'loaded' }
+    } catch (err) {
+      return {
+        kind: 'failed',
+        message: err instanceof ApiError ? err.message : 'Loading older history failed.',
+      }
     }
   }
 

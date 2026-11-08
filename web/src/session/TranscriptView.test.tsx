@@ -1,7 +1,10 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
-import { initialSessionState } from '../state/eventApplier'
+import { applierReducer, initialSessionState } from '../state/eventApplier'
+import type { AppliedSessionState } from '../state/eventApplier'
+import { initFrame, messageEntry, testState } from '../state/testFixtures'
+import type { LoadOlderResult } from '../stream/sessionStore'
 import { TranscriptView } from './TranscriptView'
 
 // The transcript's pull-to-latest listener: a single finger crossing the
@@ -14,7 +17,7 @@ function renderTranscript(): HTMLElement {
     <TranscriptView
       sessionId="01TESTSESSION0000"
       state={initialSessionState()}
-      loadOlder={async () => false}
+      loadOlder={async () => ({ kind: 'dry' })}
       pullDownToLatest
       onThinkingToggle={() => {}}
     />,
@@ -86,5 +89,74 @@ describe('TranscriptView pull to latest', () => {
     fireEvent.touchMove(el, { touches: [{ clientY: 380 }, { clientY: 500 }] })
 
     expect(screen.getByText('↓ latest')).toBeInTheDocument()
+  })
+})
+
+// The load-older control: a failed page paints its reason under the button and
+// leaves the control live for another attempt, while a dry page stays quiet.
+function unrootedState(): AppliedSessionState {
+  return applierReducer(initialSessionState(), {
+    type: 'init',
+    frame: initFrame(testState({ head: 'e2' }), [messageEntry('e2', 'e1', 'assistant', 'newest')]),
+  })
+}
+
+describe('TranscriptView load older failures', () => {
+  const loadOlderButton = () => screen.getByRole('button', { name: 'Load older history' })
+
+  function renderLoadOlder(loadOlder: () => Promise<LoadOlderResult>) {
+    render(
+      <TranscriptView
+        sessionId="01TESTSESSION0000"
+        state={unrootedState()}
+        loadOlder={loadOlder}
+        onThinkingToggle={() => {}}
+      />,
+    )
+  }
+
+  it('shows failure reason inline', async () => {
+    renderLoadOlder(async () => ({ kind: 'failed', message: 'network_error: request failed' }))
+    fireEvent.click(loadOlderButton())
+
+    expect(await screen.findByText('network_error: request failed')).toBeInTheDocument()
+    // the control stays live so clicking again retries
+    expect(loadOlderButton()).toBeEnabled()
+  })
+
+  it('clears reason on retry', async () => {
+    let fail = true
+    renderLoadOlder(async () =>
+      fail ? { kind: 'failed', message: 'network down' } : { kind: 'loaded' },
+    )
+    fireEvent.click(loadOlderButton())
+    expect(await screen.findByText('network down')).toBeInTheDocument()
+
+    fail = false // the retried page lands and the stale reason retires
+    fireEvent.click(loadOlderButton())
+    await waitFor(() => expect(screen.queryByText('network down')).not.toBeInTheDocument())
+  })
+
+  it('retires a stale reason when dry answers', async () => {
+    let fail = true
+    renderLoadOlder(async () =>
+      fail ? { kind: 'failed', message: 'network down' } : { kind: 'dry' },
+    )
+    fireEvent.click(loadOlderButton())
+    expect(await screen.findByText('network down')).toBeInTheDocument()
+
+    fail = false // the server answering dry is a definitive answer too
+    fireEvent.click(loadOlderButton())
+    await waitFor(() => expect(screen.queryByText('network down')).not.toBeInTheDocument())
+  })
+
+  it('stays quiet on dry', async () => {
+    renderLoadOlder(async () => ({ kind: 'dry' }))
+    fireEvent.click(loadOlderButton())
+
+    // the dry answer churns nothing; flush the resolved read before judging
+    await act(async () => {})
+    expect(document.querySelector('.transcript-wrap .error-text')).toBeNull()
+    expect(loadOlderButton()).toBeInTheDocument()
   })
 })

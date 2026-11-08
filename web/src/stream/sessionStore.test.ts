@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SessionStore } from './sessionStore'
 import { SwarmStream } from './swarmStream'
 import { MockWebSocket } from '../test/mockWebSocket'
+import { sessions } from '../api/endpoints'
 import type { ServerFrame } from '../api/types'
 
 // The store rides the real stream client over a mock socket and fetch mocks
@@ -37,6 +38,17 @@ function eventFrame(sessionId: string, name: string, seq: number, data?: unknown
   return { type: 'event', sessionId, event: { event: name, seq, data } }
 }
 
+// An init whose head's parent is missing locally: the unrooted shape that
+// leaves a load-older control visible.
+function unrootedInit(sessionId: string) {
+  return {
+    type: 'init' as const,
+    sessionId,
+    state: { ...snapshotFor(sessionId), head: 'e2' },
+    entries: [{ id: 'e2', parentId: 'e1', type: 'message', ts: 2 }],
+  }
+}
+
 describe('SessionStore', () => {
   let stream: SwarmStream
   let store: SessionStore
@@ -65,6 +77,7 @@ describe('SessionStore', () => {
   afterEach(() => {
     stream.destroy()
     vi.useRealTimers()
+    vi.restoreAllMocks() // a leaked entries spy must not shadow later fetch mocks
   })
 
   function openSocket(): MockWebSocket {
@@ -394,5 +407,63 @@ describe('SessionStore', () => {
     fetchMock.mockClear()
     await vi.advanceTimersByTimeAsync(60_000)
     expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/s1/snapshot'))).toBe(false)
+  })
+
+  it('answers dry for an untracked session', async () => {
+    expect(await store.loadOlder('ghost')).toEqual({ kind: 'dry' })
+  })
+
+  it('pages older history and re-roots the chain', async () => {
+    store.acquire('s1')
+    openSocket().message(unrootedInit('s1'))
+    expect(store.peek('s1').chain.rooted).toBe(false)
+
+    vi.mocked(fetch).mockImplementation(() =>
+      Promise.resolve(Response.json({ entries: [{ id: 'e1', type: 'message', ts: 1 }] })),
+    )
+    expect(await store.loadOlder('s1')).toEqual({ kind: 'loaded' })
+
+    const url = String(vi.mocked(fetch).mock.calls[0]?.[0])
+    expect(url).toBe('/api/sessions/s1/entries?before=e2&limit=200')
+    expect(store.peek('s1').chain.rooted).toBe(true)
+    expect(store.peek('s1').chain.oldestId).toBe('e1')
+  })
+
+  it('reports a dry page without touching state', async () => {
+    store.acquire('s1')
+    openSocket().message(unrootedInit('s1'))
+    const before = store.peek('s1')
+
+    vi.mocked(fetch).mockImplementation(() => Promise.resolve(Response.json({ entries: [] })))
+    expect(await store.loadOlder('s1')).toEqual({ kind: 'dry' })
+    expect(store.peek('s1')).toBe(before)
+  })
+
+  it('reports a failed page without touching state', async () => {
+    store.acquire('s1')
+    openSocket().message(unrootedInit('s1'))
+    const before = store.peek('s1')
+
+    vi.mocked(fetch).mockImplementation(() =>
+      Promise.resolve(
+        Response.json({ error: 'unavailable', message: 'child is gone' }, { status: 503 }),
+      ),
+    )
+    expect(await store.loadOlder('s1')).toEqual({
+      kind: 'failed',
+      message: 'unavailable: child is gone',
+    })
+    expect(store.peek('s1')).toBe(before)
+  })
+
+  it('maps a non-API rejection to plain copy', async () => {
+    store.acquire('s1')
+    openSocket().message(unrootedInit('s1'))
+
+    vi.spyOn(sessions, 'entries').mockRejectedValueOnce(new TypeError('boom'))
+    expect(await store.loadOlder('s1')).toEqual({
+      kind: 'failed',
+      message: 'Loading older history failed.',
+    })
   })
 })

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react'
 
 import type { SessionPhase } from '../stream/swarmStream'
+import type { LoadOlderResult } from '../stream/sessionStore'
 import type { ApplierAction, AppliedSessionState } from '../state/eventApplier'
 import { useSwarm } from '../providers/swarm'
 
@@ -12,8 +13,8 @@ export function useSessionChannel(sessionId: string): {
   state: AppliedSessionState
   phase: SessionPhase
   // loadOlder pages one block of committed history older than what we hold,
-  // answering whether a page arrived (false when the server ran dry).
-  loadOlder: () => Promise<boolean>
+  // telling a delivered page from a dry server and a failed request.
+  loadOlder: () => Promise<LoadOlderResult>
   // dispatch feeds local actions (optimistic rows, locally answered dialogs)
   // through the same reducer the wire frames use.
   dispatch: (action: ApplierAction) => void

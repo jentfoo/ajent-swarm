@@ -7,6 +7,7 @@ import { DiffCard } from './DiffCard'
 import { MarkdownBlock } from './MarkdownBlock'
 import type { AgentJobs } from './useAgentJobs'
 import type { AppliedSessionState, DiffView } from '../state/eventApplier'
+import type { LoadOlderResult } from '../stream/sessionStore'
 import { deriveBlocks } from '../state/derive'
 
 // Bottom gap still counting as "at the latest row"; scrolling above it
@@ -33,7 +34,7 @@ export function TranscriptView({
 }: {
   sessionId: string
   state: AppliedSessionState
-  loadOlder: () => Promise<boolean>
+  loadOlder: () => Promise<LoadOlderResult>
   pullDownToLatest?: boolean
   // Threaded to the live thinking panel so user toggles reach the applier.
   onThinkingToggle: (open: boolean) => void
@@ -46,6 +47,8 @@ export function TranscriptView({
   const anchorRef = useRef<string | null>(null) // block id kept in view across a prepend
   const lastTopRef = useRef(0) // previous scrollTop, for the direction check
   const [showPill, setShowPill] = useState(false)
+  // Why the last load-older attempt failed; a retry that answers clears it.
+  const [loadError, setLoadError] = useState('')
 
   const setStuck = useCallback((stuck: boolean) => {
     stuckRef.current = stuck
@@ -141,7 +144,14 @@ export function TranscriptView({
   const loadOlderAnchored = useCallback(async () => {
     anchorRef.current = blocks[0]?.id ?? null
     setStuck(false)
-    if (!(await loadOlder())) anchorRef.current = null
+    const result = await loadOlder()
+    if (result.kind !== 'loaded') {
+      // no page is landing; a failure paints its reason until a retry answers
+      anchorRef.current = null
+      setLoadError(result.kind === 'failed' ? result.message : '')
+      return
+    }
+    setLoadError('')
   }, [blocks, loadOlder, setStuck])
 
   useEffect(() => {
@@ -161,11 +171,13 @@ export function TranscriptView({
   }, [setStuck])
 
   // A hosted view swaps sessions in place; the new session's transcript
-  // always opens on its latest, never wherever the previous one sat.
+  // always opens on its latest, never wherever the previous one sat. Local
+  // control state resets with it, so no old failure reason carries over.
   const lastSessionRef = useRef(sessionId)
   useEffect(() => {
     if (lastSessionRef.current === sessionId) return
     lastSessionRef.current = sessionId
+    setLoadError('')
     jumpToLatest()
   }, [sessionId, jumpToLatest])
 
@@ -217,11 +229,14 @@ export function TranscriptView({
   return (
     <div className="transcript-wrap" aria-label="Transcript">
       {!state.chain.rooted && state.chain.ids.length > 0 && (
-        <p>
-          <button type="button" onClick={() => void loadOlderAnchored()}>
-            Load older history
-          </button>
-        </p>
+        <>
+          <p>
+            <button type="button" onClick={() => void loadOlderAnchored()}>
+              Load older history
+            </button>
+          </p>
+          {loadError !== '' && <p className="error-text">{loadError}</p>}
+        </>
       )}
       <div ref={scrollRef} className="transcript-scroll" onScroll={onScroll}>
         <div ref={contentRef}>

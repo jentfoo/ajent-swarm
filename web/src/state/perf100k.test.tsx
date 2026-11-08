@@ -101,7 +101,7 @@ describe('applier at 100k entries', () => {
         <TranscriptView
           sessionId={head}
           state={state}
-          loadOlder={async () => false}
+          loadOlder={async () => ({ kind: 'dry' })}
           onThinkingToggle={() => {}}
         />
       </div>,

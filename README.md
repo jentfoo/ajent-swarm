@@ -2,6 +2,7 @@
 
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/jentfoo/ajent-swarm/blob/main/LICENSE)
 [![Tests - Main Push](https://github.com/jentfoo/ajent-swarm/actions/workflows/tests-main.yml/badge.svg)](https://github.com/jentfoo/ajent-swarm/actions/workflows/tests-main.yml)
+[![Vibe-Scale 4.0(V2|U2|T1): Vibed code with gaps](https://img.shields.io/badge/Vibe--Scale%204.0(V2%7CU2%7CT1)-Vibed%20code%20with%20gaps-ff7f0e)](https://github.com/vibesdk/vibe-scale/blob/main/scale/vibe-4.md#v2-u2-t1-score-40--vibed-code-with-gaps)
 
 Central controller for managing multiple [ajent](https://github.com/jentfoo/ajent) sessions from a browser. Swarm runs on the machine where your agents run and gives you one place to watch them all, jump into any conversation, and put routine prompts on a schedule.
 
@@ -9,16 +10,15 @@ Central controller for managing multiple [ajent](https://github.com/jentfoo/ajen
 |---|---|
 | ![Desktop tiling](docs/img/desktop-tiling.png) | ![Mobile session](docs/img/mobile-session.png) |
 
-The project is deliberately local-first and single-user. It serves one unix account, keeps its state under `<ajent home>/swarm/`, and only talks to ajent sessions living on the same machine. Swarm drives `ajent --serve` children rather than patching or replacing ajent, so a working terminal setup is all you need.
+The project is deliberately local-first and single-user. It serves one unix account, keeps its state under `~/.ajent/swarm/`, and only talks to ajent sessions living on the same machine. Swarm drives `ajent --serve` children rather than patching or replacing ajent, so a working terminal setup is all you need.
 
 Feedback is welcome. Please open issues if you have any suggestions or comments.
 
-## Why you might like swarm
+## Why you might like ajent-swarm if:
 
-* You run several agents at once and lose track of which one needs you. Live sessions tile your screen, and anything waiting on an approval surfaces to the top.
-* Long runs should not die because a terminal closed or the service restarted. Launched agents keep running on their own and are picked back up automatically.
-* Some prompts repeat: a nightly code review, a periodic dependency sweep. The scheduler launches them for you, in any timezone, and keeps the history so you can read what happened later.
-* Your desk is not always where the work is. A phone-first mobile view means checking on an agent from the couch or the train, behind TLS.
+* You prefer using `ajent`, and want a way to orchestrate several sessions concurrently.
+* You want to automate recurring or scheduled tasks with agent sessions. Get an over-night review of recent work, or periodic deep reviews.
+* You want A mobile web view that lets you review and direct ajent sessions away from the computer.
 
 ## Requirements
 
@@ -29,12 +29,18 @@ Feedback is welcome. Please open issues if you have any suggestions or comments.
 
 ## Install
 
-Build once and copy the static binary somewhere on `PATH`. There are no runtime dependencies beyond ajent itself:
+Build once and copy the static binary into a user-writable directory on `PATH`, no root required. There are no runtime dependencies beyond ajent itself:
 
 ```sh
 make release             # dist/ajent-swarm-<os>-<arch>, statically linked
-sudo cp dist/ajent-swarm-$(uname -s | tr A-Z a-z)-$(uname -m | sed s/x86_64/amd64/) \
-  /usr/local/bin/ajent-swarm
+install -m 0755 dist/ajent-swarm-$(uname -s | tr A-Z a-z)-$(uname -m | sed s/x86_64/amd64/) \
+  ~/.local/bin/ajent-swarm
+```
+
+If `~/.local/bin` is not on your `PATH` yet, add it:
+
+```sh
+printf 'export PATH="$HOME/.local/bin:$PATH"\n' >> ~/.profile && . ~/.profile
 ```
 
 Upgrades are the same steps with the service stopped (`ajent-swarm stop`). State carries over untouched.
@@ -54,13 +60,6 @@ For those that would prefer to try `swarm` rather than read the docs:
    ajent-swarm status      # running or stopped
    ajent-swarm stop        # shut the service down
    ```
-
-## What you can do
-
-* **Watch and drive sessions** - stream output live from every session at once, open any tile to send prompts, answer approval dialogs, rewind to an earlier point or interrupt. Sessions you start in a terminal show up too when ajent's control socket is enabled.
-* **Browse history** - saved sessions are listed with their full transcripts even while nothing is running, so yesterday's run stays readable today.
-* **Schedule runs** - define one-shot, interval or daily jobs that launch headless ajent runs with your prompt. A run that hits a permission barrier waits and flags you instead of failing. Every run lands in the history view.
-* **Work from a phone** - the mobile UI is built for small screens first: a session switcher, touch-sized dialogs and a keyboard-aware composer.
 
 ## Remote access from a phone
 
@@ -108,27 +107,3 @@ Run `ajent-swarm --help` for the full flag list. The useful knobs:
 
 Only one instance may run per state directory. The operations handbook in `docs/operations.md` covers log rotation, retention and everything else.
 
-## Development
-
-```sh
-make test                 # fast Go unit tests
-make test-web             # frontend unit tests (vitest, hermetic)
-make web-check            # lint + typecheck + test + build the frontend
-make dist                 # build web/ into pkg/web/dist for go:embed
-make test-all             # with -race and coverage
-make test-e2e             # full smoke: builds ajent + swarm, one turn via Playwright
-make lint                 # gofmt + golangci-lint + go vet
-```
-
-Building requires an ajent checkout beside this repo (the module replace points there). The e2e smoke additionally needs Playwright browsers once: `cd web && pnpm exec playwright install chromium`. Running it with `SWARM_SHOTS=docs/img make test-e2e` also refreshes the README screenshots.
-
-For frontend work:
-
-```sh
-cd web
-pnpm install
-pnpm dev    # vite dev server on :5173, proxying /api at 127.0.0.1:8282
-```
-
-Further reading: `docs/architecture.md`, `docs/operations.md`,
-`docs/security-checklist.md`, `docs/performance-notes.md`.

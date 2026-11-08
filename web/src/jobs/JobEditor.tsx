@@ -382,7 +382,7 @@ export function JobEditor({
         <h3>Advanced</h3>
         <div className="form-grid">
           <label>
-            Timeout (minutes, 0 = service default)
+            Timeout (minutes, 0 = unlimited)
             <input
               type="number"
               min={0}

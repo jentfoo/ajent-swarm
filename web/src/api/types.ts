@@ -379,7 +379,7 @@ export interface Job {
   nextRunAt?: string | null
   onMissed: MissPolicy
   overlap: OverlapPolicy
-  timeoutMinutes?: number // zero means the service default applies
+  timeoutMinutes?: number // zero watches unbounded
   keepAlive: boolean
   runWhenIdle?: boolean // hold fires until the fleet has been quiet
   idleMaxDelaySeconds?: number // past this wait a held fire skips; zero waits forever

@@ -36,6 +36,9 @@ var (
 	submitWait     = 15 * time.Second
 	submitEvery    = 500 * time.Millisecond
 	resubscribeGap = 250 * time.Millisecond
+
+	// timeoutUnit converts a job's configured minutes; shrunk by tests too.
+	timeoutUnit = time.Minute
 )
 
 // idleWindow is how long the fleet must have seen no agent activity before a
@@ -383,8 +386,17 @@ func (w *watchState) settle(persist func(status string)) outcome {
 	return outcome{}
 }
 
+// runBudget resolves a job's watch duration in minutes; zero watches unbounded.
+func runBudget(minutes int) (time.Duration, bool) {
+	if minutes <= 0 { // validation rejects negatives, but old rows may hold them
+		return 0, false
+	}
+	return time.Duration(minutes) * timeoutUnit, true
+}
+
 // awaitSettled consumes the run's stream until it concludes or its bounded
-// timeout lands. The budget runs from the row's start, so launch time counts.
+// timeout lands. The budget runs from the row's start, so launch time counts;
+// a job with no timeout watches unbounded.
 func (s *Scheduler) awaitSettled(run store.Run, j store.Job, frames <-chan []byte) outcome {
 	w := &watchState{pid: pendingID(run)}
 	persist := func(status string) {
@@ -394,16 +406,16 @@ func (s *Scheduler) awaitSettled(run store.Run, j store.Job, frames <-chan []byt
 		}
 	}
 
-	timeout := s.opts.RunTimeoutDefault
-	if j.TimeoutMinutes > 0 {
-		timeout = time.Duration(j.TimeoutMinutes) * time.Minute
+	var timedOut <-chan time.Time
+	if budget, ok := runBudget(j.TimeoutMinutes); ok {
+		timer := time.NewTimer(time.Until(run.StartedAt.Add(budget)))
+		defer timer.Stop()
+		timedOut = timer.C
 	}
-	timer := time.NewTimer(time.Until(run.StartedAt.Add(timeout)))
-	defer timer.Stop()
 
 	for {
 		select {
-		case <-timer.C:
+		case <-timedOut:
 			return outcome{store.RunTimeout, w.timeoutNote()}
 
 		case <-s.baseCtx.Done():

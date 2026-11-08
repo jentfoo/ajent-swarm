@@ -16,7 +16,6 @@ const (
 	missedGrace     = 2 * time.Minute  // a slot older than this counts as missed
 	sweepEvery      = time.Hour        // retention cadence after the startup sweep
 	defaultRunLimit = 4                // global concurrent runs
-	defaultTimeout  = 30 * time.Minute // when a job sets no timeout_minutes
 	interruptedNote = "interrupted by a service restart"
 )
 
@@ -26,12 +25,11 @@ type Options struct {
 	Store  *store.Store
 	Runner Runner
 
-	MaxConcurrent     int           // global cap of live runs
-	Tick              time.Duration // trigger loop's maximum sleep between checks
-	MissedGrace       time.Duration // slots older than this follow the missed policy
-	RunTimeoutDefault time.Duration
-	RetentionDays     int // run rows and child logs older than this prune away, 0 keeps forever
-	RetentionMax      int // run row count cap, 0 unbounded
+	MaxConcurrent int           // global cap of live runs
+	Tick          time.Duration // trigger loop's maximum sleep between checks
+	MissedGrace   time.Duration // slots older than this follow the missed policy
+	RetentionDays int           // run rows and child logs older than this prune away, 0 keeps forever
+	RetentionMax  int           // run row count cap, 0 unbounded
 
 	ChildrenDir string // child log directory for retention sweeps; may be empty
 }
@@ -49,9 +47,6 @@ func (o *Options) withDefaults() {
 	}
 	if o.MissedGrace <= 0 {
 		o.MissedGrace = missedGrace
-	}
-	if o.RunTimeoutDefault <= 0 {
-		o.RunTimeoutDefault = defaultTimeout
 	}
 }
 

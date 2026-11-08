@@ -47,8 +47,8 @@ var ErrLiveRun = errors.New("previous run is still active")
 var ErrCapacity = errors.New("global run limit reached")
 
 // Job is one row of the jobs table: what to launch, when and how. NextRunAt
-// is nil while the job is disabled or has nothing left to fire; TimeoutMinutes
-// zero means the service default applies.
+// is nil while the job is disabled or has nothing left to fire; a zero
+// TimeoutMinutes runs without one.
 type Job struct {
 	ID                  int64      `json:"id"`
 	Name                string     `json:"name"`

@@ -99,6 +99,29 @@ func (h *testHarness) scriptWatcher(run store.Run, j store.Job, frames ...[]byte
 	return status.status, status.err
 }
 
+// shrinkTimeout scales configured minutes down so tests arm real budgets in
+// milliseconds.
+func shrinkTimeout(t *testing.T) {
+	t.Helper()
+	old := timeoutUnit
+	timeoutUnit = time.Millisecond
+	t.Cleanup(func() { timeoutUnit = old })
+}
+
+// TestRunBudget checks the zero and negative rows watch unbounded while a
+// configured budget converts through the timeout unit.
+func TestRunBudget(t *testing.T) {
+	_, bounded := runBudget(0)
+	assert.False(t, bounded)
+
+	_, bounded = runBudget(-5)
+	assert.False(t, bounded)
+
+	d, bounded := runBudget(30)
+	assert.True(t, bounded)
+	assert.Equal(t, 30*time.Minute, d)
+}
+
 func TestRunner(t *testing.T) {
 	t.Run("settles_on_landing_then_idle", func(t *testing.T) {
 		h := newHarness(t, nil)
@@ -197,8 +220,10 @@ func TestRunner(t *testing.T) {
 	})
 
 	t.Run("ignores_unrelated_traffic", func(t *testing.T) {
-		h := newHarness(t, func(o *Options) { o.RunTimeoutDefault = 30 * time.Millisecond })
+		shrinkTimeout(t)
+		h := newHarness(t, nil)
 		j := sampleJob(store.ScheduleOnce)
+		j.TimeoutMinutes = 30 // a real budget in shrunken milliseconds
 		run := h.seedRun(h.addJob("watch", nil))
 
 		// other prompts' landings and garbage frames never conclude our run
@@ -212,8 +237,10 @@ func TestRunner(t *testing.T) {
 	})
 
 	t.Run("fails_when_submit_never_lands", func(t *testing.T) {
-		h := newHarness(t, func(o *Options) { o.RunTimeoutDefault = 50 * time.Millisecond })
+		shrinkTimeout(t)
+		h := newHarness(t, nil)
 		j := sampleJob(store.ScheduleOnce)
+		j.TimeoutMinutes = 50 // a real budget in shrunken milliseconds
 		run := h.seedRun(h.addJob("watch", nil))
 
 		// the queue holds our row uncommitted: no landing ever commits
@@ -226,6 +253,27 @@ func TestRunner(t *testing.T) {
 		)
 		assert.Equal(t, store.RunTimeout, status)
 		assert.Contains(t, note, "never accepted")
+	})
+
+	t.Run("zero_timeout_never_fires", func(t *testing.T) {
+		shrinkTimeout(t) // any finite budget would conclude long before shutdown
+		h := newHarness(t, nil)
+		h.start(t.Context())
+		j := sampleJob(store.ScheduleOnce)
+		run := h.seedRun(h.addJob("watch", nil))
+
+		frames := make(chan []byte) // no traffic: only shutdown may conclude it
+		done := make(chan outcome, 1)
+		go func() { done <- h.sched.awaitSettled(run, j, frames) }()
+		h.sched.Stop()
+
+		select {
+		case o := <-done:
+			assert.Equal(t, store.RunFailed, o.status)
+			assert.Contains(t, o.err, "interrupt")
+		case <-time.After(settleWindow):
+			t.Fatal("unbounded watcher never concluded on shutdown")
+		}
 	})
 
 	t.Run("applies_custom_tools_before_submit", func(t *testing.T) {

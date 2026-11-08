@@ -62,6 +62,6 @@ test('the session card reports online with the reply visible after reload', asyn
   await expect(card.getByText('swarm', { exact: true })).toBeVisible()
 
   // the committed history survives a fresh subscription
-  await card.getByRole('button', { name: 'Open' }).click()
+  await card.getByRole('link', { name: 'Open' }).click()
   await expect(page.getByText('The smoke test reply.')).toBeVisible({ timeout: 30_000 })
 })

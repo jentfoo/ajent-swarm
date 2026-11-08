@@ -89,10 +89,8 @@ function RunSessionFacts({
       </p>
       {live && !showTranscript && (
         <p>
-          <Link to={`/s/${encodeURIComponent(run.sessionId!)}`}>
-            <button type="button" className="primary">
-              Open session view
-            </button>
+          <Link to={`/s/${encodeURIComponent(run.sessionId!)}`} className="btn primary">
+            Open session view
           </Link>{' '}
           <button type="button" onClick={onShowTranscript}>
             View transcript here

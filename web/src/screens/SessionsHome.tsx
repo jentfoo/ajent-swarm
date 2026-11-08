@@ -199,8 +199,8 @@ function ActionsBar({ status: s }: { status: SessionStatus }) {
   const ended = childEnded(s.state)
   return (
     <div style={{ display: 'flex', gap: '0.5em', marginTop: '0.4em', flexWrap: 'wrap' }}>
-      <Link to={`/focused?session=${encodeURIComponent(s.sessionId)}`}>
-        <button type="button">Open</button>
+      <Link to={`/focused?session=${encodeURIComponent(s.sessionId)}`} className="btn">
+        Open
       </Link>
       {ended ? (
         <ResumeButton status={s} />

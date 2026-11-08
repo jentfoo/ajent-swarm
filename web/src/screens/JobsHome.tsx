@@ -178,13 +178,11 @@ export default function JobsHome() {
         <span className="spacer" style={{ flex: 1 }} />
         {editingId === undefined && (
           <>
-            <Link to="/jobs/queue">
-              <button type="button">Queue</button>
+            <Link to="/jobs/queue" className="btn">
+              Queue
             </Link>
-            <Link to="/jobs/new">
-              <button type="button" className="primary">
-                New job
-              </button>
+            <Link to="/jobs/new" className="btn primary">
+              New job
             </Link>
           </>
         )}
@@ -450,10 +448,8 @@ function JobTableRow({ job, facts, onToggle, onFire }: JobRowProps) {
       <td>
         <JobToggle job={job} onToggle={onToggle} />
         <div className="job-row-actions">
-          <Link to={`/jobs/new?from=${job.id}`}>
-            <button type="button" aria-label={`Copy ${job.name}`}>
-              Copy
-            </button>
+          <Link to={`/jobs/new?from=${job.id}`} className="btn" aria-label={`Copy ${job.name}`}>
+            Copy
           </Link>
           <button type="button" title="Run now" aria-label={`Run ${job.name} now`} onClick={onFire}>
             ▶
@@ -491,18 +487,14 @@ function JobCard({ job, facts, onToggle, onFire }: JobRowProps) {
           so every card control sits in one touch-sized action row */}
       <div className="switch-actions">
         <JobToggle job={job} onToggle={onToggle} />
-        <Link to={`/jobs/new?from=${job.id}`}>
-          <button type="button" aria-label={`Copy ${job.name}`}>
-            Copy
-          </button>
+        <Link to={`/jobs/new?from=${job.id}`} className="btn" aria-label={`Copy ${job.name}`}>
+          Copy
         </Link>
         <button type="button" aria-label={`Run ${job.name} now`} onClick={onFire}>
           Run
         </button>
-        <Link to={`/jobs/${job.id}`}>
-          <button type="button" aria-label={`Edit ${job.name}`}>
-            Edit
-          </button>
+        <Link to={`/jobs/${job.id}`} className="btn" aria-label={`Edit ${job.name}`}>
+          Edit
         </Link>
       </div>
     </div>

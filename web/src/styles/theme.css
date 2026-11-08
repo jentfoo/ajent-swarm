@@ -189,10 +189,15 @@ button,
   padding: calc(var(--unit) * 1.5) calc(var(--unit) * 3);
   cursor: pointer;
 }
-button.primary {
+button.primary,
+.btn.primary {
   background: var(--accent);
   border-color: var(--accent);
   color: var(--accent-text);
+}
+/* a:hover underline at (0,1,1) beats bare .btn, so re-suppress it here */
+.btn:hover {
+  text-decoration: none;
 }
 /* destructive intent reads through weight: danger border and text, a quiet red
    fill only on hover, so the button invites reading rather than mashing */
@@ -1839,7 +1844,8 @@ label {
   flex-wrap: wrap;
   gap: calc(var(--unit) * 2);
 }
-.switch-actions button {
+.switch-actions button,
+.switch-actions .btn {
   min-height: 44px; /* touch target */
 }
 .switch-actions .error-text {

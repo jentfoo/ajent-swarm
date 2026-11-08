@@ -254,10 +254,10 @@ describe('JobsHome', () => {
     // every action is reachable from the card, including an explicit Edit that
     // replaces tapping the row's name link
     expect(screen.getByRole('checkbox', { name: 'Disable nightly sweep' })).toBeChecked()
-    expect(screen.getByRole('button', { name: 'Copy nightly sweep' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Copy nightly sweep' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Run nightly sweep now' })).toBeInTheDocument()
     const user = userEvent.setup()
-    await user.click(screen.getByRole('button', { name: 'Edit nightly sweep' }))
+    await user.click(screen.getByRole('link', { name: 'Edit nightly sweep' }))
     expect(await screen.findByText('Edit “nightly sweep”')).toBeInTheDocument()
   })
 
@@ -417,6 +417,14 @@ describe('JobsHome', () => {
     expect(screen.getByRole('checkbox', { name: 'Disable nightly sweep' })).toBeChecked()
   })
 
+  it('wears the button styling on header links directly', async () => {
+    renderJobs()
+
+    // no Link-wrapped buttons: one tab stop and one accessible name per control
+    expect(await screen.findByRole('link', { name: 'Queue' })).toHaveClass('btn')
+    expect(screen.getByRole('link', { name: 'New job' })).toHaveClass('btn', 'primary')
+  })
+
   it('queues a prompt from the header action', async () => {
     const user = userEvent.setup()
     renderJobs()
@@ -513,7 +521,7 @@ describe('JobsHome', () => {
     renderJobs()
     await screen.findByText('nightly sweep')
 
-    await user.click(screen.getByRole('button', { name: 'Copy nightly sweep' }))
+    await user.click(screen.getByRole('link', { name: 'Copy nightly sweep' }))
     expect(await screen.findByText('New job')).toBeInTheDocument()
 
     // the source's facts ride along verbatim, with the seeded adjustments on top
@@ -542,7 +550,7 @@ describe('JobsHome', () => {
     renderJobs()
     await screen.findByText('one shot')
 
-    await user.click(screen.getByRole('button', { name: 'Copy one shot' }))
+    await user.click(screen.getByRole('link', { name: 'Copy one shot' }))
     expect(await screen.findByText('New job')).toBeInTheDocument()
 
     // the stored slot is usually past, so validation demands a fresh pick

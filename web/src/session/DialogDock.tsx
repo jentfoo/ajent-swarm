@@ -5,7 +5,7 @@ import type { InteractionPending } from '../api/types'
 import type { DialogOutcome } from '../state/eventApplier'
 import { MultiPickList, ResolvedChip, TextAnswer, useMultiPick } from './DialogBodies'
 import { useDialogResolve } from './dialogResolve'
-import { useDialogAnswerKeys } from './dialogKeys'
+import { answerDigitCount, useDialogAnswerKeys } from './dialogKeys'
 import {
   isPermitDialog,
   pickPermitOption,
@@ -157,16 +157,28 @@ function DialogCard({
             Confirm
           </button>
         ) : dialog.options !== undefined ? (
-          choices.map((choice, pos) => (
-            <button
-              key={choice.index}
-              type="button"
-              disabled={busy}
-              onClick={() => pickChoice(pos)}
-            >
-              {choice.label}
-            </button>
-          ))
+          choices.map((choice, pos) => {
+            // only the head card answers digits (dialogKeys.ts), so only it
+            // names them; aria-keyshortcuts exposes the key accessibly while
+            // the hidden badge keeps the button's name its label alone
+            const digit = head && pos < answerDigitCount ? String(pos + 1) : undefined
+            return (
+              <button
+                key={choice.index}
+                type="button"
+                disabled={busy}
+                aria-keyshortcuts={digit}
+                onClick={() => pickChoice(pos)}
+              >
+                {digit && (
+                  <span className="dialog-digit" aria-hidden="true">
+                    {digit}
+                  </span>
+                )}
+                {choice.label}
+              </button>
+            )
+          })
         ) : null}
         <div className="dialog-cancel">
           <button type="button" disabled={busy} onClick={() => void resolve({ cancel: true })}>

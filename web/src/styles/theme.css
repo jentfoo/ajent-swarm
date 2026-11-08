@@ -624,6 +624,13 @@ label {
 .dialog-card button + button {
   margin-left: calc(var(--unit) * 2);
 }
+/* leading digit naming a head option's answer key; aria-hidden, the accessible
+   exposure is the button's aria-keyshortcuts */
+.dialog-digit {
+  color: var(--muted);
+  font-size: var(--fs-small);
+  margin-right: calc(var(--unit) * 1.5);
+}
 /* optional permit note input, one per permit card above its option buttons */
 .dialog-note {
   width: 100%;

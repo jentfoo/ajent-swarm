@@ -31,6 +31,8 @@ export function ModelChip({
         className="badge accent model-chip"
         disabled={menu.busy}
         title="Switch model"
+        aria-haspopup="menu"
+        aria-expanded={menu.open}
         onClick={() => void menu.toggle()}
       >
         {snap.model.short || snap.model.key || 'model'}

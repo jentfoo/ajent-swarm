@@ -123,6 +123,8 @@ export function ModeMenu({
         className="badge mode-chip"
         disabled={busy}
         title="Permission mode"
+        aria-haspopup="menu"
+        aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
       >
         mode: {mode}
@@ -174,6 +176,8 @@ function ModelMenu({
         className="badge accent model-chip"
         disabled={menu.busy}
         title="Switch model"
+        aria-haspopup="menu"
+        aria-expanded={menu.open}
         onClick={() => void menu.toggle()}
       >
         {label}

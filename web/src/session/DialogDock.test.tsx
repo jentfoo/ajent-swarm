@@ -409,6 +409,45 @@ describe('DialogDock permit note flow', () => {
   })
 })
 
+// Digit badges: only the head card answers digits (dialogKeys.ts), so only
+// its options name them, visually through an aria-hidden badge and via
+// aria-keyshortcuts while the accessible name stays the label alone.
+describe('DialogDock option digit badges', () => {
+  it('names each option with its position digit', () => {
+    dock([base({ options: ['allow', 'deny'] })])
+
+    const allow = screen.getByRole('button', { name: 'allow' })
+    expect(allow).toHaveAttribute('aria-keyshortcuts', '1')
+    expect(allow.querySelector('.dialog-digit')).toHaveTextContent('1')
+
+    const deny = screen.getByRole('button', { name: 'deny' })
+    expect(deny).toHaveAttribute('aria-keyshortcuts', '2')
+  })
+
+  it('stops naming digits past the bound range', () => {
+    dock([base({ options: Array.from({ length: 10 }, (_, i) => `opt ${i + 1}`) })])
+
+    expect(screen.getByRole('button', { name: 'opt 9' })).toHaveAttribute('aria-keyshortcuts', '9')
+    const tenth = screen.getByRole('button', { name: 'opt 10' })
+    expect(tenth).not.toHaveAttribute('aria-keyshortcuts')
+    expect(tenth.querySelector('.dialog-digit')).toBeNull()
+  })
+
+  it('names only the focused dock head card', () => {
+    renderDock([base({ id: 7, options: ['a'] }), base({ id: 8, prompt: 'second', options: ['b'] })])
+
+    expect(screen.getByRole('button', { name: 'a' })).toHaveAttribute('aria-keyshortcuts', '1')
+    const stacked = screen.getByRole('button', { name: 'b' })
+    expect(stacked).not.toHaveAttribute('aria-keyshortcuts')
+    expect(stacked.querySelector('.dialog-digit')).toBeNull()
+  })
+
+  it('leaves a background pane unnamed', () => {
+    renderDock([base({ options: ['a'] })], false)
+    expect(screen.getByRole('button', { name: 'a' })).not.toHaveAttribute('aria-keyshortcuts')
+  })
+})
+
 // Digit answers: while the focused pane's head card answers by option index,
 // 1..9 pick that option through the same resolve path as a click, and every
 // other shape — inputs, multi lists, background panes — leaves the digits to

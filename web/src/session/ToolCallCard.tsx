@@ -75,7 +75,12 @@ export function ToolCallCard({
       }`}
       data-tool-id={call.id}
     >
-      <button type="button" className="tool-header" onClick={() => setUserOpen(!open)}>
+      <button
+        type="button"
+        className="tool-header"
+        aria-expanded={open}
+        onClick={() => setUserOpen(!open)}
+      >
         <span className="mono">{label}</span>
         {!done && <span className="badge accent">running</span>}
         {done &&

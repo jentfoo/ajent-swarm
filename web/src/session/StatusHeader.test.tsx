@@ -119,6 +119,21 @@ describe('ModeMenu', () => {
     )
   })
 
+  it('announces the chip as a toggleable menu', async () => {
+    const user = userEvent.setup()
+    render(<ModeMenu sessionId="01S" mode="auto" onToast={vi.fn()} />)
+
+    const chip = screen.getByRole('button', { name: /mode: auto/ })
+    expect(chip).toHaveAttribute('aria-haspopup', 'menu')
+    expect(chip).toHaveAttribute('aria-expanded', 'false')
+
+    await user.click(chip)
+    expect(chip).toHaveAttribute('aria-expanded', 'true')
+
+    await user.click(chip)
+    expect(chip).toHaveAttribute('aria-expanded', 'false')
+  })
+
   it('closes on platform back for touch pointers', async () => {
     // the history-bound popover mounts only here; fine-pointer tests above run
     // with the setup's matchMedia stub and keep desktop's plain MenuPopover
@@ -206,6 +221,23 @@ describe('ModelMenu', () => {
     const marked = items.filter((el) => el.textContent?.includes('current'))
     expect(marked).toHaveLength(1)
     expect(marked[0]!.textContent?.replace(/\s*current$/, '')).toBe('haiku')
+  })
+
+  it('announces the trigger as a toggleable menu', async () => {
+    const user = userEvent.setup()
+    fetchMock.mockImplementation(async (url: string | URL | Request) => {
+      if (String(url).endsWith('/models')) return Response.json(listing)
+      return Response.json([])
+    })
+    renderHeader()
+
+    const chip = screen.getByTitle('Switch model')
+    expect(chip).toHaveAttribute('aria-haspopup', 'menu')
+    expect(chip).toHaveAttribute('aria-expanded', 'false')
+
+    await openModelMenu(user)
+    expect(screen.getByRole('menuitem', { name: /haiku/ })).toBeInTheDocument()
+    expect(chip).toHaveAttribute('aria-expanded', 'true')
   })
 
   it('switches through model.set with the full key', async () => {

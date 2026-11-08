@@ -14,7 +14,9 @@ import {
 
 // TouchDialogDock stacks full-width dialog cards above the composer: permit
 // and deny answer as separate large buttons, never a compact one-liner against
-// 44px touch targets. Permit cards hide ajent's "Allow with note" behind one
+// 44px touch targets. Option buttons carry no digit badge: digits only ever
+// answer the desktop head card (dialogKeys.ts), so naming them here would lie.
+// Permit cards hide ajent's "Allow with note" behind one
 // optional note input: a typed note rides the Allow or Deny tap, which answers
 // at once and records a pending intent so the barrier's follow-up ask
 // auto-resolves (decisionNote.ts) instead of reading as required input. A

@@ -291,6 +291,31 @@ describe('ToolCallCard output preview', () => {
   })
 })
 
+describe('ToolCallCard disclosure state', () => {
+  it('flips aria-expanded with the body', async () => {
+    const user = userEvent.setup()
+    render(
+      <ToolCallCard
+        call={{
+          id: 'c1',
+          name: 'bash',
+          result: { callId: 'c1', text: longBody(31), images: [], isError: false },
+        }}
+      />,
+    )
+
+    const toggle = screen.getByRole('button')
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    await user.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+  })
+
+  it('announces a streaming shell body open', () => {
+    render(<ToolCallCard call={{ id: 'c1', name: 'bash', shell: true, outputs: ['ok\n'] }} />)
+    expect(screen.getByRole('button')).toHaveAttribute('aria-expanded', 'true')
+  })
+})
+
 describe('ToolCallCard sub-agent jobs', () => {
   const chipRow = (key: string): ActivityRow => ({ key, text: `${key}  reading files`, rank: 0 })
 

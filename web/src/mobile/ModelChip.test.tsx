@@ -77,6 +77,29 @@ describe('ModelChip', () => {
     expect(items.filter((el) => el.textContent?.includes('current'))).toHaveLength(1)
   })
 
+  it('announces the trigger as a toggleable menu', async () => {
+    const user = userEvent.setup()
+    stubFetch((url) => {
+      if (url === '/api/sessions/01S/models') {
+        return Response.json({
+          active: 'anthropic/claude-sonnet',
+          models: [{ key: 'anthropic/claude-sonnet', short: 'sonnet' }],
+        })
+      }
+      throw new Error(`unexpected fetch ${url}`)
+    })
+
+    render(<ModelChip sessionId="01S" snap={snap} onToast={() => {}} />)
+
+    const chip = screen.getByRole('button', { name: /sonnet/ })
+    expect(chip).toHaveAttribute('aria-haspopup', 'menu')
+    expect(chip).toHaveAttribute('aria-expanded', 'false')
+
+    await user.click(chip)
+    await screen.findByRole('menuitem')
+    expect(chip).toHaveAttribute('aria-expanded', 'true')
+  })
+
   it('fetches the listing once per open, never on dependency drift', async () => {
     const user = userEvent.setup()
     stubFetch((url) => {

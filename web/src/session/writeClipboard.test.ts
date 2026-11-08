@@ -10,11 +10,12 @@ function stubClipboard(writeText: (text: string) => Promise<void>) {
   return fn
 }
 
-function stubExecCommand(ok: boolean) {
+function stubExecCommand(ok: boolean, onCommand?: () => void) {
   // capture the textarea contents at command time, before the helper removes it
   let copied: string | undefined
   const commands = vi.fn(() => {
     copied = document.querySelector('textarea')?.value
+    onCommand?.()
     return ok
   })
   Object.defineProperty(document, 'execCommand', { configurable: true, value: commands })
@@ -26,7 +27,10 @@ function unstub() {
   delete (document as { execCommand?: unknown }).execCommand
 }
 
-afterEach(unstub)
+afterEach(() => {
+  unstub()
+  document.body.replaceChildren() // focus targets are appended to the live body
+})
 
 describe('writeClipboard', () => {
   it('prefers the async clipboard api', async () => {
@@ -68,5 +72,27 @@ describe('writeClipboard', () => {
 
     await writeClipboard('raw markdown')
     expect(document.querySelector('textarea')).toBeNull()
+  })
+
+  it('restores focus after a fallback copy', async () => {
+    stubExecCommand(true)
+    const target = document.createElement('button')
+    document.body.appendChild(target)
+    target.focus()
+
+    await expect(writeClipboard('raw markdown')).resolves.toBeUndefined()
+    expect(document.querySelector('textarea')).toBeNull()
+    expect(document.activeElement).toBe(target)
+  })
+
+  it('skips refocus when detached mid-copy', async () => {
+    const target = document.createElement('button')
+    document.body.appendChild(target)
+    target.focus()
+    // a copy event handler may drop the previously focused element entirely
+    stubExecCommand(true, () => target.remove())
+
+    await expect(writeClipboard('raw markdown')).resolves.toBeUndefined()
+    expect(document.activeElement).toBe(document.body)
   })
 })

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { ApiError } from '../api/client'
 import { sessions as sessionAPI } from '../api/endpoints'
@@ -40,16 +40,26 @@ export function useAgentJobs(
   const [stopping, setStopping] = useState(false)
   const live = jobsLive(activity, segments)
 
+  // listSeq orders pulls so only the newest reply commits; two overlapping
+  // reads (a cadence tick racing a stop's relist) must never land an older
+  // reply last. The effect cleanup bumps it too, dropping replies still in
+  // flight across a teardown, which covers stop's signal-less relist.
+  const listSeq = useRef(0)
+
   // list reads one listing; the coded unavailable answer alone hides the
   // surfaces, everything else stays silent since rows and counts stay
   // truthful via push.
   const list = useCallback(
     (signal?: AbortSignal) => {
+      const seq = ++listSeq.current
       sessionAPI
         .agents(sessionId, signal)
-        .then((res) => setById(new Map((res.jobs ?? []).map((job) => [job.id, job]))))
+        .then((res) => {
+          if (seq !== listSeq.current) return // superseded or the pull was torn down
+          setById(new Map((res.jobs ?? []).map((job) => [job.id, job])))
+        })
         .catch((err: unknown) => {
-          if (signal?.aborted) return
+          if (seq !== listSeq.current) return // superseded or the pull was torn down
           if (err instanceof ApiError && err.code === 'unavailable') setAvailable(false)
         })
     },
@@ -69,6 +79,7 @@ export function useAgentJobs(
       abort.abort()
       clearInterval(timer)
       document.removeEventListener('visibilitychange', onVisible)
+      listSeq.current += 1
     }
   }, [sessionId, live, available, list])
 

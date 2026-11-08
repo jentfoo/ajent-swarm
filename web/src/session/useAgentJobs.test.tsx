@@ -27,6 +27,20 @@ function jsonResponse(body: unknown, status = 200): Response {
   })
 }
 
+// Parks every fetch reply until the test resolves it in arrival order.
+function parkFetches(): Array<(res: Response) => void> {
+  const parked: Array<(res: Response) => void> = []
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((_input: RequestInfo | URL, _init?: RequestInit) => {
+      return new Promise<Response>((resolve) => {
+        parked.push(resolve)
+      })
+    }),
+  )
+  return parked
+}
+
 // Harness forwards live props so rerenders can flip the pull condition.
 type HarnessProps = {
   activity?: ActivityRow[]
@@ -161,5 +175,46 @@ describe('useAgentJobs', () => {
     await waitFor(() =>
       expect(onToast).toHaveBeenCalledWith('observer: seat held by terminator', 'error'),
     )
+  })
+
+  it('commits only the newest list reply', async () => {
+    const parked = parkFetches()
+
+    const { result } = mount({ activity: [row('sub-1')] })
+    expect(parked).toHaveLength(1)
+
+    // a visibility relist overlaps the still-pending pull
+    act(() => document.dispatchEvent(new Event('visibilitychange')))
+    expect(parked).toHaveLength(2)
+
+    // the newer reply commits, then the older pull lands late and must drop,
+    // or finished jobs would repaint over running ones until the next tick
+    parked[1](jsonResponse({ jobs: [job('sub-1', 'running')] }))
+    await waitFor(() => expect(result.current.byId.get('sub-1')?.status).toBe('running'))
+
+    await act(async () => {
+      parked[0](jsonResponse({ jobs: [job('sub-1', 'done'), job('sub-2', 'done')] }))
+    })
+    expect(result.current.byId.size).toBe(1)
+    expect(result.current.byId.get('sub-1')?.status).toBe('running')
+  })
+
+  it('keeps surfaces up over a stale unavailable', async () => {
+    const parked = parkFetches()
+
+    const { result } = mount({ activity: [row('sub-1')] })
+    act(() => document.dispatchEvent(new Event('visibilitychange')))
+    expect(parked).toHaveLength(2)
+
+    // the newer reply lists a live job; the stale pull's coded unavailable
+    // answer lands last and must not hide the surfaces
+    parked[1](jsonResponse({ jobs: [job('sub-1', 'running')] }))
+    await waitFor(() => expect(result.current.byId.get('sub-1')?.status).toBe('running'))
+
+    await act(async () => {
+      parked[0](jsonResponse({ error: 'unavailable', message: 'sub-agents not available' }, 409))
+    })
+    expect(result.current.available).toBe(true)
+    expect(result.current.byId.size).toBe(1)
   })
 })

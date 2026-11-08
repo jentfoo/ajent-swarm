@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 
 import { fleet } from '../api/endpoints'
@@ -39,6 +39,22 @@ interface SwarmContextValue {
 
 const SwarmContext = createContext<SwarmContextValue | null>(null)
 
+// Poll refresher with a staleness guard: overlapping replies can resolve out
+// of order, so only the newest one commits and a superseded latecomer drops.
+function useNewestPoll<T>(load: () => Promise<T[]>, commit: (rows: T[]) => void) {
+  const pollSeq = useRef(0)
+  return useCallback(async () => {
+    const seq = ++pollSeq.current
+    try {
+      const rows = await load()
+      if (seq !== pollSeq.current) return // a newer poll superseded this reply
+      commit(rows)
+    } catch {
+      // Poll failures surface through the connection banner and next tick.
+    }
+  }, [load, commit])
+}
+
 // SwarmProvider owns app-wide state: the one multiplexed stream connection
 // and the session state store, the discovery and attention polls feeding
 // badges and the focus queue, and the theme persisted in localStorage.
@@ -63,21 +79,8 @@ export function SwarmProvider({ children }: { children: ReactNode }) {
   // subscribes; runs after the listener above to catch its transitions.
   useEffect(() => stream.connect(), [stream])
 
-  const refreshSessions = useCallback(async () => {
-    try {
-      setSessions(await fleet.sessions())
-    } catch {
-      // Poll failures surface through the connection banner and next tick.
-    }
-  }, [])
-
-  const refreshAttention = useCallback(async () => {
-    try {
-      setAttention(await fleet.attention())
-    } catch {
-      // Same as sessions: transient poll failure, retry on the next tick.
-    }
-  }, [])
+  const refreshSessions = useNewestPoll(fleet.sessions, setSessions)
+  const refreshAttention = useNewestPoll(fleet.attention, setAttention)
 
   usePoll(() => void refreshSessions(), pollSessionsMs)
   // The digest keeps a slow background cadence so hidden tabs still raise

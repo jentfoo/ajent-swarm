@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { SwarmProvider, useSwarm } from './swarm'
 import { MockWebSocket } from '../test/mockWebSocket'
-import type { AttentionRow, ServerFrame } from '../api/types'
+import type { AttentionRow, ServerFrame, SessionStatus } from '../api/types'
 
 // The provider keeps the focus-queue digest in step with the stream: a frame
 // that moves a session between queues (a dialog opening or settling, a turn
@@ -183,5 +183,129 @@ describe('SwarmProvider digest sync', () => {
 
     // still just the mount tick; only the poll owns these
     expect(attentionFetches).toBe(1)
+  })
+})
+
+describe('SwarmProvider stale poll guards', () => {
+  // Deferred replies let tests land them out of order, like two overlapping
+  // GETs resolving backwards on a slow link.
+  const parkedSessions: Array<(rows: SessionStatus[]) => void> = []
+  const parkedAttention: Array<(rows: AttentionRow[]) => void> = []
+
+  beforeEach(() => {
+    MockWebSocket.instances = []
+    parkedSessions.length = 0
+    parkedAttention.length = 0
+    vi.stubGlobal('WebSocket', class extends MockWebSocket {})
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string | URL | Request) => {
+        const path = String(url)
+          .replace(/^https?:\/\/[^/]+/, '')
+          .split('?')[0]
+        if (path === '/api/sessions') {
+          return new Promise<Response>((resolve) => {
+            parkedSessions.push((rows) => resolve(Response.json(rows)))
+          })
+        }
+        if (path === '/api/attention') {
+          return new Promise<Response>((resolve) => {
+            parkedAttention.push((rows) => resolve(Response.json(rows)))
+          })
+        }
+        throw new Error(`unexpected fetch ${path}`)
+      }),
+    )
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  // Probe records the committed context and hands the refreshers over, so
+  // tests can force overlapping polls without waiting out a cadence.
+  let latestCtx: ReturnType<typeof useSwarm>
+
+  function PollProbe() {
+    const ctx = useSwarm()
+    useEffect(() => {
+      latestCtx = ctx
+    })
+    return null
+  }
+
+  function sessionRow(id: string): SessionStatus {
+    return {
+      sessionId: id,
+      state: 'online',
+      seatHeld: false,
+      seatOurs: false,
+      running: false,
+      idle: true,
+      queued: 0,
+      openInteractions: 0,
+      spawnedBy: 'swarm',
+    }
+  }
+
+  it('commits only the newest sessions reply', async () => {
+    render(
+      <SwarmProvider>
+        <PollProbe />
+      </SwarmProvider>,
+    )
+
+    // the mount poll parks its reply; two forced refreshes overlap it
+    expect(parkedSessions).toHaveLength(1)
+    await act(async () => {
+      void latestCtx.refreshSessions()
+      void latestCtx.refreshSessions()
+    })
+    expect(parkedSessions).toHaveLength(3)
+
+    const fresh = [sessionRow('s2')]
+    const stale = [sessionRow('s1'), sessionRow('s0')]
+
+    // the newest reply commits, then the older poll's late reply drops
+    await act(async () => {
+      parkedSessions[2](fresh)
+    })
+    expect(latestCtx.sessions).toEqual(fresh)
+
+    await act(async () => {
+      parkedSessions[1](stale)
+    })
+    expect(latestCtx.sessions).toEqual(fresh)
+  })
+
+  it('commits only the newest attention reply', async () => {
+    render(
+      <SwarmProvider>
+        <PollProbe />
+      </SwarmProvider>,
+    )
+
+    // the mount poll parks its reply; two forced refreshes overlap it
+    expect(parkedAttention).toHaveLength(1)
+    await act(async () => {
+      void latestCtx.refreshAttention()
+      void latestCtx.refreshAttention()
+    })
+    expect(parkedAttention).toHaveLength(3)
+
+    const fresh: AttentionRow[] = [
+      { sessionId: 's2', openInteractions: 1, running: false, idle: false, kind: 'needs-input' },
+    ]
+
+    // the newest reply commits, then the older poll's late reply drops
+    await act(async () => {
+      parkedAttention[2](fresh)
+    })
+    expect(latestCtx.attention).toEqual(fresh)
+
+    await act(async () => {
+      parkedAttention[1]([])
+    })
+    expect(latestCtx.attention).toEqual(fresh)
   })
 })

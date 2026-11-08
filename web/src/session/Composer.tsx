@@ -20,6 +20,10 @@ import { classifyLine } from './lineKind'
 
 const maxRows = 12
 
+// fallbackRowPx degrades the cap when computed styles are unreadable; the
+// coarse-pointer line box (16px font x 1.5), today's constant.
+const fallbackRowPx = 24
+
 // inlineFileCapBytes bounds a text attachment's inlined body; anything larger
 // uploads and rides an @path reference instead.
 const inlineFileCapBytes = 64 << 10
@@ -203,13 +207,28 @@ export function Composer({
     el.setSelectionRange(pos, pos)
   }, [value])
 
-  // Autosize with what the textarea displays, capped at a readable height.
+  // The cap rides the real line box: measured off computed styles, re-read on
+  // resize, degrading to fallbackRowPx when unreadable.
+  const [rowPx, setRowPx] = useState(fallbackRowPx)
+  useEffect(() => {
+    const el = areaRef.current
+    if (!el) return
+    const measure = () => {
+      const px = Number.parseFloat(window.getComputedStyle(el).lineHeight)
+      if (Number.isFinite(px) && px > 0) setRowPx(px)
+    }
+    measure()
+    window.addEventListener('resize', measure)
+    return () => window.removeEventListener('resize', measure)
+  }, [])
+
+  // Autosize with what the textarea displays, capped at maxRows line boxes.
   useEffect(() => {
     const el = areaRef.current
     if (!el) return
     el.style.height = 'auto'
-    el.style.height = `${Math.min(el.scrollHeight, maxRows * 24)}px`
-  }, [shown])
+    el.style.height = `${Math.min(el.scrollHeight, maxRows * rowPx)}px`
+  }, [shown, rowPx])
 
   // One lookup per token query, debounced; failures leave the menu quiet.
   useEffect(() => {

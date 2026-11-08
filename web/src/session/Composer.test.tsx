@@ -1690,6 +1690,31 @@ describe('Composer recall browsing', () => {
   })
 })
 
+describe('Composer autosize cap', () => {
+  it('caps at measured line boxes and re-measures on resize', async () => {
+    render(Harness())
+
+    const box = screen.getByLabelText('Prompt') as HTMLTextAreaElement
+    // jsdom computes inline styles back out, so an inline px line-height stands
+    // in for the stylesheet; a stubbed scrollHeight plays overflow
+    box.style.lineHeight = '30px'
+    Object.defineProperty(box, 'scrollHeight', { configurable: true, value: 9999 })
+
+    await act(async () => {
+      window.dispatchEvent(new Event('resize'))
+    })
+    // twelve measured rows cap at 360px, not the hardcoded 24px-per-row 288
+    expect(box.style.height).toBe('360px')
+
+    // a later resize re-measures: the cap follows the new line box
+    box.style.lineHeight = '20px'
+    await act(async () => {
+      window.dispatchEvent(new Event('resize'))
+    })
+    expect(box.style.height).toBe('240px')
+  })
+})
+
 describe('Composer history search on touch', () => {
   afterEach(() => {
     vi.unstubAllGlobals()

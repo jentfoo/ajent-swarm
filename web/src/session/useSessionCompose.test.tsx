@@ -122,7 +122,9 @@ describe('useSessionCompose', () => {
   it('starts disabled while connecting and enables when live', async () => {
     const { result } = renderCompose(VIEW)
     expect(result.current.composerDisabled).toBe(true)
-    expect(result.current.disabledReason).toBe('The session is not reachable right now.')
+    // the placeholder matches the phase banner above instead of claiming a
+    // lost session while the socket is merely coming up
+    expect(result.current.disabledReason).toBe('Connecting to the session stream…')
     expect(result.current.dialogs).toEqual([])
 
     const ws = await openSocket()
@@ -130,6 +132,22 @@ describe('useSessionCompose', () => {
       ws.message({ type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
     })
     await waitFor(() => expect(result.current.composerDisabled).toBe(false))
+  })
+
+  it('explains an interruption while resyncing, matching the banner', async () => {
+    const { result } = renderCompose(VIEW)
+    const ws = await openSocket()
+    act(() => {
+      ws.message({ type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
+    })
+    await waitFor(() => expect(result.current.composerDisabled).toBe(false))
+
+    // a dropped child holds state and resnapshots: the copy follows the
+    // banner instead of reading as unreachable (a lost session still does)
+    act(() => {
+      ws.message({ type: 'child', sessionId: VIEW, state: 'reconnecting', detail: 'dropped' })
+    })
+    expect(result.current.disabledReason).toBe('Connection was interrupted; resnapshotting…')
   })
 
   it('disables the composer while a dialog holds input', async () => {

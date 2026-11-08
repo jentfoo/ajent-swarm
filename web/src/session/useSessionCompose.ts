@@ -10,6 +10,7 @@ import { mergeRecallSources, maxRecallPrompts, recallPrompts } from '../state/de
 import type { RecallPrompt } from '../state/derive'
 import type { ComposerRecall } from './Composer'
 import { prependDraft } from './draftStore'
+import { phaseText } from './phases'
 import { placedAboveNotice, useComposerDraft } from './useComposerDraft'
 
 interface SessionCompose {
@@ -114,14 +115,17 @@ export function useSessionCompose(sessionId: string): SessionCompose {
     }
   }, [sessionId, placedAbove, pushToast])
 
-  // A dialog holding input disables the composer ahead of any wire refusal;
-  // every other non-live phase means the session is not reachable.
+  // A dialog holding input disables the composer ahead of any wire refusal.
+  // Connecting and resyncing borrow the shared banner copy (phases.tsx) so the
+  // placeholder matches it; a lost or ended session keeps today's short line.
   const dialogs = state.snapshot.interactions ?? []
   const composerDisabled = phase !== 'live' || dialogs.length > 0
   const disabledReason =
     dialogs.length > 0
       ? 'A dialog needs an answer before prompts can send.'
-      : 'The session is not reachable right now.'
+      : phase === 'connecting' || phase === 'resyncing'
+        ? phaseText(phase)
+        : 'The session is not reachable right now.'
 
   return {
     draft,

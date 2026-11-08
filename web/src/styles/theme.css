@@ -1719,6 +1719,12 @@ label {
 .mobile-topbar {
   padding-right: calc(var(--unit) * 4);
 }
+/* tab links mirror the desktop nav at the phone's touch target floor */
+.mobile-topbar nav a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+}
 /* the badge is the phone's only needs-input affordance, so it meets the
    touch floor. Desktop's compact topbar button keeps its own density */
 .mobile-topbar .attend-badge {

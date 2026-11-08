@@ -293,7 +293,12 @@ describe('applierReducer queue rows', () => {
       ev('queued', 1, { rows: [{ id: 'other', text: 'already queued' }] }),
     )
     s = apply(s, { type: 'pendingFailed', pendingId: 'p1' })
-    expect(s.pendings).toEqual([{ id: 'p1', text: 'fix', state: 'failed' }])
+    expect(s.pendings[0]).toEqual({
+      id: 'p1',
+      text: 'fix',
+      state: 'failed',
+      failedAt: expect.any(Number),
+    })
 
     // A resolved row never reverts on a late failure.
     s = apply(s, { type: 'pendingFailed', pendingId: 'other' })

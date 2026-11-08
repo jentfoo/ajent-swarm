@@ -100,6 +100,7 @@ export interface PendingSubmit {
   id: string
   text: string
   state: PendingState
+  failedAt?: number // wall clock of the refusal; rendering expires refused rows off it
 }
 
 // DroppedQueueRow is one queued prompt a removal cleared, kept briefly so
@@ -282,8 +283,9 @@ export function applierReducer(
       const failed = state.pendings.find((p) => p.id === action.pendingId)
       if (!failed || failed.state !== 'pending') return state
       const next = cloneShallow(state)
+      // Stamps the wall clock the render expires against.
       next.pendings = state.pendings.map((p) =>
-        p.id === action.pendingId ? { ...p, state: 'failed' as const } : p,
+        p.id === action.pendingId ? { ...p, state: 'failed' as const, failedAt: Date.now() } : p,
       )
       return next
     }

@@ -1,3 +1,5 @@
+import { useEffect, useState } from 'react'
+
 import { shortID } from './names'
 import type { DroppedQueueRow, PendingSubmit } from '../state/eventApplier'
 import type { QueueRow } from '../api/types'
@@ -6,6 +8,10 @@ import type { QueueRow } from '../api/types'
 // ajent's TUI input cap during submit bursts.
 const maxChips = 4
 
+// refusedTtlMs mirrors Notices' expiry: a refusal keeps its chip for this long
+// after failing, then the render drops it, so repeat failures age out.
+const refusedTtlMs = 8_000
+
 // QueuedPrompts renders queue management as chips: the wire's rows beside this
 // client's optimistic ones, secret rows redacted to their id, and recently
 // dropped rows badged with why they left (interrupt, rewind or recalled). The
@@ -13,7 +19,7 @@ const maxChips = 4
 // where the recall affordance and live submit feedback sit, older rows
 // collapsing into one "+N more" line. Editing goes through recall in the
 // composer; since the wire's recall always pops the newest row, only that chip
-// offers it.
+// offers it. Refused submits expire refusedTtlMs after their refusal.
 export function QueuedPrompts({
   queuedRows,
   pendings,
@@ -25,6 +31,16 @@ export function QueuedPrompts({
   droppedRows: DroppedQueueRow[]
   onEdit: () => void
 }) {
+  const [now, setNow] = useState(() => Date.now())
+  // tick only while a refused chip is fresh: expired rows stay in store state
+  // forever, so gating on freshness keeps the timer from running for nothing
+  const freshRefused = pendings.some((p) => refusedVisible(p, now))
+  useEffect(() => {
+    if (!freshRefused) return
+    const timer = setInterval(() => setNow(Date.now()), 1_000)
+    return () => clearInterval(timer)
+  }, [freshRefused])
+
   // dropped rows are former queue contents, then the wire queue oldest first,
   // then this client's in-flight submits; one order so the cap keeps the
   // newest end
@@ -43,11 +59,12 @@ export function QueuedPrompts({
         onEdit={onEdit}
       />
     )),
-    // optimistic rows the wire has not named yet stay visible, refused ones
-    // until read
+    // optimistic rows the wire has not named yet stay visible; failed ones
+    // only while fresh
     ...pendings.flatMap((p) => {
       if (p.state !== 'pending' && p.state !== 'failed') return []
       if (p.state === 'pending' && named.has(p.id)) return []
+      if (p.state === 'failed' && !refusedVisible(p, now)) return []
       return [<QueueChip key={p.id} id={p.id} text={p.text} state={p.state} />]
     }),
   ]
@@ -60,6 +77,12 @@ export function QueuedPrompts({
       {chips.slice(-maxChips)}
     </div>
   )
+}
+
+// refusedVisible reports whether a failed row still shows its refusal chip;
+// an absent stamp reads as expired.
+function refusedVisible(p: PendingSubmit, now: number): boolean {
+  return p.state === 'failed' && now - (p.failedAt ?? 0) < refusedTtlMs
 }
 
 function QueueChip({

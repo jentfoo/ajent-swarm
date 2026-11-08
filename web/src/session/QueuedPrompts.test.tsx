@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -11,6 +11,11 @@ import type { QueueRow } from '../api/types'
 
 function rows(...texts: string[]): QueueRow[] {
   return texts.map((text, i) => ({ id: `q${i}`, text }))
+}
+
+// refused builds one failed optimistic row aged ageMs past its refusal.
+function refused(text: string, ageMs = 0): PendingSubmit {
+  return { id: `f-${text}`, text, state: 'failed', failedAt: Date.now() - ageMs }
 }
 
 function renderChips({
@@ -60,10 +65,7 @@ describe('QueuedPrompts', () => {
   it('counts pending and failed rows against the cap', () => {
     renderChips({
       queuedRows: rows('queued one', 'queued two', 'queued three', 'queued four'),
-      pendings: [
-        { id: 'p0', text: 'in flight', state: 'pending' },
-        { id: 'p1', text: 'was refused', state: 'failed' },
-      ],
+      pendings: [{ id: 'p0', text: 'in flight', state: 'pending' }, refused('was refused')],
     })
 
     expect(screen.getByText('+2 more')).toBeInTheDocument()
@@ -107,5 +109,53 @@ describe('QueuedPrompts', () => {
     })
 
     expect(screen.getAllByText('named row')).toHaveLength(1)
+  })
+
+  it('expires a refused chip after its ttl', () => {
+    vi.useFakeTimers()
+    try {
+      renderChips({ queuedRows: rows('live one'), pendings: [refused('was refused')] })
+      expect(screen.getByText('was refused')).toBeInTheDocument()
+
+      act(() => {
+        vi.advanceTimersByTime(9_000)
+      })
+      // the refusal leaves on its own and neighbors keep their place
+      expect(screen.queryByText('was refused')).not.toBeInTheDocument()
+      expect(screen.getByText('live one')).toBeInTheDocument()
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('skips refusals that expired before mount', () => {
+    vi.useFakeTimers()
+    try {
+      renderChips({ pendings: [refused('long gone', 9_000)] })
+
+      expect(screen.queryByText('long gone')).not.toBeInTheDocument()
+      // nothing fresh, so no timer runs for an all-stale list either
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('expires refusals independently of each other', () => {
+    vi.useFakeTimers()
+    try {
+      renderChips({ pendings: [refused('stale refusal', 9_000), refused('fresh refusal')] })
+
+      expect(screen.getByText('fresh refusal')).toBeInTheDocument()
+      expect(screen.queryByText('stale refusal')).not.toBeInTheDocument()
+
+      act(() => {
+        vi.advanceTimersByTime(9_000)
+      })
+      expect(screen.queryByText(/refusal/)).not.toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

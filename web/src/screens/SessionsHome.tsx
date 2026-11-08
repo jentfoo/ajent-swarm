@@ -84,7 +84,9 @@ export default function SessionsHome() {
       {launching && <LaunchPanel home={home} />}
 
       {sessions.length === 0 ? (
-        <p className="muted">No live sessions. Launch one or start `ajent --serve` yourself.</p>
+        <p className="muted">
+          No live sessions. Launch one or start <code>ajent --serve</code> yourself.
+        </p>
       ) : (
         <div className="grid">
           {sessions.map((s) => (

@@ -90,10 +90,7 @@ describe('MobileShell', () => {
   }
 
   it.each([
-    ['/', 'Workspace'],
-    ['/focused', 'Workspace'],
-    ['/tile?open=a,b', 'Workspace'],
-    ['/sessions', 'Sessions'],
+    ['/', 'Sessions'],
     ['/s/01ABC0000000', 'Sessions'],
     ['/jobs', 'Jobs'],
     ['/jobs/runs', 'Jobs'],
@@ -104,7 +101,7 @@ describe('MobileShell', () => {
     await renderShell(path)
 
     expect(screen.getByRole('navigation', { name: 'Primary' })).toBeInTheDocument()
-    for (const name of ['Workspace', 'Sessions', 'Jobs']) {
+    for (const name of ['Sessions', 'Jobs']) {
       const el = screen.getByRole('link', { name })
       if (name === active) expect(el).toHaveClass('active')
       else expect(el).not.toHaveClass('active')
@@ -118,7 +115,7 @@ describe('MobileShell', () => {
     await user.click(screen.getByRole('link', { name: 'Jobs' }))
     expect(await screen.findByTestId('url')).toHaveTextContent('/jobs')
 
-    await user.click(screen.getByRole('link', { name: 'Workspace' }))
+    await user.click(screen.getByRole('link', { name: 'Sessions' }))
     expect(await screen.findByTestId('url')).toHaveTextContent('/')
   })
 })

@@ -7,32 +7,29 @@ import { ConnectionBanner } from '../ui/ConnectionBanner'
 import { attendBadgeLabels } from '../workspace/attention'
 import NotificationPrompt from './NotificationPrompt'
 
-// Same three tabs as the desktop nav in shell/AppShell.tsx, duplicated on
-// purpose rather than coupling the two shells.
-const workspacePaths = new Set(['/', '/focused', '/tile'])
+// Two tabs where the desktop nav has three: MobileHome is already the session
+// switcher, so one Sessions entry covers what Workspace plus Sessions do on
+// desktop. Duplicated from shell/AppShell.tsx on purpose rather than coupling
+// the two shells.
 
-// MobileShell is the small-screen chrome: three destination tabs across the
-// top bar beside the attention badge, plus the shared connection banner. The
+// MobileShell is the small-screen chrome: two destination tabs across the top
+// bar beside the attention badge, plus the shared connection banner. The
 // theme toggle and global settings live in the settings screen instead.
 export default function MobileShell({ children }: { children: ReactNode }) {
   const { connection } = useSwarm()
   const { needsInputCount } = useWorkspace()
   const location = useLocation()
 
-  // active rules follow AppShell: /s/ lights Sessions off the /sessions
-  // prefix, any /jobs path lights Jobs
-  const workspaceRoute = workspacePaths.has(location.pathname)
-  const sessionsRoute =
-    location.pathname.startsWith('/sessions') || location.pathname.startsWith('/s/')
+  // Sessions lights on home itself and session views below it; any /jobs path
+  // lights Jobs. Desktop-only paths (/focused, /tile, /sessions) redirect home
+  // in AuthGate before rendering, so no extra rules are needed.
+  const sessionsRoute = location.pathname === '/' || location.pathname.startsWith('/s/')
 
   return (
     <div className="app-shell mobile-shell">
       <header className="topbar mobile-topbar">
         <nav aria-label="Primary">
-          <Link to="/" className={workspaceRoute ? 'active' : ''}>
-            Workspace
-          </Link>
-          <Link to="/sessions" className={sessionsRoute ? 'active' : ''}>
+          <Link to="/" className={sessionsRoute ? 'active' : ''}>
             Sessions
           </Link>
           <Link to="/jobs" className={location.pathname.startsWith('/jobs') ? 'active' : ''}>

@@ -96,6 +96,15 @@ describe('SessionsHome', () => {
     )
   }
 
+  it('styles the launch command as code with no backticks', async () => {
+    sessionsReply = []
+    renderHome()
+
+    const empty = await screen.findByText(/no live sessions/i)
+    expect(empty.textContent).toBe('No live sessions. Launch one or start ajent --serve yourself.')
+    expect(empty.querySelector('code')).toHaveTextContent('ajent --serve')
+  })
+
   it('badges held seats and stays quiet on free ones', async () => {
     sessionsReply = [
       session({ sessionId: '01A', seatHeld: true, seatHolder: 'tui', seatOurs: false }),

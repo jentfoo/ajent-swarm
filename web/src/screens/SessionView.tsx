@@ -103,7 +103,7 @@ function SessionSurface({ sessionId, focused }: { sessionId: string; focused: bo
   return (
     <div className="session-screen">
       <StatusHeader sessionId={sessionId} snap={snap} onToast={pushToast}>
-        <SeatBadge sessionId={sessionId} seat={snap.seat} />
+        <SeatBadge sessionId={sessionId} seat={snap.seat} onToast={pushToast} />
         <button type="button" onClick={() => setShowRewind(true)}>
           Rewind
         </button>

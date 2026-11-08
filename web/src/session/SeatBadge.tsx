@@ -1,5 +1,6 @@
 import { useState } from 'react'
 
+import { ApiError } from '../api/client'
 import { sessions as sessionAPI } from '../api/endpoints'
 import type { CtlState } from '../api/types'
 
@@ -7,14 +8,18 @@ import type { CtlState } from '../api/types'
 // A free seat needs no claim (writes take it lazily) and one we hold needs no
 // badge, so both stay hidden and control only ever shows as contested. The
 // compact variant fits the mobile header with its own label and class.
+// Refusals toast the server's message, success stays quiet for the next
+// snapshot to update the badge.
 export function SeatBadge({
   sessionId,
   seat,
   compact = false,
+  onToast,
 }: {
   sessionId: string
   seat: CtlState['seat']
   compact?: boolean
+  onToast: (text: string, level?: 'info' | 'error') => void
 }) {
   const [busy, setBusy] = useState(false)
 
@@ -24,8 +29,8 @@ export function SeatBadge({
     setBusy(true)
     try {
       await sessionAPI.takeControl(sessionId)
-    } catch {
-      // Refusals keep their holder name; the next snapshot updates the badge.
+    } catch (err) {
+      onToast(err instanceof ApiError ? err.message : 'Take control refused.', 'error')
     } finally {
       setBusy(false)
     }

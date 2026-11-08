@@ -16,16 +16,23 @@ describe('SeatBadge', () => {
   })
 
   it('hides itself while the seat is free or already ours', () => {
-    const free = render(<SeatBadge sessionId={VIEW} seat={{ held: false, yours: false }} />)
+    const free = render(
+      <SeatBadge sessionId={VIEW} seat={{ held: false, yours: false }} onToast={() => {}} />,
+    )
     expect(free.container).toBeEmptyDOMElement()
 
     const ours = render(
-      <SeatBadge sessionId={VIEW} seat={{ held: true, holder: 'swarm', yours: true }} />,
+      <SeatBadge
+        sessionId={VIEW}
+        seat={{ held: true, holder: 'swarm', yours: true }}
+        onToast={() => {}}
+      />,
     )
     expect(ours.container).toBeEmptyDOMElement()
   })
 
   it('labels the holder and claims control through take-control', async () => {
+    const onToast = vi.fn()
     let unblock = (): void => {}
     const gate = new Promise<void>((resolve) => {
       unblock = resolve
@@ -35,7 +42,7 @@ describe('SeatBadge', () => {
     )
     vi.stubGlobal('fetch', handler)
 
-    render(<SeatBadge sessionId={VIEW} seat={held('swarm')} />)
+    render(<SeatBadge sessionId={VIEW} seat={held('swarm')} onToast={onToast} />)
     const button = screen.getByRole('button', { name: 'take control: swarm' })
     expect(button).toHaveAttribute('title', 'Take control from swarm')
 
@@ -50,25 +57,32 @@ describe('SeatBadge', () => {
     const [url, init] = handler.mock.calls[0]!
     expect(String(url)).toBe(`/api/sessions/${VIEW}/take-control`)
     expect(init?.method).toBe('POST')
+    // success rides the next snapshot and stays quiet
+    expect(onToast).not.toHaveBeenCalled()
   })
 
-  it('keeps showing the holder after a refused claim', async () => {
+  it('toasts the refusal and keeps the holder after a refused claim', async () => {
+    const onToast = vi.fn()
     vi.stubGlobal(
       'fetch',
-      vi.fn(() => Response.json({ error: 'busy', message: 'holder active' }, { status: 409 })),
+      vi.fn(() => Response.json({ error: 'seat-held', message: 'held by swarm' }, { status: 409 })),
     )
-    render(<SeatBadge sessionId={VIEW} seat={held('swarm')} />)
+    render(<SeatBadge sessionId={VIEW} seat={held('swarm')} onToast={onToast} />)
 
     await userEvent.setup().click(screen.getByRole('button', { name: 'take control: swarm' }))
 
-    // the badge stays contested and re-enables; the next snapshot updates it
+    // the envelope surfaces verbatim, then the badge re-enables and waits
+    // on the next snapshot
+    await vi.waitFor(() =>
+      expect(onToast).toHaveBeenCalledWith('seat-held: held by swarm', 'error'),
+    )
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'take control: swarm' })).not.toBeDisabled(),
     )
   })
 
   it('keeps the compact label for a holderless seat', () => {
-    render(<SeatBadge sessionId={VIEW} seat={held(undefined)} compact />)
+    render(<SeatBadge sessionId={VIEW} seat={held(undefined)} compact onToast={() => {}} />)
     expect(screen.getByRole('button', { name: 'seat held' })).toBeInTheDocument()
   })
 })

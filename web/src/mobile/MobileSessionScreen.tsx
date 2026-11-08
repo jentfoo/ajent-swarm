@@ -148,7 +148,7 @@ function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElemen
         {isTransientPhase(phase) && (
           <span className={`badge ${phase === 'resyncing' ? 'warn' : ''}`}>{phase}</span>
         )}
-        <SeatBadge sessionId={sessionId} seat={snap.seat} compact />
+        <SeatBadge sessionId={sessionId} seat={snap.seat} compact onToast={pushToast} />
         <HeaderMenu
           onRewind={() => setShowRewind(true)}
           onTools={() => setShowTools(true)}

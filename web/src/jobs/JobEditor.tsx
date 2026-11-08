@@ -4,6 +4,7 @@ import type { FormEvent } from 'react'
 import { ApiError } from '../api/client'
 import { jobsApi } from '../api/endpoints'
 import type { Job, ToolState } from '../api/types'
+import { useArmedConfirm } from '../hooks/useArmedConfirm'
 import { defaultDraft, draftFromJob, idleDelayOptions, toPayload, validateDraft } from './jobDraft'
 import type { DraftErrors, JobDraft } from './jobDraft'
 import { TriggerCommandFields } from './TriggerCommandFields'
@@ -63,7 +64,6 @@ export function JobEditor({
   const [previewError, setPreviewError] = useState('')
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
-  const [confirmDelete, setConfirmDelete] = useState(false)
 
   // Debounced draft preview: the backend owns scheduling semantics and checks
   // the workspace against its own filesystem; further edits abort in flight.
@@ -120,6 +120,10 @@ export function JobEditor({
       setSaving(false)
     }
   }
+
+  // no resetKey: the jobs poll rebuilds row objects every load, so an object
+  // key would void the arm mid-window; route swaps remount this form disarmed
+  const confirm = useArmedConfirm(() => void remove(), { disabled: saving })
 
   return (
     <ModalShell
@@ -431,11 +435,11 @@ export function JobEditor({
           {job !== undefined && (
             <button
               type="button"
-              onClick={() => (confirmDelete ? void remove() : setConfirmDelete(true))}
-              onBlur={() => setConfirmDelete(false)}
+              onClick={confirm.onClick}
+              onBlur={confirm.onBlur}
               disabled={saving}
             >
-              {confirmDelete ? 'Really delete?' : 'Delete…'}
+              {confirm.armed ? 'Really delete?' : 'Delete…'}
             </button>
           )}
           <span className="spacer" style={{ flex: 1 }} />

@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -34,12 +34,14 @@ type PreviewReply = { times?: string[]; workspaceError?: string } | { code: numb
 let previewReply: PreviewReply
 const previewBodies: unknown[] = []
 const savedRoutes: Array<{ path: string; body: unknown }> = []
+const deletedJobs: number[] = []
 
 describe('JobEditor', () => {
   beforeEach(() => {
     previewReply = { times: [] }
     previewBodies.length = 0
     savedRoutes.length = 0
+    deletedJobs.length = 0
     vi.stubGlobal(
       'fetch',
       vi.fn((url: string | URL | Request, init?: RequestInit) => {
@@ -72,11 +74,15 @@ describe('JobEditor', () => {
           savedRoutes.push({ path, body })
           return Promise.resolve(Response.json({ ...body, id: 9 }))
         }
-        const put = /\/api\/jobs\/(\d+)$/.exec(path)
-        if (put && init?.method === 'PUT') {
+        const jobRoute = /\/api\/jobs\/(\d+)$/.exec(path)
+        if (jobRoute && init?.method === 'DELETE') {
+          deletedJobs.push(Number(jobRoute[1]))
+          return Promise.resolve(new Response(null, { status: 204 }))
+        }
+        if (jobRoute && init?.method === 'PUT') {
           const body = JSON.parse(String(init.body)) as Record<string, unknown>
           savedRoutes.push({ path, body })
-          return Promise.resolve(Response.json({ ...body, id: Number(put[1]) }))
+          return Promise.resolve(Response.json({ ...body, id: Number(jobRoute[1]) }))
         }
         throw new Error(`unexpected fetch ${init?.method ?? 'GET'} ${path}`)
       }),
@@ -271,6 +277,52 @@ describe('JobEditor', () => {
     await user.click(screen.getByRole('button', { name: 'Save changes' }))
     await waitFor(() => expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ id: 3 })))
     expect(savedRoutes[0].body).toMatchObject({ scheduleKind: 'interval', intervalSeconds: 30 })
+  })
+
+  it('requires two clicks to delete a job', async () => {
+    const user = userEvent.setup()
+    const onSaved = vi.fn()
+    renderEditor({ job: storedJob, onSaved })
+
+    // the first press only arms: no request yet, the button asks back
+    await user.click(screen.getByRole('button', { name: 'Delete…' }))
+    expect(deletedJobs).toHaveLength(0)
+    expect(onSaved).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: 'Really delete?' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Really delete?' }))
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(undefined))
+    expect(deletedJobs).toEqual([storedJob.id])
+  })
+
+  it('resets an abandoned delete arm', async () => {
+    vi.useFakeTimers()
+    renderEditor({ job: storedJob })
+    fireEvent.click(screen.getByRole('button', { name: 'Delete…' }))
+    expect(screen.getByRole('button', { name: 'Really delete?' })).toBeInTheDocument()
+
+    // the shared arm window passes with no confirming press
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000)
+    })
+    expect(screen.queryByRole('button', { name: 'Really delete?' })).not.toBeInTheDocument()
+    expect(deletedJobs).toHaveLength(0)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete…' }))
+    expect(screen.getByRole('button', { name: 'Really delete?' })).toBeInTheDocument()
+  })
+
+  it('disarms the delete arm when focus moves on', async () => {
+    const user = userEvent.setup()
+    renderEditor({ job: storedJob })
+
+    await user.click(screen.getByRole('button', { name: 'Delete…' }))
+    expect(screen.getByRole('button', { name: 'Really delete?' })).toBeInTheDocument()
+
+    // a tab onto another control reads as a changed mind, like Stop's arm
+    await user.tab()
+    expect(screen.queryByRole('button', { name: 'Really delete?' })).not.toBeInTheDocument()
+    expect(deletedJobs).toHaveLength(0)
   })
 
   it('renders a seed draft as the initial create state', async () => {

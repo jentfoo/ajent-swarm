@@ -930,7 +930,9 @@ function resolvePendingCommitted(state: AppliedSessionState, entry: Entry) {
 // recomputeChain rebuilds the visible branch by walking parent links from
 // the snapshot's head back toward a transcript root, cycle-guarded. rooted is
 // false when the walk stops at a missing parent that is not the root itself,
-// including a head we hold nothing about.
+// including a head we hold nothing about. Diffs prune to anchors still on
+// the rebuilt branch ('' predates any entry and stays), so rewound-away
+// cards vanish with the history they described.
 function recomputeChain(state: AppliedSessionState): void {
   const walkedBack: string[] = []
   let rooted: boolean
@@ -950,6 +952,10 @@ function recomputeChain(state: AppliedSessionState): void {
   }
   const ids = walkedBack.reverse() // oldest first
   state.chain = { ids, rooted, oldestId: ids[0] ?? '' }
+  if (state.diffs.length > 0) {
+    const onBranch = new Set(ids)
+    state.diffs = state.diffs.filter((d) => d.afterId === '' || onBranch.has(d.afterId))
+  }
 }
 
 // reconcilePendings resolves optimistic rows against authoritative queue

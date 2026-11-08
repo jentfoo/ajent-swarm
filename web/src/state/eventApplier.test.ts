@@ -667,24 +667,66 @@ describe('applierReducer diff anchoring', () => {
     ])
   })
 
-  it('anchors nowhere before any committed entry', () => {
-    const s = apply(initialSessionState(), ev('diff', 1, { path: 'f', before: '', after: 'x' }))
-    expect(s.diffs[0]?.afterId).toBe('')
-  })
-
-  it('keeps earlier anchors still while later diffs reach the new tail', () => {
-    const root = messageEntry('01A', undefined, 'user', 'hello')
+  it('drops diffs a rewind anchored off the branch', () => {
+    const a = messageEntry('01A', undefined, 'user', 'hello')
+    const b = messageEntry('01B', '01A', 'assistant', 'writing files')
+    const c = messageEntry('01C', '01B', 'assistant', 'done')
     let s = apply(initialSessionState(), {
       type: 'init',
-      frame: initFrame(snap({ head: '01A' }), [root]),
+      frame: initFrame(snap({ head: '01C' }), [a, b, c]),
+    })
+
+    s = apply(s, ev('diff', 5, { path: 'src/main.go', before: '', after: 'package main\n' }))
+    expect(s.diffs.map((d) => d.afterId)).toEqual(['01C'])
+
+    // The stale card must vanish with the history it described, not trail
+    // below whatever gets written after the rewind.
+    s = apply(s, ev('branch.changed', 6, { from: '01C', head: '01A', cause: 'rewind' }))
+    expect(s.chain.ids).toEqual(['01A'])
+    expect(s.diffs).toEqual([])
+
+    // Every branch change cause shares the rule, e.g. a compaction re-root.
+    s = apply(
+      s,
+      ev('entry.append', 7, { entry: messageEntry('01D', '01A', 'assistant', 'again') }),
+      ev('diff', 8, { path: 'src/main.go', before: '', after: 'package main\n' }),
+    )
+    expect(s.diffs.map((d) => d.afterId)).toEqual(['01D'])
+    s = apply(s, ev('branch.changed', 9, { from: '01D', head: '01A', cause: 'compact' }))
+    expect(s.diffs).toEqual([])
+  })
+
+  it('keeps diffs whose anchor stays on the branch', () => {
+    const a = messageEntry('01A', undefined, 'user', 'hello')
+    let s = apply(initialSessionState(), {
+      type: 'init',
+      frame: initFrame(snap({ head: '01A' }), [a]),
     })
 
     s = apply(s, ev('diff', 1, { path: 'a.txt', before: '', after: 'one' }))
-    const reply = messageEntry('01B', '01A', 'assistant', 'hi there')
-    s = apply(s, ev('entry.append', 2, { entry: reply }))
-    s = apply(s, ev('diff', 3, { path: 'b.txt', before: '', after: 'two' }))
-
+    s = apply(
+      s,
+      ev('entry.append', 2, { entry: messageEntry('01B', '01A', 'assistant', 'writing files') }),
+      ev('diff', 3, { path: 'b.txt', before: '', after: 'two' }),
+    )
     expect(s.diffs.map((d) => d.afterId)).toEqual(['01A', '01B'])
+
+    // A rewind keeps the ancestor chain, so a diff anchored on it survives
+    // while the newer one drops.
+    s = apply(s, ev('branch.changed', 4, { from: '01B', head: '01A', cause: 'rewind' }))
+    expect(s.diffs.map((d) => d.path)).toEqual(['a.txt'])
+    expect(s.diffs[0]?.afterId).toBe('01A')
+  })
+
+  it('keeps the pre-history anchor through later appends', () => {
+    let s = apply(initialSessionState(), ev('diff', 1, { path: 'f', before: '', after: 'x' }))
+    expect(s.diffs[0]?.afterId).toBe('')
+
+    // A later append rebuilds the chain, which must not read the empty
+    // anchor as off-branch.
+    s = apply(s, ev('entry.append', 2, { entry: messageEntry('01A', undefined, 'user', 'hello') }))
+    expect(s.chain.ids).toEqual(['01A'])
+    expect(s.diffs.map((d) => d.afterId)).toEqual([''])
   })
 
   it('keeps the diff list bounded at ten', () => {

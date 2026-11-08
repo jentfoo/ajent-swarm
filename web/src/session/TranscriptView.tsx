@@ -76,8 +76,9 @@ export function TranscriptView({
   )
 
   // Diffs anchor to the block they arrived after; a card sits inside its row
-  // wrapper so the virtualizer measures them together. Anchors that left the
-  // retained chain (rewound away, never committed) fall back below it.
+  // wrapper so the virtualizer measures them together. Trailing holds the
+  // pre-history case ('' anchor) plus anchors with no visible block, never
+  // rewound-away history: the applier prunes those on branch changes.
   const { diffsByAnchor, trailingDiffs } = useMemo(() => {
     const visible = new Set(blocks.map((b) => b.id))
     const byAnchor = new Map<string, DiffView[]>()

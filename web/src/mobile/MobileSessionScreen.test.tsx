@@ -434,7 +434,7 @@ describe('MobileSessionScreen', () => {
     })
     expect(screenEl.style.getPropertyValue('--keyboard-inset')).toBe('300px')
 
-    // keyboard closed again returns to the safe-area baseline alone
+    // closing the keyboard drops the lift back to zero
     vvHeight = window.innerHeight
     act(() => {
       ;(window.visualViewport as unknown as { fire: () => void }).fire()

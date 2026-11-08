@@ -1730,6 +1730,9 @@ label {
 }
 .mobile-content {
   padding: calc(var(--unit) * 3);
+  /* every hosted page clears the home indicator; .mobile-session drops its own
+     baseline so chat does not count this inset twice */
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--unit) * 3);
   max-width: none;
   /* pull-to-refresh plays in the launcher's own dead overscroll; containing it
      here keeps the browser's page-level refresh from stealing the gesture */
@@ -1935,15 +1938,13 @@ label {
 }
 
 /* mobile session screen: compact sticky header, shared status bar under the
-   composer. The safe-area baseline keeps Send and the status bar out of the
-   home-indicator gesture zone with the keyboard closed; --keyboard-inset adds
-   on top while it is open, so the two insets compose instead of replacing
-   each other */
+   composer. The safe-area baseline lives on .mobile-content, so this padding
+   carries only --keyboard-inset; repeating it here would count the inset twice */
 .mobile-session {
   display: flex;
   flex-direction: column;
   height: 100%;
-  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--keyboard-inset, 0px));
+  padding-bottom: var(--keyboard-inset, 0px);
 }
 .mobile-session-header {
   position: sticky;
@@ -2191,8 +2192,8 @@ label {
 
 /* mobile session screen: the transcript owns the scroll under the sticky
    header, and the bottom status bar gets touch padding the desktop bar does
-   not need; it stays inside .mobile-session's safe-area baseline, hugging the
-   bottom edge like desktop's */
+   not need; it hugs the bottom edge like desktop's, inside the host's
+   safe-area baseline */
 @media (max-width: 48rem) {
   .mobile-session .transcript-wrap {
     flex: 1;

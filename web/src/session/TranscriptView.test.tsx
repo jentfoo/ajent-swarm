@@ -1,0 +1,90 @@
+import { act, fireEvent, render, screen } from '@testing-library/react'
+import { describe, expect, it } from 'vitest'
+
+import { initialSessionState } from '../state/eventApplier'
+import { TranscriptView } from './TranscriptView'
+
+// The transcript's pull-to-latest listener: a single finger crossing the
+// threshold at rest at the top jumps to the latest row, while a touch that
+// scrolled first — even one back at rest past its start — and any pinch stay
+// dead, mirroring usePullToRefresh.
+
+function renderTranscript(): HTMLElement {
+  render(
+    <TranscriptView
+      sessionId="01TESTSESSION0000"
+      state={initialSessionState()}
+      loadOlder={async () => false}
+      pullDownToLatest
+      onThinkingToggle={() => {}}
+    />,
+  )
+
+  // jsdom lays nothing out; a long transcript stands in so the pill's
+  // not-at-bottom check and the jump's scrollTop write behave like the real
+  // scroller, which rests at scrollTop 0 here — where pulls may play
+  const el = document.querySelector('.transcript-scroll') as HTMLElement
+  Object.defineProperty(el, 'scrollHeight', { configurable: true, value: 2000 })
+  Object.defineProperty(el, 'clientHeight', { configurable: true, value: 300 })
+  return el
+}
+
+// showPill disengages autoscroll with one upward scroll away from the bottom,
+// so the ↓ latest button marks both where a jump may fire and that one did.
+// It leaves the scroller at rest at the top, where the pull gesture lives.
+function showPill(el: HTMLElement) {
+  act(() => {
+    el.scrollTop = 500
+    el.dispatchEvent(new Event('scroll'))
+    el.scrollTop = 0
+    el.dispatchEvent(new Event('scroll'))
+  })
+}
+
+describe('TranscriptView pull to latest', () => {
+  it('jumps to latest past the threshold', () => {
+    const el = renderTranscript()
+    showPill(el)
+    expect(screen.getByText('↓ latest')).toBeInTheDocument()
+
+    fireEvent.touchStart(el, { touches: [{ clientY: 300 }] })
+    fireEvent.touchMove(el, { touches: [{ clientY: 380 }] })
+
+    expect(screen.queryByText('↓ latest')).not.toBeInTheDocument()
+  })
+
+  it('ignores scroll away and return', () => {
+    const el = renderTranscript()
+    showPill(el)
+
+    // the drag scrolls the page away from the top, then continues down past
+    // its own start once back at rest: never a pull from the top
+    fireEvent.touchStart(el, { touches: [{ clientY: 300 }] })
+    el.scrollTop = 400
+    fireEvent.touchMove(el, { touches: [{ clientY: 200 }] })
+    el.scrollTop = 0
+    fireEvent.touchMove(el, { touches: [{ clientY: 400 }] })
+
+    expect(screen.getByText('↓ latest')).toBeInTheDocument()
+
+    // the voided touch leaves nothing behind; a pull from rest still jumps
+    fireEvent.touchEnd(el, { touches: [], changedTouches: [{ clientY: 400 }] })
+    fireEvent.touchStart(el, { touches: [{ clientY: 300 }] })
+    fireEvent.touchMove(el, { touches: [{ clientY: 380 }] })
+
+    expect(screen.queryByText('↓ latest')).not.toBeInTheDocument()
+  })
+
+  it('keeps a pinch from jumping', () => {
+    const el = renderTranscript()
+    showPill(el)
+
+    // one finger seeds the gesture; a second landing mid-drag kills it even
+    // when the remaining finger keeps dragging far past the start
+    fireEvent.touchStart(el, { touches: [{ clientY: 300 }] })
+    fireEvent.touchStart(el, { touches: [{ clientY: 300 }, { clientY: 340 }] })
+    fireEvent.touchMove(el, { touches: [{ clientY: 380 }, { clientY: 500 }] })
+
+    expect(screen.getByText('↓ latest')).toBeInTheDocument()
+  })
+})

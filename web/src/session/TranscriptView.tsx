@@ -171,33 +171,46 @@ export function TranscriptView({
 
   // Pull-to-latest: while already at the top of history, dragging further down
   // is dead overscroll — exactly where a gesture cannot fight scrolling. The
-  // drag distance rides touchmove so it works through the rubber band.
+  // drag distance rides touchmove so it works through the rubber band. A touch
+  // that scrolled first stays void for its whole life and only one finger
+  // qualifies, mirroring usePullToRefresh.
   useEffect(() => {
     if (!pullDownToLatest) return
     const el = scrollRef.current
     if (!el) return
     let startY: number | null = null
+    let scrolled = false // the page moved under the finger; voids the candidate
     const begin = (ev: TouchEvent) => {
-      startY = ev.touches[0]?.clientY ?? null
+      // one fresh finger seeds a candidate; anything else kills it
+      startY = ev.touches.length === 1 ? ev.touches[0].clientY : null
+      scrolled = false
     }
     const move = (ev: TouchEvent) => {
-      if (startY === null || el.scrollTop > 0) return
-      const dy = (ev.touches[0]?.clientY ?? 0) - startY
+      if (startY === null || ev.touches.length !== 1) return
+      // first scrolled move voids the candidate: returning to the top mid-touch
+      // never resumes from the original start (mirrored by usePullToRefresh)
+      if (el.scrollTop > 0) scrolled = true
+      if (scrolled) return
+      const dy = ev.touches[0].clientY - startY
       if (dy >= pullDownPx) {
         startY = null
         jumpToLatest()
       }
     }
-    const end = () => {
+    // lift or cancel drops any candidate
+    const stop = () => {
       startY = null
+      scrolled = false
     }
     el.addEventListener('touchstart', begin, { passive: true })
     el.addEventListener('touchmove', move, { passive: true })
-    el.addEventListener('touchend', end, { passive: true })
+    el.addEventListener('touchend', stop, { passive: true })
+    el.addEventListener('touchcancel', stop, { passive: true })
     return () => {
       el.removeEventListener('touchstart', begin)
       el.removeEventListener('touchmove', move)
-      el.removeEventListener('touchend', end)
+      el.removeEventListener('touchend', stop)
+      el.removeEventListener('touchcancel', stop)
     }
   }, [pullDownToLatest, jumpToLatest])
 

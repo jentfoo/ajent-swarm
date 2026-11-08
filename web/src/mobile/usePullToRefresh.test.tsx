@@ -110,6 +110,48 @@ describe('usePullToRefresh', () => {
     expect(onRefresh).toHaveBeenCalledTimes(1)
   })
 
+  it('ignores scroll away and return', async () => {
+    const onRefresh = vi.fn(async () => {})
+
+    render(<Harness onRefresh={onRefresh} />)
+    const scroller = screen.getByTestId('scroller')
+    const row = screen.getByTestId('row')
+
+    // the drag scrolls the page away from the top, then continues down past
+    // its own start once back at rest: never a pull from the top
+    fireEvent.touchStart(row, { touches: [{ clientY: 200 }] })
+    scroller.scrollTop = 400
+    fireEvent.touchMove(row, { touches: [{ clientY: 120 }] })
+    scroller.scrollTop = 0
+    fireEvent.touchMove(row, { touches: [{ clientY: 320 }] })
+    fireEvent.touchEnd(row, { touches: [], changedTouches: [{ clientY: 320 }] })
+    expect(onRefresh).not.toHaveBeenCalled()
+
+    // the voided touch leaves nothing behind; a pull from rest still plays
+    pullGesture(row, 200, 300)
+    await settle()
+    expect(onRefresh).toHaveBeenCalledTimes(1)
+  })
+
+  it('ignores returning from mid-page', async () => {
+    const onRefresh = vi.fn(async () => {})
+
+    render(<Harness onRefresh={onRefresh} />)
+    const scroller = screen.getByTestId('scroller')
+
+    // a downward drag that starts scrolled only reaches the top partway
+    // through, so its tail sits past the start point at rest
+    scroller.scrollTop = 400
+    const row = screen.getByTestId('row')
+    fireEvent.touchStart(row, { touches: [{ clientY: 200 }] })
+    fireEvent.touchMove(row, { touches: [{ clientY: 240 }] })
+    scroller.scrollTop = 0
+    fireEvent.touchMove(row, { touches: [{ clientY: 340 }] })
+    fireEvent.touchEnd(row, { touches: [], changedTouches: [{ clientY: 340 }] })
+
+    expect(onRefresh).not.toHaveBeenCalled()
+  })
+
   it('skips a dead inner scroller', async () => {
     const onRefresh = vi.fn(async () => {})
 

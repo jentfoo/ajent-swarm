@@ -10,9 +10,11 @@ const pullRefreshPx = 64
 
 // usePullToRefresh is the launcher's pull-down gesture: while a touch scroll
 // sits at the very top, dragging further down and releasing past the threshold
-// calls onRefresh once. Overlapping pulls during an in-flight refresh are
-// dropped. Listeners ride touch events only, so pointer scrolling never sees
-// them, and no handler blocks default behavior, so normal scrolling is intact.
+// calls onRefresh once. A touch that scrolled first stays void for its whole
+// life, so only pulls beginning at rest at the top count.
+// Overlapping pulls during an in-flight refresh are dropped. Listeners ride
+// touch events only, so pointer scrolling never sees them, and no handler
+// blocks default behavior, so normal scrolling is intact.
 //
 // surface is the ref of the element bounding where gestures may start; returns
 // true from a qualifying release until every refresh settles.
@@ -35,6 +37,7 @@ export function usePullToRefresh(
     let startY: number | null = null // touchstart clientY, null when idle
     let scroller: HTMLElement | null = null
     let furthest = 0 // deepest downward pull of the active gesture
+    let scrolled = false // the page moved under the finger; voids the candidate
     // mirrors refreshing synchronously, so a release landing during an
     // in-flight refresh cannot stack behind a state update
     let busy = false
@@ -60,19 +63,23 @@ export function usePullToRefresh(
       startY = t?.clientY ?? null
       scroller = t && ev.target instanceof Element ? scrollableUnder(ev.target, 'y') : null
       furthest = 0
+      scrolled = false
     }
     const move = (ev: TouchEvent) => {
       if (startY === null || scroller === null || ev.touches.length !== 1) return
-      // only the dead overscroll at the very top plays; a scrolled page is a scroll
-      if (scroller.scrollTop > 0) return
+      // first scrolled move voids the candidate: returning to the top mid-touch
+      // never resumes from the original start (mirrored by TranscriptView)
+      if (scroller.scrollTop > 0) scrolled = true
+      if (scrolled) return
       const dy = ev.touches[0].clientY - startY
       furthest = Math.max(furthest, dy)
     }
     const end = () => {
-      const pulled = startY !== null && scroller !== null && furthest >= pullRefreshPx
+      const pulled = startY !== null && scroller !== null && !scrolled && furthest >= pullRefreshPx
       startY = null
       scroller = null
       furthest = 0
+      scrolled = false
       if (pulled) void run()
     }
     // a canceled touch never became a deliberate release
@@ -80,6 +87,7 @@ export function usePullToRefresh(
       startY = null
       scroller = null
       furthest = 0
+      scrolled = false
     }
 
     el.addEventListener('touchstart', begin, { passive: true })

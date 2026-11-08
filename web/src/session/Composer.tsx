@@ -580,6 +580,8 @@ export function Composer({
   // and the draft gains an @<abs path> reference for vision models to inject.
   // Small text files inline as fenced blocks instead, so context sees them
   // without a round trip; oversize or unreadable ones fall back to uploading.
+  // The append builds on the live draft (valueRef.current), not the
+  // selection-time value: typing and prefills land during an upload.
   const attach = useCallback(
     async (files: FileList | null) => {
       if (!files || files.length === 0) return
@@ -595,7 +597,8 @@ export function Composer({
           const res = await sessionAPI.attach(sessionId, file)
           refs.push(`@${res.path}`)
         }
-        onChange(value === '' ? refs.join('\n\n') : `${value}\n\n${refs.join('\n\n')}`)
+        const draft = valueRef.current
+        onChange(draft === '' ? refs.join('\n\n') : `${draft}\n\n${refs.join('\n\n')}`)
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Attach failed.')
       } finally {
@@ -603,7 +606,7 @@ export function Composer({
         if (fileRef.current) fileRef.current.value = ''
       }
     },
-    [sessionId, value, onChange],
+    [sessionId, onChange],
   )
 
   return (

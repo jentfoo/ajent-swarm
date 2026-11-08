@@ -38,6 +38,20 @@ function deferredFiles() {
   }
 }
 
+// deferredUpload holds the attachment POST reply until released, so tests can
+// land draft edits between picking a file and its upload resolving.
+function deferredUpload() {
+  let resolve!: (res: Response) => void
+  const fetchSpy = vi.fn((_url: string | URL, init?: RequestInit) => {
+    if (init?.body instanceof FormData)
+      return new Promise<Response>((r) => {
+        resolve = r
+      })
+    return Response.json({})
+  })
+  return { fetchSpy, reply: (res: Response) => resolve(res) }
+}
+
 // component swaps the module under test; the coarse-pointer cases re-import
 // Composer with matchMedia stubbed, since the flag reads once at import.
 type HarnessOverrides = Partial<ComposerProps> & { component?: typeof Composer }
@@ -1167,6 +1181,10 @@ describe('Composer shell mode', () => {
 })
 
 describe('Composer attachments', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
   it('uploads an image and appends an @path reference', async () => {
     const user = userEvent.setup()
     const uploads: FormData[] = []
@@ -1236,6 +1254,53 @@ describe('Composer attachments', () => {
 
     await waitFor(() => expect(uploads).toHaveLength(1))
     await waitFor(() => expect(onChange).toHaveBeenCalledWith('@/state/big.log'))
+  })
+
+  it('typing_during_upload_survives', async () => {
+    const user = userEvent.setup()
+    const upload = deferredUpload()
+    vi.stubGlobal('fetch', upload.fetchSpy)
+    render(Harness())
+
+    const box = screen.getByLabelText('Prompt') as HTMLTextAreaElement
+    await user.type(box, 'look at this')
+    const file = new File(['png-bytes'], 'shot.png', { type: 'image/png' })
+    await user.upload(screen.getByTestId('attach-input'), file)
+
+    // only the paperclip disables; the draft keeps taking keystrokes while
+    // the upload holds
+    expect(screen.getByRole('button', { name: 'Attach files' })).toBeDisabled()
+    await user.type(box, ' while it uploads')
+    expect(box.value).toBe('look at this while it uploads')
+
+    upload.reply(Response.json({ path: '/state/shot.png' }))
+    await act(async () => {}) // let the append continuation run
+
+    // the ref lands under the live draft, not the selection-time one
+    expect(box.value).toBe('look at this while it uploads\n\n@/state/shot.png')
+  })
+
+  it('recall_prefill_mid_upload_survives', async () => {
+    const user = userEvent.setup()
+    const upload = deferredUpload()
+    vi.stubGlobal('fetch', upload.fetchSpy)
+    render(Harness(recallHarness(['fix the retry loop'])))
+
+    const box = screen.getByLabelText('Prompt') as HTMLTextAreaElement
+    await user.type(box, 'draft text')
+    const file = new File(['png-bytes'], 'shot.png', { type: 'image/png' })
+    await user.upload(screen.getByTestId('attach-input'), file)
+
+    // the prefill lands through the host while the upload holds
+    await user.click(box)
+    await user.keyboard('{Control>}r{/Control}')
+    await user.keyboard('retry{Enter}')
+    expect(box.value).toBe('fix the retry loop\ndraft text')
+
+    upload.reply(Response.json({ path: '/state/shot.png' }))
+    await act(async () => {}) // let the append continuation run
+
+    expect(box.value).toBe('fix the retry loop\ndraft text\n\n@/state/shot.png')
   })
 })
 

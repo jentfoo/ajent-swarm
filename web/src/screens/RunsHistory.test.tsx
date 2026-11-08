@@ -14,7 +14,8 @@ import type { Job, Run } from '../api/types'
 // filters narrow through the backend's ?job= and client-side status, a
 // run's detail routes to its session view when live or its recorded
 // transcript when not, an open detail tracks each poll instead of a frozen
-// snapshot, and only the newest load may commit over an in-flight one.
+// snapshot, only the newest load may commit over an in-flight one, and
+// platform back peels the detail as its own history layer.
 function jobRow(id: number, name: string): Job {
   return {
     id,
@@ -104,6 +105,11 @@ describe('RunsHistory', () => {
   beforeEach(() => {
     localStorage.clear()
     runsReply = runs
+    // a consume queued by the previous test's cleanup never navigated in jsdom;
+    // drain its pending pop event so it cannot swallow this test's own
+    window.dispatchEvent(new PopStateEvent('popstate'))
+    window.dispatchEvent(new PopStateEvent('popstate'))
+    window.history.replaceState(null, '', window.location.href)
     vi.stubGlobal(
       'WebSocket',
       class extends MockWebSocket {
@@ -161,6 +167,7 @@ describe('RunsHistory', () => {
 
   afterEach(() => {
     sockets = []
+    vi.restoreAllMocks()
     vi.unstubAllGlobals()
   })
 
@@ -324,6 +331,44 @@ describe('RunsHistory', () => {
     await waitFor(() => {
       expect(screen.queryByRole('dialog', { name: 'Run 13' })).not.toBeInTheDocument()
     })
+  })
+
+  it('peels an open detail on platform back', async () => {
+    const user = userEvent.setup()
+    renderRuns()
+    await screen.findByTestId('run-11')
+
+    // a narrowed filter makes surviving state observable after the close
+    await user.selectOptions(screen.getByLabelText(/^Status/), 'failed')
+    expect(screen.queryByTestId('run-11')).not.toBeInTheDocument()
+
+    await user.click(screen.getByTestId('run-12'))
+    expect(screen.getByRole('dialog', { name: 'Run 12' })).toBeInTheDocument()
+
+    // the gesture pops the detail's own history entry, not the route: the
+    // modal peels and /jobs/runs keeps its filters and rows
+    act(() => window.dispatchEvent(new PopStateEvent('popstate')))
+    expect(screen.queryByRole('dialog', { name: 'Run 12' })).not.toBeInTheDocument()
+    expect(screen.getByTestId('run-12')).toBeInTheDocument()
+    expect(screen.queryByTestId('run-11')).not.toBeInTheDocument()
+  })
+
+  it('consumes its history entry when closed from inside', async () => {
+    const back = vi.spyOn(window.history, 'back').mockImplementation(() => {})
+    const user = userEvent.setup()
+    renderRuns()
+    await screen.findByTestId('run-11')
+
+    await user.click(screen.getByTestId('run-12'))
+    expect(screen.getByRole('dialog', { name: 'Run 12' })).toBeInTheDocument()
+
+    // closing through the modal itself steps back over its entry, so a later
+    // platform back never replays this close; mocked inert because jsdom
+    // delivers the traversal as a task
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog', { name: 'Run 12' })).not.toBeInTheDocument()
+    expect(back).toHaveBeenCalledTimes(1)
+    act(() => window.dispatchEvent(new PopStateEvent('popstate'))) // settle the consume
   })
 
   it('commits only the newest load', async () => {

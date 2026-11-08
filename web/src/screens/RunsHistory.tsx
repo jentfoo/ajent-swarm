@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { ReactElement } from 'react'
 import { ApiError } from '../api/client'
 import { jobsApi, runsApi } from '../api/endpoints'
 import type { Job, Run, RunStatus } from '../api/types'
@@ -12,6 +13,7 @@ import {
   relativeTimestamp,
 } from '../jobs/schedule'
 import { RunDetail } from '../jobs/RunDetail'
+import { useOverlayBack } from '../ui/useOverlayBack'
 
 const pollRunsMs = 10_000
 
@@ -189,7 +191,15 @@ export default function RunsHistory() {
         )
       )}
 
-      {selected && <RunDetail run={selected} onClose={() => setSelectedId(undefined)} />}
+      {selected && <RunDetailLayer run={selected} onClose={() => setSelectedId(undefined)} />}
     </div>
   )
+}
+
+// RunDetailLayer mounts the open detail as its own history layer, so platform
+// back peels the modal instead of leaving /jobs/runs and dropping filters;
+// the shared RunDetail itself stays desktop-neutral.
+function RunDetailLayer({ run, onClose }: { run: Run; onClose: () => void }): ReactElement {
+  useOverlayBack(onClose)
+  return <RunDetail run={run} onClose={onClose} />
 }

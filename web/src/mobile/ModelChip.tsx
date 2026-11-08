@@ -3,7 +3,7 @@ import { useRef } from 'react'
 import type { CtlState } from '../api/types'
 import { ModelMenuItems } from '../ui/ModelMenuItems'
 import { useModelMenu } from '../ui/useModelMenu'
-import { OverlayMenu } from './OverlayMenu'
+import { OverlayMenu } from '../ui/OverlayMenu'
 
 // ModelChip is the compact header model control: the short label only, no
 // working spinner (the bottom status line owns that). Fetch, pick and busy

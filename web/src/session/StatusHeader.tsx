@@ -4,11 +4,13 @@ import type * as React from 'react'
 import { ApiError } from '../api/client'
 import { sessions as sessionAPI } from '../api/endpoints'
 import type { CtlState } from '../api/types'
+import { useMediaQuery } from '../hooks/useMediaQuery'
 import { sessionBusy } from '../state/eventApplier'
 import { headerBadgeOf } from '../workspace/attention'
 import { useWorkspace } from '../providers/workspace'
 import { MenuPopover } from '../ui/MenuPopover'
 import { ModelMenuItems } from '../ui/ModelMenuItems'
+import { OverlayMenu } from '../ui/OverlayMenu'
 import { useModelMenu } from '../ui/useModelMenu'
 import { shortID } from './names'
 import { useSessionLabel } from './useSessionLabel'
@@ -65,6 +67,9 @@ export function StatusHeader({
 
 // ModeMenu picks the permission level straight from the fixed upstream
 // vocabulary through mode.set. A session without a gate hides the menu.
+// Coarse pointers bind the open menu to history, so platform back closes it
+// instead of leaving the session; fine pointers keep MenuPopover alone, where
+// browser back belongs to navigation.
 export function ModeMenu({
   sessionId,
   mode,
@@ -77,6 +82,8 @@ export function ModeMenu({
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const chipRef = useRef<HTMLButtonElement>(null)
+  // read live rather than at import: tests stub the pointer class per render
+  const touch = useMediaQuery('(pointer: coarse)')
 
   const pick = useCallback(
     async (next: string) => {
@@ -99,6 +106,15 @@ export function ModeMenu({
   )
 
   if (mode === '') return null // no gate exists on this session
+
+  // one item list feeds either surface's popover
+  const items = permissionModes.map((m) => (
+    <button key={m} type="button" role="menuitem" onClick={() => void pick(m)}>
+      {m}
+      {m === mode && <span className="badge ok">current</span>}
+    </button>
+  ))
+
   return (
     <div className="model-menu">
       <button
@@ -111,21 +127,21 @@ export function ModeMenu({
       >
         mode: {mode}
       </button>
-      {open && (
-        <MenuPopover
-          anchorRef={chipRef}
-          role="menu"
-          className="menu card"
-          onClose={() => setOpen(false)}
-        >
-          {permissionModes.map((m) => (
-            <button key={m} type="button" role="menuitem" onClick={() => void pick(m)}>
-              {m}
-              {m === mode && <span className="badge ok">current</span>}
-            </button>
-          ))}
-        </MenuPopover>
-      )}
+      {open &&
+        (touch ? (
+          <OverlayMenu anchorRef={chipRef} onClose={() => setOpen(false)}>
+            {items}
+          </OverlayMenu>
+        ) : (
+          <MenuPopover
+            anchorRef={chipRef}
+            role="menu"
+            className="menu card"
+            onClose={() => setOpen(false)}
+          >
+            {items}
+          </MenuPopover>
+        ))}
     </div>
   )
 }

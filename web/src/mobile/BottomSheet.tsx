@@ -3,7 +3,7 @@ import type { PointerEvent as ReactPointerEvent, ReactElement } from 'react'
 
 import { useKeyboardInset, keyboardInsetStyle } from '../hooks/useKeyboardInset'
 import { useOverlayDismiss } from '../ui/overlayStack'
-import { useOverlayBack } from './useOverlayBack'
+import { useOverlayBack } from '../ui/useOverlayBack'
 
 // dismissThreshold is how far the sheet must be dragged down before release
 // closes it; below that it springs back open.

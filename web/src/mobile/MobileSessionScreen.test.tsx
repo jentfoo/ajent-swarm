@@ -10,6 +10,7 @@ import { AuthProvider } from '../providers/auth'
 import { SwarmProvider } from '../providers/swarm'
 import { WorkspaceProvider } from '../providers/workspace'
 import { resetDrafts } from '../session/draftStore'
+import { stubCoarsePointer } from '../test/matchMedia'
 import { MockWebSocket } from '../test/mockWebSocket'
 import { resetLedger } from '../workspace/attention'
 
@@ -805,6 +806,39 @@ describe('MobileSessionScreen', () => {
     })
     expect(screen.queryByRole('dialog', { name: 'Session switcher' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: /sonnet/ })).toBeInTheDocument()
+  })
+
+  it('closes the mode menu on browser back instead of leaving the session', async () => {
+    // touch device: the chip rides the history-bound popover, so a pop closes
+    // the menu; with desktop's plain popover nothing would answer the gesture
+    stubCoarsePointer()
+    const back = vi.spyOn(window.history, 'back').mockImplementation(() => {})
+    try {
+      renderScreen()
+      const ws = await openSocket()
+      act(() => {
+        ws.message({ type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
+      })
+
+      const user = userEvent.setup()
+      await user.click(await screen.findByRole('button', { name: /mode: auto/ }))
+      expect(screen.getByRole('menuitem', { name: /allow-read/ })).toBeInTheDocument()
+
+      // the platform back gesture pops the menu's own history entry and closes
+      // it, leaving the session on screen like every mobile overlay layer
+      act(() => {
+        window.dispatchEvent(new PopStateEvent('popstate'))
+      })
+      expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+      expect(screen.getByLabelText('Back to launcher')).toBeInTheDocument()
+
+      // settle the queued consume and leave unstamped ground behind, so later
+      // tests open their layers on a clean history entry
+      window.dispatchEvent(new PopStateEvent('popstate'))
+      window.history.replaceState(null, '', window.location.href)
+    } finally {
+      back.mockRestore()
+    }
   })
 
   it('collapses rewind, tools and settings behind one header menu entry', async () => {

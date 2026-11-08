@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -7,6 +7,7 @@ import type { CtlState, SessionInfo, SessionStatus } from '../api/types'
 import { AuthProvider } from '../providers/auth'
 import { SwarmProvider } from '../providers/swarm'
 import { WorkspaceProvider } from '../providers/workspace'
+import { stubCoarsePointer } from '../test/matchMedia'
 import { MockWebSocket } from '../test/mockWebSocket'
 
 // The mode menu picks straight from the fixed upstream vocabulary through
@@ -116,6 +117,33 @@ describe('ModeMenu', () => {
     await waitFor(() =>
       expect(onToast).toHaveBeenCalledWith('invalid_request: no gate on this session', 'error'),
     )
+  })
+
+  it('closes on platform back for touch pointers', async () => {
+    // the history-bound popover mounts only here; fine-pointer tests above run
+    // with the setup's matchMedia stub and keep desktop's plain MenuPopover
+    stubCoarsePointer()
+    const back = vi.spyOn(window.history, 'back').mockImplementation(() => {})
+    try {
+      const user = userEvent.setup()
+      render(<ModeMenu sessionId="01S" mode="auto" onToast={vi.fn()} />)
+
+      await user.click(screen.getByRole('button', { name: /mode: auto/ }))
+      expect(screen.getByRole('menuitem', { name: /allow-read/ })).toBeInTheDocument()
+
+      // the platform back gesture pops the menu's own history entry and closes it
+      act(() => {
+        window.dispatchEvent(new PopStateEvent('popstate'))
+      })
+      expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+      expect(back).toHaveBeenCalledTimes(1) // its own entry, not a router one
+    } finally {
+      back.mockRestore()
+    }
+
+    // settle the queued consume and leave unstamped ground behind
+    window.dispatchEvent(new PopStateEvent('popstate'))
+    window.history.replaceState(null, '', window.location.href)
   })
 })
 

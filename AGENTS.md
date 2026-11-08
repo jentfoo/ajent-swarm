@@ -128,9 +128,10 @@ routes, wire types) → `state/` → `ui/` → `workspace/` and `jobs/` → `mob
 - `ui/overlayStack.ts` is the one overlay layer order behind ModalShell, MenuPopover and
   the mobile sheets and pushed screens: only the topmost layer answers Escape, key
   bindings that act on page content stand down behind any open layer, and closing
-  returns focus to the opener. `mobile/useOverlayBack.ts` rides that contract on phones,
-  pushing a history entry per overlay so platform back closes the topmost layer instead
-  of leaving the session.
+  returns focus to the opener. `ui/useOverlayBack.ts` rides that contract, pushing one
+  history entry per overlay so platform back closes the topmost layer instead of
+  leaving the page; mobile menus and sheets bind it through OverlayMenu, BottomSheet
+  and friends, and shared surfaces branch on pointer coarseness.
 - The 48rem mobile breakpoint is duplicated in `styles/theme.css` (change both together).
 - Session surfaces key the inner component on `sessionId` so a swap remounts: drafts
   restore from the store while sheets, menus and toasts reset.

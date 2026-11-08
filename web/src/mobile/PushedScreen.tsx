@@ -2,7 +2,7 @@ import { useRef } from 'react'
 import type { ReactElement, ReactNode } from 'react'
 
 import { useOverlayDismiss } from '../ui/overlayStack'
-import { useOverlayBack } from './useOverlayBack'
+import { useOverlayBack } from '../ui/useOverlayBack'
 
 // PushedScreen is the shared chrome for the full-screen panels that read as
 // layers on phones (tools, agent settings): a fixed panel titled by `title`, a

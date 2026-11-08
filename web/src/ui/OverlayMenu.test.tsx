@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { OverlayMenu } from './OverlayMenu'
 
-// The phone menus' shared popover: MenuPopover owns placement and dismissal,
+// The shared touch-menu popover: MenuPopover owns placement and dismissal,
 // this file pins the layer glue, platform back peeling the menu alone.
 
 // MenuHost stands in for a chip or header trigger mounting its menu while open,

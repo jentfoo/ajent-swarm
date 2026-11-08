@@ -12,7 +12,7 @@ import { useWorkspace } from '../providers/workspace'
 import { instanceKey, isActionable } from '../workspace/attention'
 import { SettingsScreen } from './SettingsScreen'
 import { useLongPress } from './useLongPress'
-import { useOverlayBack } from './useOverlayBack'
+import { useOverlayBack } from '../ui/useOverlayBack'
 import { groupSwitcherRows } from './switcher'
 import type { SwitcherRow } from './switcher'
 

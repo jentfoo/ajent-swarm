@@ -1304,6 +1304,78 @@ describe('Composer attachments', () => {
   })
 })
 
+describe('Composer image paste', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  // pasted fakes the clipboardData a real paste carries; jsdom implements no
+  // default paste, so only handler behavior is observable here.
+  function pasted(target: HTMLElement, files: File[], text = '') {
+    fireEvent.paste(target, { clipboardData: { getData: () => text, files } })
+  }
+
+  it('uploads a screenshot through the picker path', async () => {
+    const uploads: FormData[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string | URL, init?: RequestInit) => {
+        if (init?.body instanceof FormData) {
+          uploads.push(init.body)
+          return Response.json({ path: '/state/pasted.png' })
+        }
+        return Response.json({})
+      }),
+    )
+    const onChange = vi.fn()
+    render(Harness({ value: '', onChange }))
+
+    const shot = new File(['png-bytes'], 'shot.png', { type: 'image/png' })
+    pasted(screen.getByLabelText('Prompt'), [shot])
+
+    await waitFor(() => expect(uploads).toHaveLength(1))
+    expect(uploads[0]!.get('file')).toBeInstanceOf(File)
+    // the reference lands exactly as a picked image's would
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith('@/state/pasted.png'))
+  })
+
+  it('keeps a mixed clipboard pasting as text', async () => {
+    const fetchSpy = vi.fn(okSubmit())
+    vi.stubGlobal('fetch', fetchSpy)
+    const onChange = vi.fn()
+    render(Harness({ value: '', onChange }))
+
+    // some apps ship a rendered thumbnail beside formatted text; the note
+    // wins, so nothing uploads and this handler never touches the draft
+    pasted(
+      screen.getByLabelText('Prompt'),
+      [new File(['png-bytes'], 'shot.png', { type: 'image/png' })],
+      'copied note',
+    )
+    await act(async () => {})
+
+    expect(fetchSpy).not.toHaveBeenCalled()
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it('ignores images while the search overlay owns the composer', async () => {
+    const user = userEvent.setup()
+    const fetchSpy = vi.fn(okSubmit())
+    vi.stubGlobal('fetch', fetchSpy)
+    render(Harness(recallHarness(['fix the retry loop'])))
+
+    const box = screen.getByLabelText('Prompt')
+    await user.click(box)
+    await user.keyboard('{Control>}r{/Control}')
+    pasted(box, [new File(['png-bytes'], 'shot.png', { type: 'image/png' })])
+    await act(async () => {})
+
+    // the overlay keeps its paste rule and nothing uploads into the query
+    expect(screen.getByText(/reverse-i-search/)).toBeInTheDocument()
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+})
+
 // recallHarness wires the prepend rule exactly as the session hosts do, so
 // acceptance tests can assert the merged draft and the handed-back caret.
 function recallHarness(items: string[]) {

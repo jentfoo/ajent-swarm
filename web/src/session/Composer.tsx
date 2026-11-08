@@ -17,6 +17,7 @@ import { HistorySearchOverlay } from './HistorySearchOverlay'
 import { atTokenBefore } from './atCompletion'
 import { matchCommands, slashQuery, type CommandDoc } from './commands'
 import { classifyLine } from './lineKind'
+import { pasteImageFiles } from './pasteImages'
 
 const maxRows = 12
 
@@ -600,9 +601,10 @@ export function Composer({
   // Small text files inline as fenced blocks instead, so context sees them
   // without a round trip; oversize or unreadable ones fall back to uploading.
   // The append builds on the live draft (valueRef.current), not the
-  // selection-time value: typing and prefills land during an upload.
+  // selection-time value: typing and prefills land during an upload. Pasted
+  // image files join here too, so paste and picker share one upload path.
   const attach = useCallback(
-    async (files: FileList | null) => {
+    async (files: FileList | File[] | null) => {
       if (!files || files.length === 0) return
       setUploading(true)
       setError('')
@@ -719,10 +721,20 @@ export function Composer({
             onChange(ev.target.value)
           }}
           onPaste={(ev) => {
-            // a paste joins the query, never the draft, while the search is open
-            if (search === null) return
+            // a paste joins the query, never the draft, while the search is
+            // open; its images are ignored rather than uploaded into a query
+            if (search !== null) {
+              ev.preventDefault()
+              applySearchKey({ type: 'input', text: ev.clipboardData.getData('text') })
+              return
+            }
+            // pasted screenshots upload through the picker's path; anything
+            // else keeps default handling, so plain-text and mixed clipboards
+            // still paste as text
+            const images = pasteImageFiles(ev.clipboardData)
+            if (images === null) return
             ev.preventDefault()
-            applySearchKey({ type: 'input', text: ev.clipboardData.getData('text') })
+            void attach(images)
           }}
           onKeyDown={onKeyDown}
           onSelect={(ev) => setCaret(ev.currentTarget.selectionStart ?? 0)}

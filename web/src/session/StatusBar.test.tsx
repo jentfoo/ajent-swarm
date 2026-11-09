@@ -14,7 +14,8 @@ import type { LiveTurn } from '../state/eventApplier'
 // tooltips carry the fuller context and usage breakdowns. The tools panel
 // offers every registered tool as a toggle — readOnly is permission metadata,
 // not a lock — with widen-only state after the first prompt rendered as
-// disabled instead of a silent refusal.
+// disabled instead of a silent refusal, and quick flips composing through the
+// shared toggle intent until the tools event settles them.
 
 function snapFor(overrides: Partial<CtlState> = {}): CtlState {
   return {
@@ -57,6 +58,13 @@ function snapFor(overrides: Partial<CtlState> = {}): CtlState {
 function zero() {
   return { input: 3, output: 5, cacheRead: 0, cacheWrite: 0, reasoning: 0 }
 }
+
+const tool = (over: { name?: string; enabled?: boolean; readOnly?: boolean }) => ({
+  name: over.name ?? 'bash',
+  source: 'default',
+  enabled: over.enabled ?? true,
+  readOnly: over.readOnly ?? false,
+})
 
 afterEach(() => vi.useRealTimers())
 
@@ -307,13 +315,6 @@ describe('StatusBar segments', () => {
 })
 
 describe('ToolsPanel disabled states', () => {
-  const tool = (over: { name?: string; enabled?: boolean; readOnly?: boolean }) => ({
-    name: over.name ?? 'bash',
-    source: 'default',
-    enabled: over.enabled ?? true,
-    readOnly: over.readOnly ?? false,
-  })
-
   it('renders widen-only toggles disabled after the first prompt', async () => {
     const fetchSpy = vi.fn(async () => Response.json({ rows: [] }))
     vi.stubGlobal('fetch', fetchSpy)
@@ -370,5 +371,65 @@ describe('ToolsPanel disabled states', () => {
         expect.objectContaining({ method: 'POST' }),
       ),
     )
+  })
+})
+
+describe('ToolsPanel toggle intent', () => {
+  const off = (name: string) => tool({ name, enabled: false })
+  const sentNames = (spy: ReturnType<typeof vi.fn>) =>
+    spy.mock.calls.map(([, init]) => JSON.parse(String(init?.body)).names)
+
+  it('composes quick successive toggles into one posted set', async () => {
+    const fetchSpy = vi.fn(async () => Response.json({ rows: [] }))
+    vi.stubGlobal('fetch', fetchSpy)
+    render(
+      <ToolsPanel
+        sessionId="01S"
+        snap={snapFor({ tools: [off('bash'), off('search')] })}
+        onToast={vi.fn()}
+      />,
+    )
+
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: '/tools' }))
+    const boxes = screen.getAllByRole('checkbox')
+
+    await user.click(boxes[0])
+    await user.click(boxes[1])
+    // the second post carries the first even though no tools event landed in
+    // between; recomputing from streamed rows would undo it
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2))
+    expect(sentNames(fetchSpy)).toEqual([['bash'], ['bash', 'search']])
+    expect(boxes[0]).toBeChecked()
+    expect(boxes[1]).toBeChecked()
+  })
+
+  it('settles intent from the next tools event', async () => {
+    const fetchSpy = vi.fn(async () => Response.json({ rows: [] }))
+    vi.stubGlobal('fetch', fetchSpy)
+    const view = render(
+      <ToolsPanel sessionId="01S" snap={snapFor({ tools: [off('bash')] })} onToast={vi.fn()} />,
+    )
+
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: '/tools' }))
+    const box = screen.getByRole('checkbox')
+    await user.click(box)
+    expect(box).toBeChecked()
+
+    // the tools event confirms, so the streamed fact decides again and an
+    // external flip-back is never masked by stale intent
+    view.rerender(
+      <ToolsPanel
+        sessionId="01S"
+        snap={snapFor({ tools: [tool({ name: 'bash' })] })}
+        onToast={vi.fn()}
+      />,
+    )
+    expect(screen.getByRole('checkbox')).toBeChecked()
+    view.rerender(
+      <ToolsPanel sessionId="01S" snap={snapFor({ tools: [off('bash')] })} onToast={vi.fn()} />,
+    )
+    expect(screen.getByRole('checkbox')).not.toBeChecked()
   })
 })

@@ -1,16 +1,18 @@
 import { useRef, useState } from 'react'
 
-import type { CtlState, ToolState } from '../api/types'
+import type { CtlState } from '../api/types'
 import { MenuPopover } from '../ui/MenuPopover'
-import { applyToolSet, toolsWidenOnly } from './toolRule'
+import { toolsWidenOnly } from './toolRule'
+import { useToolToggles } from './useToolToggles'
 
 // ToolsPanel is the desktop /tools surface: a popover beside the mode menu
 // fed by the snapshot tools rows that stream end to end. Toggles go through
-// tools.set; after the run's first dispatched prompt the apply rule is
-// widen-only (toolRule.ts), so toggles that would disable render disabled
-// instead of refusing as a surprise. The readOnly flag is permission
-// metadata — every registered tool stays toggleable here, matching upstream's
-// own picker.
+// tools.set's shared intent machine (useToolToggles), so quick flips compose
+// instead of clobbering while the stream lags. After the run's first
+// dispatched prompt the apply rule is widen-only (toolRule.ts), so toggles
+// that would disable render disabled with their reason instead of refusing
+// as a surprise. The readOnly flag is permission metadata — every registered
+// tool stays toggleable here, matching upstream's own picker.
 export function ToolsPanel({
   sessionId,
   snap,
@@ -25,8 +27,7 @@ export function ToolsPanel({
 
   const rows = snap.tools ?? []
   const widenOnly = toolsWidenOnly(snap)
-
-  const apply = (desired: ToolState[]) => void applyToolSet(sessionId, desired, onToast)
+  const { enabledOf, toggle } = useToolToggles(sessionId, rows, onToast)
 
   return (
     <div className="tools-menu">
@@ -54,18 +55,14 @@ export function ToolsPanel({
               <label key={row.name} className={`tool-row ${locked ? 'disabled' : ''}`}>
                 <input
                   type="checkbox"
-                  checked={row.enabled}
+                  checked={enabledOf(row)}
                   disabled={locked}
                   title={
                     locked
                       ? 'Widen-only after the first prompt: this toggle can only enable'
                       : undefined
                   }
-                  onChange={() =>
-                    void apply(
-                      rows.map((r) => (r.name === row.name ? { ...r, enabled: !r.enabled } : r)),
-                    )
-                  }
+                  onChange={() => toggle(row)}
                 />
                 <span className="switch-name">{row.name}</span>
                 <span className="muted tool-source">{row.source}</span>

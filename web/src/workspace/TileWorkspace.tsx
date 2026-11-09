@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { DragEvent, PointerEvent as ReactPointerEvent } from 'react'
+import type {
+  DragEvent,
+  KeyboardEvent as ReactKeyboardEvent,
+  PointerEvent as ReactPointerEvent,
+} from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
 
 import { useSwarm } from '../providers/swarm'
@@ -12,7 +16,8 @@ import { MenuPopover } from '../ui/MenuPopover'
 import { useWorkspaceKeys } from './keys'
 import type { Direction } from './keys'
 import { ShortcutOverlay } from './ShortcutOverlay'
-import { isActionable, type AttentionItem } from './attention'
+import { attentionKindLabels, isActionable } from './attention'
+import type { AttentionItem, AttentionKind } from './attention'
 import {
   activateTab,
   closeTab,
@@ -452,13 +457,53 @@ function PaneView({
 }: NodeProps & { pane: TilePane }) {
   const isFocused = pane.id === focused
   const hint = dropHint?.paneId === pane.id ? dropHint.zone : null
+  // ids tie each tab to the pane body it selects; pane ids are unique in the
+  // tree, so twin panes holding one session never collide
+  const panelId = `tile-panel-${pane.id}`
+  const tabIdFor = (sessionId: string) => `tile-tab-${pane.id}-${sessionId}`
 
   // A tab badges while its attention rises and it is not the focused view.
-  const badgeFor = (sessionId: string): string | null => {
+  const badgeFor = (sessionId: string): AttentionKind | null => {
     const item = itemFor(sessionId)
     if (item === undefined || !isActionable(item.kind)) return null
     if (isFocused && pane.active === sessionId) return null
     return item.kind
+  }
+
+  // The strip's keyboard machine: plain arrows walk the tabs (wrapping),
+  // Home/End jump, Enter/Space activate the focused tab through the same
+  // commit path a click takes. The active tab holds the strip's tab stop, so
+  // arrows move DOM focus without selecting: activation stays a deliberate key.
+  const onTabKeys = (ev: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (ev.ctrlKey || ev.metaKey || ev.altKey) return // chords stay with the workspace
+    const strip = ev.currentTarget
+    const tabs = [...strip.querySelectorAll<HTMLElement>('[role="tab"]')]
+    const at = tabs.findIndex((tab) => tab === ev.target)
+    if (at < 0) return // inner controls, the close button, keep their own keys
+    let to: number
+    switch (ev.key) {
+      case 'ArrowLeft':
+        to = (at - 1 + tabs.length) % tabs.length
+        break
+      case 'ArrowRight':
+        to = (at + 1) % tabs.length
+        break
+      case 'Home':
+        to = 0
+        break
+      case 'End':
+        to = tabs.length - 1
+        break
+      case 'Enter':
+      case ' ':
+        ev.preventDefault() // stands page scroll and any global binding down
+        onActivateTab(pane.id, pane.tabs[at])
+        return
+      default:
+        return
+    }
+    ev.preventDefault()
+    tabs[to]?.focus()
   }
 
   const drop = (zone: string) => (ev: DragEvent) => {
@@ -478,39 +523,56 @@ function PaneView({
         onDragOver={(ev) => onAllowDrop(ev, pane.id, 'strip')}
         onDrop={drop('strip')}
       >
-        {pane.tabs.map((sessionId, index) => {
-          const badge = badgeFor(sessionId)
-          return (
-            <div
-              key={sessionId}
-              className={`tile-tab ${pane.active === sessionId ? 'active' : ''} ${
-                hint === `tab:${index}` ? 'drop-before' : ''
-              }`}
-              draggable
-              onDragStart={(ev) => onStartDrag(ev, sessionId, pane.id)}
-              onDragEnd={onDragEnd}
-              onDragOver={(ev) => onAllowDrop(ev, pane.id, `tab:${index}`)}
-              onDrop={drop(`tab:${index}`)}
-              // activation focuses the pane through its commit too
-              onClick={() => onActivateTab(pane.id, sessionId)}
-              title={nameFor(sessionId)}
-            >
-              {badge !== null && <span className={`tab-badge ${badge}`} aria-label={badge} />}
-              <span className="tab-name">{nameFor(sessionId)}</span>
-              <button
-                type="button"
-                className="tab-close"
-                aria-label={`Close ${nameFor(sessionId)}`}
-                onClick={(ev) => {
-                  ev.stopPropagation()
-                  onCloseTab(pane.id, sessionId)
-                }}
+        {/* the tablist wraps only the tabs: the picker stays outside the role
+            so it reads as its own control, not a stray tablist child */}
+        <div
+          className="tile-tablist"
+          role="tablist"
+          aria-label="Session tabs"
+          onKeyDown={onTabKeys}
+        >
+          {pane.tabs.map((sessionId, index) => {
+            const badge = badgeFor(sessionId)
+            const selected = pane.active === sessionId
+            return (
+              <div
+                key={sessionId}
+                role="tab"
+                id={tabIdFor(sessionId)}
+                aria-selected={selected}
+                aria-controls={panelId}
+                tabIndex={selected ? 0 : -1}
+                className={`tile-tab ${selected ? 'active' : ''} ${
+                  hint === `tab:${index}` ? 'drop-before' : ''
+                }`}
+                draggable
+                onDragStart={(ev) => onStartDrag(ev, sessionId, pane.id)}
+                onDragEnd={onDragEnd}
+                onDragOver={(ev) => onAllowDrop(ev, pane.id, `tab:${index}`)}
+                onDrop={drop(`tab:${index}`)}
+                // activation focuses the pane through its commit too
+                onClick={() => onActivateTab(pane.id, sessionId)}
+                title={nameFor(sessionId)}
               >
-                ×
-              </button>
-            </div>
-          )
-        })}
+                {badge !== null && (
+                  <span className={`tab-badge ${badge}`} aria-label={attentionKindLabels[badge]} />
+                )}
+                <span className="tab-name">{nameFor(sessionId)}</span>
+                <button
+                  type="button"
+                  className="tab-close"
+                  aria-label={`Close ${nameFor(sessionId)}`}
+                  onClick={(ev) => {
+                    ev.stopPropagation()
+                    onCloseTab(pane.id, sessionId)
+                  }}
+                >
+                  ×
+                </button>
+              </div>
+            )
+          })}
+        </div>
         <SessionPicker
           nameFor={nameFor}
           onOpen={(sessionId, split) => onOpenSession(sessionId, pane.id, split)}
@@ -527,7 +589,12 @@ function PaneView({
           />
         ))}
 
-      <div className="tile-body">
+      <div
+        className="tile-body"
+        role="tabpanel"
+        id={panelId}
+        aria-labelledby={tabIdFor(pane.active)}
+      >
         {/* focus follows the focused pane: dialogs take the caret there while
             background sessions surface them through attention
             (dialog-focus-policy.md), and only the focused pane's stream

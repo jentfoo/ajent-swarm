@@ -224,6 +224,16 @@ export function rankAttention(items: readonly AttentionItem[]): {
   }
 }
 
+// attentionKindLabels is the human vocabulary for one attention kind: the
+// phrase badges announce for assistive tech, never the wire token. Every
+// spoken surface reads from here so copy cannot drift.
+export const attentionKindLabels: Record<AttentionKind, string> = {
+  'needs-input': 'needs input',
+  'needs-review': 'needs review',
+  awaiting: 'waiting',
+  working: 'working',
+}
+
 // attendBadgeLabels is the copy every shell's rising-attention count badge
 // shares, so the surfaces never drift apart. Keys spread straight onto DOM,
 // so aria keeps its attribute spelling.

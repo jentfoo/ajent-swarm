@@ -26,8 +26,8 @@ const tree = {
   b: { kind: 'pane', id: 'p2', tabs: [RIGHT], active: RIGHT },
 }
 
-// One pane holding both sessions with the second active: closing that tab
-// activates its neighbor, which is how a tab swap runs without dragging.
+// One pane holding both sessions with the second active: a strip with a
+// background tab to click, walk onto or close.
 const stackedTree = {
   kind: 'pane',
   id: 'p1',
@@ -46,7 +46,7 @@ function TileAgain({ open }: { open: string }) {
   )
 }
 
-function attention(): AttentionRow[] {
+function attentionRows(): AttentionRow[] {
   return [
     {
       sessionId: RIGHT,
@@ -99,9 +99,11 @@ function storedRatio(): number {
 
 describe('TileWorkspace', () => {
   let sockets: MockWebSocket[]
+  let attention: AttentionRow[]
 
   beforeEach(() => {
     localStorage.clear()
+    attention = attentionRows()
     localStorage.setItem(
       'swarm.workspace.v1',
       JSON.stringify({ mode: 'tile', focused: {}, tile: { tree, focusedPaneId: 'p1' } }),
@@ -135,7 +137,7 @@ describe('TileWorkspace', () => {
             ]),
           )
         }
-        if (path === '/api/attention') return Promise.resolve(Response.json(attention()))
+        if (path === '/api/attention') return Promise.resolve(Response.json(attention))
         const snap = /\/api\/sessions\/([^/]+)\/snapshot/.exec(path)
         if (snap) return Promise.resolve(Response.json({ session: { id: snap[1] } }))
         if (path.endsWith('/candidates')) {
@@ -189,6 +191,22 @@ describe('TileWorkspace', () => {
     return divider
   }
 
+  // renderStacked mounts the stacked tree and waits for its pane to land.
+  async function renderStacked(): Promise<void> {
+    localStorage.setItem(
+      'swarm.workspace.v1',
+      JSON.stringify({
+        mode: 'tile',
+        focused: {},
+        tile: { tree: stackedTree, focusedPaneId: 'p1' },
+      }),
+    )
+    renderTile()
+    await waitFor(() => expect(sockets.length).toBeGreaterThan(0))
+    act(() => sockets[0].open())
+    await screen.findAllByText('right')
+  }
+
   it('renders the persisted tree as panes and hosts each active tab', async () => {
     renderTile()
     await waitFor(() => expect(sockets.length).toBeGreaterThan(0))
@@ -207,7 +225,7 @@ describe('TileWorkspace', () => {
     // the backgrounded session with a dialog badges; the focused one does not
     const badges = document.querySelectorAll('.tab-badge.needs-input')
     expect(badges).toHaveLength(1)
-    expect(badges[0].getAttribute('aria-label')).toBe('needs-input')
+    expect(badges[0].getAttribute('aria-label')).toBe('needs input')
   })
 
   it('gives dialog autofocus to the focused pane only', async () => {
@@ -398,18 +416,7 @@ describe('TileWorkspace', () => {
   })
 
   it('presents an activated tab fresh instead of reusing the last view', async () => {
-    localStorage.setItem(
-      'swarm.workspace.v1',
-      JSON.stringify({
-        mode: 'tile',
-        focused: {},
-        tile: { tree: stackedTree, focusedPaneId: 'p1' },
-      }),
-    )
-    renderTile()
-    await waitFor(() => expect(sockets.length).toBeGreaterThan(0))
-    act(() => sockets[0].open())
-    await screen.findAllByText('right') // the persisted tree landed
+    await renderStacked()
 
     // transient chrome opens over the active session
     const user = userEvent.setup()
@@ -431,18 +438,7 @@ describe('TileWorkspace', () => {
   })
 
   it('activates a background tab when clicked', async () => {
-    localStorage.setItem(
-      'swarm.workspace.v1',
-      JSON.stringify({
-        mode: 'tile',
-        focused: {},
-        tile: { tree: stackedTree, focusedPaneId: 'p1' },
-      }),
-    )
-    renderTile()
-    await waitFor(() => expect(sockets.length).toBeGreaterThan(0))
-    act(() => sockets[0].open())
-    await screen.findAllByText('right') // the persisted tree landed
+    await renderStacked()
 
     const activeName = () => document.querySelector('.tile-tab.active .tab-name')?.textContent
     expect(activeName()).toBe('right')
@@ -461,6 +457,118 @@ describe('TileWorkspace', () => {
     const stored = JSON.parse(localStorage.getItem('swarm.workspace.v1') ?? '{}')
     expect(stored.tile.tree.active).toBe(LEFT)
     expect(stored.tile.focusedPaneId).toBe('p1')
+  })
+
+  it('renders the strip as a tablist with a roving tab stop', async () => {
+    await renderStacked()
+
+    const tabs = screen.getAllByRole('tab')
+    expect(tabs.map((tab) => tab.getAttribute('tabindex'))).toEqual(['-1', '0'])
+    expect(tabs.map((tab) => tab.getAttribute('aria-selected'))).toEqual(['false', 'true'])
+
+    // each tab selects the pane's one panel, labeled by the active tab
+    const panel = screen.getByRole('tabpanel')
+    expect(tabs.map((tab) => tab.getAttribute('aria-controls'))).toEqual([panel.id, panel.id])
+    expect(panel.getAttribute('aria-labelledby')).toBe(tabs[1].id)
+    expect(screen.getByRole('tablist')).toBeInTheDocument()
+  })
+
+  it('activates a focused tab with Enter and Space', async () => {
+    await renderStacked()
+
+    const activeName = () => document.querySelector('.tile-tab.active .tab-name')?.textContent
+    const user = userEvent.setup()
+    screen.getByRole('tab', { name: /left/ }).focus() // a background tab
+    await user.keyboard('{Enter}')
+
+    // the pane swapped to the keyboard-activated session, which subscribes
+    expect(activeName()).toBe('left')
+    await waitFor(() => {
+      const opens = sockets[0].sent.map((raw) => JSON.parse(raw))
+      expect(opens).toContainEqual({ type: 'subscribe', sessionId: LEFT })
+    })
+
+    // Space activates back, like a native control
+    screen.getByRole('tab', { name: /right/ }).focus()
+    await user.keyboard(' ')
+    expect(activeName()).toBe('right')
+
+    // the keyboard swap persists with focus kept on the pane, like a click
+    const stored = JSON.parse(localStorage.getItem('swarm.workspace.v1') ?? '{}')
+    expect(stored.tile.tree.active).toBe(RIGHT)
+    expect(stored.tile.focusedPaneId).toBe('p1')
+  })
+
+  it('walks tabs with arrows and Home or End without selecting', async () => {
+    await renderStacked()
+
+    const tabs = screen.getAllByRole('tab')
+    const user = userEvent.setup()
+    tabs[1].focus() // the active tab holds the strip's tab stop
+    await user.keyboard('{ArrowLeft}')
+    expect(document.activeElement).toBe(tabs[0])
+    await user.keyboard('{ArrowLeft}') // wraps around the strip's end
+    expect(document.activeElement).toBe(tabs[1])
+    await user.keyboard('{Home}')
+    expect(document.activeElement).toBe(tabs[0])
+    await user.keyboard('{End}')
+    expect(document.activeElement).toBe(tabs[1])
+
+    // walking only moves focus: activation stays a deliberate key or click
+    expect(document.querySelector('.tile-tab.active .tab-name')?.textContent).toBe('right')
+  })
+
+  it('leaves workspace arrow chords alone', async () => {
+    await renderStacked()
+
+    // Mod and Alt arrows move pane focus and resize splits: focus resting on
+    // a tab must not turn them into tab walking
+    const tabs = screen.getAllByRole('tab')
+    const user = userEvent.setup()
+    tabs[1].focus()
+    await user.keyboard('{Meta>}{ArrowRight}{/Meta}')
+    expect(document.activeElement).toBe(tabs[1])
+    await user.keyboard('{Alt>}{ArrowLeft}{/Alt}')
+    expect(document.activeElement).toBe(tabs[1])
+  })
+
+  it('keeps the strip close button native on Enter', async () => {
+    await renderStacked()
+
+    // Enter on the strip's inner control closes it: the tab's own binding
+    // never intercepts a control inside it
+    const user = userEvent.setup()
+    screen.getByLabelText('Close right').focus()
+    await user.keyboard('{Enter}')
+
+    await waitFor(() => expect(document.querySelectorAll('.tile-tab')).toHaveLength(1))
+    expect(document.querySelector('.tile-tab.active .tab-name')?.textContent).toBe('left')
+  })
+
+  it('announces badge kinds in human words', async () => {
+    attention = [
+      {
+        sessionId: RIGHT,
+        pid: 2,
+        openInteractions: 0,
+        running: false,
+        idle: true,
+        lastTurnEnd: Date.now() - 60_000,
+        lastStop: 'end_turn',
+        kind: 'needs-review',
+        reason: 'turn complete',
+        since: Date.now() - 60_000,
+      },
+      attentionRows()[1], // LEFT stays neutral
+    ]
+    renderTile()
+    await screen.findAllByText('right')
+
+    // the class carries the kind for color, the label carries the words; the
+    // backgrounded pane badges while the focused one stays clean
+    const badges = document.querySelectorAll('.tab-badge.needs-review')
+    expect(badges).toHaveLength(1)
+    expect(badges[0].getAttribute('aria-label')).toBe('needs review')
   })
 
   it('shows the empty state when no sessions are live', async () => {

@@ -19,6 +19,7 @@ const tileBindings: [string, string][] = [
   ['Mod+Arrows', 'move pane focus'],
   ['Alt+Arrows', 'resize'],
   ['1 – 9', 'jump to pane'],
+  ['← / →', "walk a pane's tabs, Enter opens one"],
   ['drag', 'move tabs, drop on an edge to split'],
   ['?', 'toggle this overlay'],
 ]

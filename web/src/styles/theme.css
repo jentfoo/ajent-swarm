@@ -1360,6 +1360,13 @@ label {
   min-height: 28px;
   overflow-x: visible; /* overflowing tabs paint instead of scrolling */
 }
+/* the tablist nests inside the strip so the + picker stays outside the role */
+.tile-tablist {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
 .tile-add {
   margin-left: auto;
   display: inline-flex;
@@ -1419,6 +1426,9 @@ label {
 }
 .tile-tab.drop-before {
   box-shadow: -2px 0 0 var(--accent);
+}
+.tile-tab:focus-visible {
+  outline: 1px solid var(--accent);
 }
 .tab-name {
   overflow: hidden;

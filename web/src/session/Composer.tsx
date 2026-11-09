@@ -18,6 +18,8 @@ import { atTokenBefore } from './atCompletion'
 import { matchCommands, slashQuery, type CommandDoc } from './commands'
 import { classifyLine } from './lineKind'
 import { pasteImageFiles } from './pasteImages'
+import { killLineEnd, killLineStart, yank } from './editKeys'
+import type { EditState, KillSnapshot } from './editKeys'
 import { useSubmitPress, touchKeyboard } from './submitPress'
 
 const maxRows = 12
@@ -79,7 +81,8 @@ export interface ComposerProps {
 }
 
 // Composer is the prompt line: autosize textarea, Enter sends on fine
-// pointers while Shift+Enter and Ctrl/Cmd+J insert newlines (touch inverts
+// pointers while Shift+Enter and Ctrl/Cmd+J insert newlines and Ctrl+K/U/Y
+// kill and yank logical lines like the TUI editor (touch inverts
 // Enter to a newline and Send submits), with a client-minted pendingId for
 // prompts (slash and shell lines submit as-is), and attachments upload under
 // swarm's state directory dropping an @<abs path> reference, since submits
@@ -128,9 +131,14 @@ export function Composer({
     stash: string
     expected: string
   } | null>(null)
+  // killYank holds the last kill's restore point and the value that kill wrote:
+  // Ctrl+Y restores it and consumes it, and any other draft change drops it —
+  // editor.go's one-level undo rule.
+  const killYank = useRef<KillSnapshot | null>(null)
   useLayoutEffect(() => {
     valueRef.current = value
     if (promptNav.current !== null && value !== promptNav.current.expected) promptNav.current = null
+    if (killYank.current !== null && value !== killYank.current.expected) killYank.current = null
   })
   // typedSinceSend flags edits made while a submit is on the wire: an
   // acceptance must never clear them (a retype included).
@@ -396,13 +404,45 @@ export function Composer({
     return true
   }
 
-  // replaceDraft applies one recall fill: the caret parks at the end like
-  // every programmatic fill, and the replacement counts as a deliberate edit
-  // an in-flight acceptance must keep.
-  const replaceDraft = (text: string) => {
-    pendingSelectionRef.current = { text, caret: text.length }
+  // replaceDraftAt lands one deliberate edit — a recall fill, a kill, a
+  // yank — through the draft path: the tracked caret and the DOM selection
+  // park where the edit leaves them once the controlled commit reaches the
+  // textarea, and an in-flight submit acceptance must keep the edit.
+  const replaceDraftAt = (next: EditState): void => {
+    pendingSelectionRef.current = { text: next.value, caret: next.selectionStart }
+    setCaret(next.selectionStart)
     typedSinceSend.current = true
-    onChange(text)
+    onChange(next.value)
+  }
+
+  // replaceDraft applies one recall fill: the caret parks at the end like
+  // every programmatic fill.
+  const replaceDraft = (text: string) => {
+    replaceDraftAt({ value: text, selectionStart: text.length, selectionEnd: text.length })
+  }
+
+  // applyKillKey runs one TUI kill/yank chord over the live textarea; the
+  // math is pure (editKeys.ts). An empty kill touches nothing so an older
+  // snapshot stays held, a restore consumes its snapshot, and the layout
+  // effect above drops it on any other edit.
+  const applyKillKey = (key: 'k' | 'u' | 'y', el: HTMLTextAreaElement): void => {
+    const value = valueRef.current
+    const state: EditState = {
+      value,
+      selectionStart: el.selectionStart ?? value.length,
+      selectionEnd: el.selectionEnd ?? value.length,
+    }
+    if (key !== 'y') {
+      const killed = key === 'k' ? killLineEnd(state) : killLineStart(state)
+      if (killed === undefined) return
+      killYank.current = killed.snapshot
+      replaceDraftAt(killed.next)
+      return
+    }
+    const restored = yank(killYank.current)
+    if (restored === undefined) return
+    killYank.current = null // the restore consumes the snapshot
+    replaceDraftAt(restored)
   }
 
   // accept replaces the token with the highlighted suggestion: directories
@@ -539,6 +579,28 @@ export function Composer({
       typedSinceSend.current = true
       onChange(next)
       return
+    }
+    // Ctrl+K / Ctrl+U / Ctrl+Y carry the TUI's kill/yank into the composer
+    // (literal Ctrl only, so Meta stays with the browser and AltGr passes
+    // through). The completion menus and the history search keep their keys,
+    // and an IME mid-composition is left alone. The chord is claimed even
+    // when a kill removes nothing: Ctrl+K and Ctrl+U are browser chords
+    // (address bar search, view source) that must not fire from the prompt.
+    if (
+      search === null &&
+      menuKey === '' &&
+      ev.ctrlKey &&
+      !ev.metaKey &&
+      !ev.altKey &&
+      !ev.shiftKey &&
+      !ev.nativeEvent.isComposing
+    ) {
+      const killKey = ev.key.toLowerCase()
+      if (killKey === 'k' || killKey === 'u' || killKey === 'y') {
+        ev.preventDefault()
+        applyKillKey(killKey, ev.currentTarget)
+        return
+      }
     }
     // Plain arrows browse the recall list, an episode always arming from its
     // newest entry — including right after a search accept. Cursor-first like

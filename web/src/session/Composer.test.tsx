@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { act, createEvent, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -737,6 +737,229 @@ describe('Composer Ctrl+J newline', () => {
 
     // like Shift+Enter, the newline is a draft edit an acceptance must keep
     expect(box).toHaveValue('hello\n')
+  })
+})
+
+describe('Composer kill and yank keys', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('ctrl_k kills to the line end and ctrl_y restores', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('fetch', okSubmit())
+    render(Harness())
+
+    const box = screen.getByLabelText('Prompt') as HTMLTextAreaElement
+    await user.type(box, 'one two')
+    box.setSelectionRange(3, 3)
+    await user.keyboard('{Control>}k{/Control}')
+    expect(box.value).toBe('one')
+
+    // the restore brings back the killed text with the pre-kill caret
+    await user.keyboard('{Control>}y{/Control}')
+    expect(box.value).toBe('one two')
+    expect(box.selectionStart).toBe(3)
+  })
+
+  it('ctrl_u kills from the line start and parks the caret', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('fetch', okSubmit())
+    render(Harness())
+
+    const box = screen.getByLabelText('Prompt') as HTMLTextAreaElement
+    await user.type(box, 'one two')
+    box.setSelectionRange(3, 3)
+    await user.keyboard('{Control>}u{/Control}')
+    expect(box.value).toBe(' two')
+    expect(box.selectionStart).toBe(0)
+
+    await user.keyboard('{Control>}y{/Control}')
+    expect(box.value).toBe('one two')
+    expect(box.selectionStart).toBe(3)
+  })
+
+  it('ctrl_k joins the line below across a newline', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('fetch', okSubmit())
+    render(Harness())
+
+    const box = screen.getByLabelText('Prompt') as HTMLTextAreaElement
+    await user.type(box, 'ab{Shift>}{Enter}{/Shift}cd')
+    box.setSelectionRange(2, 2)
+    await user.keyboard('{Control>}k{/Control}')
+    expect(box.value).toBe('abcd')
+  })
+
+  it('ctrl_k joins the line above from a trailing empty line', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('fetch', okSubmit())
+    render(Harness())
+
+    const box = screen.getByLabelText('Prompt') as HTMLTextAreaElement
+    await user.type(box, 'one{Shift>}{Enter}{/Shift}')
+    expect(box.value).toBe('one\n')
+    await user.keyboard('{Control>}k{/Control}')
+    expect(box.value).toBe('one')
+    expect(box.selectionStart).toBe(0)
+  })
+
+  it('an empty kill keeps the older snapshot', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('fetch', okSubmit())
+    render(Harness())
+
+    const box = screen.getByLabelText('Prompt') as HTMLTextAreaElement
+    await user.type(box, 'one two')
+    box.setSelectionRange(3, 3)
+    await user.keyboard('{Control>}k{/Control}')
+    expect(box.value).toBe('one')
+
+    // the caret sits at the killed line's end: this kill removes nothing
+    await user.keyboard('{Control>}k{/Control}')
+    await user.keyboard('{Control>}y{/Control}')
+    expect(box.value).toBe('one two')
+  })
+
+  it('typing after a kill drops the snapshot', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('fetch', okSubmit())
+    render(Harness())
+
+    const box = screen.getByLabelText('Prompt') as HTMLTextAreaElement
+    await user.type(box, 'one two')
+    box.setSelectionRange(3, 3)
+    await user.keyboard('{Control>}k{/Control}')
+    await user.type(box, '!')
+    await user.keyboard('{Control>}y{/Control}')
+
+    // an edit dropped the snapshot, so the yank restores nothing
+    expect(box.value).toBe('one!')
+  })
+
+  it('a kill counts as an edit while a submit is pending', async () => {
+    const user = userEvent.setup()
+    let accept!: (res: Response) => void
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => new Promise<Response>((r) => (accept = r))),
+    )
+    render(Harness())
+
+    await user.type(screen.getByLabelText('Prompt'), 'hello{Enter}')
+    const box = screen.getByLabelText('Prompt') as HTMLTextAreaElement
+    box.setSelectionRange(2, 2)
+    await user.keyboard('{Control>}u{/Control}')
+    accept(Response.json({}, { status: 202 }))
+    await act(async () => {}) // let the acceptance continuation run
+
+    // the kill is a deliberate edit an acceptance must keep
+    expect(box.value).toBe('llo')
+  })
+
+  it('stands down behind the completion menus', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('fetch', filesFetch({ ma: [{ path: 'src/main.go' }] }))
+    render(Harness())
+
+    const box = screen.getByLabelText('Prompt') as HTMLTextAreaElement
+    await user.type(box, 'look at @ma')
+    await screen.findByRole('listbox', { name: 'Path suggestions' })
+    await user.keyboard('{Control>}k{/Control}')
+
+    // the menu owns the keyboard; nothing died under it
+    expect(screen.getByRole('listbox', { name: 'Path suggestions' })).toBeInTheDocument()
+    expect(box.value).toBe('look at @ma')
+
+    await user.clear(box)
+    await user.type(box, '/mo')
+    expect(screen.getByRole('listbox', { name: 'Commands' })).toBeInTheDocument()
+    await user.keyboard('{Control>}u{/Control}')
+    expect(box.value).toBe('/mo')
+    expect(screen.getByRole('listbox', { name: 'Commands' })).toBeInTheDocument()
+  })
+
+  it('stands down behind the history search', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('fetch', okSubmit())
+    render(Harness(recallHarness(['fix the retry loop'])))
+
+    const box = screen.getByLabelText('Prompt') as HTMLTextAreaElement
+    await user.type(box, 'draft text')
+    await user.keyboard('{Control>}r{/Control}')
+    expect(screen.getByText(/reverse-i-search/)).toBeInTheDocument()
+
+    // the unclaimed chord closes the overlay, the kill stays inert and the
+    // draft survives untouched
+    await user.keyboard('{Control>}k{/Control}')
+    expect(screen.queryByText(/reverse-i-search/)).not.toBeInTheDocument()
+    expect(box.value).toBe('draft text')
+  })
+
+  it('leaves meta and altgr chords with the browser', () => {
+    render(Harness())
+
+    const box = screen.getByLabelText('Prompt') as HTMLTextAreaElement
+    fireEvent.change(box, { target: { value: 'one two' } })
+    box.setSelectionRange(3, 3)
+
+    const meta = createEvent.keyDown(box, { key: 'k', metaKey: true })
+    fireEvent(box, meta)
+    expect(meta.defaultPrevented).toBe(false)
+
+    const altgr = createEvent.keyDown(box, { key: 'k', ctrlKey: true, altKey: true })
+    fireEvent(box, altgr)
+    expect(altgr.defaultPrevented).toBe(false)
+    expect(box.value).toBe('one two')
+  })
+
+  it('claims the chord even when a kill removes nothing', async () => {
+    const user = userEvent.setup()
+    render(Harness())
+
+    const box = screen.getByLabelText('Prompt') as HTMLTextAreaElement
+    await user.type(box, 'abc')
+    box.setSelectionRange(0, 0)
+
+    // Ctrl+U opens view source when it reaches the browser; an empty kill
+    // must still claim the press
+    const press = createEvent.keyDown(box, { key: 'u', ctrlKey: true })
+    fireEvent(box, press)
+    expect(press.defaultPrevented).toBe(true)
+    expect(box.value).toBe('abc')
+  })
+
+  it('keeps its keys during IME composition', async () => {
+    const user = userEvent.setup()
+    render(Harness())
+
+    const box = screen.getByLabelText('Prompt') as HTMLTextAreaElement
+    await user.type(box, 'one two')
+    box.setSelectionRange(3, 3)
+
+    const press = createEvent.keyDown(box, { key: 'k', ctrlKey: true, isComposing: true })
+    fireEvent(box, press)
+    expect(press.defaultPrevented).toBe(false)
+    expect(box.value).toBe('one two')
+  })
+
+  it('coarse chrome kills and restores the same', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('fetch', okSubmit())
+    render(Harness({ component: await coarseComposer() }))
+
+    const box = screen.getByLabelText('Prompt') as HTMLTextAreaElement
+    await user.type(box, 'one two')
+    box.setSelectionRange(3, 3)
+    await user.keyboard('{Control>}k{/Control}')
+    expect(box.value).toBe('one')
+
+    // the touch Enter rule stays a newline beside the chords
+    await user.keyboard('{Control>}y{/Control}')
+    expect(box.value).toBe('one two')
+    expect(box.selectionStart).toBe(3)
+    await user.keyboard('{Enter}')
+    expect(box.value).toBe('one\n two')
   })
 })
 

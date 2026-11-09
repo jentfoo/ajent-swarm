@@ -1,10 +1,11 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import type { FormEvent, ReactElement } from 'react'
 
 import type { InteractionPending } from '../api/types'
 import type { DialogOutcome } from '../state/eventApplier'
 import { MultiPickList, ResolvedChip, TextAnswer, useMultiPick } from './DialogBodies'
 import { useDialogResolve } from './dialogResolve'
+import { useSubmitPress } from './submitPress'
 import { answerDigitCount, useDialogAnswerKeys } from './dialogKeys'
 import {
   isPermitDialog,
@@ -202,21 +203,30 @@ function SecretAnswer({
   onSend: (text: string) => void
 }) {
   const [text, setText] = useState('')
+  const inputRef = useRef<HTMLInputElement>(null)
+  const empty = text === ''
+  const press = useSubmitPress(inputRef, empty, busy)
   const submit = (ev: FormEvent) => {
     ev.preventDefault()
-    if (text === '') return
+    if (empty) return
     onSend(text)
     setText('')
   }
   return (
     <form onSubmit={submit} className="dialog-text">
       <input
+        ref={inputRef}
         type="password"
         value={text}
         autoFocus={autoFocus}
         onChange={(ev) => setText(ev.target.value)}
       />
-      <button className="primary" type="submit" disabled={busy || text === ''}>
+      <button
+        className={press.keyboardDismiss ? 'primary keyboard-dismiss' : 'primary'}
+        type="submit"
+        disabled={press.disabled}
+        {...press.handlers}
+      >
         Answer
       </button>
     </form>

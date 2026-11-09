@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import type { FormEvent, ReactElement } from 'react'
 
 import type { InteractionPending } from '../api/types'
@@ -11,6 +11,7 @@ import {
   permitChoices,
   usePermitNoteAutoAnswer,
 } from '../session/decisionNote'
+import { useSubmitPress } from '../session/submitPress'
 
 // TouchDialogDock stacks full-width dialog cards above the composer: permit
 // and deny answer as separate large buttons, never a compact one-liner against
@@ -181,11 +182,14 @@ function SecretDialogScreen({
 }): ReactElement {
   const [text, setText] = useState('')
   const [show, setShow] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
   const { busy, error, resolve } = useDialogResolve(sessionId, dialog.id, onAnsweredLocally)
+  const empty = text === ''
+  const press = useSubmitPress(inputRef, empty, busy)
 
   const submit = (ev: FormEvent) => {
     ev.preventDefault()
-    if (text === '') return
+    if (empty) return
     // the answer's text never echoes anywhere; clearing at once keeps a wrong
     // tap from resubmitting a stale value
     const answer = text
@@ -199,6 +203,7 @@ function SecretDialogScreen({
       <p className="dialog-prompt">{dialog.prompt || `[${dialog.kind}]`}</p>
       <div className="secret-row">
         <input
+          ref={inputRef}
           type={show ? 'text' : 'password'}
           value={text}
           onChange={(ev) => setText(ev.target.value)}
@@ -211,7 +216,12 @@ function SecretDialogScreen({
       </div>
       {error && <p className="error-text">{error}</p>}
       <div className="dialog-actions">
-        <button className="primary" type="submit" disabled={busy || text === ''}>
+        <button
+          className={press.keyboardDismiss ? 'primary keyboard-dismiss' : 'primary'}
+          type="submit"
+          disabled={press.disabled}
+          {...press.handlers}
+        >
           Answer
         </button>
         <button type="button" disabled={busy} onClick={() => void resolve({ cancel: true })}>

@@ -217,6 +217,12 @@ button:disabled {
   opacity: 0.55;
   cursor: default;
 }
+/* the touch empty-draft submit: the disabled look over a live press, so the
+   button still takes the tap that dismisses the keyboard */
+button.keyboard-dismiss {
+  opacity: 0.55;
+  cursor: default;
+}
 
 input,
 select,

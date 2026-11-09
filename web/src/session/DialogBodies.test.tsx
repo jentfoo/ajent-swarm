@@ -1,6 +1,6 @@
 import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
   MultiPickList,
@@ -9,6 +9,7 @@ import {
   outcomeChipTtlMs,
   useMultiPick,
 } from './DialogBodies'
+import { coarseImport } from '../test/matchMedia'
 import type { DialogOutcome } from '../state/eventApplier'
 
 // The shared dialog bodies both docks render: the free-text answer, the multi
@@ -71,6 +72,61 @@ describe('TextAnswer', () => {
     const input = screen.getByRole('textbox')
     if (autoFocus) expect(input).toHaveFocus()
     else expect(document.activeElement).toBe(document.body)
+  })
+})
+
+// coarseTextAnswer re-imports TextAnswer under the coarse-pointer stub, since
+// the touch gate reads once at module scope.
+async function coarseTextAnswer(): Promise<typeof TextAnswer> {
+  return (await coarseImport(() => import('./DialogBodies'))).TextAnswer
+}
+
+describe('TextAnswer touch press', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('sends one tap with the keyboard up', async () => {
+    const user = userEvent.setup()
+    const onSend = vi.fn()
+    const CoarseTextAnswer = await coarseTextAnswer()
+    render(<CoarseTextAnswer busy={false} chat={false} onSend={onSend} />)
+
+    const input = screen.getByRole('textbox')
+    await user.type(input, 'my answer')
+    await user.click(screen.getByRole('button', { name: 'Answer' }))
+
+    expect(onSend).toHaveBeenCalledWith('my answer')
+    // the press never moved focus, so the keyboard stays up
+    expect(input).toHaveFocus()
+  })
+
+  it('dismisses the keyboard on an empty tap', async () => {
+    const user = userEvent.setup()
+    const onSend = vi.fn()
+    const CoarseTextAnswer = await coarseTextAnswer()
+    render(<CoarseTextAnswer busy={false} chat={false} onSend={onSend} />)
+
+    const input = screen.getByRole('textbox')
+    input.focus()
+    const answer = screen.getByRole('button', { name: 'Answer' })
+
+    // the empty draft keeps the button tappable with the disabled look, and
+    // the tap closes the keyboard without answering
+    expect(answer).toBeEnabled()
+    expect(answer).toHaveClass('keyboard-dismiss')
+    await user.click(answer)
+    expect(onSend).not.toHaveBeenCalled()
+    expect(input).not.toHaveFocus()
+  })
+
+  it('keeps a busy answer really disabled', async () => {
+    const CoarseTextAnswer = await coarseTextAnswer()
+    render(<CoarseTextAnswer busy chat={false} onSend={() => {}} />)
+
+    const answer = screen.getByRole('button', { name: 'Answer' })
+    expect(answer).toBeDisabled()
+    expect(answer).not.toHaveClass('keyboard-dismiss')
   })
 })
 

@@ -18,6 +18,7 @@ import { atTokenBefore } from './atCompletion'
 import { matchCommands, slashQuery, type CommandDoc } from './commands'
 import { classifyLine } from './lineKind'
 import { pasteImageFiles } from './pasteImages'
+import { useSubmitPress, touchKeyboard } from './submitPress'
 
 const maxRows = 12
 
@@ -32,11 +33,6 @@ const inlineFileCapBytes = 64 << 10
 // textAccept lists the file picker's types: images ride the @path flow, text
 // files inline into the draft as fenced blocks.
 const textAccept = 'image/*,text/*,.json,.toml,.yaml,.yml,.md,.txt'
-
-// touchKeyboard marks a touch-primary device, read once at module scope so key
-// handling never re-evaluates it: a virtual keyboard has no Shift, so Enter
-// means newline and the Send button submits.
-const touchKeyboard = window.matchMedia('(pointer: coarse)').matches
 
 // stagedHint and excludedHint state shell staging: a `!` run's output rides
 // the user's next message, a `!!` run never reaches the model. They swap in
@@ -152,6 +148,8 @@ export function Composer({
   const kind = classifyLine(line)
   const excluded = kind === 'shell-excluded'
   const shell = excluded || kind === 'shell'
+
+  const sendPress = useSubmitPress(areaRef, line === '', disabled)
 
   // While the search is open the textarea IS the query line, the way ajent's
   // TUI swaps the editor over: claimed keydowns feed the machine directly,
@@ -777,7 +775,12 @@ export function Composer({
               {stop.busy ? 'Stopping…' : 'Stop'}
             </button>
           )}
-          <button className="primary" type="submit" disabled={disabled || line === ''}>
+          <button
+            className={sendPress.keyboardDismiss ? 'primary keyboard-dismiss' : 'primary'}
+            type="submit"
+            disabled={sendPress.disabled}
+            {...sendPress.handlers}
+          >
             {shell ? 'Run' : 'Send'}
           </button>
         </div>

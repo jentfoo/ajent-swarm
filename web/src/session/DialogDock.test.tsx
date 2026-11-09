@@ -1,8 +1,9 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { DialogDock } from './DialogDock'
+import { coarseImport } from '../test/matchMedia'
 import type { InteractionPending } from '../api/types'
 import type { DialogOutcome } from '../state/eventApplier'
 
@@ -641,5 +642,71 @@ describe('DialogDock focus policy', () => {
       />,
     )
     expect(document.activeElement).toBe(document.body)
+  })
+})
+
+// coarseDock re-imports the dock under the coarse-pointer stub, since the
+// touch gate reads once at module scope: a wide tablet runs the desktop chrome
+// on a coarse pointer, so the secret answer takes the shared press too.
+async function coarseDock(): Promise<typeof DialogDock> {
+  return (await coarseImport(() => import('./DialogDock'))).DialogDock
+}
+
+describe('DialogDock secret press', () => {
+  // the desktop card's answer input carries no label; the card's id finds it
+  const secretInput = () => document.querySelector<HTMLInputElement>('[data-dialog-id="42"] input')!
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('answers one tap with the keyboard up', async () => {
+    const user = userEvent.setup()
+    const bodies = stubFetch({ settled: false })
+    const CoarseDock = await coarseDock()
+    render(
+      <CoarseDock
+        sessionId="01S"
+        dialogs={[base({ text: true, secret: true })]}
+        outcomes={[]}
+        onAnsweredLocally={noop}
+        onOutcomeDismissed={noop}
+      />,
+    )
+
+    const input = secretInput()
+    await user.type(input, 's3cret')
+    await user.click(screen.getByRole('button', { name: 'Answer' }))
+
+    expect(bodies).toEqual([{ dialogId: 42, text: 's3cret' }])
+    // the press never moved focus, so the keyboard stays up
+    expect(input).toHaveFocus()
+  })
+
+  it('dismisses the keyboard on an empty tap', async () => {
+    const user = userEvent.setup()
+    const fetchSpy = vi.fn(async () => Response.json({ settled: false }))
+    vi.stubGlobal('fetch', fetchSpy)
+    const CoarseDock = await coarseDock()
+    render(
+      <CoarseDock
+        sessionId="01S"
+        dialogs={[base({ text: true, secret: true })]}
+        outcomes={[]}
+        onAnsweredLocally={noop}
+        onOutcomeDismissed={noop}
+      />,
+    )
+
+    const input = secretInput()
+    expect(input).toHaveFocus() // the head card autofocuses its answer input
+
+    const answer = screen.getByRole('button', { name: 'Answer' })
+    expect(answer).toBeEnabled()
+    expect(answer).toHaveClass('keyboard-dismiss')
+    await user.click(answer)
+
+    expect(fetchSpy).not.toHaveBeenCalled()
+    expect(input).not.toHaveFocus()
   })
 })

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { FormEvent, ReactElement, ReactNode } from 'react'
 
 import type { DialogOutcome } from '../state/eventApplier'
+import { useSubmitPress } from './submitPress'
 
 // Resolved chips linger a moment so an answer is visible, then leave on their
 // own: dialogs settled elsewhere never park under the dock until the cap.
@@ -67,22 +68,35 @@ export function TextAnswer({
 }): ReactElement {
   const [text, setText] = useState('')
   const [asChat, setAsChat] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const empty = text.trim() === ''
+  const press = useSubmitPress(inputRef, empty, busy)
   const submit = (ev: FormEvent) => {
     ev.preventDefault()
-    if (text.trim() === '') return
+    if (empty) return
     onSend(text)
     setText('')
   }
   return (
     <form onSubmit={submit} className="dialog-text">
-      <input value={text} autoFocus={autoFocus} onChange={(ev) => setText(ev.target.value)} />
+      <input
+        ref={inputRef}
+        value={text}
+        autoFocus={autoFocus}
+        onChange={(ev) => setText(ev.target.value)}
+      />
       {chat && (
         <label className="chat-toggle">
           <input type="checkbox" checked={asChat} onChange={(ev) => setAsChat(ev.target.checked)} />
           reply in my own words
         </label>
       )}
-      <button type="submit" disabled={busy || text.trim() === ''}>
+      <button
+        type="submit"
+        className={press.keyboardDismiss ? 'keyboard-dismiss' : undefined}
+        disabled={press.disabled}
+        {...press.handlers}
+      >
         Answer{chat && asChat ? ' (chat)' : ''}
       </button>
     </form>

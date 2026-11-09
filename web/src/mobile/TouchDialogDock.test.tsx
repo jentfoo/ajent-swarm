@@ -1,8 +1,9 @@
 import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { TouchDialogDock } from './TouchDialogDock'
+import { coarseImport } from '../test/matchMedia'
 import type { DialogOutcome } from '../state/eventApplier'
 import type { InteractionPending } from '../api/types'
 
@@ -123,6 +124,83 @@ describe('TouchDialogDock', () => {
 
     await user.click(screen.getByText(/answered elsewhere/))
     expect(onOutcomeDismissed).toHaveBeenCalledWith(9)
+  })
+})
+
+// coarseDock re-imports the dock under the coarse-pointer stub, since the
+// touch gate reads once at module scope.
+async function coarseDock(): Promise<typeof TouchDialogDock> {
+  return (await coarseImport(() => import('./TouchDialogDock'))).TouchDialogDock
+}
+
+describe('TouchDialogDock secret press', () => {
+  const secretDialog: InteractionPending = {
+    id: 7,
+    kind: 'secret',
+    prompt: 'API key?',
+    text: true,
+    secret: true,
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('answers one tap with the keyboard up', async () => {
+    const user = userEvent.setup()
+    const bodies: Record<string, unknown>[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string | URL, init?: RequestInit) => {
+        if (init?.body) bodies.push(JSON.parse(String(init.body)))
+        return Response.json({ settled: false })
+      }),
+    )
+    const CoarseDock = await coarseDock()
+    render(
+      <CoarseDock
+        sessionId="01S"
+        dialogs={[secretDialog]}
+        outcomes={[]}
+        onAnsweredLocally={() => {}}
+        onOutcomeDismissed={() => {}}
+      />,
+    )
+
+    const input = screen.getByLabelText('Secret answer')
+    await user.type(input, 's3cret')
+    await user.click(screen.getByRole('button', { name: 'Answer' }))
+
+    expect(bodies).toEqual([{ dialogId: 7, text: 's3cret' }])
+    // the press never moved focus, so the keyboard stays up
+    expect(input).toHaveFocus()
+  })
+
+  it('dismisses the keyboard on an empty tap', async () => {
+    const user = userEvent.setup()
+    const fetchSpy = vi.fn(async () => Response.json({ settled: false }))
+    vi.stubGlobal('fetch', fetchSpy)
+    const CoarseDock = await coarseDock()
+    render(
+      <CoarseDock
+        sessionId="01S"
+        dialogs={[secretDialog]}
+        outcomes={[]}
+        onAnsweredLocally={() => {}}
+        onOutcomeDismissed={() => {}}
+      />,
+    )
+
+    const input = screen.getByLabelText('Secret answer')
+    expect(input).toHaveFocus() // the screen autofocuses its answer input
+
+    const answer = screen.getByRole('button', { name: 'Answer' })
+    expect(answer).toBeEnabled()
+    expect(answer).toHaveClass('keyboard-dismiss')
+    await user.click(answer)
+
+    expect(fetchSpy).not.toHaveBeenCalled()
+    expect(input).not.toHaveFocus()
   })
 })
 

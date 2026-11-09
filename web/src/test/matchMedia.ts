@@ -15,6 +15,14 @@ export function stubCoarsePointer(): void {
   }))
 }
 
+// coarseImport re-imports a module with matchMedia reporting a touch-primary
+// device: module-scope gates read the stub only through a fresh import.
+export async function coarseImport<T>(load: () => Promise<T>): Promise<T> {
+  stubCoarsePointer()
+  vi.resetModules()
+  return load()
+}
+
 // stubPhoneLayout reports only the shared 48rem breakpoint as matching, so
 // breakpoint-switched screens mount their card presentation; everything else
 // stays desktop.

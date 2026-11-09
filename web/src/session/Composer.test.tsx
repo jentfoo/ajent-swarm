@@ -7,6 +7,7 @@ import { Composer, excludedHint, stagedHint } from './Composer'
 import type { ComposerProps, ComposerRecall } from './Composer'
 import { commandDocs } from './commands'
 import { prependDraft } from './draftStore'
+import { coarseImport } from '../test/matchMedia'
 
 type Suggestion = { path: string; dir?: boolean }
 
@@ -101,9 +102,7 @@ const okSubmit = () =>
 // coarse-pointer flag reads once at module scope. Every other test in this
 // file runs on the fine-pointer default the test setup ships.
 async function coarseComposer(): Promise<typeof Composer> {
-  vi.stubGlobal('matchMedia', (query: string) => ({ matches: query === '(pointer: coarse)' }))
-  vi.resetModules()
-  return (await import('./Composer')).Composer
+  return (await coarseImport(() => import('./Composer'))).Composer
 }
 
 describe('Composer @-completion', () => {
@@ -766,6 +765,61 @@ describe('Composer touch keyboard', () => {
     await waitFor(() => expect(box).toHaveValue(''))
   })
 
+  it('coarse_send_keeps_the_keyboard_up', async () => {
+    const user = userEvent.setup()
+    const fetchSpy = vi.fn(okSubmit())
+    vi.stubGlobal('fetch', fetchSpy)
+    const onSubmit = vi.fn()
+    render(Harness({ component: await coarseComposer(), onSubmit }))
+
+    const box = screen.getByLabelText('Prompt') as HTMLTextAreaElement
+    await user.type(box, 'one tap')
+
+    // the press holds the textarea's focus, so the tap lands as one click
+    // (never the ghost double-submit) and the keyboard stays open
+    await user.click(screen.getByRole('button', { name: 'Send' }))
+    expect(onSubmit).toHaveBeenCalledOnce()
+    expect(box).toHaveFocus()
+
+    await waitFor(() => expect(box).toHaveValue(''))
+    expect(box).toHaveFocus() // ready for the next prompt
+  })
+
+  it('coarse_empty_send_dismisses_keyboard', async () => {
+    const user = userEvent.setup()
+    const fetchSpy = vi.fn(okSubmit())
+    vi.stubGlobal('fetch', fetchSpy)
+    const onSubmit = vi.fn()
+    render(Harness({ component: await coarseComposer(), onSubmit }))
+
+    const box = screen.getByLabelText('Prompt') as HTMLTextAreaElement
+    box.focus()
+    const send = screen.getByRole('button', { name: 'Send' })
+
+    // the empty draft keeps the button tappable with the disabled look, and
+    // the tap closes the keyboard without submitting
+    expect(send).toBeEnabled()
+    expect(send).toHaveClass('keyboard-dismiss')
+    await user.click(send)
+    expect(fetchSpy).not.toHaveBeenCalled()
+    expect(onSubmit).not.toHaveBeenCalled()
+    expect(box).not.toHaveFocus()
+  })
+
+  it('coarse_host_disabled_send_stays_inert', async () => {
+    render(
+      Harness({
+        component: await coarseComposer(),
+        disabled: true,
+        disabledReason: 'the stream is not live',
+      }),
+    )
+
+    const send = screen.getByRole('button', { name: 'Send' })
+    expect(send).toBeDisabled()
+    expect(send).not.toHaveClass('keyboard-dismiss')
+  })
+
   it('coarse_ctrl_j_inserts_a_newline', async () => {
     const user = userEvent.setup()
     render(Harness({ component: await coarseComposer() }))
@@ -847,6 +901,13 @@ describe('Composer touch keyboard', () => {
     expect(onSubmit).toHaveBeenCalledOnce()
     expect(onSubmit.mock.calls[0]![0]).toBe('line one\nline two')
     await waitFor(() => expect(box).toHaveValue(''))
+  })
+
+  it('fine_pointer_keeps_empty_send_disabled', () => {
+    render(Harness())
+
+    // desktop keeps today's inert Send over an empty draft
+    expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled()
   })
 })
 

@@ -4,6 +4,7 @@ import type { FormEvent, KeyboardEvent, PointerEvent } from 'react'
 import { describeError } from '../api/errors'
 import { sessions as sessionAPI } from '../api/endpoints'
 import type { FileSuggestion } from '../api/types'
+import { MenuPopover } from '../ui/MenuPopover'
 import {
   currentMatch,
   matchOffset,
@@ -111,6 +112,8 @@ export function Composer({
       : withItems(rawSearch, recall.items)
   const fileRef = useRef<HTMLInputElement>(null)
   const areaRef = useRef<HTMLTextAreaElement>(null)
+  // composer-box anchors every popup layer the form portals through MenuPopover
+  const boxRef = useRef<HTMLDivElement>(null)
 
   // valueRef mirrors the controlled prop so the submit continuation compares
   // against what the composer holds now, not at send time. The layout effect
@@ -294,6 +297,10 @@ export function Composer({
     recall.refresh?.()
     areaRef.current?.focus({ preventScroll: true }) // touch opens from a button; typing starts now
   }
+
+  // closeSearch drops the search without an accept, like Esc with no match:
+  // blur and outside presses both land here, the held draft stays untouched.
+  const closeSearch = () => setRawSearch(null)
 
   // applySearchKey feeds one machine key and resolves its outcome: accept
   // places the highlighted match, anything else updates the overlay state or
@@ -696,58 +703,88 @@ export function Composer({
   return (
     <form className="composer" onSubmit={onFormSubmit}>
       {error && <p className="error-text">{error}</p>}
-      <div className="composer-box">
+      <div className="composer-box" ref={boxRef}>
+        {/* popups portal through MenuPopover: pane clipping cannot cut them
+            off and the layer stands workspace keys down while visible; an
+            outside press dismisses like Escape, and closing never drags focus
+            back to a blurred composer */}
         {atOpen && (
-          <ul className="at-menu" role="listbox" aria-label="Path suggestions">
-            {items.map((item, i) => (
-              <li key={item.path}>
-                <button
-                  type="button"
-                  role="option"
-                  aria-selected={i === highlight}
-                  className={i === highlight ? 'active' : ''}
-                  onMouseDown={(ev) => {
-                    ev.preventDefault() // the textarea keeps focus
-                    accept(item)
-                  }}
-                  onMouseEnter={() => setPick({ key: tokenKey, index: i, moved: true })}
-                >
-                  {item.path}
-                </button>
-              </li>
-            ))}
-          </ul>
+          <MenuPopover
+            anchorRef={boxRef}
+            matchWidth
+            restoreFocus={false}
+            className="composer-pop"
+            onClose={() => setDismissed(tokenKey)}
+          >
+            <ul className="at-menu" role="listbox" aria-label="Path suggestions">
+              {items.map((item, i) => (
+                <li key={item.path}>
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={i === highlight}
+                    className={i === highlight ? 'active' : ''}
+                    onMouseDown={(ev) => {
+                      ev.preventDefault() // the textarea keeps focus
+                      accept(item)
+                    }}
+                    onMouseEnter={() => setPick({ key: tokenKey, index: i, moved: true })}
+                  >
+                    {item.path}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </MenuPopover>
         )}
         {commandOpen && (
-          <ul className="at-menu slash-menu" role="listbox" aria-label="Commands">
-            {commands.map((cmd, i) => (
-              <li key={cmd.name}>
-                <button
-                  type="button"
-                  role="option"
-                  aria-selected={i === highlight}
-                  className={i === highlight ? 'active' : ''}
-                  ref={i === highlight ? activeCommandRef : undefined}
-                  onMouseDown={(ev) => {
-                    ev.preventDefault() // the textarea keeps focus
-                    acceptCommand(cmd)
-                  }}
-                  onMouseEnter={() => setPick({ key: slashKey, index: i, moved: true })}
-                >
-                  <span className="slash-name">/{cmd.name}</span>
-                  <span className="slash-desc">{cmd.description}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
+          <MenuPopover
+            anchorRef={boxRef}
+            matchWidth
+            restoreFocus={false}
+            className="composer-pop"
+            onClose={() => setDismissed(slashKey)}
+          >
+            <ul className="at-menu slash-menu" role="listbox" aria-label="Commands">
+              {commands.map((cmd, i) => (
+                <li key={cmd.name}>
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={i === highlight}
+                    className={i === highlight ? 'active' : ''}
+                    ref={i === highlight ? activeCommandRef : undefined}
+                    onMouseDown={(ev) => {
+                      ev.preventDefault() // the textarea keeps focus
+                      acceptCommand(cmd)
+                    }}
+                    onMouseEnter={() => setPick({ key: slashKey, index: i, moved: true })}
+                  >
+                    <span className="slash-name">/{cmd.name}</span>
+                    <span className="slash-desc">{cmd.description}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </MenuPopover>
         )}
         {search !== null && (
-          <HistorySearchOverlay
-            search={search}
-            onHighlight={(delta) => applySearchKey({ type: 'highlight', delta })}
-            onAccept={(text) => acceptSearchMatch(text, search.query)}
-            onClose={() => applySearchKey({ type: 'close' })}
-          />
+          // rows keep the caret through prevented mousedown, so blur only
+          // fires when focus truly left the composer
+          <MenuPopover
+            anchorRef={boxRef}
+            matchWidth
+            restoreFocus={false}
+            className="composer-pop"
+            onClose={closeSearch}
+          >
+            <HistorySearchOverlay
+              search={search}
+              onHighlight={(delta) => applySearchKey({ type: 'highlight', delta })}
+              onAccept={(text) => acceptSearchMatch(text, search.query)}
+              onClose={() => applySearchKey({ type: 'close' })}
+            />
+          </MenuPopover>
         )}
         {shell && (
           <span
@@ -800,6 +837,7 @@ export function Composer({
             void attach(images)
           }}
           onKeyDown={onKeyDown}
+          onBlur={closeSearch} // focus out without an accept tears the search down
           onPointerDown={focusFreshTap}
           onSelect={(ev) => setCaret(ev.currentTarget.selectionStart ?? 0)}
         />

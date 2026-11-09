@@ -1104,7 +1104,6 @@ label {
 
 /* composer @-path completion */
 .composer-box {
-  position: relative;
   display: flex;
   align-items: flex-end;
   gap: calc(var(--unit) * 2);
@@ -1122,11 +1121,12 @@ label {
 .composer-kind.excluded {
   color: var(--danger);
 }
+/* composer popups portal through MenuPopover as .composer-pop: placement is
+   inline there, this lifts the layer above pane content like .tile-menu */
+.composer-pop {
+  z-index: 14;
+}
 .at-menu {
-  position: absolute;
-  bottom: calc(100% + 4px);
-  left: 0;
-  right: 0;
   margin: 0;
   padding: calc(var(--unit) * 1);
   list-style: none;
@@ -1135,7 +1135,6 @@ label {
   border-radius: var(--radius);
   max-height: 16rem;
   overflow-y: auto;
-  z-index: 12;
 }
 .at-menu button {
   display: block;
@@ -1167,19 +1166,14 @@ label {
   white-space: nowrap;
 }
 
-/* reverse history search: opens blank above the composer, an inline live
-   block like the @-menu rather than a modal picker, with more room since a
-   searched prompt may span lines */
+/* reverse history search: opens blank above the composer, a live block hosted
+   by .composer-pop like the completion menus rather than a modal picker, with
+   more room since a searched prompt may span lines */
 .search-menu {
-  position: absolute;
-  bottom: calc(100% + 4px);
-  left: 0;
-  right: 0;
   padding: calc(var(--unit) * 1);
   background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  z-index: 12;
 }
 .search-header {
   display: flex;

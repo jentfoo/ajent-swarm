@@ -1,12 +1,14 @@
 import { act, createEvent, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
+import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { Composer, excludedHint, stagedHint } from './Composer'
 import type { ComposerProps, ComposerRecall } from './Composer'
 import { commandDocs } from './commands'
 import { prependDraft } from './draftStore'
+import { overlayOpen } from '../ui/overlayStack'
 import { coarseImport } from '../test/matchMedia'
 
 type Suggestion = { path: string; dir?: boolean }
@@ -2117,5 +2119,162 @@ describe('Composer history search on touch', () => {
     render(Harness(recallHarness(['fix the retry loop'])))
 
     expect(screen.queryByRole('button', { name: 'Search prompt history' })).not.toBeInTheDocument()
+  })
+})
+
+describe('Composer popup layers', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  // stubShortPane pins the composer box near the viewport floor with less room
+  // below than a menu needs, so placement must flip above. The layer measures
+  // 800x96 at the anchor's span; every other element falls back to the
+  // setup's default box.
+  function stubShortPane() {
+    const rect = (box: { top: number; bottom: number; left: number; right: number }): DOMRect =>
+      ({
+        x: box.left,
+        y: box.top,
+        top: box.top,
+        bottom: box.bottom,
+        left: box.left,
+        right: box.right,
+        width: box.right - box.left,
+        height: box.bottom - box.top,
+        toJSON: () => '',
+      }) as DOMRect
+    const anchor = rect({ top: 660, bottom: 720, left: 40, right: 840 })
+    const pop = rect({ top: 0, bottom: 96, left: 40, right: 840 })
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (
+      this: Element,
+    ) {
+      if (this.classList.contains('composer-box')) return anchor
+      if (this.classList.contains('composer-pop')) return pop
+      return new DOMRect(0, 0, 1200, 72)
+    })
+  }
+
+  // ClippedPane hosts the composer at the bottom of an overflow-clipped pane,
+  // the tile condition the portal exists to escape.
+  function ClippedPane({ children }: { children: ReactNode }) {
+    return (
+      <div className="tile-body" style={{ overflow: 'hidden', height: 96 }}>
+        {children}
+      </div>
+    )
+  }
+
+  it('portals menus past a clipped pane and flips above the floor', async () => {
+    stubShortPane()
+    const user = userEvent.setup()
+    vi.stubGlobal('fetch', filesFetch({ ma: [{ path: 'src/main.go' }] }))
+    render(
+      <ClippedPane>
+        <ControlledHarness />
+      </ClippedPane>,
+    )
+
+    await user.type(screen.getByLabelText('Prompt'), 'look at @ma')
+    const pop = (await screen.findByRole('listbox', { name: 'Path suggestions' })).closest(
+      '.composer-pop',
+    ) as HTMLElement
+    // the layer left the pane, so its overflow can no longer clip the rows
+    expect(pop.parentElement).toBe(document.body)
+    expect(pop.closest('.tile-body')).toBeNull()
+    // placeMenu's flip math against the floor, spanning the composer's width
+    expect(pop.style.top).toBe('560px')
+    expect(pop.style.left).toBe('40px')
+    expect(pop.style.minWidth).toBe('800px')
+  })
+
+  it('keeps the search panel clear of a clipped pane', async () => {
+    stubShortPane()
+    const user = userEvent.setup()
+    vi.stubGlobal('fetch', okSubmit())
+    render(
+      <ClippedPane>
+        <ControlledHarness {...recallHarness(['fix the retry loop'])} />
+      </ClippedPane>,
+    )
+
+    await user.click(screen.getByLabelText('Prompt'))
+    await user.keyboard('{Control>}r{/Control}')
+    await user.keyboard('retry')
+
+    const pop = screen.getByText(/reverse-i-search/).closest('.composer-pop') as HTMLElement
+    expect(pop.parentElement).toBe(document.body)
+    expect(pop.closest('.tile-body')).toBeNull()
+    expect(pop.style.top).toBe('560px')
+  })
+
+  it('closes the search on blur without an accept', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('fetch', okSubmit())
+    render(Harness(recallHarness(['fix the retry loop'])))
+
+    const box = screen.getByLabelText('Prompt') as HTMLTextAreaElement
+    await user.type(box, 'my draft')
+    await user.keyboard('{Control>}r{/Control}')
+    expect(screen.getByText(/reverse-i-search/)).toBeInTheDocument()
+    // while visible it holds an overlay layer, so workspace keys stand down
+    expect(overlayOpen()).toBe(true)
+
+    fireEvent.blur(box)
+    expect(screen.queryByText(/reverse-i-search/)).not.toBeInTheDocument()
+    expect(overlayOpen()).toBe(false)
+    // no accept: the stashed draft comes back untouched
+    expect(box.value).toBe('my draft')
+  })
+
+  it('closes the search on an outside press', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('fetch', okSubmit())
+    render(Harness(recallHarness(['fix the retry loop'])))
+
+    await user.click(screen.getByLabelText('Prompt'))
+    await user.keyboard('{Control>}r{/Control}')
+    expect(screen.getByText(/reverse-i-search/)).toBeInTheDocument()
+
+    await user.click(document.body)
+    expect(screen.queryByText(/reverse-i-search/)).not.toBeInTheDocument()
+  })
+
+  it('accepts a clicked match without the blur close firing', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('fetch', okSubmit())
+    render(Harness(recallHarness(['fix the retry loop'])))
+
+    const box = screen.getByLabelText('Prompt')
+    await user.click(box)
+    await user.keyboard('{Control>}r{/Control}')
+    await user.keyboard('retry')
+
+    // rows keep the caret through prevented mousedown, so focus never leaves
+    // and the blur close cannot race the accept
+    await user.click(screen.getByRole('option'))
+    expect(box).toHaveValue('fix the retry loop')
+    expect(screen.queryByText(/reverse-i-search/)).not.toBeInTheDocument()
+  })
+
+  it('dismisses the @ menu on an outside press like Escape', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('fetch', filesFetch({ ma: [{ path: 'src/main.go' }] }))
+    const onSubmit = vi.fn()
+    render(Harness({ onSubmit }))
+
+    const box = screen.getByLabelText('Prompt') as HTMLTextAreaElement
+    await user.type(box, 'look at @ma')
+    await screen.findByRole('listbox', { name: 'Path suggestions' })
+
+    await user.click(document.body)
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
+    expect(box.value).toBe('look at @ma')
+
+    // the dismissal rides the query like Escape's, so Enter sends as typed
+    box.focus()
+    await user.keyboard('{Enter}')
+    expect(onSubmit).toHaveBeenCalledOnce()
   })
 })

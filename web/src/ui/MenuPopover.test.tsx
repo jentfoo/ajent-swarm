@@ -57,10 +57,14 @@ function Harness({
   align = 'left',
   startOpen = true,
   label = 'trigger',
+  matchWidth,
+  restoreFocus,
 }: {
   align?: 'left' | 'right'
   startOpen?: boolean
   label?: string
+  matchWidth?: boolean
+  restoreFocus?: boolean
 }) {
   const [open, setOpen] = useState(startOpen)
   const anchorRef = useRef<HTMLButtonElement>(null)
@@ -78,6 +82,8 @@ function Harness({
         <MenuPopover
           anchorRef={anchorRef}
           align={align}
+          matchWidth={matchWidth}
+          restoreFocus={restoreFocus}
           role="menu"
           aria-label={label}
           className="menu popover-menu"
@@ -98,6 +104,16 @@ describe('MenuPopover', () => {
     const menu = screen.getByRole('menu')
     expect(menu.parentElement).toBe(document.body)
     expect(menu.closest('.clip')).toBeNull()
+  })
+
+  it('stays at its natural width by default', () => {
+    render(<Harness />)
+    expect(screen.getByRole('menu').style.minWidth).toBe('')
+  })
+
+  it('matchWidth stretches the layer to the trigger box', () => {
+    render(<Harness matchWidth />)
+    expect(screen.getByRole('menu').style.minWidth).toBe(`${baseAnchor.right - baseAnchor.left}px`)
   })
 
   // placement math lives in placeMenu's own describe below, the component
@@ -186,6 +202,26 @@ describe('MenuPopover', () => {
     fireEvent.pointerDown(document.body)
     expect(screen.queryByRole('menu')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'trigger' })).toHaveFocus()
+  })
+
+  it('restoreFocus false leaves focus wherever closing left it', async () => {
+    const user = userEvent.setup()
+    render(<Harness startOpen={false} restoreFocus={false} />)
+
+    await user.click(screen.getByRole('button', { name: 'trigger' }))
+    expect(screen.getByRole('menu')).toBeInTheDocument()
+
+    // the caret moved on since opening, a blur-closed layer's position
+    const aside = document.createElement('button')
+    aside.tabIndex = 0
+    document.body.appendChild(aside)
+    aside.focus()
+    expect(aside).toHaveFocus()
+
+    fireEvent.pointerDown(document.body)
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+    // the close never dragged focus back to the trigger
+    expect(aside).toHaveFocus()
   })
 
   it('repositions when the window scrolls while open', () => {

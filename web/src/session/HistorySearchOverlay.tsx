@@ -5,9 +5,10 @@ import { matchSpans, type HistorySearch } from './historySearch'
 
 // HistorySearchOverlay is the reverse search surface above the composer: a
 // query echo header over the matching prompts, blank until text is typed and
-// showing a "no match" note otherwise. An inline live block like the @-menu,
-// never a modal picker: the composer keeps focus and feeds the keys, and a
-// row click (or tap) accepts that row into the draft.
+// showing a "no match" note otherwise. Hosted by Composer through MenuPopover
+// like the @-menu, so pane clipping cannot cut it off; never a modal picker:
+// the composer keeps focus and feeds the keys, and a row click (or tap)
+// accepts that row into the draft.
 export function HistorySearchOverlay({
   search,
   onHighlight,

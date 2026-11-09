@@ -12,6 +12,7 @@ const edgeMargin = 8
 interface Placement {
   left: number
   top: number
+  minWidth?: number
 }
 
 interface Box {
@@ -59,27 +60,36 @@ type MenuPopoverProps = {
   anchorRef: RefObject<HTMLElement | null>
   onClose: () => void
   align?: 'left' | 'right'
+  // stretch the layer to at least the trigger's width
+  matchWidth?: boolean
+  // leave focus wherever closing left it, for blur-closed layers
+  restoreFocus?: boolean
 } & Omit<HTMLAttributes<HTMLDivElement>, 'onClose'>
 
 // MenuPopover portals children into document.body as a fixed layer anchored to
 // the trigger in `anchorRef`, so no ancestor's overflow clipping can cut it
 // off. It flips above or clamps to stay in the viewport, repositions on scroll
-// and resize while open, and closes on a plain Escape or an outside
-// pointerdown: only the topmost of stacked popovers answers Escape, presses
-// another listener already claimed are left alone, and closing returns focus
-// to the element focused before opening. Children keep their own menu
-// markup, only placement lives here.
+// and resize while open, registers with ui/overlayStack for its lifetime, and
+// closes on a plain Escape or an outside pointerdown: only the topmost of
+// stacked popovers answers Escape, presses another listener already claimed
+// are left alone. Children keep their own menu markup, only placement lives
+// here.
 export function MenuPopover({
   anchorRef,
   onClose,
   align = 'left',
+  matchWidth = false,
+  restoreFocus = true,
   children,
   ...rest
 }: MenuPopoverProps) {
   const [placement, setPlacement] = useState<Placement | null>(null)
   // captured once at first render on purpose: the trigger holds focus while
-  // opening, and this is the element closing hands it back to
-  const [restoreTarget] = useState(() => document.activeElement as HTMLElement | null)
+  // opening, and this is the element closing hands it back to. restoreFocus
+  // false captures nothing, so a blur-closed layer never steals the caret.
+  const [restoreTarget] = useState(() =>
+    restoreFocus ? (document.activeElement as HTMLElement | null) : null,
+  )
   const menuRef = useRef<HTMLDivElement>(null)
 
   const measure = useCallback(() => {
@@ -95,10 +105,13 @@ export function MenuPopover({
         { width: window.innerWidth, height: window.innerHeight },
         align,
       )
+      const minWidth = matchWidth ? trigger.width : undefined
       // identical coordinates skip the render a scroll tick would cause
-      return prev?.left === next.left && prev?.top === next.top ? prev : next
+      return prev?.left === next.left && prev?.top === next.top && prev.minWidth === minWidth
+        ? prev
+        : { ...next, minWidth }
     })
-  }, [anchorRef, align])
+  }, [anchorRef, align, matchWidth])
 
   useLayoutEffect(() => {
     measure()
@@ -169,6 +182,7 @@ export function MenuPopover({
         visibility: placement ? undefined : 'hidden',
         left: placement?.left,
         top: placement?.top,
+        minWidth: placement?.minWidth,
       }}
     >
       {children}

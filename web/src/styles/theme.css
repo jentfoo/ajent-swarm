@@ -2039,14 +2039,6 @@ label {
   border-radius: 999px;
   background: var(--border);
 }
-/* only the sheet's rows scroll their own body: unscoped, the launcher's rows
-   carry a dead overflow-y that shadows the page scroller and lets
-   pull-to-refresh fire mid-list */
-.bottom-sheet > .switcher-rows {
-  overflow-y: auto;
-  padding: 0 calc(var(--unit) * 3) calc(var(--unit) * 4);
-}
-
 /* mobile rewind rows: the shared picker row at touch scale — the kind dot
    replaces the tree chrome, single-line cards meet the 44px floor */
 .bottom-sheet .rewind-list {

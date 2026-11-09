@@ -8,7 +8,7 @@ import type { PointerEvent as ReactPointerEvent } from 'react'
 // release, pointer leaving or unmount cancels it. A fired hold also suppresses
 // the tap its release synthesizes wherever that click retargets, so these
 // tests run against a small fixture wiring the row gesture inside an ancestor
-// with its own click handler, the way SwitcherRows rides in a bottom sheet.
+// with its own click handler, like a switcher row opening on tap.
 
 function pointerEvent(isPrimary = true): ReactPointerEvent {
   return {

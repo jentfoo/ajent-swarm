@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import type { ReactElement } from 'react'
-import { Link, useNavigate, useParams } from 'react-router'
+import { Link, useParams } from 'react-router'
 
 import { sessionBusy } from '../state/eventApplier'
 import { headerBadgeOf } from '../workspace/attention'
@@ -19,26 +19,13 @@ import { useSessionCompose } from '../session/useSessionCompose'
 import { useSessionLabel } from '../session/useSessionLabel'
 import { Toasts } from '../hooks/Toasts'
 import { useSessionChannel } from '../hooks/useSessionChannel'
-import { overlayOpen } from '../ui/overlayStack'
 import { ModelMenu } from '../ui/ModelMenu'
 import { OverlayMenu } from '../ui/OverlayMenu'
 import { useWorkspace } from '../providers/workspace'
-import { BottomSheet } from './BottomSheet'
 import { RewindSheet } from './RewindSheet'
 import { SettingsScreen } from './SettingsScreen'
-import { horizontallyScrollable } from './scrollable'
-import { switcherRoute } from './switcher'
-import { SwitcherRows } from './SwitcherRows'
 import { ToolsScreen } from './ToolsScreen'
 import { TouchDialogDock } from './TouchDialogDock'
-import { useSwitcherRows } from './useSwitcherRows'
-
-// edgeSwipePx is how far right a touch starting in the left edge zone must
-// travel to reopen the switcher sheet.
-const edgeSwipePx = 56
-
-// edgeZonePx is the left strip a swipe must start in.
-const edgeZonePx = 24
 
 // MobileSessionScreen drives one session on a phone. The component tree stays
 // shared with desktop (TranscriptView, notices, dialogs, queue chips, Composer,
@@ -79,11 +66,6 @@ function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElemen
   const [showTools, setShowTools] = useState(false)
   const [showRewind, setShowRewind] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
-  const [sheetOpen, setSheetOpen] = useState(false)
-
-  // Edge-swipe from the left reopens the switcher over any session view, the
-  // touch zone is only the first 24px so transcript selection never fights it.
-  const edgeStart = useRef<{ x: number; y: number } | null>(null)
 
   const working = sessionBusy(snap)
   const ended = endedBanner(phase, state.exitReason)
@@ -102,39 +84,7 @@ function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElemen
   const label = useSessionLabel(sessionId)
 
   return (
-    <div
-      className="session-screen mobile-session"
-      onTouchStart={(ev) => {
-        // one fresh finger seeds a candidate, anything else (a second touch
-        // landing mid-gesture, a pinch) kills the pending one. A touch targets
-        // the element it began on, so one starting inside a sideways scroller
-        // stands down: dragging a long code line scrolls its fence instead of
-        // opening the switcher
-        const t = ev.touches[0]
-        edgeStart.current =
-          ev.touches.length === 1 && !horizontallyScrollable(ev.target)
-            ? { x: t.clientX, y: t.clientY }
-            : null
-      }}
-      onTouchEnd={(ev) => {
-        const start = edgeStart.current
-        edgeStart.current = null
-        // an open overlay layer owns the screen, so the swipe stands down
-        if (start === null || start.x > edgeZonePx || overlayOpen()) return
-        // a finger still down or several lifted together was never a swipe
-        if (ev.touches.length > 0 || ev.changedTouches.length !== 1) return
-        const end = ev.changedTouches[0]
-        const dx = end.clientX - start.x
-        const dy = Math.abs(end.clientY - start.y)
-        // horizontal dominance keeps vertical scrolls from reading as swipes
-        if (dx >= edgeSwipePx && dx > dy) {
-          setSheetOpen(true)
-        }
-      }}
-      onTouchCancel={() => {
-        edgeStart.current = null
-      }}
-    >
+    <div className="session-screen mobile-session">
       <header className="mobile-session-header">
         <Link to="/" aria-label="Back to launcher" className="back-link">
           ←
@@ -228,9 +178,6 @@ function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElemen
         onToast={pushToast}
       />
 
-      {/* the switcher rides over any session view, reopened by edge swipe */}
-      <SwitcherOverlay open={sheetOpen} onClose={() => setSheetOpen(false)} />
-
       <Toasts toasts={toasts} />
     </div>
   )
@@ -286,33 +233,5 @@ function HeaderMenu({
         </OverlayMenu>
       )}
     </>
-  )
-}
-
-// SwitcherOverlay is the same bottom sheet the home screen shows, fed by the
-// same shared row model so a dialog waiting anywhere is visible before
-// switching.
-function SwitcherOverlay({
-  open,
-  onClose,
-}: {
-  open: boolean
-  onClose: () => void
-}): ReactElement | null {
-  const navigate = useNavigate()
-  const rows = useSwitcherRows()
-
-  return (
-    <BottomSheet open={open} onClose={onClose} label="Session switcher">
-      <SwitcherRows
-        rows={rows}
-        onOpen={(row) => {
-          onClose()
-          // replacing recycles the sheet's own history entry, so back from
-          // the switched session returns here rather than onto a leftover
-          navigate(switcherRoute(row), { replace: true })
-        }}
-      />
-    </BottomSheet>
   )
 }

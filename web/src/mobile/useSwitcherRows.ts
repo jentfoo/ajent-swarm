@@ -6,9 +6,9 @@ import { useWorkspace } from '../providers/workspace'
 import { displayName } from '../session/names'
 import { buildSwitcherRows } from './switcher'
 
-// useSwitcherRows folds discovery plus the attention digest into the sheet's
-// rows through one shared model, so the home launcher and the in-session
-// switcher can never disagree about order, badges or labels.
+// useSwitcherRows folds discovery plus the attention digest into the home
+// launcher's rows through the shared switcher model, so order, badges and
+// labels stay one derivation.
 export function useSwitcherRows() {
   const { sessions } = useSwarm()
   const { home } = useAuth()

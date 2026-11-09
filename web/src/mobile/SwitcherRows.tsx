@@ -16,14 +16,14 @@ import { useOverlayBack } from '../ui/useOverlayBack'
 import { groupSwitcherRows } from './switcher'
 import type { SwitcherRow } from './switcher'
 
-// SwitcherRows renders the sheet's large touch rows grouped under the
+// SwitcherRows renders the launcher's large touch rows grouped under the
 // shared rail headings plus the Recent tail: status and needs-input badges
 // beside each label plus a queued-prompt count when prompts wait, a
 // check-off on actionable attention states (never on neutral waiting or ended
 // rows), a trailing actions area mirroring the desktop card bar minus Open
 // plus an explicit Rename, and long-press rename opening the same editor.
 // Both rename paths edit the stored swarm title rather than ajent's own
-// session names, and platform back peels the editor alone, leaving the sheet
+// session names, and platform back peels the editor alone, leaving the rows
 // beneath intact.
 export function SwitcherRows({
   rows,
@@ -38,7 +38,7 @@ export function SwitcherRows({
   const [settingsId, setSettingsId] = useState<string | null>(null)
 
   if (rows.length === 0) {
-    return <p className="muted sheet-empty">No sessions yet. Launch one below.</p>
+    return <p className="muted rows-empty">No sessions yet. Launch one below.</p>
   }
   const sections = groupSwitcherRows(rows)
   return (
@@ -72,7 +72,7 @@ export function SwitcherRows({
 }
 
 // RenameLayer mounts the open editor as its own history layer, so platform
-// back peels the editor while the sheet beneath stays put, the shared
+// back peels the editor while the rows beneath stay put, the shared
 // RenameEditorModal itself stays desktop-neutral.
 function RenameLayer({ row, onDone }: { row: SwitcherRow; onDone: () => void }): ReactElement {
   useOverlayBack(onDone)

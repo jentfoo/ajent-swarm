@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -15,8 +15,7 @@ import { MockWebSocket } from '../test/mockWebSocket'
 
 // The mobile single-session screen over the real stream client: compact
 // chrome, keyboard-aware padding against a mocked visualViewport, tools as a
-// pushed sheet, rewind as the shared picker in a sheet, and the edge-swipe
-// switcher gesture.
+// pushed sheet, and rewind as the shared picker in a sheet.
 
 const VIEW = '01MOBILEVIEW00000'
 const OTHER = '01MOBILEVIEW00001'
@@ -659,125 +658,6 @@ describe('MobileSessionScreen', () => {
 
     expect(await screen.findByText(/Session ended\./)).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Read the transcript' })).toBeInTheDocument()
-  })
-
-  it('opens the switcher from a dominant horizontal edge swipe', async () => {
-    renderScreen()
-    const ws = await openSocket()
-    act(() => {
-      ws.message({ type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
-    })
-    await screen.findByRole('button', { name: /sonnet/ })
-
-    const surface = document.querySelector('.mobile-session') as HTMLElement
-    fireEvent.touchStart(surface, {
-      touches: [{ clientX: 10, clientY: 300 }],
-      changedTouches: [{ clientX: 10, clientY: 300 }],
-    })
-    fireEvent.touchEnd(surface, { touches: [], changedTouches: [{ clientX: 80, clientY: 306 }] })
-
-    expect(await screen.findByRole('dialog', { name: 'Session switcher' })).toBeInTheDocument()
-  })
-
-  it('keeps a vertical edge scroll from opening the switcher', async () => {
-    renderScreen()
-    const ws = await openSocket()
-    act(() => {
-      ws.message({ type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
-    })
-    await screen.findByRole('button', { name: /sonnet/ })
-
-    // a scroll that starts at the edge and ends 60px right of it is a scroll
-    const surface = document.querySelector('.mobile-session') as HTMLElement
-    fireEvent.touchStart(surface, {
-      touches: [{ clientX: 10, clientY: 100 }],
-      changedTouches: [{ clientX: 10, clientY: 100 }],
-    })
-    fireEvent.touchEnd(surface, { touches: [], changedTouches: [{ clientX: 70, clientY: 400 }] })
-
-    expect(screen.queryByRole('dialog', { name: 'Session switcher' })).not.toBeInTheDocument()
-  })
-
-  it('keeps a second finger from opening the switcher', async () => {
-    renderScreen()
-    const ws = await openSocket()
-    act(() => {
-      ws.message({ type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
-    })
-    await screen.findByRole('button', { name: /sonnet/ })
-
-    // one finger seeds the gesture at the edge, a pinch kills it even when
-    // the last finger lifts far right of where the first landed
-    const surface = document.querySelector('.mobile-session') as HTMLElement
-    fireEvent.touchStart(surface, {
-      touches: [{ clientX: 10, clientY: 300 }],
-      changedTouches: [{ clientX: 10, clientY: 300 }],
-    })
-    fireEvent.touchStart(surface, {
-      touches: [
-        { clientX: 10, clientY: 300 },
-        { clientX: 250, clientY: 320 },
-      ],
-      changedTouches: [{ clientX: 250, clientY: 320 }],
-    })
-    fireEvent.touchEnd(surface, {
-      touches: [{ clientX: 10, clientY: 300 }],
-      changedTouches: [{ clientX: 250, clientY: 320 }],
-    })
-    fireEvent.touchEnd(surface, { touches: [], changedTouches: [{ clientX: 120, clientY: 310 }] })
-
-    expect(screen.queryByRole('dialog', { name: 'Session switcher' })).not.toBeInTheDocument()
-  })
-
-  it('keeps a fence drag from opening the switcher', async () => {
-    renderScreen()
-    const ws = await openSocket()
-    act(() => {
-      ws.message({ type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
-    })
-    await screen.findByRole('button', { name: /sonnet/ })
-
-    // a code fence scrolling a long line sideways owns the touch, so the
-    // edge-swipe zone stands down instead of opening the switcher mid-scroll
-    const surface = document.querySelector('.mobile-session') as HTMLElement
-    const fence = document.createElement('div')
-    fence.style.overflowX = 'auto'
-    Object.defineProperty(fence, 'scrollWidth', { configurable: true, value: 600 })
-    Object.defineProperty(fence, 'clientWidth', { configurable: true, value: 320 })
-    surface.appendChild(fence)
-
-    fireEvent.touchStart(fence, {
-      touches: [{ clientX: 10, clientY: 300 }],
-      changedTouches: [{ clientX: 10, clientY: 300 }],
-    })
-    fireEvent.touchEnd(surface, { touches: [], changedTouches: [{ clientX: 80, clientY: 306 }] })
-
-    expect(screen.queryByRole('dialog', { name: 'Session switcher' })).not.toBeInTheDocument()
-  })
-
-  it('closes the switcher on browser back instead of leaving the session', async () => {
-    renderScreen()
-    const ws = await openSocket()
-    act(() => {
-      ws.message({ type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
-    })
-    await screen.findByRole('button', { name: /sonnet/ })
-
-    const surface = document.querySelector('.mobile-session') as HTMLElement
-    fireEvent.touchStart(surface, {
-      touches: [{ clientX: 10, clientY: 300 }],
-      changedTouches: [{ clientX: 10, clientY: 300 }],
-    })
-    fireEvent.touchEnd(surface, { touches: [], changedTouches: [{ clientX: 80, clientY: 306 }] })
-    expect(await screen.findByRole('dialog', { name: 'Session switcher' })).toBeInTheDocument()
-
-    // the hardware/browser back gesture pops the entry the sheet pushed and
-    // closes it, leaving the session on screen
-    act(() => {
-      window.dispatchEvent(new PopStateEvent('popstate'))
-    })
-    expect(screen.queryByRole('dialog', { name: 'Session switcher' })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /sonnet/ })).toBeInTheDocument()
   })
 
   it('closes the mode menu on browser back instead of leaving the session', async () => {

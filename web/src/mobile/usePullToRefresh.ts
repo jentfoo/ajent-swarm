@@ -61,7 +61,7 @@ export function usePullToRefresh(
       // landing mid-gesture, a pinch) kills the pending one
       const t = ev.touches.length === 1 ? ev.touches[0] : undefined
       startY = t?.clientY ?? null
-      scroller = t && ev.target instanceof Element ? scrollableUnder(ev.target, 'y') : null
+      scroller = t && ev.target instanceof Element ? scrollableUnder(ev.target) : null
       furthest = 0
       scrolled = false
     }

@@ -1,5 +1,5 @@
-// The switcher's pure model: rows for the bottom sheet and the home launcher,
-// derived from the fleet listing plus the shared attention digest. Alive rows
+// The switcher's pure model: launcher rows derived from the fleet listing plus
+// the shared attention digest. Alive rows
 // rank like the desktop rail and carry the queue they render under, with a
 // trailing Recent section of ended runs so a fresh exit stays one tap from
 // resume: at least minEndedRows always, plus every exit inside the recent
@@ -56,7 +56,7 @@ interface GroupedSwitcherRows {
 
 const sectionOrder: readonly SwitcherSection[] = ['needs', 'waiting', 'working', 'ended']
 
-// buildSwitcherRows folds the listing and attention items into sheet rows.
+// buildSwitcherRows folds the listing and attention items into launcher rows.
 // Attention is optional: a missing digest merely drops badges and reasons
 // until its next poll. Digests pair with their own instance when both sides
 // know the pid, otherwise any digest for the session stands in.
@@ -156,7 +156,7 @@ export function groupSwitcherRows(rows: readonly SwitcherRow[]): GroupedSwitcher
     const sectionRows = section === 'ended' ? capEnded(matched) : matched
     if (sectionRows.length === 0) return []
     // only the ended tail is switcher-specific, alive headings read the
-    // shared queue titles so the sheet cannot drift from the desktop rail
+    // shared queue titles so the launcher cannot drift from the desktop rail
     const title = section === 'ended' ? 'Recent' : attentionSectionTitles[section]
     return [{ section, title, rows: sectionRows }]
   })

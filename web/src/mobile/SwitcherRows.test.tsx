@@ -452,7 +452,7 @@ describe('SwitcherRows', () => {
     expect(fetchSpyCalled('/api/sessions/01A/stop')).toBe(false)
   })
 
-  it('keeps the armed stop while the sheet scrolls it in view', async () => {
+  it('keeps the armed stop while the list scrolls it in view', async () => {
     stubFacts()
     const { container } = renderRows([row()])
     await screen.findByText('project')
@@ -461,7 +461,7 @@ describe('SwitcherRows', () => {
     await user.click(screen.getByRole('button', { name: 'Stop' }))
     expect(screen.getByRole('button', { name: 'Stop?' })).toBeInTheDocument()
 
-    // momentum tails and anchoring nudge the sheet without moving the row
+    // momentum tails and anchoring nudge the list without moving the row
     // out of sight: the confirm must survive them
     act(() => {
       container.querySelector('.switcher-rows')!.dispatchEvent(new Event('scroll'))
@@ -472,7 +472,7 @@ describe('SwitcherRows', () => {
     expect(fetchSpyCalled('/api/sessions/01A/stop')).toBe(true)
   })
 
-  it('resets the armed stop once the sheet scrolls it out of view', async () => {
+  it('resets the armed stop once the list scrolls it out of view', async () => {
     stubFacts()
     const { container } = renderRows([row()])
     await screen.findByText('project')
@@ -561,7 +561,7 @@ describe('SwitcherRows', () => {
       expect(fetchSpyCalled('/api/sessions/01A/settings')).toBe(false)
     })
 
-    // tapping the other row rebinds the same sheet instead of stacking one
+    // tapping the other row rebinds the same pushed screen instead of stacking one
     await user.click(screen.getAllByRole('button', { name: 'Settings' })[0]!)
     await vi.waitFor(() => {
       expect(fetchSpyCalled('/api/sessions/01A/settings')).toBe(true)

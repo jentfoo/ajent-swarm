@@ -17,7 +17,7 @@ interface LongPressHandlers {
 }
 
 // useLongPress fires after a held touch, any early release or pointer leaving
-// cancels it, so scrolling the sheet never triggers a rename. A fired hold
+// cancels it, so scrolling the rows never triggers a rename. A fired hold
 // also swallows the tap its release synthesizes, wherever that click lands,
 // so holding to rename does not read as opening the row underneath.
 export function useLongPress(onLongPress: () => void): LongPressHandlers {

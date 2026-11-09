@@ -268,7 +268,7 @@ describe('buildSwitcherRows', () => {
     const sessions = attentionItems.map((i) => session({ sessionId: i.sessionId }))
     const rows = buildSwitcherRows(sessions, labelFor, attentionItems)
 
-    // the sheet mirrors the rail queues: human-waiting rows under Needs
+    // the rows mirror the rail queues: human-waiting rows under Needs
     // input by oldest wait, idle agents under Waiting, busy rows under Working
     const ranked = rankAttention(attentionItems)
     expect(ranked.needs.map((i) => i.sessionId)).toEqual([

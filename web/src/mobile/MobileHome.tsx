@@ -16,9 +16,8 @@ import { usePullToRefresh } from './usePullToRefresh'
 import { useSwitcherRows } from './useSwitcherRows'
 
 // MobileHome is the launcher and switcher: the new-session launcher on top,
-// then the grouped live sessions the bottom sheet shows (section headings
-// included), then links for jobs and settings. Depth of controls trades for
-// reachability here.
+// then the grouped live session rows (section headings included), then links
+// for jobs and settings. Depth of controls trades for reachability here.
 export default function MobileHome() {
   const navigate = useNavigate()
   const rows = useSwitcherRows()

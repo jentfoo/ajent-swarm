@@ -1,5 +1,6 @@
 import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ModeMenu, StatusHeader } from './StatusHeader'
@@ -163,16 +164,19 @@ describe('ModeMenu', () => {
 })
 
 // headerTree mounts the header inside its providers, since identity reads the
-// swarm listing and the badge reads the workspace attention model.
+// swarm listing and the badge reads the workspace attention model. A router
+// wraps it because the workspace provider routes notification click-through.
 function headerTree(snap: CtlState) {
   return (
-    <AuthProvider>
-      <SwarmProvider>
-        <WorkspaceProvider>
-          <StatusHeader sessionId={snap.session.id} onToast={vi.fn()} snap={snap} />
-        </WorkspaceProvider>
-      </SwarmProvider>
-    </AuthProvider>
+    <MemoryRouter>
+      <AuthProvider>
+        <SwarmProvider>
+          <WorkspaceProvider>
+            <StatusHeader sessionId={snap.session.id} onToast={vi.fn()} snap={snap} />
+          </WorkspaceProvider>
+        </SwarmProvider>
+      </AuthProvider>
+    </MemoryRouter>
   )
 }
 

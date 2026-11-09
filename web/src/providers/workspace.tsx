@@ -1,8 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
+import { useNavigate } from 'react-router'
 
 import { fleet } from '../api/endpoints'
 import type { AttentionAck } from '../api/types'
+import { useSessionNamer } from '../session/useSessionLabel'
 import { useSwarm } from './swarm'
 import { createNotificationBridge } from './notifications'
 import type { NotificationPermission } from './notifications'
@@ -45,6 +47,8 @@ const WorkspaceContext = createContext<WorkspaceContextValue | null>(null)
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const { attention, refreshAttention } = useSwarm()
   const { profile, setMode, selectFocusedSession, setTileLayout } = useLayoutProfile()
+  const nameFor = useSessionNamer()
+  const navigate = useNavigate()
   const [bridge] = useState(() => createNotificationBridge())
   const [permission, setPermission] = useState(bridge.permission())
 
@@ -105,7 +109,20 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       ranked.needsInputCount > 0 ? `(${ranked.needsInputCount}) ajent-swarm` : 'ajent-swarm'
   }, [ranked.needsInputCount])
 
-  useEffect(() => bridge.publish(ranked.needs), [bridge, ranked.needs])
+  // Notification clicks arrive from the OS tray, outside React's flow: focus
+  // the window, then navigate; both shells route /s/:sessionId.
+  const openSession = useCallback(
+    (sessionId: string) => {
+      window.focus()
+      navigate(`/s/${encodeURIComponent(sessionId)}`)
+    },
+    [navigate],
+  )
+
+  useEffect(
+    () => bridge.publish(ranked.needs, { nameFor, openSession }),
+    [bridge, ranked.needs, nameFor, openSession],
+  )
 
   useEffect(() => {
     const onVisible = () => {

@@ -360,22 +360,24 @@ func (m *Manager) StopSession(ctx context.Context, sessionID string) error {
 	cp := m.childBySession[sessionID]
 	// a recorded exit counts only with the pid provably gone: a stale row
 	// (an older run of a relaunched session) must never read as stopped while
-	// the live process serves on
-	alreadyExited := cp != nil && !cp.rec.ExitedAt.IsZero() && pidGone(cp.rec.PID)
+	// the live process serves on. A live actor behind one is an external
+	// resume of the transcript, not that child, so /exit alone applies.
+	if cp != nil && !cp.rec.ExitedAt.IsZero() && pidGone(cp.rec.PID) {
+		if a == nil {
+			m.mu.Unlock()
+			return nil
+		}
+		cp = nil
+	}
 	if cp != nil {
 		pid = cp.rec.PID
+		cp.stopping = true
 	} else if a != nil {
 		pid = a.status.Load().PID
-	}
-	if cp != nil && !alreadyExited {
-		cp.stopping = true
 	}
 	m.mu.Unlock()
 	if a == nil && cp == nil {
 		return ErrUnknownSession
-	}
-	if alreadyExited {
-		return nil
 	}
 
 	exited := false

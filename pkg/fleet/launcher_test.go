@@ -488,6 +488,72 @@ func TestLauncher(t *testing.T) {
 		assert.Equal(t, "stopped by swarm", rec.ExitNote)
 	})
 
+	t.Run("external_resume_behind_stale_row_stops", func(t *testing.T) {
+		home := testutil.IsolateHome(t)
+		ws := launchWorkspace(t, home)
+		cs := newFakeChildStore()
+		const sid = "01STUTEXTRESUME001"
+
+		// an older swarm run of the session died while the service was down
+		_, err := cs.CreateChild(t.Context(), ChildRecord{
+			PID: deadPID(t), SessionID: sid, Workspace: ws,
+			Argv: "--serve", StartedAt: time.Now().Add(-time.Hour),
+		})
+		require.NoError(t, err)
+
+		m := New(Options{
+			Log: testLogger(), PollInterval: testPoll,
+			BackoffBase: testBackoff, BackoffMax: testBackoffHi,
+			AjentBin:    writeStubBin(t, home),
+			ChildrenDir: filepath.Join(home, "children"), ChildStore: cs,
+			ExitGrace: 200 * time.Millisecond, TermGrace: 200 * time.Millisecond,
+		})
+		m.Start(t.Context())
+		t.Cleanup(m.Stop)
+
+		// adoption marks the dead run exited and keeps the session lookup
+		require.Eventually(t, func() bool {
+			st, ok := rowFor(m.Sessions(), sid)
+			return ok && st.State == ChildExited
+		}, 3*time.Second, testPoll)
+
+		// an external resume of the transcript joins under the same session id,
+		// so the listing shows one live row over the stale exited record
+		stub := fleettest.New(t, home, fleettest.Options{SessionID: sid})
+		stub.WriteRegistry(t, os.Getpid(), time.Now())
+		require.Eventually(t, func() bool {
+			st, ok := rowFor(m.Sessions(), sid)
+			return ok && st.SpawnedBy == SpawnedByExternal && st.State == ChildOnline
+		}, 3*time.Second, testPoll)
+
+		// the stop reaches /exit instead of answering the stale row's silence;
+		// the resume is not a swarm child, so no signal may fly. The session
+		// ends after ajent answers, like the real /exit round trip.
+		runStop := make(chan struct{})
+		stub.OnSubmit(func(p ctl.SubmitParams) {
+			if p.Line == stopLine {
+				close(runStop)
+			}
+		})
+		errCh := make(chan error, 1)
+		go func() { errCh <- m.StopSession(t.Context(), sid) }()
+
+		select {
+		case <-runStop:
+		case err := <-errCh:
+			require.NoError(t, err)
+			t.Fatal("stop finished without /exit")
+		}
+		stub.Exit("stopped")
+
+		select {
+		case err := <-errCh:
+			require.NoError(t, err)
+		case <-time.After(3 * time.Second):
+			t.Fatal("stop did not return")
+		}
+	})
+
 	t.Run("empty_ended_sessions_removed", func(t *testing.T) {
 		t.Run("stopped_fresh_session_dropped", func(t *testing.T) {
 			env := newLaunchEnv(t, true) // the shutdown flag takes any stray down

@@ -42,6 +42,9 @@ export default function JobsHome() {
   // pre-toggle state cannot flip the checkbox back mid-request. Counted per
   // row, since a second click may overlap the first.
   const pendingToggles = useRef(new Map<number, number>())
+  // Manual fires in flight, per row: a pending id disables its Run now
+  // button so one click cannot start two runs.
+  const [firingIds, setFiringIds] = useState<Set<number>>(new Set())
   // Monotonic load token, so only the newest load's response applies.
   const loadToken = useRef(0)
 
@@ -160,12 +163,20 @@ export default function JobsHome() {
   }
 
   const fire = async (job: Job) => {
+    if (firingIds.has(job.id)) return
+    setFiringIds((current) => new Set(current).add(job.id))
     try {
       const run = await jobsApi.fire(job.id)
       setNotice(`Run #${run.id} started.`)
       setError('')
     } catch (err) {
       setError(describeError(err, 'Manual fire failed.'))
+    } finally {
+      setFiringIds((current) => {
+        const next = new Set(current)
+        next.delete(job.id)
+        return next
+      })
     }
   }
 
@@ -214,6 +225,7 @@ export default function JobsHome() {
                 key={job.id}
                 job={job}
                 facts={facts}
+                firing={firingIds.has(job.id)}
                 onToggle={() => void toggle(job)}
                 onFire={() => void fire(job)}
               />
@@ -236,6 +248,7 @@ export default function JobsHome() {
                   key={job.id}
                   job={job}
                   facts={facts}
+                  firing={firingIds.has(job.id)}
                   onToggle={() => void toggle(job)}
                   onFire={() => void fire(job)}
                 />
@@ -395,6 +408,7 @@ function jobRowFacts(job: Job, home: string | undefined, lastRun?: Run): JobRowF
 type JobRowProps = {
   job: Job
   facts: JobRowFacts
+  firing: boolean
   onToggle: () => void
   onFire: () => void
 }
@@ -423,7 +437,7 @@ function JobToggle({ job, onToggle }: { job: Job; onToggle: () => void }) {
   )
 }
 
-function JobTableRow({ job, facts, onToggle, onFire }: JobRowProps) {
+function JobTableRow({ job, facts, firing, onToggle, onFire }: JobRowProps) {
   return (
     <tr data-testid={`job-${job.id}`}>
       <td>
@@ -451,7 +465,13 @@ function JobTableRow({ job, facts, onToggle, onFire }: JobRowProps) {
           <Link to={`/jobs/new?from=${job.id}`} className="btn" aria-label={`Copy ${job.name}`}>
             Copy
           </Link>
-          <button type="button" title="Run now" aria-label={`Run ${job.name} now`} onClick={onFire}>
+          <button
+            type="button"
+            title="Run now"
+            aria-label={`Run ${job.name} now`}
+            disabled={firing}
+            onClick={onFire}
+          >
             ▶
           </button>
         </div>
@@ -463,7 +483,7 @@ function JobTableRow({ job, facts, onToggle, onFire }: JobRowProps) {
 // JobCard is the phone presentation: one stacked card per job wearing the
 // switcher rows' touch language (last-run status beside the label, 44px
 // action floors) with labeled lines standing in for the table headers.
-function JobCard({ job, facts, onToggle, onFire }: JobRowProps) {
+function JobCard({ job, facts, firing, onToggle, onFire }: JobRowProps) {
   return (
     <div className="job-card" role="listitem" data-testid={`job-${job.id}`}>
       <span className="switch-top">
@@ -490,7 +510,7 @@ function JobCard({ job, facts, onToggle, onFire }: JobRowProps) {
         <Link to={`/jobs/new?from=${job.id}`} className="btn" aria-label={`Copy ${job.name}`}>
           Copy
         </Link>
-        <button type="button" aria-label={`Run ${job.name} now`} onClick={onFire}>
+        <button type="button" aria-label={`Run ${job.name} now`} disabled={firing} onClick={onFire}>
           Run
         </button>
         <Link to={`/jobs/${job.id}`} className="btn" aria-label={`Edit ${job.name}`}>

@@ -67,6 +67,12 @@ let jobsReply: { rows?: Job[]; status?: number }
 let runsReply: Run[] | undefined
 let jobsFetches = 0
 const fireReplies: Array<{ id: number; ok: boolean }> = []
+// Fire POST job ids, so guard tests can count real calls.
+const fireCalls: number[] = []
+// The next N fire POSTs park here until a test resolves them, keeping the
+// pending window open for the guard tests.
+let parkFires = 0
+let fireWaiters: Array<(r: Response) => void> = []
 // Update requests park here until a test resolves them, so the optimistic
 // window is observable.
 let updateBodies: Array<Record<string, unknown>> = []
@@ -83,6 +89,9 @@ describe('JobsHome', () => {
     runsReply = undefined
     jobsFetches = 0
     fireReplies.length = 0
+    fireCalls.length = 0
+    parkFires = 0
+    fireWaiters = []
     updateBodies = []
     updateWaiters = []
     createBodies.length = 0
@@ -135,6 +144,11 @@ describe('JobsHome', () => {
         }
         const fire = /\/api\/jobs\/(\d+)\/run$/.exec(base)
         if (fire && init?.method === 'POST') {
+          fireCalls.push(Number(fire[1]))
+          if (parkFires > 0) {
+            parkFires--
+            return new Promise<Response>((resolve) => fireWaiters.push(resolve))
+          }
           const last = fireReplies.at(-1)!
           return last.ok
             ? Promise.resolve(Response.json(manualRun(last.id)))
@@ -473,6 +487,52 @@ describe('JobsHome', () => {
     fireReplies.push({ id: 21, ok: false })
     await user.click(screen.getByRole('button', { name: 'Run nightly sweep now' }))
     expect(await screen.findByText(/previous run is still active/)).toBeInTheDocument()
+  })
+
+  it('keeps a rapid double click to one fire', async () => {
+    const user = userEvent.setup()
+    renderJobs()
+    await screen.findByText('nightly sweep')
+
+    // two quick taps inside one pending window; the parked POST keeps it open
+    parkFires = 1
+    const button = screen.getByRole('button', { name: 'Run nightly sweep now' })
+    await user.click(button)
+    expect(fireCalls).toEqual([5])
+    expect(button).toBeDisabled()
+
+    // the second tap lands on the disabled button, so no second POST runs;
+    // settling re-enables the row for the next fire
+    await user.click(button)
+    expect(fireCalls).toEqual([5])
+
+    fireWaiters.shift()!(Response.json(manualRun(20)))
+    expect(await screen.findByRole('status')).toHaveTextContent('Run #20 started.')
+    await waitFor(() => expect(button).toBeEnabled())
+  })
+
+  it('fires two different jobs concurrently', async () => {
+    const user = userEvent.setup()
+    jobsReply = { rows: [job, onceJob] }
+    renderJobs()
+    await screen.findByText('nightly sweep')
+
+    parkFires = 2
+    const nightly = screen.getByRole('button', { name: 'Run nightly sweep now' })
+    const oneShot = screen.getByRole('button', { name: 'Run one shot now' })
+    await user.click(nightly)
+    expect(nightly).toBeDisabled()
+
+    // another row's button is untouched by the first row's pending fire
+    expect(oneShot).toBeEnabled()
+    await user.click(oneShot)
+    expect(fireCalls).toEqual([5, 6])
+
+    fireWaiters.shift()!(Response.json(manualRun(20)))
+    fireWaiters.shift()!(Response.json(manualRun(21)))
+    expect(await screen.findByRole('status')).toHaveTextContent('Run #21 started.')
+    await waitFor(() => expect(nightly).toBeEnabled())
+    expect(oneShot).toBeEnabled()
   })
 
   it('qualifies the run button with its job name', async () => {

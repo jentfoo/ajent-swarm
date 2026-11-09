@@ -154,7 +154,7 @@ describe('useLaunchForm', () => {
       await user.click(screen.getByRole('button', { name: 'launch' }))
 
       await vi.waitFor(() =>
-        expect(screen.getByTestId('error')).toHaveTextContent('invalid_request: workspace missing'),
+        expect(screen.getByTestId('error')).toHaveTextContent('workspace missing'),
       )
       expect(screen.getByTestId('busy')).toHaveTextContent('false')
       expect(launched).toEqual([])

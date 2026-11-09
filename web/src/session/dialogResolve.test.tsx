@@ -73,7 +73,7 @@ describe('useDialogResolve', () => {
     render(<ResolveProbe sessionId="01S" dialogId={7} onAnsweredLocally={onAnsweredLocally} />)
 
     await user.click(screen.getByRole('button', { name: 'answer' }))
-    expect(screen.getByTestId('error')).toHaveTextContent('busy: turn owns the loop')
+    expect(screen.getByTestId('error')).toHaveTextContent('turn owns the loop')
     expect(onAnsweredLocally).not.toHaveBeenCalled()
   })
 

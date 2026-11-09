@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { ApiError } from '../api/client'
+import { describeError } from '../api/errors'
 import { sessions as sessionAPI } from '../api/endpoints'
 import type { InteractionPending } from '../api/types'
 import { useToasts } from '../hooks/useToasts'
@@ -111,7 +111,7 @@ export function useSessionCompose(sessionId: string): SessionCompose {
       const row = await sessionAPI.recall(sessionId)
       if (row.text) placedAbove(row.text)
     } catch (err) {
-      pushToast(err instanceof ApiError ? err.message : 'Recall failed.', 'error')
+      pushToast(describeError(err, 'Recall failed.'), 'error')
     }
   }, [sessionId, placedAbove, pushToast])
 

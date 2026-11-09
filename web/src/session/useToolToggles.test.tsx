@@ -117,7 +117,7 @@ describe('useToolToggles', () => {
     await act(async () => result.current.toggle(rows[0]))
 
     expect(spy).toHaveBeenCalledTimes(1)
-    expect(onToast).toHaveBeenCalledWith('unavailable: a turn owns the loop', 'error')
+    expect(onToast).toHaveBeenCalledWith('a turn owns the loop', 'error')
     expect(result.current.enabledOf(rows[0])).toBe(false)
   })
 

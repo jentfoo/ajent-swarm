@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactElement } from 'react'
-import { ApiError } from '../api/client'
+import { describeError } from '../api/errors'
 import { jobsApi, runsApi } from '../api/endpoints'
 import type { Job, Run, RunStatus } from '../api/types'
 import { useNow } from '../hooks/useNow'
@@ -58,7 +58,7 @@ export default function RunsHistory() {
         setError('')
       } catch (err) {
         if (controller.signal.aborted || seq !== loadSeq.current) return // superseded
-        setError(err instanceof ApiError ? err.message : 'Loading run history failed.')
+        setError(describeError(err, 'Loading run history failed.'))
       }
     },
     [jobFilter],

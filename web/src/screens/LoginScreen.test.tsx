@@ -109,6 +109,50 @@ describe('LoginScreen', () => {
     expect(settledURL()).toBe('/')
   })
 
+  it('humanizes rejected credentials', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string | URL | Request, init?: RequestInit) => {
+        const path = String(url).replace(/^https?:\/\/[^/]+/, '')
+        if (path === '/api/auth/login' && init?.method === 'POST') {
+          return Promise.resolve(Response.json({ error: 'invalid_credentials' }, { status: 401 }))
+        }
+        if (path === '/api/me') {
+          return Promise.resolve(Response.json({ error: 'unauthorized' }, { status: 401 }))
+        }
+        throw new Error(`unexpected fetch ${init?.method ?? 'GET'} ${path}`)
+      }),
+    )
+    renderLogin()
+    const user = userEvent.setup()
+    await signIn(user)
+
+    expect(await screen.findByText('Wrong username or password.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Sign in' })).toBeEnabled()
+  })
+
+  it('names the retry wait when login is throttled', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve(
+          Response.json(
+            { error: 'rate_limited', message: 'too many failed attempts; retry later' },
+            { status: 429, headers: { 'Retry-After': '95' } },
+          ),
+        ),
+      ),
+    )
+    renderLogin()
+    const user = userEvent.setup()
+    await signIn(user)
+
+    expect(
+      await screen.findByText('Too many attempts. Try again in 2 minutes.'),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Sign in' })).toBeEnabled()
+  })
+
   it('returns a signed-in visitor to the saved target', async () => {
     authed = true
     renderLogin({ from: '/sessions?focus=01A' })

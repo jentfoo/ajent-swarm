@@ -235,7 +235,7 @@ describe('RunsHistory', () => {
     )
     renderRuns()
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('internal_error')
+    expect(await screen.findByRole('alert')).toHaveTextContent('The service hit an internal error.')
   })
 
   it('filters by status client-side and by job through the backend', async () => {

@@ -177,6 +177,6 @@ describe('useInterruptStream', () => {
 
     await user.click(view.getByText('stop'))
 
-    expect(onToast).toHaveBeenCalledWith('not_running', 'error')
+    expect(onToast).toHaveBeenCalledWith('Interrupt failed.', 'error')
   })
 })

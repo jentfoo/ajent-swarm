@@ -122,7 +122,7 @@ describe('RewindList', () => {
     await screen.findByTestId('rewind-01U')
 
     await user.click(screen.getByTestId('rewind-01U'))
-    await vi.waitFor(() => expect(onToast).toHaveBeenCalledWith('busy: a turn is running', 'error'))
+    await vi.waitFor(() => expect(onToast).toHaveBeenCalledWith('a turn is running', 'error'))
     expect(onClose).not.toHaveBeenCalled()
     expect(onPrefill).not.toHaveBeenCalled()
   })

@@ -125,7 +125,8 @@ describe('RenameControl', () => {
     await user.type(titleInput(), 'new name')
     await user.click(screen.getByRole('button', { name: 'Save' }))
 
-    expect(await screen.findByText('session_busy')).toHaveClass('error-text')
+    // no detail rode the envelope, so the surface fallback shows
+    expect(await screen.findByText('Rename failed.')).toHaveClass('error-text')
     expect(screen.getByRole('dialog', { name: 'Rename session' })).toBeInTheDocument()
     expect(titleInput()).toHaveValue('new name')
   })

@@ -87,7 +87,7 @@ describe('applyToolSet', () => {
     const landed = await applyToolSet('01S', rows, onToast)
 
     expect(landed).toBe(false)
-    expect(onToast).toHaveBeenCalledWith('unavailable: a turn owns the loop', 'error')
+    expect(onToast).toHaveBeenCalledWith('a turn owns the loop', 'error')
   })
 
   it('reports true when the request lands', async () => {

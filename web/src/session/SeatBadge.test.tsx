@@ -73,9 +73,7 @@ describe('SeatBadge', () => {
 
     // the envelope surfaces verbatim, then the badge re-enables and waits
     // on the next snapshot
-    await vi.waitFor(() =>
-      expect(onToast).toHaveBeenCalledWith('seat-held: held by swarm', 'error'),
-    )
+    await vi.waitFor(() => expect(onToast).toHaveBeenCalledWith('held by swarm', 'error'))
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'take control: swarm' })).not.toBeDisabled(),
     )

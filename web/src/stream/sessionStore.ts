@@ -9,7 +9,7 @@
 // subscription and one AppliedSessionState.
 import { applierReducer, initialSessionState } from '../state/eventApplier'
 import type { ApplierAction, AppliedSessionState } from '../state/eventApplier'
-import { ApiError } from '../api/client'
+import { describeError } from '../api/errors'
 import { sessions as sessionAPI } from '../api/endpoints'
 import type { SwarmStream } from './swarmStream'
 
@@ -101,7 +101,7 @@ export class SessionStore {
     } catch (err) {
       return {
         kind: 'failed',
-        message: err instanceof ApiError ? err.message : 'Loading older history failed.',
+        message: describeError(err, 'Loading older history failed.'),
       }
     }
   }

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { ReactElement } from 'react'
 
+import { describeError } from '../api/errors'
 import { models as modelsAPI, settings as settingsAPI } from '../api/endpoints'
 import type { ModelState } from '../api/types'
 import { ModelSelectOptions } from '../ui/ModelSelectOptions'
@@ -43,7 +44,7 @@ export function TitleModelSelect(): ReactElement {
       const res = await settingsAPI.set({ titleModel: model })
       setStored(res.titleModel)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Saving the titling model failed.')
+      setError(describeError(err, 'Saving the titling model failed.'))
     } finally {
       setBusy(false)
     }

@@ -972,7 +972,7 @@ describe('Composer submit flow', () => {
 
     const box = screen.getByLabelText('Prompt') as HTMLTextAreaElement
     await user.type(box, 'my unsent idea{Enter}')
-    expect(await screen.findByText(/unavailable/)).toBeInTheDocument()
+    expect(await screen.findByText(/not available right now/)).toBeInTheDocument()
     // the refused text stays right where it was typed
     expect(box.value).toBe('my unsent idea')
   })
@@ -1040,7 +1040,7 @@ describe('Composer submit flow', () => {
     render(Harness({ onSubmit }))
 
     await user.type(screen.getByLabelText('Prompt'), 'retry me{Enter}')
-    expect(await screen.findByText(/busy/)).toBeInTheDocument()
+    expect(await screen.findByText('Submit failed.')).toBeInTheDocument()
 
     refused = false
     await user.type(screen.getByLabelText('Prompt'), '{Enter}')

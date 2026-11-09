@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router'
 
-import { ApiError } from '../api/client'
+import { describeError } from '../api/errors'
 import { sessions as sessionAPI } from '../api/endpoints'
 import { ChildState, childEnded } from '../api/types'
 import type { SessionStatus } from '../api/types'
@@ -228,7 +228,7 @@ function StopButton({ sessionId }: { sessionId: string }) {
     try {
       await sessionAPI.stop(sessionId)
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Stop failed.')
+      setError(describeError(err, 'Stop failed.'))
     } finally {
       setBusy(false)
     }

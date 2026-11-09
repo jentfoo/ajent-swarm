@@ -87,7 +87,7 @@ describe('useResume', () => {
 
     await user.click(screen.getByRole('button', { name: 'resume' }))
 
-    expect(await screen.findByTestId('error')).toHaveTextContent('unavailable: gone')
+    expect(await screen.findByTestId('error')).toHaveTextContent('gone')
     expect(screen.getByTestId('path')).toHaveTextContent('/')
   })
 

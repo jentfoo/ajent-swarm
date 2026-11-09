@@ -185,7 +185,7 @@ describe('ModelMenu', () => {
     await user.click(screen.getByRole('button', { name: /sonnet/ }))
 
     await vi.waitFor(() => {
-      expect(onToast).toHaveBeenCalledWith('seat_held: another controller holds the seat', 'error')
+      expect(onToast).toHaveBeenCalledWith('another controller holds the seat', 'error')
     })
     expect(screen.queryByRole('menuitem')).not.toBeInTheDocument()
   })

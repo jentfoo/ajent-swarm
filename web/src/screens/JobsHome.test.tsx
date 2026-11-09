@@ -321,7 +321,7 @@ describe('JobsHome', () => {
     )
     renderJobs()
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('internal_error')
+    expect(await screen.findByRole('alert')).toHaveTextContent('The service hit an internal error.')
   })
 
   it('toggles enabled optimistically and reverts on refusal', async () => {

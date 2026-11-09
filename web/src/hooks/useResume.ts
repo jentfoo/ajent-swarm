@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 
-import { ApiError } from '../api/client'
+import { describeError } from '../api/errors'
 import { fleet } from '../api/endpoints'
 
 // useResume is the one resume path for an ended session: launch headless
@@ -37,7 +37,7 @@ export function useResume(onResumed?: (sessionId: string) => void | Promise<void
         if (onResumedRef.current !== undefined) await onResumedRef.current(res.sessionId)
         else navigate(`/s/${encodeURIComponent(res.sessionId)}`)
       } catch (err) {
-        setError(err instanceof ApiError ? err.message : 'Resume failed.')
+        setError(describeError(err, 'Resume failed.'))
       } finally {
         inflightRef.current = false
         setResumingId(null)

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { ApiError } from '../api/client'
+import { describeError } from '../api/errors'
 import { sessions as sessionAPI } from '../api/endpoints'
 import type { ActivityRow, AgentJob, Segment } from '../api/types'
 import { jobsLive } from './subAgents'
@@ -90,7 +91,7 @@ export function useAgentJobs(
         .stopAgents(sessionId, id === undefined ? { all: true } : { id })
         .then(() => list()) // fresh records right after a stop
         .catch((err: unknown) => {
-          onToast?.(err instanceof ApiError ? err.message : 'Stop failed.', 'error')
+          onToast?.(describeError(err, 'Stop failed.'), 'error')
         })
         .finally(() => setStopping(false))
     },

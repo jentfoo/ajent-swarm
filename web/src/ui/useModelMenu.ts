@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react'
 
-import { ApiError } from '../api/client'
+import { describeError } from '../api/errors'
 import { sessions as sessionAPI } from '../api/endpoints'
 import type { ModelState } from '../api/types'
 
@@ -42,7 +42,7 @@ export function useModelMenu(
       setListing({ models: res.models ?? [], active: res.active || fallbackKey })
       setOpen(true)
     } catch (err) {
-      onToast(err instanceof ApiError ? err.message : 'Model listing failed.', 'error')
+      onToast(describeError(err, 'Model listing failed.'), 'error')
     } finally {
       setBusy(false)
     }
@@ -59,7 +59,7 @@ export function useModelMenu(
         setOpen(false)
         // the switch may queue behind a running turn; status.model announces it
       } catch (err) {
-        onToast(err instanceof ApiError ? err.message : 'Model change refused.', 'error')
+        onToast(describeError(err, 'Model change refused.'), 'error')
       } finally {
         setBusy(false)
       }

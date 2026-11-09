@@ -412,9 +412,7 @@ describe('SwitcherRows', () => {
     await user.click(screen.getByRole('button', { name: 'Stop?' }))
 
     // desktop's error-text style, rendered inline on the row
-    expect(await screen.findByText('unavailable: session is shutting down')).toHaveClass(
-      'error-text',
-    )
+    expect(await screen.findByText('session is shutting down')).toHaveClass('error-text')
     expect(screen.getByRole('button', { name: 'Stop' })).toBeEnabled()
   })
 

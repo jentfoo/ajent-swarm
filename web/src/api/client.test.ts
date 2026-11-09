@@ -46,6 +46,29 @@ describe('request', () => {
     expect(err).toMatchObject({ status: 500, code: 'unknown_error' })
   })
 
+  it('carries Retry-After seconds onto the error', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'rate_limited', message: 'too many attempts' }), {
+        status: 429,
+        headers: { 'Content-Type': 'application/json', 'Retry-After': '120' },
+      }),
+    )
+    const err = await request('/api/auth/login', { method: 'POST' }).catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(ApiError)
+    expect(err).toMatchObject({ status: 429, code: 'rate_limited', retryAfter: 120 })
+  })
+
+  it('drops an unusable Retry-After header', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'rate_limited' }), {
+        status: 429,
+        headers: { 'Retry-After': 'tomorrow' },
+      }),
+    )
+    const err = await request('/api/auth/login', { method: 'POST' }).catch((e: unknown) => e)
+    expect(err).toMatchObject({ code: 'rate_limited', retryAfter: undefined })
+  })
+
   it('notifies listeners once per unauthorized response', async () => {
     fetchMock.mockResolvedValue(jsonResponse(401, { error: 'unauthorized' }))
     const seen: number[] = []

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 
-import { ApiError } from '../api/client'
+import { describeError } from '../api/errors'
 import { jobsApi } from '../api/endpoints'
 import type { Job, ToolState } from '../api/types'
 import { useArmedConfirm } from '../hooks/useArmedConfirm'
@@ -81,7 +81,7 @@ export function JobEditor({
         setPreviewError('')
       } catch (err) {
         if ((err as Error | undefined)?.name === 'AbortError') return
-        setPreviewError(err instanceof ApiError ? err.detail || err.message : 'Preview failed.')
+        setPreviewError(describeError(err, 'Preview failed.'))
       }
     }, 350)
     return () => {
@@ -104,7 +104,7 @@ export function JobEditor({
           : await jobsApi.create(toPayload(draft))
       onSaved(saved)
     } catch (err) {
-      setSaveError(err instanceof ApiError ? err.message : 'Saving the job failed.')
+      setSaveError(describeError(err, 'Saving the job failed.'))
       setSaving(false)
     }
   }
@@ -116,7 +116,7 @@ export function JobEditor({
       await jobsApi.remove(job.id)
       onSaved(undefined)
     } catch (err) {
-      setSaveError(err instanceof ApiError ? err.message : 'Deleting the job failed.')
+      setSaveError(describeError(err, 'Deleting the job failed.'))
       setSaving(false)
     }
   }

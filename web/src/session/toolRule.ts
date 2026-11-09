@@ -1,4 +1,4 @@
-import { ApiError } from '../api/client'
+import { describeError } from '../api/errors'
 import { sessions as sessionAPI } from '../api/endpoints'
 import type { CtlState } from '../api/types'
 
@@ -33,7 +33,7 @@ export async function applyToolSet(
     )
     return true
   } catch (err) {
-    onToast(err instanceof ApiError ? err.message : 'Tool change refused.', 'error')
+    onToast(describeError(err, 'Tool change refused.'), 'error')
     return false
   }
 }

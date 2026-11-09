@@ -135,7 +135,7 @@ describe('ToolsScreen', () => {
     await user.click(screen.getAllByRole('checkbox')[0])
 
     await vi.waitFor(() => expect(sentNames(spy)).toHaveLength(1))
-    expect(onToast).toHaveBeenCalledWith('unavailable: a turn owns the loop', 'error')
+    expect(onToast).toHaveBeenCalledWith('a turn owns the loop', 'error')
     expect(screen.getAllByRole('checkbox')[0]).not.toBeChecked()
   })
 

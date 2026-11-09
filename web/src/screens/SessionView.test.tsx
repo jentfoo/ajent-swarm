@@ -927,7 +927,7 @@ describe('SessionView', () => {
     await userEvent.setup().click(await screen.findByRole('button', { name: 'Resume' }))
 
     // the refusal surfaces through the toast stack, and the view stays put
-    const toast = await screen.findByText('unavailable: no saved transcript')
+    const toast = await screen.findByText('no saved transcript')
     expect(toast.closest('.toast')).toHaveClass('error')
     expect(screen.getByRole('button', { name: 'Resume' })).toBeEnabled()
   })

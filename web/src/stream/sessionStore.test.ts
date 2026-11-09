@@ -451,7 +451,7 @@ describe('SessionStore', () => {
     )
     expect(await store.loadOlder('s1')).toEqual({
       kind: 'failed',
-      message: 'unavailable: child is gone',
+      message: 'child is gone',
     })
     expect(store.peek('s1')).toBe(before)
   })

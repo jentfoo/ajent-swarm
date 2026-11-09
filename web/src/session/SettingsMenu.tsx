@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { ReactElement } from 'react'
 
-import { ApiError } from '../api/client'
+import { describeError } from '../api/errors'
 import { sessions as sessionAPI } from '../api/endpoints'
 import type { ModelState, SettingRow } from '../api/types'
 import { ModelSelectOptions } from '../ui/ModelSelectOptions'
@@ -29,10 +29,7 @@ export function SettingsMenu({ sessionId }: { sessionId: string }): ReactElement
         setRows(res.rows ?? [])
         setError('')
       })
-      .catch(
-        (err: unknown) =>
-          alive && setError(err instanceof ApiError ? err.message : 'Reading settings failed.'),
-      )
+      .catch((err: unknown) => alive && setError(describeError(err, 'Reading settings failed.')))
       .finally(() => alive && setLoading(false))
     return () => {
       alive = false
@@ -45,7 +42,7 @@ export function SettingsMenu({ sessionId }: { sessionId: string }): ReactElement
         const res = await sessionAPI.setSetting(sessionId, row.key ?? '', value)
         setRows((prev) => prev.map((r) => (r.key === row.key ? res.row : r)))
       } catch (err) {
-        setError(err instanceof ApiError ? err.message : 'Change refused.')
+        setError(describeError(err, 'Change refused.'))
       }
     },
     [sessionId],

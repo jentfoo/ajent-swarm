@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-import { ApiError } from '../api/client'
+import { describeError } from '../api/errors'
 import { sessions as sessionAPI } from '../api/endpoints'
 import type { CtlState } from '../api/types'
 
@@ -30,7 +30,7 @@ export function SeatBadge({
     try {
       await sessionAPI.takeControl(sessionId)
     } catch (err) {
-      onToast(err instanceof ApiError ? err.message : 'Take control refused.', 'error')
+      onToast(describeError(err, 'Take control refused.'), 'error')
     } finally {
       setBusy(false)
     }

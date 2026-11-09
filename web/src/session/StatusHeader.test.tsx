@@ -115,9 +115,7 @@ describe('ModeMenu', () => {
     await user.click(screen.getByRole('button', { name: /mode: auto/ }))
     await user.click(screen.getByRole('menuitem', { name: /allow-all/ }))
 
-    await waitFor(() =>
-      expect(onToast).toHaveBeenCalledWith('invalid_request: no gate on this session', 'error'),
-    )
+    await waitFor(() => expect(onToast).toHaveBeenCalledWith('no gate on this session', 'error'))
   })
 
   it('announces the chip as a toggleable menu', async () => {

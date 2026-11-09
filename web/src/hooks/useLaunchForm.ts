@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react'
 
-import { ApiError } from '../api/client'
+import { describeError } from '../api/errors'
 import { fleet } from '../api/endpoints'
 import type { LaunchRequest } from '../api/types'
 
@@ -56,7 +56,7 @@ export function useLaunchForm(): LaunchFormController {
         return res.sessionId
       } catch (err) {
         setBusy(false)
-        setError(err instanceof ApiError ? err.message : 'Launch failed.')
+        setError(describeError(err, 'Launch failed.'))
         return null
       }
     },

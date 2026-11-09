@@ -2,7 +2,7 @@ import { useState } from 'react'
 import type { ReactElement } from 'react'
 import { useNavigate, useParams } from 'react-router'
 
-import { ApiError } from '../api/client'
+import { describeError } from '../api/errors'
 import { fleet as fleetAPI } from '../api/endpoints'
 import { TranscriptPreview } from '../jobs/TranscriptPreview'
 import { useResume } from '../hooks/useResume'
@@ -48,7 +48,7 @@ function ResumeButton({ sessionId }: { sessionId: string }): ReactElement {
       // the listing matched this id directly, so it rides as the target
       await resume(row.workspace, sessionId)
     } catch (err) {
-      setLookupError(err instanceof ApiError ? err.message : 'Resume failed.')
+      setLookupError(describeError(err, 'Resume failed.'))
     } finally {
       setBusy(false)
     }

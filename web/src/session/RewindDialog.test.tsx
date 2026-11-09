@@ -215,7 +215,7 @@ describe('RewindDialog', () => {
     await screen.findByText('create system monitor')
 
     await user.click(screen.getByText('create system monitor'))
-    await vi.waitFor(() => expect(onToast).toHaveBeenCalledWith('busy: a turn is running', 'error'))
+    await vi.waitFor(() => expect(onToast).toHaveBeenCalledWith('a turn is running', 'error'))
     expect(onClose).not.toHaveBeenCalled()
   })
 

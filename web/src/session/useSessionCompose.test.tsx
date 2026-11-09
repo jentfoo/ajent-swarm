@@ -323,9 +323,7 @@ describe('useSessionCompose', () => {
       await result.current.recallToEdit()
     })
 
-    expect(result.current.toasts).toEqual([
-      { id: 1, text: 'unavailable: a dialog holds input', level: 'error' },
-    ])
+    expect(result.current.toasts).toEqual([{ id: 1, text: 'a dialog holds input', level: 'error' }])
     // nothing reached the composer
     expect(result.current.draft).toBe('')
   })

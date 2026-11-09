@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { FormEvent, KeyboardEvent } from 'react'
 
-import { ApiError } from '../api/client'
+import { describeError } from '../api/errors'
 import { sessions as sessionAPI } from '../api/endpoints'
 import type { FileSuggestion } from '../api/types'
 import {
@@ -270,7 +270,7 @@ export function Composer({
       } catch (err) {
         inFlight.current.delete(line)
         if (pendingId !== undefined) onSubmitFailed(pendingId)
-        setError(err instanceof ApiError ? err.message : 'Submit failed.')
+        setError(describeError(err, 'Submit failed.'))
         return // the refused text stays right where it is
       }
       inFlight.current.delete(line)
@@ -621,7 +621,7 @@ export function Composer({
         const draft = valueRef.current
         onChange(draft === '' ? refs.join('\n\n') : `${draft}\n\n${refs.join('\n\n')}`)
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Attach failed.')
+        setError(describeError(err, 'Attach failed.'))
       } finally {
         setUploading(false)
         if (fileRef.current) fileRef.current.value = ''

@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from 'react'
 import type * as React from 'react'
 
-import { ApiError } from '../api/client'
+import { describeError } from '../api/errors'
 import { sessions as sessionAPI } from '../api/endpoints'
 import type { CtlState } from '../api/types'
 import { useMediaQuery } from '../hooks/useMediaQuery'
@@ -96,7 +96,7 @@ export function ModeMenu({
         setOpen(false)
         // the permission event re-renders the chip from the stream
       } catch (err) {
-        onToast(err instanceof ApiError ? err.message : 'Mode change refused.', 'error')
+        onToast(describeError(err, 'Mode change refused.'), 'error')
       } finally {
         setBusy(false)
       }

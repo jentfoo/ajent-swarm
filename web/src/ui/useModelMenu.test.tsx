@@ -117,7 +117,7 @@ describe('useModelMenu', () => {
 
     await user.click(screen.getByRole('button', { name: 'toggle' }))
 
-    await vi.waitFor(() => expect(onToast).toHaveBeenCalledWith('seat_held: held', 'error'))
+    await vi.waitFor(() => expect(onToast).toHaveBeenCalledWith('held', 'error'))
     expect(screen.getByTestId('open')).toHaveTextContent('false')
   })
 
@@ -141,9 +141,7 @@ describe('useModelMenu', () => {
 
     // a refused pick keeps the menu open for another choice
     await user.click(screen.getByRole('button', { name: 'pick' }))
-    await vi.waitFor(() =>
-      expect(onToast).toHaveBeenCalledWith('ambiguous: two providers match', 'error'),
-    )
+    await vi.waitFor(() => expect(onToast).toHaveBeenCalledWith('two providers match', 'error'))
     expect(screen.getByTestId('open')).toHaveTextContent('true')
   })
 })

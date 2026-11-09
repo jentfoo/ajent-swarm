@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { ApiError } from '../api/client'
+import { describeError } from '../api/errors'
 import { sessions as sessionAPI } from '../api/endpoints'
 import { overlayOpen } from '../ui/overlayStack'
 
@@ -43,7 +43,7 @@ export function useInterruptStream({
     void sessionAPI
       .interrupt(cur.sessionId)
       .catch((err: unknown) => {
-        cur.onToast(err instanceof ApiError ? err.message : 'Interrupt failed.', 'error')
+        cur.onToast(describeError(err, 'Interrupt failed.'), 'error')
       })
       .finally(() => {
         pendingRef.current = false

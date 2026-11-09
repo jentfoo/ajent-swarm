@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { FormEvent, ReactElement } from 'react'
 
-import { ApiError } from '../api/client'
+import { describeError } from '../api/errors'
 import { sessions as sessionAPI } from '../api/endpoints'
 import { useSwarm } from '../providers/swarm'
 import { ModalShell } from '../ui/ModalShell'
@@ -69,7 +69,7 @@ export function RenameEditorModal({
       await refreshSessions() // labels update at once, not on the next poll
       onDone()
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Rename failed.')
+      setError(describeError(err, 'Rename failed.'))
       setBusy(false)
     }
   }

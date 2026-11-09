@@ -150,10 +150,8 @@ describe('TitleModelSelect', () => {
 
     const user = userEvent.setup()
     await user.selectOptions(await screen.findByLabelText('Session titling model'), 'a/sonnet')
-    // ApiError renders as code: message
-    expect(
-      await screen.findByText('internal_error: writing the setting failed'),
-    ).toBeInTheDocument()
+    // ApiError renders through describeError, which keeps the server detail
+    await screen.findByText('writing the setting failed')
     // the failed pick never moved the stored value
     expect(screen.getByLabelText('Session titling model')).toHaveValue('')
   })

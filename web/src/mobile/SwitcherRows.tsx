@@ -1,7 +1,7 @@
 import { Fragment, useState } from 'react'
 import type { ReactElement } from 'react'
 
-import { ApiError } from '../api/client'
+import { describeError } from '../api/errors'
 import { sessions as sessionAPI } from '../api/endpoints'
 import { useArmedConfirm } from '../hooks/useArmedConfirm'
 import { useResume } from '../hooks/useResume'
@@ -161,7 +161,7 @@ function RowActions({
       await sessionAPI.stop(row.sessionId)
       await refreshSessions() // rows re-badge now, not on the next poll
     } catch (err) {
-      setStopError(err instanceof ApiError ? err.message : 'Stop failed.')
+      setStopError(describeError(err, 'Stop failed.'))
     } finally {
       setBusy(false)
     }

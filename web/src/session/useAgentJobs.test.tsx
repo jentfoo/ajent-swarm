@@ -172,9 +172,7 @@ describe('useAgentJobs', () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
 
     act(() => result.current.stop('sub-1'))
-    await waitFor(() =>
-      expect(onToast).toHaveBeenCalledWith('observer: seat held by terminator', 'error'),
-    )
+    await waitFor(() => expect(onToast).toHaveBeenCalledWith('seat held by terminator', 'error'))
   })
 
   it('commits only the newest list reply', async () => {

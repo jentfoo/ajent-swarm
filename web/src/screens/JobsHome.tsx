@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 
-import { ApiError } from '../api/client'
+import { describeError } from '../api/errors'
 import { jobsApi, runsApi, tools as toolsApi } from '../api/endpoints'
 import type { Job, Run, ToolState } from '../api/types'
 import { useLaunchFacts } from '../hooks/useLaunchFacts'
@@ -107,7 +107,7 @@ export default function JobsHome() {
       setError('')
     } catch (err) {
       if (token !== loadToken.current) return
-      setError(err instanceof ApiError ? err.message : 'Loading jobs failed.')
+      setError(describeError(err, 'Loading jobs failed.'))
     }
   }, [])
 
@@ -151,7 +151,7 @@ export default function JobsHome() {
       setJobs((rows) =>
         (rows ?? []).map((j) => (j.id === job.id ? { ...j, enabled: job.enabled } : j)),
       )
-      setError(err instanceof ApiError ? err.message : 'Updating the job failed.')
+      setError(describeError(err, 'Updating the job failed.'))
     } finally {
       const left = (pendingToggles.current.get(job.id) ?? 1) - 1
       if (left <= 0) pendingToggles.current.delete(job.id)
@@ -165,7 +165,7 @@ export default function JobsHome() {
       setNotice(`Run #${run.id} started.`)
       setError('')
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Manual fire failed.')
+      setError(describeError(err, 'Manual fire failed.'))
     }
   }
 

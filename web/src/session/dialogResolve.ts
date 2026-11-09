@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react'
 
 import { ApiError } from '../api/client'
+import { describeError } from '../api/errors'
 import { sessions } from '../api/endpoints'
 import type { ResolveAnswer } from '../api/types'
 
@@ -37,7 +38,7 @@ export function useDialogResolve(
       } catch (err) {
         // settled is benign: another surface's answer already won
         if (!(err instanceof ApiError && err.code === 'settled')) {
-          setError(err instanceof Error ? err.message : 'Resolve failed.')
+          setError(describeError(err, 'Resolve failed.'))
           return
         }
       } finally {

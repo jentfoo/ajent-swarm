@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ReactElement } from 'react'
 
-import { ApiError } from '../api/client'
+import { describeError } from '../api/errors'
 import { sessions as sessionAPI } from '../api/endpoints'
 import type { RewindCandidate } from '../api/types'
 import { absoluteTime, kindClass, kindLabel, relativeTime } from './rewind'
@@ -41,7 +41,7 @@ export function RewindList({
       })
       .catch((err: unknown) => {
         if (!alive) return
-        setLoadError(err instanceof ApiError ? err.message : 'Loading rewind points failed.')
+        setLoadError(describeError(err, 'Loading rewind points failed.'))
       })
     return () => {
       alive = false
@@ -71,7 +71,7 @@ export function RewindList({
       }
       onClose()
     } catch (err) {
-      onToast(err instanceof ApiError ? err.message : 'Rewind refused.', 'error')
+      onToast(describeError(err, 'Rewind refused.'), 'error')
     } finally {
       setBusyId('')
     }

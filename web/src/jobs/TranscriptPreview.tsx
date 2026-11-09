@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import { ApiError } from '../api/client'
+import { describeError } from '../api/errors'
 import { fleet } from '../api/endpoints'
 import type { Entry } from '../api/types'
 import { deriveBlocks } from '../state/derive'
@@ -42,8 +42,7 @@ export function TranscriptPreview({ sessionId }: { sessionId: string }) {
         setError('')
       })
       .catch((err: unknown) => {
-        if (alive)
-          setError(err instanceof ApiError ? err.message : 'Reading the transcript failed.')
+        if (alive) setError(describeError(err, 'Reading the transcript failed.'))
       })
       .finally(() => alive && setLoading(false))
     return () => {
@@ -65,7 +64,7 @@ export function TranscriptPreview({ sessionId }: { sessionId: string }) {
       setError('') // a prior failed page clears once a retry succeeds
     } catch (err) {
       if (token !== sessionToken.current) return
-      setError(err instanceof ApiError ? err.message : 'Reading the transcript failed.')
+      setError(describeError(err, 'Reading the transcript failed.'))
     } finally {
       if (token === sessionToken.current) setLoadingOlder(false)
     }

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 
-import { ApiError } from '../api/client'
+import { describeError } from '../api/errors'
 import { jobsApi } from '../api/endpoints'
 import type { Job, ToolState } from '../api/types'
 import { defaultDraft, validateDraft } from './jobDraft'
@@ -60,7 +60,7 @@ export function QueueComposer({
       })
       onQueued(job)
     } catch (err) {
-      setSaveError(err instanceof ApiError ? err.message : 'Queuing the prompt failed.')
+      setSaveError(describeError(err, 'Queuing the prompt failed.'))
       setSaving(false)
     }
   }

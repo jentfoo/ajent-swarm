@@ -6,13 +6,15 @@ export class ApiError extends Error {
   readonly status: number
   readonly code: string
   readonly detail: string // the backend's own message, if any
+  readonly retryAfter?: number // seconds until a retry may pass, from Retry-After
 
-  constructor(status: number, code: string, message: string) {
+  constructor(status: number, code: string, message: string, retryAfter?: number) {
     super(message === '' ? code : `${code}: ${message}`)
     this.name = 'ApiError'
     this.status = status
     this.code = code
     this.detail = message
+    this.retryAfter = retryAfter
   }
 }
 
@@ -53,18 +55,27 @@ async function parseBody(res: Response): Promise<unknown> {
 // errorBody reads the standard envelope off a failed response; any other body
 // shape still surfaces with its status and a generic code.
 async function errorBody(res: Response): Promise<ApiError> {
+  const retryAfter = retryAfterOf(res)
   const text = await res.text()
   if (text !== '') {
     try {
       const parsed = JSON.parse(text) as { error?: string; message?: string }
       if (typeof parsed.error === 'string') {
-        return new ApiError(res.status, parsed.error, parsed.message ?? '')
+        return new ApiError(res.status, parsed.error, parsed.message ?? '', retryAfter)
       }
     } catch {
       // fall through to the generic code
     }
   }
-  return new ApiError(res.status, 'unknown_error', '')
+  return new ApiError(res.status, 'unknown_error', '', retryAfter)
+}
+
+// retryAfterOf reads the Retry-After delta-seconds form, the only one swarm
+// sends; absent or unusable answers undefined
+function retryAfterOf(res: Response): number | undefined {
+  const secs = Number(res.headers.get('retry-after'))
+  if (!Number.isFinite(secs) || secs <= 0) return undefined
+  return Math.ceil(secs)
 }
 
 // request performs one API call and unwraps the standard error envelope.

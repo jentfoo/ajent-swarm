@@ -2,7 +2,7 @@ import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router'
 
-import { ApiError } from '../api/client'
+import { describeError } from '../api/errors'
 import { useAuth } from '../providers/auth'
 
 // LoginScreen signs in with the unix account. The location state carries
@@ -33,7 +33,7 @@ export default function LoginScreen() {
       navigate(fromLocation(location.state) || '/', { replace: true })
     } catch (err) {
       setBusy(false)
-      setError(describeFailure(err))
+      setError(describeError(err, 'Login failed.'))
     }
   }
 
@@ -82,14 +82,4 @@ function fromLocation(state: unknown): string {
   // "//" is a protocol-relative URL and "\\" parses like one, both off-site
   if (!from.startsWith('/') || from.startsWith('//') || from.includes('\\')) return ''
   return from
-}
-
-function describeFailure(err: unknown): string {
-  if (err instanceof ApiError && err.code === 'invalid_credentials') {
-    return 'Wrong username or password.'
-  }
-  if (err instanceof ApiError && err.code === 'network_error') {
-    return 'Service unreachable; is ajent-swarm running?'
-  }
-  return err instanceof Error ? `Login failed: ${err.message}` : 'Login failed.'
 }

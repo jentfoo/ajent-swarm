@@ -1,7 +1,12 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 
+import { describeError } from '../api/errors'
 import { useAuth } from '../providers/auth'
+
+// bcrypt's hard input limit; the server rejects anything past it. Measured in
+// bytes, so multibyte characters count heavier than they look.
+const maxPasswordBytes = 72
 
 // BootstrapScreen sets the first password, shown only while the backend
 // reports bootstrap-required. Loopback is enforced server-side.
@@ -15,6 +20,10 @@ export default function BootstrapScreen() {
   const submit = async (ev: FormEvent) => {
     ev.preventDefault()
     if (busy) return
+    if (new TextEncoder().encode(password).length > maxPasswordBytes) {
+      setError(`Password is too long. Use at most ${maxPasswordBytes} bytes.`)
+      return
+    }
     if (password !== confirm) {
       setError('Passwords do not match.')
       return
@@ -26,7 +35,7 @@ export default function BootstrapScreen() {
       // A successful save and another tab's 409 both drop the gate to login.
     } catch (err) {
       setBusy(false)
-      setError(err instanceof Error ? `Bootstrap failed: ${err.message}` : 'Bootstrap failed.')
+      setError(describeError(err, 'Bootstrap failed.'))
     }
   }
 

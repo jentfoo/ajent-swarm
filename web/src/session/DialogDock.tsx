@@ -214,6 +214,7 @@ function SecretAnswer({
         type="password"
         value={text}
         autoFocus={autoFocus}
+        aria-label="Secret answer"
         onChange={(ev) => setText(ev.target.value)}
       />
       <button

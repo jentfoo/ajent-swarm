@@ -20,6 +20,8 @@ const refusedTtlMs = 8_000
 // collapsing into one "+N more" line. Editing goes through recall in the
 // composer, since the wire's recall always pops the newest row, only that chip
 // offers it. Refused submits expire refusedTtlMs after their refusal.
+// Fresh refusals also announce through one sr-only polite region, so a failed
+// submit is heard without every queue chip being read aloud.
 export function QueuedPrompts({
   queuedRows,
   pendings,
@@ -73,6 +75,10 @@ export function QueuedPrompts({
   const overflow = chips.length - maxChips
   return (
     <div className="chips" aria-label="Queued prompts">
+      {/* mounted with the band so a refusal mutates live-region content */}
+      <span className="sr-only" aria-live="polite">
+        {refusalAnnouncement(pendings, now)}
+      </span>
       {overflow > 0 && <span className="queue-more">+{overflow} more</span>}
       {chips.slice(-maxChips)}
     </div>
@@ -83,6 +89,17 @@ export function QueuedPrompts({
 // an absent stamp reads as expired.
 function refusedVisible(p: PendingSubmit, now: number): boolean {
   return p.state === 'failed' && now - (p.failedAt ?? 0) < refusedTtlMs
+}
+
+// refusalAnnouncement summarizes the fresh failed rows as one polite line,
+// stable across renders while the same set is fresh so nothing re-announces.
+// Secrets read by their id, matching the chip's own redaction.
+function refusalAnnouncement(pendings: PendingSubmit[], now: number): string {
+  const refused = pendings.filter((p) => refusedVisible(p, now))
+  if (refused.length === 0) return ''
+  if (refused.length > 1) return `${refused.length} prompts refused`
+  const row = refused[0]
+  return `Prompt refused: ${row.text === '' ? `secret prompt ${shortID(row.id)}` : row.text}`
 }
 
 function QueueChip({

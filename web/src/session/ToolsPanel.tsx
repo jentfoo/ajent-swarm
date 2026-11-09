@@ -13,6 +13,9 @@ import { useToolToggles } from './useToolToggles'
 // that would disable render disabled with their reason instead of refusing
 // as a surprise. The readOnly flag is permission metadata, every registered
 // tool stays toggleable here, matching upstream's own picker.
+//
+// The trigger carries the disclosure attributes its header neighbors do,
+// advertising dialog rather than menu: checkbox rows are no menu items.
 export function ToolsPanel({
   sessionId,
   snap,
@@ -36,6 +39,8 @@ export function ToolsPanel({
         type="button"
         className="badge tools-chip"
         title="Toggle tools"
+        aria-haspopup="dialog"
+        aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
       >
         /tools

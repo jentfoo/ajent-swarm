@@ -6,17 +6,18 @@ import type { NoticeView } from '../state/eventApplier'
 
 // The shared transient notice lines: stale lines leave without a new event
 // arriving, the newest three cap the stack, and the 1Hz timer runs only while
-// a line is fresh.
+// a line is fresh. The wrapper stays mounted as one polite live region so an
+// arrival mutates it instead of inserting a region already carrying text.
 
 function notice(text: string, level: NoticeView['level'] = 'info', ageMs = 0): NoticeView {
   return { key: '', text, level, at: Date.now() - ageMs }
 }
 
 describe('Notices', () => {
-  it('renders nothing when every line arrived stale', () => {
+  it('keeps the live region mounted when every line arrived stale', () => {
     render(<Notices notices={[notice('long gone', 'info', 9_000)]} />)
 
-    expect(screen.queryByLabelText('Notices')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Notices')).toBeEmptyDOMElement()
   })
 
   it('schedules no timer when every line is stale', () => {
@@ -39,7 +40,8 @@ describe('Notices', () => {
       act(() => {
         vi.advanceTimersByTime(9_000)
       })
-      expect(screen.queryByLabelText('Notices')).not.toBeInTheDocument()
+      // the region stays mounted for later arrivals, its line is gone
+      expect(screen.getByLabelText('Notices')).toBeEmptyDOMElement()
     } finally {
       vi.useRealTimers()
     }
@@ -72,6 +74,12 @@ describe('Notices', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it('announces through one polite live region', () => {
+    render(<Notices notices={[notice('staged')]} />)
+
+    expect(screen.getByLabelText('Notices')).toHaveAttribute('aria-live', 'polite')
   })
 
   it('keeps only the three freshest lines', () => {

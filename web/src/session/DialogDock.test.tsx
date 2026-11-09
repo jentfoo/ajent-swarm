@@ -413,6 +413,21 @@ describe('DialogDock permit note flow', () => {
 // Digit badges: only the head card answers digits (dialogKeys.ts), so only
 // its options name them, visually through an aria-hidden badge and via
 // aria-keyshortcuts while the accessible name stays the label alone.
+
+describe('DialogDock answer input labels', () => {
+  it('names the masked secret answer', () => {
+    dock([base({ text: true, secret: true })])
+
+    expect(screen.getByLabelText('Secret answer')).toHaveAttribute('type', 'password')
+  })
+
+  it('names the free-text answer through the shared body', () => {
+    dock([base({ id: 43, kind: 'ask', prompt: 'reason?', text: true })])
+
+    expect(screen.getByRole('textbox')).toHaveAttribute('aria-label', 'Dialog answer')
+  })
+})
+
 describe('DialogDock option digit badges', () => {
   it('names each option with its position digit', () => {
     dock([base({ options: ['allow', 'deny'] })])

@@ -28,6 +28,12 @@ function MultiProbe() {
 }
 
 describe('TextAnswer', () => {
+  it('names the answer input for screen readers', () => {
+    render(<TextAnswer busy={false} chat onSend={() => {}} />)
+
+    expect(screen.getByRole('textbox')).toHaveAttribute('aria-label', 'Dialog answer')
+  })
+
   it('sends the typed text and clears it', async () => {
     const user = userEvent.setup()
     const onSend = vi.fn()

@@ -159,3 +159,59 @@ describe('QueuedPrompts', () => {
     }
   })
 })
+
+// Refusals announce through one sr-only polite region inside the chip band, so
+// a failed submit is heard while ordinary queue chips stay silent. The line
+// derives purely from the fresh failures: it changes only when they do.
+describe('QueuedPrompts refusal announcements', () => {
+  // the one sr-only polite region riding the chip band
+  const announcement = () =>
+    screen.getByLabelText('Queued prompts').querySelector<HTMLElement>('[aria-live="polite"]')
+
+  it('announces a fresh refusal through a polite live region', () => {
+    renderChips({ pendings: [refused('was refused')] })
+
+    expect(announcement()).toHaveAttribute('aria-live', 'polite')
+    expect(announcement()).toHaveTextContent('Prompt refused: was refused')
+  })
+
+  it('redacts a secret refusal to its id like the chip', () => {
+    renderChips({
+      pendings: [{ id: 'secret000123456789', text: '', state: 'failed', failedAt: Date.now() }],
+    })
+
+    expect(announcement()).toHaveTextContent('Prompt refused: secret prompt secret00…')
+  })
+
+  it('counts several fresh refusals without reading each row', () => {
+    renderChips({ pendings: [refused('first'), refused('second')] })
+
+    expect(announcement()).toHaveTextContent('2 prompts refused')
+  })
+
+  it('stays silent once every refusal expired', () => {
+    vi.useFakeTimers()
+    try {
+      renderChips({ pendings: [refused('was refused')] })
+      expect(announcement()).toHaveTextContent(/Prompt refused/)
+
+      act(() => {
+        vi.advanceTimersByTime(9_000)
+      })
+      // the last chip left with it, so the whole band unmounts
+      expect(screen.queryByLabelText('Queued prompts')).not.toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps quiet while only ordinary queue rows render', () => {
+    renderChips({
+      queuedRows: rows('queued one'),
+      pendings: [{ id: 'p0', text: 'in flight', state: 'pending' }],
+    })
+
+    // the region rides the band for later refusals, its line empty
+    expect(announcement()).toBeEmptyDOMElement()
+  })
+})

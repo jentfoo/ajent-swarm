@@ -83,6 +83,7 @@ export function TextAnswer({
         ref={inputRef}
         value={text}
         autoFocus={autoFocus}
+        aria-label="Dialog answer"
         onChange={(ev) => setText(ev.target.value)}
       />
       {chat && (

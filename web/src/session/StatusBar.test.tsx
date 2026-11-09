@@ -374,6 +374,27 @@ describe('ToolsPanel disabled states', () => {
   })
 })
 
+// The tools chip mirrors its header neighbors' disclosure semantics while
+// advertising dialog rather than menu: checkbox rows are no menu items.
+describe('ToolsPanel disclosure', () => {
+  it('advertises the popover and reflects its state on the trigger', async () => {
+    const user = userEvent.setup()
+    render(<ToolsPanel sessionId="01S" snap={snapFor()} onToast={vi.fn()} />)
+
+    const chip = screen.getByRole('button', { name: '/tools' })
+    expect(chip).toHaveAttribute('aria-haspopup', 'dialog')
+    expect(chip).toHaveAttribute('aria-expanded', 'false')
+
+    await user.click(chip)
+    expect(chip).toHaveAttribute('aria-expanded', 'true')
+    // the popover answers to what the trigger advertises
+    expect(screen.getByRole('dialog', { name: 'Tools' })).toBeInTheDocument()
+
+    await user.click(chip)
+    expect(chip).toHaveAttribute('aria-expanded', 'false')
+  })
+})
+
 describe('ToolsPanel toggle intent', () => {
   const off = (name: string) => tool({ name, enabled: false })
   const sentNames = (spy: ReturnType<typeof vi.fn>) =>

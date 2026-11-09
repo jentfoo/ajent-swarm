@@ -621,7 +621,9 @@ describe('MobileSessionScreen', () => {
     } finally {
       vi.useRealTimers()
     }
-    expect(screen.queryByLabelText('Notices')).not.toBeInTheDocument()
+    expect(screen.queryByText('Sub-agent sub-6 completed.')).not.toBeInTheDocument()
+    // the notice region itself stays mounted for later arrivals
+    expect(screen.getByLabelText('Notices')).toBeEmptyDOMElement()
     expect(screen.getByText('Allow write access?')).toBeInTheDocument()
   })
 

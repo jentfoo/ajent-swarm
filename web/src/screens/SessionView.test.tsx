@@ -20,18 +20,18 @@ const SWAP_A = '01SWAPAAAA000001'
 const SWAP_B = '01SWAPBBBB000002'
 
 class FetchRouter {
-  handler = vi.fn((url: string | URL, _init?: RequestInit): Response => {
+  handler = vi.fn((url: string | URL, init?: RequestInit): Response => {
     const key = String(url)
       .replace(/^https?:\/\/[^/]+/, '')
       .split('?')[0]
     const respond = this.routes.get(key)
     if (!respond) throw new Error(`unexpected fetch ${String(url)}`)
-    return respond()
+    return respond(init)
   })
 
-  private routes = new Map<string, () => Response>()
+  private routes = new Map<string, (init?: RequestInit) => Response>()
 
-  on(url: string, respond: () => Response): this {
+  on(url: string, respond: (init?: RequestInit) => Response): this {
     this.routes.set(url, respond)
     return this
   }
@@ -879,6 +879,74 @@ describe('SessionView', () => {
     frame(ws, wireEvent('session.exit', 1, { reason: 'sigterm' }))
 
     expect(await screen.findByText('Session ended: sigterm.')).toBeInTheDocument()
+  })
+
+  it('offers resume beside the ended banner and opens the relaunched session', async () => {
+    const RESUMED = '01RESUMEDVIEW0001'
+    fetcher.on('/api/sessions', (init) =>
+      init?.method === 'POST' ? Response.json({ sessionId: RESUMED, pid: 9 }) : Response.json([]),
+    )
+    renderView()
+    const ws = await openSocket()
+
+    frame(ws, { type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
+    await screen.findByRole('button', { name: /take control: swarm/ })
+    // a live session carries no resume affordance
+    expect(screen.queryByRole('button', { name: 'Resume' })).not.toBeInTheDocument()
+
+    frame(ws, { type: 'child', sessionId: VIEW, state: 'exited' })
+    await userEvent.setup().click(await screen.findByRole('button', { name: 'Resume' }))
+
+    // the launch rides the shared resume path under the recorded workspace
+    const launches = fetcher
+      .callsTo('/api/sessions')
+      .filter((c) => c.init?.method === 'POST')
+      .map((c) => JSON.parse(String(c.init?.body)))
+    expect(launches).toEqual([{ workspace: '/home/you/project', mode: 'resume', target: VIEW }])
+
+    // success navigates into the live view of the new instance
+    await waitFor(() => {
+      const frames = ws.sent.map((raw) => JSON.parse(raw) as { type: string; sessionId?: string })
+      expect(frames).toContainEqual({ type: 'subscribe', sessionId: RESUMED })
+    })
+    expect(await screen.findByText(/Connecting to the session stream/)).toBeInTheDocument()
+  })
+
+  it('toasts a refused resume from the ended banner', async () => {
+    fetcher.on('/api/sessions', (init) =>
+      init?.method === 'POST'
+        ? Response.json({ error: 'unavailable', message: 'no saved transcript' }, { status: 404 })
+        : Response.json([]),
+    )
+    renderView()
+    const ws = await openSocket()
+
+    frame(ws, { type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
+    frame(ws, { type: 'child', sessionId: VIEW, state: 'exited' })
+
+    await userEvent.setup().click(await screen.findByRole('button', { name: 'Resume' }))
+
+    // the refusal surfaces through the toast stack, and the view stays put
+    const toast = await screen.findByText('unavailable: no saved transcript')
+    expect(toast.closest('.toast')).toHaveClass('error')
+    expect(screen.getByRole('button', { name: 'Resume' })).toBeEnabled()
+  })
+
+  it('explains when the ended session has no recorded workspace', async () => {
+    renderView()
+    const ws = await openSocket()
+
+    frame(ws, {
+      type: 'init',
+      sessionId: VIEW,
+      state: snapshotFor(VIEW, { workspace: '' }),
+      entries: [],
+    })
+    frame(ws, { type: 'child', sessionId: VIEW, state: 'exited' })
+
+    expect(await screen.findByText('Session ended.')).toBeInTheDocument()
+    expect(screen.getByText(/No recorded workspace/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Resume' })).not.toBeInTheDocument()
   })
 
   it('hides the seat takeover when the seat is free or already ours', async () => {

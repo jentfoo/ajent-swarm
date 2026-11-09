@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useParams } from 'react-router'
 
 import { Toasts } from '../hooks/Toasts'
+import { useResume } from '../hooks/useResume'
 import { useSessionChannel } from '../hooks/useSessionChannel'
 import { useWorkspace } from '../providers/workspace'
 import { sessionBusy } from '../state/eventApplier'
@@ -114,7 +115,8 @@ function SessionSurface({ sessionId, focused }: { sessionId: string; focused: bo
       <PhaseBanner phase={phase} />
       {ended.show && (
         <div className="banner warn" role="status">
-          {ended.text}
+          {ended.text}{' '}
+          <EndedResume sessionId={sessionId} workspace={snap.workspace} onToast={pushToast} />
         </div>
       )}
 
@@ -173,5 +175,41 @@ function SessionSurface({ sessionId, focused }: { sessionId: string; focused: bo
 
       <Toasts toasts={toasts} />
     </div>
+  )
+}
+
+// EndedResume offers the shared resume path beside the ended banner's text,
+// with refusals landing in this surface's toast stack. Without a recorded
+// workspace there is nowhere to relaunch, so the hint says so instead of
+// hiding the control.
+function EndedResume({
+  sessionId,
+  workspace,
+  onToast,
+}: {
+  sessionId: string
+  workspace: string
+  onToast: (text: string, level?: 'info' | 'error') => void
+}) {
+  const { resume, resumingId, error } = useResume()
+
+  // useResume owns the failure text, the toast stack surfaces it here
+  useEffect(() => {
+    if (error !== '') onToast(error, 'error')
+  }, [error, onToast])
+
+  if (workspace === '') {
+    return <span className="muted">No recorded workspace, so this session cannot be resumed.</span>
+  }
+
+  return (
+    <button
+      type="button"
+      className="primary"
+      disabled={resumingId !== null}
+      onClick={() => void resume(workspace, sessionId)}
+    >
+      {resumingId !== null ? 'Resuming…' : 'Resume'}
+    </button>
   )
 }

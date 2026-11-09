@@ -8,7 +8,7 @@ import JobsHome from './JobsHome'
 import { AuthProvider } from '../providers/auth'
 import { SwarmProvider } from '../providers/swarm'
 import { MockWebSocket } from '../test/mockWebSocket'
-import { mobileLayout } from '../hooks/useMediaQuery'
+import { stubPhoneLayout } from '../test/matchMedia'
 import type { Job, Run } from '../api/types'
 
 // The jobs list renders over the real provider stack with fetch and WebSocket
@@ -189,19 +189,6 @@ describe('JobsHome', () => {
         </AuthProvider>
       </MemoryRouter>,
     )
-  }
-
-  // stubPhoneLayout reports only the shared 48rem breakpoint as matching, so
-  // JobsHome mounts its card presentation; everything else stays desktop.
-  function stubPhoneLayout(): void {
-    vi.stubGlobal('matchMedia', (query: string) => ({
-      matches: query === mobileLayout,
-      media: query,
-      onchange: null,
-      addEventListener() {},
-      removeEventListener() {},
-      dispatchEvent: () => false,
-    }))
   }
 
   // NavButton drives MemoryRouter between routes directly, standing in for the

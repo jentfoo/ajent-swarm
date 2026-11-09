@@ -1564,6 +1564,11 @@ label {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* the history table keeps its six columns intact: narrower viewports scroll it
+   sideways instead of crushing the cells (phones swap to cards below) */
+.runs-scroll {
+  overflow-x: auto;
+}
 
 /* jobs area sub-navigation */
 .job-tabs {
@@ -1644,16 +1649,19 @@ label {
   margin-top: calc(var(--unit) * 4);
 }
 
-/* phone layout swaps the jobs table for stacked cards over the same row data;
-   chrome follows the switcher rows: surface cards, status beside the label,
-   touch-sized controls (JobsHome mounts these under hooks/useMediaQuery's
-   shared 48rem breakpoint, so no media query is needed here) */
-.job-cards {
+/* phone layout swaps the jobs and runs tables for stacked cards over the same
+   row facts; chrome follows the switcher rows: surface cards, status beside
+   the label, touch-sized controls (both screens mount these under
+   hooks/useMediaQuery's shared 48rem breakpoint, so no media query is needed
+   here) */
+.job-cards,
+.run-cards {
   display: flex;
   flex-direction: column;
   gap: calc(var(--unit) * 2);
 }
-.job-card {
+.job-card,
+.run-card {
   display: flex;
   flex-direction: column;
   gap: calc(var(--unit) * 1);
@@ -1663,20 +1671,36 @@ label {
   border-radius: var(--radius);
   touch-action: manipulation; /* no double-tap zoom lag on cards */
 }
-/* cadence or queued badge beside the next-run slot, wrapping when both want
-   the width; the badge's trailing margin would double the column gap */
-.job-card-when {
+/* each card's labeled facts share one wrapping row so either side can take
+   the width */
+.job-card-when,
+.run-card-when {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: calc(var(--unit) * 1) calc(var(--unit) * 3);
 }
+/* the job badge's trailing margin would double the column gap */
 .job-card-when .badge {
   margin-right: 0;
 }
 /* the toggle's label is its touch target, matching the card's buttons */
 .job-card .toggle-row {
   min-height: 44px;
+}
+/* a run card opens its detail from anywhere on its face, like its table row */
+.run-card {
+  cursor: pointer;
+}
+.run-card:hover {
+  background: color-mix(in srgb, var(--accent) 6%, var(--surface));
+}
+/* the table's clipped prompt and error render unclipped here: long text wraps
+   and long tokens break so neither widens the card */
+.run-card-text {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 /* weekday picker: one row of day chips inside the job editor's schedule grid */

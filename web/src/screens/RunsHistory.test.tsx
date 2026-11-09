@@ -7,6 +7,7 @@ import RunsHistory from './RunsHistory'
 import { AuthProvider } from '../providers/auth'
 import { SwarmProvider } from '../providers/swarm'
 import { MockWebSocket } from '../test/mockWebSocket'
+import { stubPhoneLayout } from '../test/matchMedia'
 import { formatTimestamp, relativeTimestamp } from '../jobs/schedule'
 import type { Job, Run } from '../api/types'
 
@@ -226,6 +227,53 @@ describe('RunsHistory', () => {
     renderRuns()
 
     expect(await screen.findByText(/No runs yet/)).toBeInTheDocument()
+  })
+
+  it('keeps the desktop table above the phone breakpoint', async () => {
+    renderRuns()
+
+    expect(await screen.findByTestId('run-11')).toHaveProperty('tagName', 'TR')
+    expect(document.querySelector('.runs-table')).not.toBeNull()
+    expect(document.querySelector('.run-card')).toBeNull()
+  })
+
+  it('renders each run as one card on phones', async () => {
+    const user = userEvent.setup()
+    const prompt =
+      'sweep every log under /var/log, drop the rotated ones, and summarize the outliers for the nightly report'
+    const error = 'submit refused: dialog holds input because a previous dialog never resolved'
+    stubPhoneLayout()
+    runsReply = [{ ...runs[1], id: 22, prompt, error }]
+    renderRuns()
+
+    const card = await screen.findByTestId('run-22')
+    expect(card).toHaveClass('run-card')
+    expect(card.textContent).toContain('weekly') // the joined job name
+    expect(card.textContent).toContain('failed') // the status beside the name
+    expect(document.querySelector('.runs-table')).toBeNull()
+
+    // the card wraps the full prompt and error where the table clips to 80
+    expect(card.textContent).toContain(prompt)
+    expect(card.textContent).toContain(error)
+
+    // tapping the card opens the detail through the same path as a row click
+    await user.click(card)
+    expect(await screen.findByRole('dialog', { name: 'Run 22' })).toBeInTheDocument()
+  })
+
+  it('filters cards and opens details on phones', async () => {
+    const user = userEvent.setup()
+    stubPhoneLayout()
+    renderRuns()
+    await screen.findByTestId('run-11')
+
+    await user.selectOptions(screen.getByLabelText(/^Status/), 'failed')
+    expect(screen.queryByTestId('run-11')).not.toBeInTheDocument()
+    expect(screen.getByTestId('run-12')).toBeInTheDocument()
+
+    // the card's own action row carries the open path at a touch-sized floor
+    await user.click(within(screen.getByTestId('run-12')).getByRole('button', { name: 'Details' }))
+    expect(await screen.findByRole('dialog', { name: 'Run 12' })).toBeInTheDocument()
   })
 
   it('surfaces load failures', async () => {

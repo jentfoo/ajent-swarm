@@ -3,6 +3,7 @@ import type { ReactElement } from 'react'
 import { describeError } from '../api/errors'
 import { jobsApi, runsApi } from '../api/endpoints'
 import type { Job, Run, RunStatus } from '../api/types'
+import { mobileLayout, useMediaQuery } from '../hooks/useMediaQuery'
 import { useNow } from '../hooks/useNow'
 import { usePoll } from '../hooks/usePoll'
 import { JobTabs } from '../jobs/JobTabs'
@@ -19,11 +20,14 @@ const pollRunsMs = 10_000
 
 const runStatuses: RunStatus[] = ['running', 'awaiting_input', 'ok', 'failed', 'timeout', 'skipped']
 
-// RunsHistory is the filterable table over /api/runs: by job through the
-// backend's ?job= parameter, by status client-side. Clicking a row explains
-// what happened without opening logs. The detail modal resolves its run from
-// the latest list, so each poll refreshes it in place.
+// RunsHistory is the filterable history over /api/runs: by job through the
+// backend's ?job= parameter, by status client-side. Each row's display data
+// derives once and renders twice: the desktop table above the shared 48rem
+// breakpoint (hooks/useMediaQuery.mobileLayout), stacked cards below it.
+// Clicking a row explains what happened without opening logs. The detail modal
+// resolves its run from the latest list, so each poll refreshes it in place.
 export default function RunsHistory() {
+  const mobile = useMediaQuery(mobileLayout)
   const [jobs, setJobs] = useState<Job[]>([])
   const [runs, setRuns] = useState<Run[] | null>(null)
   const [error, setError] = useState('')
@@ -79,9 +83,16 @@ export default function RunsHistory() {
   // time and error track each poll. A run that left the history closes it.
   const selected = useMemo(() => (runs ?? []).find((r) => r.id === selectedId), [runs, selectedId])
 
-  const visible = useMemo(
-    () => (runs ?? []).filter((r) => statusFilter === '' || r.status === statusFilter),
-    [runs, statusFilter],
+  // One derivation filters and feeds both presentations, so a phone card can
+  // never show a fact the table row would have rendered differently. The
+  // breakpoint swap is presentational only: state, polling and the modal live
+  // here.
+  const rows = useMemo(
+    () =>
+      (runs ?? [])
+        .filter((run) => statusFilter === '' || run.status === statusFilter)
+        .map((run) => ({ run, facts: runRowFacts(run, jobName(run), now) })),
+    [runs, statusFilter, jobName, now],
   )
 
   return (
@@ -133,65 +144,148 @@ export default function RunsHistory() {
 
       {runs !== null && runs.length === 0 ? (
         <p className="muted">No runs yet. Fire a job or wait for its schedule.</p>
-      ) : visible.length === 0 && runs !== null && runs.length > 0 ? (
+      ) : rows.length === 0 && runs !== null && runs.length > 0 ? (
         <p className="muted">No runs match these filters.</p>
-      ) : (
-        runs !== null &&
-        visible.length > 0 && (
-          <table className="runs-table">
-            <thead>
-              <tr>
-                <th>Started</th>
-                <th>Job</th>
-                <th>Status</th>
-                <th>Duration</th>
-                <th>Prompt</th>
-                <th aria-label="Details" />
-              </tr>
-            </thead>
-            <tbody>
-              {visible.map((r) => (
-                <tr
-                  key={r.id}
-                  onClick={() => setSelectedId(r.id)}
-                  className="run-row"
-                  data-testid={`run-${r.id}`}
-                >
-                  <td title={formatTimestamp(r.startedAt)}>
-                    {relativeTimestamp(r.startedAt, now)}
-                  </td>
-                  <td>{jobName(r) || '—'}</td>
-                  <td>
-                    <span className={runStatusClass(r.status)}>{r.status}</span>
-                    {r.error && (
-                      <div className="muted small-note run-error-excerpt" title={r.error}>
-                        {r.error}
-                      </div>
-                    )}
-                  </td>
-                  <td>{formatDuration(r.startedAt, r.finishedAt)}</td>
-                  <td className="run-prompt-cell" title={r.prompt || undefined}>
-                    {(r.prompt ?? '').slice(0, 80) || '—'}
-                  </td>
-                  <td>
-                    <button
-                      type="button"
-                      onClick={(ev) => {
-                        ev.stopPropagation()
-                        setSelectedId(r.id)
-                      }}
-                    >
-                      Details
-                    </button>
-                  </td>
+      ) : rows.length > 0 ? (
+        mobile ? (
+          <div className="run-cards" role="list">
+            {rows.map(({ run, facts }) => (
+              <RunCard key={run.id} run={run} facts={facts} onOpen={() => setSelectedId(run.id)} />
+            ))}
+          </div>
+        ) : (
+          <div className="runs-scroll">
+            <table className="runs-table">
+              <thead>
+                <tr>
+                  <th>Started</th>
+                  <th>Job</th>
+                  <th>Status</th>
+                  <th>Duration</th>
+                  <th>Prompt</th>
+                  <th aria-label="Details" />
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {rows.map(({ run, facts }) => (
+                  <RunTableRow
+                    key={run.id}
+                    run={run}
+                    facts={facts}
+                    onOpen={() => setSelectedId(run.id)}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
         )
-      )}
+      ) : null}
 
       {selected && <RunDetailLayer run={selected} onClose={() => setSelectedId(undefined)} />}
+    </div>
+  )
+}
+
+// RunRowFacts is one run's display data shared by the desktop table row and
+// the phone card, derived once per row so the two layouts cannot drift.
+type RunRowFacts = {
+  jobName: string
+  startedLabel: string
+  startedTitle: string
+  status: { label: string; className: string }
+  durationText: string
+  prompt: string
+  error: string
+}
+
+// runRowFacts reduces one run and its job's name to the strings both layouts
+// render: recency label with the zone-suffixed absolute behind it, badge
+// status, wall-clock span, then the prompt and error in full. The table cells
+// clip those, the card wraps them.
+function runRowFacts(run: Run, job: string, now: number): RunRowFacts {
+  return {
+    jobName: job,
+    startedLabel: relativeTimestamp(run.startedAt, now),
+    startedTitle: formatTimestamp(run.startedAt),
+    status: { label: run.status, className: runStatusClass(run.status) },
+    durationText: formatDuration(run.startedAt, run.finishedAt),
+    prompt: run.prompt ?? '',
+    error: run.error ?? '',
+  }
+}
+
+type RunRowProps = {
+  run: Run
+  facts: RunRowFacts
+  onOpen: () => void
+}
+
+// OpenDetailButton is the keyboard path onto one run's detail in both layouts;
+// the table keeps it inline while the card's action row gives it a 44px floor.
+function OpenDetailButton({ onOpen }: { onOpen: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={(ev) => {
+        ev.stopPropagation()
+        onOpen()
+      }}
+    >
+      Details
+    </button>
+  )
+}
+
+function RunTableRow({ run, facts, onOpen }: RunRowProps) {
+  return (
+    <tr className="run-row" onClick={onOpen} data-testid={`run-${run.id}`}>
+      <td title={facts.startedTitle}>{facts.startedLabel}</td>
+      <td>{facts.jobName || '—'}</td>
+      <td>
+        <span className={facts.status.className}>{facts.status.label}</span>
+        {facts.error !== '' && (
+          <div className="muted small-note run-error-excerpt" title={facts.error}>
+            {facts.error}
+          </div>
+        )}
+      </td>
+      <td>{facts.durationText}</td>
+      <td className="run-prompt-cell" title={facts.prompt || undefined}>
+        {facts.prompt.slice(0, 80) || '—'}
+      </td>
+      <td>
+        <OpenDetailButton onOpen={onOpen} />
+      </td>
+    </tr>
+  )
+}
+
+// RunCard is the phone presentation: one stacked card per run wearing the
+// switcher rows' touch language, status beside the job's name and labeled
+// lines standing in for the table headers, with the prompt and error wrapping
+// in full where the table clips them. The card opens the detail like a row.
+function RunCard({ run, facts, onOpen }: RunRowProps) {
+  return (
+    <div className="run-card" role="listitem" data-testid={`run-${run.id}`} onClick={onOpen}>
+      <span className="switch-top">
+        <span className="switch-name">{facts.jobName || '—'}</span>
+        <span className={facts.status.className}>{facts.status.label}</span>
+      </span>
+      {/* phones have no column headers, so the Started and Duration cells read
+          as labeled lines; the recency label keeps its absolute behind it */}
+      <div className="run-card-when">
+        <span className="muted" title={facts.startedTitle}>
+          Started: {facts.startedLabel}
+        </span>
+        <span className="muted">Duration: {facts.durationText}</span>
+      </div>
+      {facts.prompt !== '' && <p className="run-card-text">{facts.prompt}</p>}
+      {facts.error !== '' && <p className="muted small-note run-card-text">{facts.error}</p>}
+      {/* switch-actions carries the 44px touch floor shared with the switcher
+          rows, so the card's one control sits in a touch-sized action row */}
+      <div className="switch-actions">
+        <OpenDetailButton onOpen={onOpen} />
+      </div>
     </div>
   )
 }

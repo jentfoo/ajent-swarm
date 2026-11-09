@@ -523,6 +523,11 @@ describe('MobileSessionScreen', () => {
     fetcher.on(`/api/sessions/${VIEW}/rewind`, () => Response.json({ head: '01C1' }))
 
     const user = userEvent.setup()
+
+    // a draft in the composer survives: the rewind lands above it. The draft
+    // is seeded first because an open sheet, like a modal, holds focus
+    await user.type(screen.getByLabelText('Prompt'), 'my draft')
+
     await openHeaderMenu(user, 'Rewind')
     expect(await screen.findByRole('dialog', { name: /Rewind/ })).toBeInTheDocument()
 
@@ -530,9 +535,6 @@ describe('MobileSessionScreen', () => {
     expect(screen.getByText('first prompt text')).toBeInTheDocument()
     expect(screen.getByTestId('rewind-01C2')).toHaveTextContent("it's started")
     expect(screen.getByTestId('rewind-01C3')).toHaveAttribute('aria-disabled', 'true')
-
-    // a draft in the composer survives: the rewind lands above it
-    await user.type(screen.getByLabelText('Prompt'), 'my draft')
 
     await user.click(screen.getByTestId('rewind-01C1'))
     await vi.waitFor(() => {

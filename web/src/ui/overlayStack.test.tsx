@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import type { ReactElement } from 'react'
+import type { ReactElement, ReactNode } from 'react'
 import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
@@ -12,12 +12,20 @@ import { overlayOpen, useOverlayDismiss } from './overlayStack'
 // answers Escape across shells, popovers, sheets and pushed screens, a press
 // claimed elsewhere is left alone, and closing hands focus back to the opener.
 
-function DismissLayer({ label, onClose }: { label: string; onClose: () => void }): ReactElement {
+function DismissLayer({
+  label,
+  onClose,
+  children,
+}: {
+  label: string
+  onClose: () => void
+  children?: ReactNode
+}): ReactElement {
   const ref = useRef<HTMLDivElement>(null)
   useOverlayDismiss(ref, onClose)
   return (
     <div ref={ref} data-testid={label}>
-      {label}
+      {children ?? label}
     </div>
   )
 }
@@ -115,6 +123,32 @@ describe('overlayStack', () => {
     await user.click(screen.getByRole('button', { name: 'open' }))
     await user.keyboard('{Escape}')
     expect(screen.queryByTestId('sheet')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'open' })).toHaveFocus()
+  })
+
+  it('restores the opener even when content autofocus grabbed focus', async () => {
+    const user = userEvent.setup()
+    function Harness(): ReactElement {
+      const [open, setOpen] = useState(false)
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>
+            open
+          </button>
+          {open && (
+            <DismissLayer label="sheet" onClose={() => setOpen(false)}>
+              <input autoFocus aria-label="Title" />
+            </DismissLayer>
+          )}
+        </>
+      )
+    }
+    render(<Harness />)
+
+    await user.click(screen.getByRole('button', { name: 'open' }))
+    expect(screen.getByLabelText('Title')).toHaveFocus()
+
+    await user.keyboard('{Escape}')
     expect(screen.getByRole('button', { name: 'open' })).toHaveFocus()
   })
 })

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { RefObject } from 'react'
 
 // Open overlay layers, outermost first. ModalShell cards, MenuPopover layers
@@ -39,13 +39,17 @@ export function useOverlayDismiss<T extends HTMLElement>(
     closeRef.current = onClose
   })
 
+  // captured once at first render on purpose: content-level autoFocus only
+  // fires later, at commit, so this stays the element closing hands focus
+  // back to. ModalShell and MenuPopover keep the same capture
+  const [restore] = useState(() =>
+    document.activeElement instanceof HTMLElement ? document.activeElement : null,
+  )
+
   useEffect(() => {
     const el = ref.current
     if (el === null) return
     overlayEnter(el)
-    // captured at mount on purpose: this is the element closing hands focus
-    // back to, the same minimal contract MenuPopover keeps
-    const restore = document.activeElement instanceof HTMLElement ? document.activeElement : null
 
     const onKey = (ev: KeyboardEvent) => {
       // only the topmost layer answers, and never a press claimed elsewhere
@@ -62,5 +66,5 @@ export function useOverlayDismiss<T extends HTMLElement>(
       window.removeEventListener('keydown', onKey)
       if (restore !== null && restore.isConnected) restore.focus()
     }
-  }, [ref])
+  }, [ref, restore])
 }

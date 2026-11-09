@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { StrictMode } from 'react'
+import { StrictMode, useState } from 'react'
+import type { ReactElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { BottomSheet } from './BottomSheet'
@@ -8,7 +9,9 @@ import { BottomSheet } from './BottomSheet'
 // The sheet's dismissal contract: the handle drags down past a threshold,
 // below it springs back, a plain tap on the handle or the backdrop closes,
 // Escape closes the topmost sheet and returns focus to the opener, and the
-// platform back gesture closes it like any overlay layer.
+// platform back gesture closes it like any overlay layer. Focus follows the
+// modal contract: opening takes it into the panel, Tab cycles inside, and
+// every dismissal path hands it back to what opened the sheet.
 
 function renderSheet(onClose = vi.fn()) {
   render(
@@ -25,6 +28,27 @@ function drag(handle: Element, dy: number) {
   fireEvent.pointerMove(handle, { pointerId: 1, clientX: 20, clientY: 300 + dy })
   fireEvent.pointerUp(handle, { pointerId: 1, clientX: 20, clientY: 300 + dy })
 }
+
+// opens the sheet from a real trigger, so focus starts outside it and every
+// dismissal path can be checked against the element that opened it
+function FocusHarness({ children }: { children: ReactElement }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <>
+      <button type="button" onClick={() => setOpen(true)}>
+        opener
+      </button>
+      {open && (
+        <BottomSheet open onClose={() => setOpen(false)} label="Session switcher">
+          {children}
+        </BottomSheet>
+      )}
+    </>
+  )
+}
+
+const opener = () => screen.getByRole('button', { name: 'opener' })
+const sheetDialog = () => screen.getByRole('dialog', { name: 'Session switcher' })
 
 // a consume queued by the previous test's cleanup never navigated in jsdom;
 // drain its pending pop event so it cannot swallow this test's own
@@ -99,32 +123,93 @@ describe('BottomSheet', () => {
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
-  it('closes on escape and restores focus to the opener', async () => {
-    const onClose = vi.fn()
+  it('opens focused and restores the opener on escape', async () => {
     const user = userEvent.setup()
-    const { rerender } = render(
-      <>
-        <button type="button">opener</button>
-        <BottomSheet open onClose={onClose} label="Session switcher">
-          <p>rows</p>
-        </BottomSheet>
-      </>,
+    render(
+      <FocusHarness>
+        <button type="button">first</button>
+      </FocusHarness>,
     )
 
-    await user.click(screen.getByRole('button', { name: 'opener' }))
+    await user.click(opener())
+    expect(sheetDialog()).toHaveFocus()
+
     await user.keyboard('{Escape}')
-    expect(onClose).toHaveBeenCalledTimes(1)
-    expect(screen.getByRole('button', { name: 'opener' })).toHaveFocus()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(opener()).toHaveFocus()
+  })
 
-    rerender(
-      <>
-        <button type="button">opener</button>
-        <BottomSheet open={false} onClose={onClose} label="Session switcher">
-          <p>rows</p>
-        </BottomSheet>
-      </>,
+  it('traps tab and shift-tab inside the sheet', async () => {
+    const user = userEvent.setup()
+    render(
+      <FocusHarness>
+        <>
+          <button type="button">first</button>
+          <button type="button">second</button>
+        </>
+      </FocusHarness>,
     )
-    window.dispatchEvent(new PopStateEvent('popstate')) // settle the consume
+
+    await user.click(opener())
+    const handle = screen.getByRole('button', { name: 'Dismiss Session switcher' })
+    const first = screen.getByRole('button', { name: 'first' })
+    const second = screen.getByRole('button', { name: 'second' })
+
+    // from the panel, Tab enters at the handle and then walks the content
+    fireEvent.keyDown(sheetDialog(), { key: 'Tab' })
+    expect(handle).toHaveFocus()
+    fireEvent.keyDown(handle, { key: 'Tab' })
+    expect(first).toHaveFocus()
+    fireEvent.keyDown(first, { key: 'Tab' })
+    expect(second).toHaveFocus()
+
+    // both ends wrap, so neither press can drop focus behind the backdrop
+    fireEvent.keyDown(second, { key: 'Tab' })
+    expect(handle).toHaveFocus()
+    fireEvent.keyDown(handle, { key: 'Tab', shiftKey: true })
+    expect(second).toHaveFocus()
+  })
+
+  it('keeps autofocus content in charge and still restores the opener', async () => {
+    const user = userEvent.setup()
+    render(
+      <FocusHarness>
+        <input autoFocus aria-label="Title" />
+      </FocusHarness>,
+    )
+
+    await user.click(opener())
+    expect(screen.getByLabelText('Title')).toHaveFocus()
+
+    await user.keyboard('{Escape}')
+    expect(opener()).toHaveFocus()
+  })
+
+  it('restores the opener after a drag dismiss', async () => {
+    const user = userEvent.setup()
+    render(
+      <FocusHarness>
+        <p>rows</p>
+      </FocusHarness>,
+    )
+
+    await user.click(opener())
+    drag(screen.getByRole('button', { name: 'Dismiss Session switcher' }), 96)
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(opener()).toHaveFocus()
+  })
+
+  it('recaptures focus that escapes while topmost', async () => {
+    const user = userEvent.setup()
+    render(
+      <FocusHarness>
+        <p>rows</p>
+      </FocusHarness>,
+    )
+
+    await user.click(opener())
+    opener().focus()
+    expect(sheetDialog()).toHaveFocus()
   })
 
   it('closes only the topmost sheet on escape', async () => {

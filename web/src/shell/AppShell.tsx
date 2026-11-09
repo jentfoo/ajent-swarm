@@ -47,6 +47,10 @@ export default function AppShell({ children }: { children: ReactNode }) {
     navigate('/focused')
   }
 
+  // the bell enables only, there is no mute path, so neither label claims a toggle
+  const bellLabel =
+    permission === 'granted' ? 'Desktop notifications are on' : 'Enable desktop notifications'
+
   return (
     <div className="app-shell">
       <header className="topbar">
@@ -96,12 +100,8 @@ export default function AppShell({ children }: { children: ReactNode }) {
           <button
             type="button"
             className={permission === 'granted' ? 'bell on' : 'bell'}
-            title={
-              permission === 'granted'
-                ? 'Desktop notifications are on'
-                : 'Enable desktop notifications'
-            }
-            aria-label="Toggle desktop notifications"
+            title={bellLabel}
+            aria-label={bellLabel}
             onClick={() => requestNotifications()}
           >
             {permission === 'granted' ? '🔔' : '🔕'}

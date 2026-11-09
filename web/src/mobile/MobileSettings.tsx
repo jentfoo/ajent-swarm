@@ -38,7 +38,7 @@ export default function MobileSettings(): ReactElement {
       <section aria-label="Global settings" className="card">
         <TitleModelSelect />
         <p className="muted" style={{ margin: 0, fontSize: 'var(--fs-small)' }}>
-          Per-session agent settings live in each session's ☰ header.
+          Per-session agent settings live in each session's ⋯ actions menu.
         </p>
       </section>
 

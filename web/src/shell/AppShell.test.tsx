@@ -78,6 +78,16 @@ describe('AppShell', () => {
     return screen.queryByRole('group', { name: 'Workspace mode' })
   }
 
+  // jsdom ships no Notification, the stand-in pins one permission per mount.
+  function stubNotification(permission: 'granted' | 'default') {
+    vi.stubGlobal(
+      'Notification',
+      class {
+        static permission = permission
+      },
+    )
+  }
+
   it.each([
     ['/', 'Workspace'],
     ['/focused', 'Workspace'],
@@ -156,6 +166,22 @@ describe('AppShell', () => {
     const badge = screen.getByRole('button', { name: '1 sessions need input' })
     expect(badge).toHaveAttribute('aria-label', '1 sessions need input')
     expect(badge).toHaveAttribute('title', '1 session(s) need input')
+  })
+
+  it('labels the bell as an enable action', async () => {
+    stubNotification('default')
+    await renderShell('/')
+
+    const bell = screen.getByRole('button', { name: 'Enable desktop notifications' })
+    expect(bell).toHaveAttribute('title', 'Enable desktop notifications')
+  })
+
+  it('describes a granted bell as on', async () => {
+    stubNotification('granted')
+    await renderShell('/')
+
+    const bell = screen.getByRole('button', { name: 'Desktop notifications are on' })
+    expect(bell).toHaveAttribute('title', 'Desktop notifications are on')
   })
 
   it('keeps the switcher when a mode press navigates within workspaces', async () => {

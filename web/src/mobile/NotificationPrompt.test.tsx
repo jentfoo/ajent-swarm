@@ -32,7 +32,7 @@ describe('NotificationPrompt', () => {
   beforeEach(() => {
     localStorage.clear()
     permission = 'default'
-    // jsdom ships no Notification; the stand-in keeps a mutable permission.
+    // jsdom ships no Notification, the stand-in keeps a mutable permission.
     requestPermission = vi.fn(async () => {
       permission = 'granted'
       return 'granted'
@@ -53,7 +53,7 @@ describe('NotificationPrompt', () => {
   })
 
   // mount renders the prompt under the real provider stack with the digest
-  // poll answering `attention`; unmount before mounting again, since two live
+  // poll answering `attention`, unmount before mounting again, since two live
   // prompts would double every query.
   function mount(attention: AttentionRow[]) {
     const fetchMock = vi.fn(async (url: string | URL) => {
@@ -128,7 +128,7 @@ describe('NotificationPrompt', () => {
     await user.click(screen.getByRole('button', { name: 'Not now' }))
     expect(banner()).not.toBeInTheDocument()
 
-    // a later mount in the same visit stays quiet too; the seven-day retry and
+    // a later mount in the same visit stays quiet too, the seven-day retry and
     // permanent end live with the anti-nag state's own tests
     first.view.unmount()
     const second = mount([needRow()])

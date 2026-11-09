@@ -24,12 +24,12 @@ import { useSubmitPress, touchKeyboard } from './submitPress'
 
 const maxRows = 12
 
-// fallbackRowPx degrades the cap when computed styles are unreadable; the
+// fallbackRowPx degrades the cap when computed styles are unreadable: the
 // coarse-pointer line box (16px font x 1.5), today's constant.
 const fallbackRowPx = 24
 
-// inlineFileCapBytes bounds a text attachment's inlined body; anything larger
-// uploads and rides an @path reference instead.
+// inlineFileCapBytes bounds a text attachment's inlined body, anything
+// larger uploads as an @path reference instead.
 const inlineFileCapBytes = 64 << 10
 
 // textAccept lists the file picker's types: images ride the @path flow, text
@@ -43,19 +43,18 @@ export const stagedHint = 'Shell run — output rides your next message'
 export const excludedHint = 'Shell run — display only, never reaches the model'
 
 // isTextFile reports whether a picked file should inline as text rather than
-// upload. The type check comes first; extensions cover servers that skip it.
+// upload. Extension covers servers that skip the type check.
 function isTextFile(file: File): boolean {
   if (file.type.startsWith('text/') || file.type === 'application/json') return true
   return /\.(txt|md|json|toml|ya?ml|log|conf|cfg)$/.test(file.name)
 }
 
 // ComposerRecall wires the session's prompt recall into the composer. Items
-// merge the committed typed prompts with the workspace-wide mirror, newest
-// first and deduplicated; accept places a chosen prompt under the prepend
-// rule (the path a rewind prefill uses, never clobbering a draft) and returns
-// the draft it landed as so the caret can land inside the accepted text;
-// refresh re-reads the workspace mirror, so a search opened later sees what
-// other surfaces submitted since mount.
+// merge committed typed prompts with the workspace-wide mirror, newest first
+// and deduplicated. Accept places a chosen prompt under the prepend rule (the
+// rewind prefill path, never clobbering a draft) and returns the landed draft
+// for caret placement. Refresh re-reads the workspace mirror so a later
+// search sees what other surfaces submitted since mount.
 export interface ComposerRecall {
   items: readonly string[]
   accept: (text: string, current: string) => string
@@ -64,7 +63,7 @@ export interface ComposerRecall {
 
 // ComposerProps keeps the submit flow beside SessionView: it mints the
 // pendingId, applies optimistic rows, and clears the draft only once the wire
-// accepts a line — a refused one keeps its text (composer-draft-policy.md).
+// accepts a line, a refused one keeps its text (composer-draft-policy.md).
 export interface ComposerProps {
   sessionId: string
   value: string // the controlled draft; recall fills it from above
@@ -73,7 +72,7 @@ export interface ComposerProps {
   disabledReason: string
   onSubmit: (line: string, pendingId: string) => void // paints the optimistic row
   onSubmitFailed: (pendingId: string) => void // a refused submit never queued
-  // stop rides beside Send; the surface decides when a streaming turn shows it
+  // stop rides beside Send, the surface decides when a streaming turn shows it
   stop?: { onClick: () => void; busy: boolean }
   // prompt recall: the Ctrl+R history search and the arrows that browse its
   // list after an accept
@@ -102,10 +101,9 @@ export function Composer({
   const [error, setError] = useState('')
   const [uploading, setUploading] = useState(false)
   // Ctrl+R reverse search over the session's recall source. The machine state
-  // holds the list it opened with; every render refilters against the current
-  // one, so a workspace mirror that lands under the open search joins the
-  // matches without an effect (historySearch.withItems). null while closed;
-  // the machine itself is pure (historySearch.ts).
+  // holds the list it opened with, every render refilters against the current
+  // one, so a workspace mirror landing under an open search joins the matches
+  // without an effect (historySearch.withItems). null while closed.
   const [rawSearch, setRawSearch] = useState<HistorySearch | null>(null)
   const search =
     rawSearch === null || rawSearch.items === recall.items
@@ -120,19 +118,17 @@ export function Composer({
   const valueRef = useRef(value)
   // promptNav holds the armed arrow browse after a recall: the list snapshot,
   // the position inside it, the draft to restore at the end, and the text the
-  // last recall step wrote. Every replacement that is not a recall step
-  // disarms it — the value check below catches typing and sends, and host
-  // fills that never cross the textarea's onChange (ajent's fragile-by-design
-  // browsing rule: an edge arrow must never restore held state over fresh
-  // content).
+  // last recall step wrote. Every non-recall replacement disarms it via the
+  // value check below (ajent's fragile-by-design browsing rule: an edge arrow
+  // must never restore held state over fresh content).
   const promptNav = useRef<{
     items: readonly string[]
     index: number
     stash: string
     expected: string
   } | null>(null)
-  // killYank holds the last kill's restore point and the value that kill wrote:
-  // Ctrl+Y restores it and consumes it, and any other draft change drops it —
+  // killYank holds the last kill's restore point and the value that kill
+  // wrote: Ctrl+Y restores and consumes it, any other edit drops it,
   // editor.go's one-level undo rule.
   const killYank = useRef<KillSnapshot | null>(null)
   useLayoutEffect(() => {
@@ -166,7 +162,7 @@ export function Composer({
   const shown = search !== null ? search.query : value
 
   // @-path completion: the caret's token drives a debounced files lookup.
-  // Tab or an arrow-moved Enter accepts and drops the caret after the token;
+  // Tab or an arrow-moved Enter accepts and drops the caret after the token,
   // a plain Enter sends as typed. The token is derived, so a closed menu never
   // holds stale state or intercepts keys.
   const [caret, setCaret] = useState(0)
@@ -237,7 +233,7 @@ export function Composer({
     el.style.height = `${Math.min(el.scrollHeight, maxRows * rowPx)}px`
   }, [shown, rowPx])
 
-  // One lookup per token query, debounced; failures leave the menu quiet.
+  // One lookup per token query, debounced, failures stay quiet.
   useEffect(() => {
     if (query === undefined) return
     const controller = new AbortController()
@@ -254,16 +250,16 @@ export function Composer({
   }, [sessionId, query])
 
   // send submits one draft line: prompts mint the client pendingId that
-  // paints an optimistic row; slash and shell lines submit as-is. The draft
-  // stays put until the reply: a refusal keeps its text, and only acceptance
-  // clears — and then solely when typing has not already reshaped it.
+  // paints an optimistic row, slash and shell lines submit as-is. The draft
+  // stays put until the reply: a refusal keeps its text, acceptance clears it
+  // solely when typing has not already reshaped it.
   const send = useCallback(
     async (draft: string) => {
       const line = draft.trim()
       if (line === '' || disabled) return
       if (inFlight.current.has(line)) return
       // Shell runs and slash commands commit no message entry, so only
-      // prompts paint an optimistic row; classification matches ajent's
+      // prompts paint an optimistic row, classification matches ajent's
       // dispatch, so an escaped or pasted `/`-opening prompt still paints.
       const isPrompt = classifyLine(line) === 'prompt'
       const pendingId = isPrompt ? newPendingID() : undefined
@@ -334,7 +330,7 @@ export function Composer({
     if (!ev.ctrlKey && !ev.metaKey && !ev.altKey) {
       switch (ev.key) {
         case 'Enter':
-          // Enter accepts without sending; the first Esc selects the same way
+          // Enter accepts without sending, the first Esc selects the same way
           if (!ev.shiftKey) key = { type: 'accept' }
           break
         case 'Escape':
@@ -404,10 +400,10 @@ export function Composer({
     return true
   }
 
-  // replaceDraftAt lands one deliberate edit — a recall fill, a kill, a
-  // yank — through the draft path: the tracked caret and the DOM selection
-  // park where the edit leaves them once the controlled commit reaches the
-  // textarea, and an in-flight submit acceptance must keep the edit.
+  // replaceDraftAt lands one deliberate edit (recall fill, kill, yank)
+  // through the draft path: the tracked caret and DOM selection park where
+  // the edit leaves them once the controlled commit reaches the textarea, and
+  // an in-flight submit acceptance must keep the edit.
   const replaceDraftAt = (next: EditState): void => {
     pendingSelectionRef.current = { text: next.value, caret: next.selectionStart }
     setCaret(next.selectionStart)
@@ -421,8 +417,8 @@ export function Composer({
     replaceDraftAt({ value: text, selectionStart: text.length, selectionEnd: text.length })
   }
 
-  // applyKillKey runs one TUI kill/yank chord over the live textarea; the
-  // math is pure (editKeys.ts). An empty kill touches nothing so an older
+  // applyKillKey runs one TUI kill/yank chord over the live textarea, the
+  // math stays pure (editKeys.ts). An empty kill touches nothing so an older
   // snapshot stays held, a restore consumes its snapshot, and the layout
   // effect above drops it on any other edit.
   const applyKillKey = (key: 'k' | 'u' | 'y', el: HTMLTextAreaElement): void => {
@@ -466,9 +462,9 @@ export function Composer({
   )
 
   // acceptCommand splices the chosen command over the slash query, the
-  // trailing space ending the token — most commands take an argument, and the
-  // next Enter submits. Returns the draft it produced so a moved Enter can
-  // send it in one press.
+  // trailing space ends the token since most commands take an argument, and
+  // the next Enter submits. Returns the draft it produced so a moved Enter
+  // can send it in one press.
   const acceptCommand = (cmd: CommandDoc): string => {
     if (slash === null) return value
     const insert = `/${cmd.name} `
@@ -510,7 +506,7 @@ export function Composer({
 
   const onKeyDown = (ev: KeyboardEvent<HTMLTextAreaElement>) => {
     // Ctrl+R opens the reverse search with preventDefault (it reloads on some
-    // browsers); while it is open the same press steps to older matches, the
+    // browsers), while open the same press steps to older matches, the
     // overlay's only stepping key.
     if (ev.ctrlKey && !ev.metaKey && !ev.altKey && !ev.shiftKey && ev.key.toLowerCase() === 'r') {
       if (ev.nativeEvent.isComposing) return
@@ -545,7 +541,7 @@ export function Composer({
         case 'Enter':
           // Shift+Enter keeps its newline meaning while a menu is open. On
           // touch, Enter accepts the highlighted row so completion keeps
-          // working without modifiers; on desktop a moved selection completes
+          // working without modifiers, on desktop a moved selection completes
           // first, then sends, and an un-moved one falls through to send as
           // typed (the TUI overlay's key rules).
           if (!ev.shiftKey && !ev.nativeEvent.isComposing) {
@@ -566,9 +562,9 @@ export function Composer({
           return
       }
     }
-    // Ctrl/Cmd+J mirrors Shift+Enter's newline; Chrome, Firefox and Safari
-    // deliver the press to the page. Ctrl+Shift+J (DevTools) and AltGr stay
-    // with the browser; a completion menu and an IME mid-composition keep
+    // Ctrl/Cmd+J mirrors Shift+Enter's newline because Chrome, Firefox and
+    // Safari deliver the press to the page. Ctrl+Shift+J (DevTools) and AltGr
+    // stay with the browser, a completion menu and an IME mid-composition keep
     // their keys. The caret lands through pendingSelectionRef like accept()'s.
     if (
       menuKey === '' &&
@@ -612,14 +608,12 @@ export function Composer({
       }
     }
     // Plain arrows browse the recall list, an episode always arming from its
-    // newest entry — including right after a search accept. Cursor-first like
-    // ajent: on the first visual row an Up
-    // moves the caret to the prompt's start and only a press already on the
-    // very first character recalls older; Down mirrors this at the end. A
-    // recalled multi-line prompt is editable text whose caret must reach its
-    // edge before the next step, and any edit landing a different draft
-    // disarms the browse. Reaching here means a completion menu (which claims
-    // arrows itself) is closed and the search is not.
+    // newest entry, including right after a search accept. Cursor-first like
+    // ajent: on the first visual row Up moves the caret to the prompt's start
+    // and only a press already on the very first character recalls older, Down
+    // mirrors this at the end. A recalled multi-line prompt is editable text,
+    // so its caret must reach an edge before the next step, and any edit
+    // landing a different draft disarms the browse.
     if (!ev.ctrlKey && !ev.metaKey && !ev.altKey && !ev.shiftKey) {
       const el = ev.currentTarget
       const from = el.selectionStart
@@ -668,7 +662,7 @@ export function Composer({
   // Attachments ride the workaround: images upload under swarm's state dir
   // and the draft gains an @<abs path> reference for vision models to inject.
   // Small text files inline as fenced blocks instead, so context sees them
-  // without a round trip; oversize or unreadable ones fall back to uploading.
+  // without a round trip, oversize or unreadable ones fall back to uploading.
   // The append builds on the live draft (valueRef.current), not the
   // selection-time value: typing and prefills land during an upload. Pasted
   // image files join here too, so paste and picker share one upload path.
@@ -791,13 +785,13 @@ export function Composer({
           }}
           onPaste={(ev) => {
             // a paste joins the query, never the draft, while the search is
-            // open; its images are ignored rather than uploaded into a query
+            // open, its images are ignored rather than uploaded into a query
             if (search !== null) {
               ev.preventDefault()
               applySearchKey({ type: 'input', text: ev.clipboardData.getData('text') })
               return
             }
-            // pasted screenshots upload through the picker's path; anything
+            // pasted screenshots upload through the picker's path, anything
             // else keeps default handling, so plain-text and mixed clipboards
             // still paste as text
             const images = pasteImageFiles(ev.clipboardData)
@@ -869,7 +863,7 @@ function newPendingID(): string {
 }
 
 // readInline renders one small text file as a fenced block with the filename
-// prefixed above it; binary-looking bytes upload instead of landing garbage.
+// prefixed above, binary-looking bytes upload instead of landing garbage.
 async function readInline(file: File): Promise<string> {
   const text = await file.text()
   if (text.includes('\u0000')) throw new Error(`${file.name} is not readable text`)

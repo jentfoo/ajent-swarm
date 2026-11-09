@@ -79,7 +79,7 @@ function DiffRows({ view }: { view: DiffLayout }) {
   )
 }
 
-// DiffText paints one row's content; an empty row keeps its height with a
+// DiffText paints one row's content, an empty row keeps its height with a
 // space, and the intraline changed ranges render emphasized
 function DiffText({ text, em }: { text: string; em?: Array<[number, number]> }) {
   const shown = text === '' ? ' ' : text
@@ -116,7 +116,7 @@ function fileDiffRows(before: string, after: string): DiffLayout {
 
 // opDiffRows builds one op's fragment diff, numbered within the fragment: the
 // wire never says where oldText sat in the file. Hunk headers would number
-// fragment lines rather than file lines, so none render; a replace_all op
+// fragment lines rather than file lines, so none render, a replace_all op
 // leads with a meta row so its breadth stays visible.
 function opDiffRows(op: EditOp): DiffLayout {
   if (op.oldText === op.newText) return { gw: minGutter, rows: [] }
@@ -162,7 +162,7 @@ function hunkRows(lines: string[], oldStart: number, newStart: number): DiffRow[
   return rows
 }
 
-// runRows lays out one deletion/addition run, deletions first; equal-length
+// runRows lays out one deletion/addition run, deletions first, equal-length
 // runs pair line by line so each pair can carry intraline emphasis
 function runRows(dels: DiffRow[], adds: DiffRow[]): DiffRow[] {
   if (dels.length > 0 && dels.length === adds.length) {
@@ -178,7 +178,7 @@ function runRows(dels: DiffRow[], adds: DiffRow[]): DiffRow[] {
 }
 
 // hunkHeaderText renders the @@ range marker, following git in dropping the
-// count when a side spans one line; an empty side starts at 0
+// count when a side spans one line, an empty side starts at 0
 function hunkHeaderText(hunk: StructuredPatchHunk): string {
   return `@@ -${hunkRange(hunk.oldStart, hunk.oldLines)} +${hunkRange(hunk.newStart, hunk.newLines)} @@`
 }
@@ -284,7 +284,7 @@ function mergeCloseEdits(edits: CharEdit[]): CharEdit[] {
   return out
 }
 
-// splitRows breaks text into display rows; a trailing newline ends the final
+// splitRows breaks text into display rows, a trailing newline ends the final
 // row rather than opening a new empty one
 export function splitRows(value: string): string[] {
   const rows = value.split('\n')

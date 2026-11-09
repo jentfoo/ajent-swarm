@@ -68,7 +68,7 @@ export function initFrame(state: CtlState, entries: Entry[], cursor?: string): I
   return frame
 }
 
-// ev builds one wire event; data is the payload object control-api.md documents.
+// ev builds one wire event, data is the payload object control-api.md documents.
 export function ev(name: string, seq: number, data?: unknown): WireEvent {
   const event: WireEvent = { event: name, seq }
   if (data !== undefined) event.data = data

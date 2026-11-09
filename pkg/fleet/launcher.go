@@ -40,12 +40,12 @@ const (
 )
 
 // awaitPollEvery is the default registry poll cadence while awaiting a
-// launched child; Options.AwaitPoll overrides it.
+// launched child, Options.AwaitPoll overrides it.
 const awaitPollEvery = 250 * time.Millisecond
 
 // childProc tracks one ajent process swarm spawned: its record, its command
 // while it runs, and an exit channel closed once the process is reaped and
-// recorded. Adopted orphans carry no waitable command; their death is judged
+// recorded. Adopted orphans carry no waitable command, their death is judged
 // by pid.
 type childProc struct {
 	rec      ChildRecord
@@ -71,7 +71,7 @@ func reaped(cp *childProc) bool {
 
 // Launch spawns one headless ajent session as a child of the service and
 // waits, bounded, for its control socket to appear. The child joins its own
-// process group so it outlives the service; the registry record it writes
+// process group so it outlives the service, the registry record it writes
 // hands it to the manager for dialing. Nothing after the spawn depends on
 // ctx: bookkeeping always completes, so a child never launches half-known.
 func (m *Manager) Launch(ctx context.Context, req LaunchRequest) (LaunchResult, error) {
@@ -82,9 +82,7 @@ func (m *Manager) Launch(ctx context.Context, req LaunchRequest) (LaunchResult, 
 	if err := norm.validate(); err != nil {
 		return LaunchResult{}, err
 	}
-	// a resume target must name a recorded transcript before anything spawns:
-	// ajent resolves it against the workspace alone, and a sighting of a session
-	// whose recording was dropped on exit would fail the child after the fact.
+	// spawn nothing for a target whose transcript ajent already dropped
 	if norm.Mode == LaunchResume && !strings.HasSuffix(norm.Target, resumePathSuffix) {
 		if _, err := m.savedRow(norm.Target); errors.Is(err, ErrUnknownSaved) {
 			return LaunchResult{}, err
@@ -148,8 +146,7 @@ func (m *Manager) spawnLocked(req LaunchRequest) (*childProc, error) {
 		_ = os.Remove(logf.Name())
 		return nil, fmt.Errorf("spawn ajent: %w", err)
 	}
-	// the child holds its inherited fd from here, so the parent's copy can
-	// close once the log moved to the child's pid name
+	// the child inherits its own fd, the parent's closes after the rename
 	path := filepath.Join(m.childrenDir, strconv.Itoa(cmd.Process.Pid)+logSuffix)
 	if err := os.Rename(logf.Name(), path); err != nil {
 		path = logf.Name()
@@ -349,19 +346,16 @@ func (m *Manager) publishChildEvent(sessionID string, frame ChildFrame) {
 }
 
 // StopSession ends a session: /exit through the control connection first,
-// then SIGTERM and SIGKILL for children swarm spawned; external sessions end
+// then SIGTERM and SIGKILL for children swarm spawned, external sessions end
 // through /exit alone, since swarm never signals a process it did not spawn.
 // ctx bounds only the control calls. Stopping an already-exited session
-// succeeds quietly; no other path tears children down (KillOnExit excepted).
+// succeeds quietly, no other path tears children down (KillOnExit excepted).
 func (m *Manager) StopSession(ctx context.Context, sessionID string) error {
 	a := m.route(sessionID)
 	pid := 0
 	m.mu.Lock()
 	cp := m.childBySession[sessionID]
-	// a recorded exit counts only with the pid provably gone: a stale row
-	// (an older run of a relaunched session) must never read as stopped while
-	// the live process serves on. A live actor behind one is an external
-	// resume of the transcript, not that child, so /exit alone applies.
+	// trust a recorded exit only with the pid gone, a live actor is a new resume
 	if cp != nil && !cp.rec.ExitedAt.IsZero() && pidGone(cp.rec.PID) {
 		if a == nil {
 			m.mu.Unlock()
@@ -503,8 +497,7 @@ func (m *Manager) adopt(ctx context.Context) {
 			cp := &childProc{rec: rec, adopted: running, exit: make(chan struct{})}
 			m.children[rec.PID] = cp
 			if rec.SessionID != "" {
-				// a relaunched session keeps one row per run: the live row must win
-				// the session lookup or stop reads the dead row and quietly no-ops
+				// the live row wins the session lookup, else stop reads the dead row
 				cur, ok := m.childBySession[rec.SessionID]
 				if !ok || (running && !cur.rec.ExitedAt.IsZero()) {
 					m.childBySession[rec.SessionID] = cp
@@ -555,7 +548,7 @@ func (m *Manager) reconcileAdopted() {
 	}
 }
 
-// killChildren terminates every running child; used only when the operator
+// killChildren terminates every running child, used only when the operator
 // asked the service to take its children down on exit.
 func (m *Manager) killChildren() {
 	m.mu.Lock()

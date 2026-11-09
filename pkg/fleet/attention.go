@@ -9,7 +9,7 @@ import (
 )
 
 // Attention kinds carried by the digest, one per live session row. The
-// derivation below is the one transcription of the rules; clients render the
+// derivation below is the one transcription of the rules, clients render the
 // kind, reason and wait verbatim instead of re-deriving them.
 const (
 	AttentionNeedsInput  = "needs-input"  // an open dialog wants an answer
@@ -29,7 +29,7 @@ type AckStore interface {
 	// AckDialog settles one dialog, keyed by session plus pid so twin
 	// instances and restarted processes never settle each other's dialogs.
 	AckDialog(ctx context.Context, sessionID string, pid int, dialogID uint64, at time.Time) error
-	// AckTurn advances one session's acknowledged turn-end watermark; the
+	// AckTurn advances one session's acknowledged turn-end watermark, the
 	// stored value only ever moves forward.
 	AckTurn(ctx context.Context, sessionID string, turnEnd int64, at time.Time) error
 	// DialogAcks returns every stored dialog acknowledgment.
@@ -215,7 +215,7 @@ func deriveAttention(st *Status, acks ackFacts) Attention {
 }
 
 // stopReasonText renders one turn end as the digest's one-line reason. Mirrors
-// describeStop in web/src/workspace/attention.ts; keep them in step.
+// describeStop in web/src/workspace/attention.ts, keep them in step.
 func stopReasonText(stop, stopErr string) string {
 	if stopErr != "" {
 		return "turn failed"

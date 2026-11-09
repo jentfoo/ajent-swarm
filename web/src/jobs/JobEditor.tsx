@@ -18,7 +18,7 @@ import {
 } from './schedule'
 import { ModalShell } from '../ui/ModalShell'
 
-// Timezone candidates for the daily picker; free text always works. The IANA
+// Timezone candidates for the daily picker, free text always works. The IANA
 // list never changes within a page load, so it memoizes at module scope rather
 // than rebuilding per keystroke in the editor.
 let timezoneMemo: string[] | undefined
@@ -28,14 +28,14 @@ function timezoneCandidates(): string[] {
     const zones = Intl.supportedValuesOf?.('timeZone')
     if (zones && zones.length > 0) return (timezoneMemo = [...zones])
   } catch {
-    // Engines without the API answer nothing; typing a zone still works.
+    // Engines without the API answer nothing, typing a zone still works.
   }
   return (timezoneMemo = [])
 }
 
 // JobEditor is the one form for creating and editing jobs: launch facts
-// mirroring the launcher, then trigger — schedule plus its optional pre-run
-// command — prompt, missed-run policy, timeout and keep-alive. The next three
+// mirroring the launcher, then trigger (schedule plus its optional pre-run
+// command), prompt, missed-run policy, timeout and keep-alive. The next three
 // fire times preview live through POST /api/jobs/preview, which also checks the
 // workspace path.
 export function JobEditor({
@@ -66,7 +66,7 @@ export function JobEditor({
   const [saveError, setSaveError] = useState('')
 
   // Debounced draft preview: the backend owns scheduling semantics and checks
-  // the workspace against its own filesystem; further edits abort in flight.
+  // the workspace against its own filesystem, further edits abort in flight.
   useEffect(() => {
     const controller = new AbortController()
     const timer = setTimeout(async () => {
@@ -122,7 +122,7 @@ export function JobEditor({
   }
 
   // no resetKey: the jobs poll rebuilds row objects every load, so an object
-  // key would void the arm mid-window; route swaps remount this form disarmed
+  // key would void the arm mid-window, route swaps remount this form disarmed
   const confirm = useArmedConfirm(() => void remove(), { disabled: saving })
 
   return (

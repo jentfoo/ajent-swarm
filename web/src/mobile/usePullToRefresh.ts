@@ -4,7 +4,7 @@ import type { RefObject } from 'react'
 import { scrollableUnder } from './scrollable'
 
 // pullRefreshPx is how far a downward drag past the top must travel for its
-// release to count as a refresh; matched with the transcript's pull-to-latest
+// release to count as a refresh, matched with the transcript's pull-to-latest
 // threshold so mobile gestures feel alike.
 const pullRefreshPx = 64
 
@@ -16,7 +16,7 @@ const pullRefreshPx = 64
 // touch events only, so pointer scrolling never sees them, and no handler
 // blocks default behavior, so normal scrolling is intact.
 //
-// surface is the ref of the element bounding where gestures may start; returns
+// surface is the ref of the element bounding where gestures may start, returns
 // true from a qualifying release until every refresh settles.
 export function usePullToRefresh(
   surface: RefObject<HTMLDivElement | null>,
@@ -49,7 +49,7 @@ export function usePullToRefresh(
       try {
         await onRefreshRef.current()
       } catch {
-        // screens report their own failures; the gesture only marks progress
+        // screens report their own failures, the gesture only marks progress
       } finally {
         busy = false
         setRefreshing(false)
@@ -57,7 +57,7 @@ export function usePullToRefresh(
     }
 
     const begin = (ev: TouchEvent) => {
-      // one fresh finger seeds a candidate; anything else (a second touch
+      // one fresh finger seeds a candidate, anything else (a second touch
       // landing mid-gesture, a pinch) kills the pending one
       const t = ev.touches.length === 1 ? ev.touches[0] : undefined
       startY = t?.clientY ?? null

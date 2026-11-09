@@ -47,7 +47,7 @@ var ErrLiveRun = errors.New("previous run is still active")
 var ErrCapacity = errors.New("global run limit reached")
 
 // Job is one row of the jobs table: what to launch, when and how. NextRunAt
-// is nil while the job is disabled or has nothing left to fire; a zero
+// is nil while the job is disabled or has nothing left to fire, a zero
 // TimeoutMinutes runs without one.
 type Job struct {
 	ID                  int64      `json:"id"`
@@ -66,22 +66,22 @@ type Job struct {
 	ScheduleKind        string     `json:"scheduleKind"`     // once, interval or daily
 	IntervalSeconds     int        `json:"intervalSeconds,omitempty"`
 	DailyTime           string     `json:"dailyTime,omitempty"` // HH:MM wall clock in TZ
-	TZ                  string     `json:"tz,omitempty"`        // IANA name; empty means server local
-	Weekdays            string     `json:"weekdays,omitempty"`  // sun..sat; empty = every day
+	TZ                  string     `json:"tz,omitempty"`        // IANA name, empty means server local
+	Weekdays            string     `json:"weekdays,omitempty"`  // sun..sat, empty = every day
 	NextRunAt           *time.Time `json:"nextRunAt"`
 	OnMissed            string     `json:"onMissed"`
 	Overlap             string     `json:"overlap"`
 	TimeoutMinutes      int        `json:"timeoutMinutes,omitempty"`
 	KeepAlive           bool       `json:"keepAlive"`
 	RunWhenIdle         bool       `json:"runWhenIdle"`                   // fire only when idle
-	IdleMaxDelaySeconds int        `json:"idleMaxDelaySeconds,omitempty"` // idle wait cap; 0=forever
+	IdleMaxDelaySeconds int        `json:"idleMaxDelaySeconds,omitempty"` // idle wait cap, 0=forever
 	TriggerCommand      string     `json:"triggerCommand,omitempty"`      // pre-launch shell gate
 	TriggerOn           string     `json:"triggerOn,omitempty"`           // success (zero) or error
 	CreatedAt           time.Time  `json:"createdAt"`
 }
 
 // Run is one row of the runs table: a single fire of a job, manual or
-// scheduled. SessionID stays empty until the launch path returned one; a run
+// scheduled. SessionID stays empty until the launch path returned one, a run
 // skipped before launching never gets one.
 type Run struct {
 	ID         int64      `json:"id"`
@@ -95,7 +95,7 @@ type Run struct {
 	Error      string     `json:"error,omitempty"`
 }
 
-// CreateJob inserts one job row and returns its id; a duplicate name reports
+// CreateJob inserts one job row and returns its id, a duplicate name reports
 // ErrConflict.
 func (s *Store) CreateJob(ctx context.Context, j Job) (int64, error) {
 	const q = `INSERT INTO jobs
@@ -286,7 +286,7 @@ func scanJob(row interface{ Scan(...any) error }) (Job, error) {
 // StartScheduledFire claims one due fire atomically: the optimistic
 // next_run_at update and the run row land in one transaction, so restarts and
 // concurrent triggers never double-fire. The claimed slot must still equal
-// expectedNext; a lost claim returns claimed false without touching anything.
+// expectedNext, a lost claim returns claimed false without touching anything.
 // A job whose skip-if-running policy finds a live previous run, or a fire past
 // maxConcurrent live runs overall, records status skipped with the reason.
 func (s *Store) StartScheduledFire(ctx context.Context, jobID int64,
@@ -370,7 +370,7 @@ func (s *Store) BeginManualRun(ctx context.Context, jobID int64,
 	return id, tx.Commit()
 }
 
-// countLiveRunsTx counts running or awaiting runs, optionally one job's only;
+// countLiveRunsTx counts running or awaiting runs, optionally one job's only,
 // a zero jobID counts across every job. tx must be live.
 func countLiveRunsTx(ctx context.Context, tx *sql.Tx, jobID int64) (int64, error) {
 	q := `SELECT COUNT(*) FROM runs WHERE status IN ` + liveRunStatuses
@@ -523,7 +523,7 @@ func (s *Store) PruneAbandonedQueued(ctx context.Context) (int64, error) {
 }
 
 // PruneRuns deletes run rows older than cutoff and then keeps at most keepMax
-// of the newest; zero keepMax skips the count cap. A zero cutoff skips the age
+// of the newest, zero keepMax skips the count cap. A zero cutoff skips the age
 // prune. Returns how many rows went.
 func (s *Store) PruneRuns(ctx context.Context, cutoff time.Time, keepMax int) (int64, error) {
 	var total int64
@@ -572,7 +572,7 @@ func scanRun(row interface{ Scan(...any) error }) (Run, error) {
 	return r, nil
 }
 
-// unixMilli converts a time to stored unix milliseconds; the zero time
+// unixMilli converts a time to stored unix milliseconds, the zero time
 // stores 0. Run rows keep millisecond precision: run durations are visible.
 func unixMilli(t time.Time) int64 {
 	if t.IsZero() {
@@ -581,7 +581,7 @@ func unixMilli(t time.Time) int64 {
 	return t.UnixMilli()
 }
 
-// fromUnixMilli restores a time from stored unix milliseconds; 0 reads back
+// fromUnixMilli restores a time from stored unix milliseconds, 0 reads back
 // as the zero time.
 func fromUnixMilli(ms int64) time.Time {
 	if ms == 0 {
@@ -590,7 +590,7 @@ func fromUnixMilli(ms int64) time.Time {
 	return time.UnixMilli(ms)
 }
 
-// unixMilliOrZero writes an optional run timestamp; nil stores 0.
+// unixMilliOrZero writes an optional run timestamp, nil stores 0.
 func unixMilliOrZero(t *time.Time) int64 {
 	if t == nil || t.IsZero() {
 		return 0
@@ -606,7 +606,7 @@ func boolInt(b bool) int64 {
 	return 0
 }
 
-// unixSecPtr converts an optional time to stored unix seconds; nil and the
+// unixSecPtr converts an optional time to stored unix seconds, nil and the
 // zero time both store NULL.
 func unixSecPtr(t *time.Time) any {
 	if t == nil || t.IsZero() {

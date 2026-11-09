@@ -61,7 +61,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   )
 
   // the ack lands server-side, then the digest re-reads so this device's rows
-  // settle immediately too; a failed POST leaves the row raised, and the next
+  // settle immediately too, a failed POST leaves the row raised, and the next
   // check-off is the retry
   const acknowledge = useCallback(
     (body: AttentionAck) => {
@@ -75,7 +75,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   const acknowledgeDialog = useCallback(
     (sessionId: string, dialogId: number) => {
-      // twin instances share a session id; the digest row names the pid
+      // twin instances share a session id, the digest row names the pid
       const pid = attention.find((row) => row.sessionId === sessionId)?.pid
       acknowledge({ sessionId, pid, dialogId })
     },
@@ -110,7 +110,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   }, [ranked.needsInputCount])
 
   // Notification clicks arrive from the OS tray, outside React's flow: focus
-  // the window, then navigate; both shells route /s/:sessionId.
+  // the window, then navigate, both shells route /s/:sessionId.
   const openSession = useCallback(
     (sessionId: string) => {
       window.focus()

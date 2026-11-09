@@ -20,7 +20,7 @@ const base = (overrides: Partial<InteractionPending>): InteractionPending => ({
 
 const noop = () => {}
 
-// renderDock mounts one dock shape; autoFocusDialogs false stands in for a
+// renderDock mounts one dock shape, autoFocusDialogs false stands in for a
 // background pane. Returns the view so a case can rerender the stack.
 function renderDock(dialogs: InteractionPending[], autoFocusDialogs?: boolean) {
   return render(
@@ -206,8 +206,8 @@ describe('DialogDock shape mapping', () => {
 
 // The permit note flow: "Allow with note" is hidden behind the card's own
 // input, a typed note riding Allow or Deny and recording an intent that
-// resolves the barrier's follow-up ask — typed text as the note, empty deny
-// cancels it — without ever rendering. Without an intent the ask renders for
+// resolves the barrier's follow-up ask (typed text as the note, empty deny
+// cancels it) without ever rendering. Without an intent the ask renders for
 // hand answering.
 describe('DialogDock permit note flow', () => {
   const permitDialog = (id: number): InteractionPending => ({
@@ -361,7 +361,7 @@ describe('DialogDock permit note flow', () => {
 
     rerenderWith([followUpAsk(8, 'reason for denying')])
     await vi.waitFor(() => expect(bodies).toHaveLength(2))
-    // the intent is spent; the ask renders for hand answering instead of vanishing
+    // the intent is spent, the ask renders for hand answering instead of vanishing
     expect(await screen.findByText('reason for denying')).toBeInTheDocument()
   })
 
@@ -451,7 +451,7 @@ describe('DialogDock option digit badges', () => {
 
 // Digit answers: while the focused pane's head card answers by option index,
 // 1..9 pick that option through the same resolve path as a click, and every
-// other shape — inputs, multi lists, background panes — leaves the digits to
+// other shape (inputs, multi lists, background panes) leaves the digits to
 // the workspace jumps.
 describe('DialogDock digit answers', () => {
   // labels clear of decisionNote's permit markers, so the card has no note input
@@ -568,7 +568,7 @@ describe('DialogDock digit answers', () => {
 
 // Focus policy (dialog-focus-policy.md): autofocus belongs to the focused pane,
 // and within a focused dock only the head card takes the caret, on mount. A
-// text dialog exercises the rule; the secret variant shares the same path.
+// text dialog exercises the rule, the secret variant shares the same path.
 describe('DialogDock focus policy', () => {
   const textDialog = (id: number): InteractionPending => ({
     id,
@@ -631,7 +631,7 @@ describe('DialogDock focus policy', () => {
 
   it('never promotes a stacked answer to the caret', () => {
     const view = renderDock([textDialog(1), textDialog(2)])
-    // the head settles elsewhere; its neighbor was mounted unfocused and stays so
+    // the head settles elsewhere, its neighbor was mounted unfocused and stays so
     view.rerender(
       <DialogDock
         sessionId="01S"
@@ -653,7 +653,7 @@ async function coarseDock(): Promise<typeof DialogDock> {
 }
 
 describe('DialogDock secret press', () => {
-  // the desktop card's answer input carries no label; the card's id finds it
+  // the desktop card's answer input carries no label, the card's id finds it
   const secretInput = () => document.querySelector<HTMLInputElement>('[data-dialog-id="42"] input')!
 
   afterEach(() => {

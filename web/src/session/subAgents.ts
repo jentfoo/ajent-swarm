@@ -117,7 +117,7 @@ function segmentCounts(segment: Segment | undefined): SegmentCounts {
 }
 
 // SubAgentTally is the status bar badge's count set. Live jobs count from the
-// activity rows, the ground truth every terminal path clears; completions
+// activity rows, the ground truth every terminal path clears, completions
 // read the structured counts when the segment carries them.
 interface SubAgentTally {
   active: number
@@ -175,7 +175,7 @@ export function stoppableJob(job: AgentJob | undefined): boolean {
   return job === undefined || job.status === 'queued' || job.status === 'running'
 }
 
-// agentJobStatusClass maps a job's status onto the badge color classes;
+// agentJobStatusClass maps a job's status onto the badge color classes
 // unknown statuses render plain, since vocabulary additions are additive.
 export function agentJobStatusClass(status: AgentJobStatus): string {
   switch (status) {
@@ -192,7 +192,7 @@ export function agentJobStatusClass(status: AgentJobStatus): string {
   }
 }
 
-// formatElapsed renders a job's elapsed time compactly (45s, 2m05s, 1h03m);
+// formatElapsed renders a job's elapsed time compactly (45s, 2m05s, 1h03m)
 // absent or negative elapsed reads empty.
 export function formatElapsed(ms: number | undefined): string {
   if (ms === undefined || ms < 0) return ''

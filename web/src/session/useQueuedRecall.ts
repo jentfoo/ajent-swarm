@@ -10,7 +10,7 @@ export interface UseQueuedRecallOptions {
   // canRecall gates claiming the press: with nothing queued, or while a dialog
   // holds input, Alt+ArrowUp stays free for other bindings.
   canRecall: boolean
-  // enabled marks the surface the viewer is on; background tile panes stand down.
+  // enabled marks the surface the viewer is on, background tile panes stand down.
   enabled?: boolean
 }
 
@@ -35,7 +35,7 @@ export function useQueuedRecall({
 
   useEffect(() => {
     if (!enabled) return
-    // touch keyboards have no Alt; read per mount so tests can stub the device
+    // touch keyboards have no Alt, read per mount so tests can stub the device
     if (window.matchMedia('(pointer: coarse)').matches) return
 
     const onKey = (ev: KeyboardEvent) => {

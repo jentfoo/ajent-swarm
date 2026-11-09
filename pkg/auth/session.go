@@ -24,8 +24,7 @@ func (s *Service) Login(ctx context.Context, username, password string) (string,
 	} else if err != nil {
 		return "", err
 	}
-	// an empty hash means never bootstrapped; skip the bcrypt call, which
-	// would only reject the malformed hash
+	// empty hash: never bootstrapped, bcrypt would reject it anyway
 	if u.PasswordHash == "" || bcrypt.CompareHashAndPassword(
 		[]byte(u.PasswordHash), []byte(password)) != nil {
 		return "", ErrInvalidCredentials
@@ -91,7 +90,7 @@ func (s *Service) SessionCookie(raw string) *http.Cookie {
 		Path:     "/",
 		MaxAge:   int(s.ttl.Seconds()),
 		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode, // blocks cross-site posts; the service is same-origin
+		SameSite: http.SameSiteLaxMode, // blocks cross-site posts, the service is same-origin
 	}
 }
 

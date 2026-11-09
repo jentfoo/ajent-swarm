@@ -13,7 +13,7 @@ interface ArmedFacts {
 }
 
 // ArmedConfirm is one armed control's handlers: onClick arms when idle and
-// confirms when armed; onBlur disarms, wired to the button's own blur.
+// confirms when armed, onBlur disarms, wired to the button's own blur.
 interface ArmedConfirm {
   armed: boolean
   onClick: (ev?: ReactMouseEvent<HTMLElement>) => void
@@ -49,7 +49,7 @@ export function useArmedConfirm(
   onConfirm: () => void,
   { disabled = false, resetKey }: ArmedConfirmOptions = {},
 ): ArmedConfirm {
-  // null is disarmed; the arm only holds while its exact facts still do, so a
+  // null is disarmed, the arm only holds while its exact facts still do, so a
   // poll re-render or a disabled transition voids it without a reset effect
   const [armedFacts, setArmedFacts] = useState<ArmedFacts | null>(null)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -70,7 +70,7 @@ export function useArmedConfirm(
 
   useEffect(() => disarm, [disarm])
 
-  // scroll does not bubble, but capture still sees every scroller's event; the
+  // scroll does not bubble, but capture still sees every scroller's event, the
   // arm survives unless the scrolling carried the armed control out of view
   useEffect(() => {
     if (!armed) return
@@ -105,7 +105,7 @@ export function useArmedConfirm(
   const onBlur = useCallback(
     (ev?: ReactFocusEvent<HTMLElement>) => {
       // focus with nowhere in-document to land (alt-tab, a click on plain page
-      // area, focus-follows-mouse crossing windows) is not a changed mind;
+      // area, focus-follows-mouse crossing windows) is not a changed mind
       // only a move onto another control voids the arm
       if (ev && ev.relatedTarget === null) return
       disarm()

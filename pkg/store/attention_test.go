@@ -56,7 +56,7 @@ func TestAckDialog(t *testing.T) {
 				sessionB = append(sessionB, r.DialogID)
 			}
 		}
-		// the two oldest of 01A dropped; 01B keeps everything
+		// the two oldest of 01A dropped, 01B keeps everything
 		assert.Len(t, sessionA, maxDialogAcksPerSession)
 		assert.NotContains(t, sessionA, uint64(1))
 		assert.NotContains(t, sessionA, uint64(2))

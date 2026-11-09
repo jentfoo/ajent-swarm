@@ -25,7 +25,7 @@ func TestMailboxCall(t *testing.T) {
 		a := newStoppedActor(t)
 
 		errCh := make(chan error, 1)
-		go func() { // the send lands in the buffered mailbox; no run loop replies
+		go func() { // the send lands in the buffered mailbox, no run loop replies
 			_, err := mailboxCall(t.Context(), a,
 				func(reply chan error) actorMsg { return msgStop{reply: reply} })
 			errCh <- err

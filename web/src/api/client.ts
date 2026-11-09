@@ -1,5 +1,5 @@
 // Typed fetch wrapper over the REST surface. Cookie auth rides
-// automatically on same-origin calls; every failure surfaces as an ApiError
+// automatically on same-origin calls, every failure surfaces as an ApiError
 // carrying the backend's structured body, never a flattened string.
 
 export class ApiError extends Error {
@@ -52,7 +52,7 @@ async function parseBody(res: Response): Promise<unknown> {
   }
 }
 
-// errorBody reads the standard envelope off a failed response; any other body
+// errorBody reads the standard envelope off a failed response, any other body
 // shape still surfaces with its status and a generic code.
 async function errorBody(res: Response): Promise<ApiError> {
   const retryAfter = retryAfterOf(res)
@@ -71,7 +71,7 @@ async function errorBody(res: Response): Promise<ApiError> {
 }
 
 // retryAfterOf reads the Retry-After delta-seconds form, the only one swarm
-// sends; absent or unusable answers undefined
+// sends, absent or unusable answers undefined
 function retryAfterOf(res: Response): number | undefined {
   const secs = Number(res.headers.get('retry-after'))
   if (!Number.isFinite(secs) || secs <= 0) return undefined
@@ -96,7 +96,7 @@ export async function request<T>(path: string, opts: RequestOptions = {}): Promi
   return unwrap<T>(res)
 }
 
-// postForm uploads one multipart body; the browser supplies the boundary.
+// postForm uploads one multipart body, the browser supplies the boundary.
 export async function postForm<T>(path: string, form: FormData): Promise<T> {
   let res: Response
   try {

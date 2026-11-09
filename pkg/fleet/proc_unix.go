@@ -21,7 +21,7 @@ func procAttrs() *syscall.SysProcAttr {
 }
 
 // signalGroup signals the child's whole process group. The child is the
-// group leader, so -pid addresses exactly it and its subprocesses; adopted
+// group leader, so -pid addresses exactly it and its subprocesses, adopted
 // orphans keep the group their spawning service gave them.
 func signalGroup(pid int, sig syscall.Signal) error {
 	return syscall.Kill(-pid, sig)

@@ -7,7 +7,7 @@ import { RewindDialog } from '../session/RewindDialog'
 import type { RewindCandidates } from '../api/types'
 
 // The sheet is the phone chrome over the shared picker body: the same rows the
-// desktop dialog lists — every kind, the server's tree order, no cap — a
+// desktop dialog lists (every kind, the server's tree order, no cap), a
 // pending notice until they arrive, and the full pick contract on tap: success
 // toast, truncation warning before the prefill, close.
 

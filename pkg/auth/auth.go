@@ -26,7 +26,7 @@ const (
 	defaultTTL   = 7 * 24 * time.Hour
 	defaultSlide = time.Hour
 
-	// MaxPasswordBytes is bcrypt's hard input limit; longer inputs cannot hash.
+	// MaxPasswordBytes is bcrypt's hard input limit, longer inputs cannot hash.
 	MaxPasswordBytes = 72
 )
 
@@ -97,7 +97,7 @@ func WithSessionTTL(ttl, slideEvery time.Duration) Option {
 	return func(s *Service) { s.ttl, s.slideEvery = ttl, slideEvery }
 }
 
-// WithBcryptCost overrides the hashing work factor; tests use it to skip the
+// WithBcryptCost overrides the hashing work factor, tests use it to skip the
 // production cost's latency.
 func WithBcryptCost(cost int) Option {
 	return func(s *Service) { s.bcryptCost = cost }
@@ -122,7 +122,7 @@ func NewService(st *store.Store, opts ...Option) (*Service, error) {
 	s.bootstrapped = ok
 	u, err := st.SoleUser(context.Background())
 	switch {
-	case errors.Is(err, store.ErrNotFound): // not seeded yet; EnsureUser runs next
+	case errors.Is(err, store.ErrNotFound): // not seeded yet, EnsureUser runs next
 	case err != nil:
 		return nil, fmt.Errorf("read sole user: %w", err)
 	default:

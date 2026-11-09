@@ -16,7 +16,7 @@ interface LongPressHandlers {
   onPointerCancel: () => void
 }
 
-// useLongPress fires after a held touch; any early release or pointer leaving
+// useLongPress fires after a held touch, any early release or pointer leaving
 // cancels it, so scrolling the sheet never triggers a rename. A fired hold
 // also swallows the tap its release synthesizes, wherever that click lands,
 // so holding to rename does not read as opening the row underneath.
@@ -74,7 +74,7 @@ export function useLongPress(onLongPress: () => void): LongPressHandlers {
     stopClickBlock.current = stop
   }
 
-  // release ends the gesture; after a fired hold it also arms the blocker,
+  // release ends the gesture, after a fired hold it also arms the blocker,
   // since mice have no pointer capture and their release can land outside the
   // row entirely, retargeting the trailing click onto a common ancestor.
   const release = () => {

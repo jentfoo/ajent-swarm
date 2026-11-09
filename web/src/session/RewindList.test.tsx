@@ -7,7 +7,7 @@ import type { RewindCandidates } from '../api/types'
 
 // The shared picker body both chromes ride: every kind lists in the server's
 // tree order, the keyboard cursor answers only when asked, and one pick
-// rewinds, toasts, prefills and closes — or surfaces the refusal and stays.
+// rewinds, toasts, prefills and closes, or surfaces the refusal and stays.
 
 const ago = (minutes: number): number => Date.now() - minutes * 60_000
 

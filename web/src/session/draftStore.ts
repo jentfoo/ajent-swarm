@@ -1,13 +1,13 @@
 // Per-session composer drafts persisted in localStorage, keyed by sessionId.
 // Every change writes through, so a reload, an auth round trip or a session
-// switch finds the text where typing left off; clearing happens only when a
+// switch finds the text where typing left off, clearing happens only when a
 // submit is accepted (composer-draft-policy.md). Reads and writes are best
 // effort: corrupt storage, quota pressure and privacy modes degrade to drafts
 // that merely live shorter.
 
 const storageKey = 'swarm.drafts.v1'
 
-// Oversize drafts skip persistence; the bound keeps one runaway draft from
+// Oversize drafts skip persistence, the bound keeps one runaway draft from
 // pressuring the localStorage quota shared with every other store.
 const maxStoredChars = 512 * 1024
 
@@ -27,7 +27,7 @@ function readAll(): Record<string, string> {
   }
 }
 
-// One read per page load; writes keep the map current, so views can remount
+// One read per page load, writes keep the map current, so views can remount
 // without re-parsing storage.
 const drafts = new Map<string, string>()
 function reload(): void {
@@ -55,7 +55,7 @@ export function readDraft(sessionId: string): string {
   return drafts.get(sessionId) ?? ''
 }
 
-// writeDraft stores one session's draft; an empty text drops the key. Oversize
+// writeDraft stores one session's draft, an empty text drops the key. Oversize
 // texts stay in memory but never persist, and any older stored copy is dropped
 // so a reload cannot restore it as if current.
 export function writeDraft(sessionId: string, text: string): void {

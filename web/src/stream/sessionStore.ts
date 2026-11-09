@@ -2,7 +2,7 @@
 // subscribes the shared stream once per session, applies frames with the one
 // watermark machine, resnapshots poll-only facts and heals branch changes.
 //
-// Views acquire and release sessions; a small LRU of recently viewed sessions
+// Views acquire and release sessions, a small LRU of recently viewed sessions
 // stays subscribed and warm after their last view unmounts, so switching in
 // the focus queue or re-tiling is instant and a resnapshot only happens on real
 // reconnects. Multiple views of one session share one store entry, one
@@ -47,7 +47,7 @@ export class SessionStore {
     this.stream = stream
   }
 
-  // acquire registers one mounted view; the returned release is idempotent.
+  // acquire registers one mounted view, the returned release is idempotent.
   acquire(sessionId: string): () => void {
     const entry = this.ensureEntry(sessionId)
     entry.refs += 1
@@ -89,7 +89,7 @@ export class SessionStore {
   }
 
   // loadOlder pages one block of committed history older than what we hold. A
-  // dry or failed read leaves state untouched; the result says which happened.
+  // dry or failed read leaves state untouched, the result says which happened.
   async loadOlder(sessionId: string): Promise<LoadOlderResult> {
     const entry = this.entries.get(sessionId)
     if (!entry || entry.state.chain.oldestId === '') return { kind: 'dry' } // nothing to page from
@@ -106,7 +106,7 @@ export class SessionStore {
     }
   }
 
-  // dispose stops every timer and subscription; used by provider cleanup.
+  // dispose stops every timer and subscription, used by provider cleanup.
   // A later acquire revives the store, matching the stream client's contract.
   dispose(): void {
     for (const entry of [...this.entries.values()]) {
@@ -152,7 +152,7 @@ export class SessionStore {
     if (!entry) return
     entry.refs = Math.max(0, entry.refs - 1)
     if (entry.refs > 0) return
-    // Keep recent sessions warm; evict the coldest unreferenced ones beyond cap.
+    // Keep recent sessions warm, evict the coldest unreferenced ones beyond cap.
     const warm = [...this.entries].filter(([, e]) => e.refs === 0)
     const excess = Math.max(0, warm.length - maxWarm)
     for (const [id, cold] of warm.slice(0, excess)) {
@@ -198,7 +198,7 @@ export class SessionStore {
     }, resnapshotAfterTurnMs)
   }
 
-  // resnapshot merges the poll-only facts; skipped while the tab is hidden,
+  // resnapshot merges the poll-only facts, skipped while the tab is hidden,
   // mirroring the digest polls, and for sessions that ended for good. A read
   // that raced a stream rebuild drops: init replaced state wholesale, so the
   // response predates what the client now holds. A reply a newer request
@@ -224,7 +224,7 @@ export class SessionStore {
     }
   }
 
-  // heal pages older history back until the new branch roots locally; a dry
+  // heal pages older history back until the new branch roots locally, a dry
   // server or a network miss falls back to the stream's full resync.
   private async heal(sessionId: string, entry: StoreEntry): Promise<void> {
     const token = ++entry.healToken
@@ -260,7 +260,7 @@ const emptyState = initialSessionState()
 // digestSignature folds one applied state down to the facts the attention
 // digest ranks on: the open dialog set, busy flags and the last turn end. A
 // change between two states means the focus queue may re-sort, so only those
-// transitions are worth an out-of-band digest refresh; transcript and
+// transitions are worth an out-of-band digest refresh, transcript and
 // activity churn keep riding the poll cadence.
 function digestSignature(state: AppliedSessionState): string {
   const snap = state.snapshot

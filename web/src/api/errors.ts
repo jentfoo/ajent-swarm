@@ -2,7 +2,7 @@ import { ApiError } from './client'
 
 // describeError renders a caught error as user-facing copy: ApiError codes map
 // through the table below, unknown codes keep the server's detail, anything
-// else answers the fallback. Presentation only; branching stays on err.code.
+// else answers the fallback. Presentation only, branching stays on err.code.
 export function describeError(err: unknown, fallback: string): string {
   if (!(err instanceof ApiError)) return fallback
   const copy = errorCopy[err.code]
@@ -31,7 +31,7 @@ function rateLimitedCopy(err: ApiError): string {
 
 // Copy per error code: swarm's snake_case beside the hyphenated wire codes
 // ajent refusals keep. detailOr entries keep the server's reason so holder
-// names and causes survive; codes absent here render their detail, which
+// names and causes survive, codes absent here render their detail, which
 // ajent always words for people.
 const errorCopy: Record<string, ErrorCopy> = {
   invalid_credentials: 'Wrong username or password.',

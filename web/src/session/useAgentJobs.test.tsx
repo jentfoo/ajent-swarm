@@ -204,7 +204,7 @@ describe('useAgentJobs', () => {
     act(() => document.dispatchEvent(new Event('visibilitychange')))
     expect(parked).toHaveLength(2)
 
-    // the newer reply lists a live job; the stale pull's coded unavailable
+    // the newer reply lists a live job, the stale pull's coded unavailable
     // answer lands last and must not hide the surfaces
     parked[1](jsonResponse({ jobs: [job('sub-1', 'running')] }))
     await waitFor(() => expect(result.current.byId.get('sub-1')?.status).toBe('running'))

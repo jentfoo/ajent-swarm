@@ -29,10 +29,10 @@ interface SwarmContextValue {
   connection: SocketState
   theme: Theme
   setTheme: (theme: Theme) => void
-  // refreshSessions forces the discovery poll; label edits use it so rows
+  // refreshSessions forces the discovery poll, label edits use it so rows
   // re-render without waiting out the cadence.
   refreshSessions: () => Promise<void>
-  // refreshAttention forces the digest poll; acknowledgments use it so settled
+  // refreshAttention forces the digest poll, acknowledgments use it so settled
   // rows drop now instead of waiting out the cadence.
   refreshAttention: () => Promise<void>
 }
@@ -59,7 +59,7 @@ function useNewestPoll<T>(load: () => Promise<T[]>, commit: (rows: T[]) => void)
 // and the session state store, the discovery and attention polls feeding
 // badges and the focus queue, and the theme persisted in localStorage.
 export function SwarmProvider({ children }: { children: ReactNode }) {
-  // One stream per provider; StrictMode's simulated remount only disconnects
+  // One stream per provider, StrictMode's simulated remount only disconnects
   // it, and a fresh subscribe reconnects on demand.
   const [stream] = useState(() => new SwarmStream())
   useEffect(() => () => stream.disconnect(), [stream])
@@ -76,7 +76,7 @@ export function SwarmProvider({ children }: { children: ReactNode }) {
     [stream],
   )
   // Connect eagerly so the banner tracks the real socket even before a view
-  // subscribes; runs after the listener above to catch its transitions.
+  // subscribes, runs after the listener above to catch its transitions.
   useEffect(() => stream.connect(), [stream])
 
   const refreshSessions = useNewestPoll(fleet.sessions, setSessions)
@@ -84,14 +84,14 @@ export function SwarmProvider({ children }: { children: ReactNode }) {
 
   usePoll(() => void refreshSessions(), pollSessionsMs)
   // The digest keeps a slow background cadence so hidden tabs still raise
-  // notifications; everything else stays visible-only.
+  // notifications, everything else stays visible-only.
   usePoll(() => void refreshAttention(), pollAttentionMs, pollAttentionHiddenMs)
 
   // The chat pane updates straight off the stream, so the digest poll alone
   // leaves the focus queue re-sorting seconds behind what the user just saw.
   // Frames that move a session between queues (a dialog answered, a turn
   // started or ended) refresh the digest right away, keeping the rail in
-  // step with the chat; unrelated transcript churn still rides the poll.
+  // step with the chat, unrelated transcript churn still rides the poll.
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null
     const unsub = store.onDigestChange(() => {
@@ -113,12 +113,12 @@ export function SwarmProvider({ children }: { children: ReactNode }) {
       const raw = localStorage.getItem('swarm.theme')
       if (raw === 'dark' || raw === 'light') return raw
     } catch {
-      // Storage may be unavailable; the default applies.
+      // Storage may be unavailable, the default applies.
     }
     return preferredTheme()
   })
 
-  // index.html's head script applied this value before first paint; the
+  // index.html's head script applied this value before first paint, the
   // effect owns runtime changes, persistence and installed-chrome color.
   useEffect(() => {
     document.documentElement.dataset.theme = theme

@@ -1,6 +1,6 @@
 import type { SessionPhase } from '../stream/swarmStream'
 
-// phaseText is the one sentence per transient session phase; every banner that
+// phaseText is the one sentence per transient session phase, every banner that
 // explains why a session view has no live stream renders through it, so mobile
 // and desktop never drift apart. Live and ended render their own chrome and
 // answer empty.
@@ -18,7 +18,7 @@ export function phaseText(phase: SessionPhase): string {
 }
 
 // isTransientPhase marks the phases that show the shared banner and header
-// badge; live and ended render their own chrome.
+// badge, live and ended render their own chrome.
 export function isTransientPhase(phase: SessionPhase): boolean {
   return phase !== 'live' && phase !== 'ended'
 }

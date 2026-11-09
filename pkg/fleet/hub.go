@@ -23,7 +23,7 @@ const (
 // subscription is one viewer's seat on one session: a bounded queue drained by
 // its own forwarder, with ephemeral deltas coalesced behind the window so a
 // streaming turn costs one frame per batch instead of hundreds. mu guards the
-// publish side; hostKey lives under the manager lock.
+// publish side, hostKey lives under the manager lock.
 type subscription struct {
 	id        int64
 	sessionID string
@@ -39,7 +39,7 @@ type subscription struct {
 	mu      sync.Mutex
 	pending *stagedDelta
 	dropped bool
-	retired bool // replaced by its session's next instance; never greet again
+	retired bool // replaced by its session's next instance, never greet again
 }
 
 // stagedDelta is one coalescing message not yet enqueued: consecutive deltas
@@ -171,7 +171,7 @@ func (s *subscription) publishLocked(key string, ok bool, ev ctl.Event, frame []
 	}
 	if s.pending != nil {
 		if s.flushLocked() {
-			return true // the flush filled a full queue; stop here
+			return true // the flush filled a full queue, stop here
 		}
 	}
 	if ok {
@@ -226,7 +226,7 @@ func (s *subscription) flushLocked() bool {
 	return s.sendLocked(frame)
 }
 
-// sendLocked enqueues without ever blocking the actor; overflow drops and
+// sendLocked enqueues without ever blocking the actor, overflow drops and
 // reports it, so the caller fires onDrop outside the lock.
 func (s *subscription) sendLocked(frame []byte) bool {
 	select {
@@ -248,7 +248,7 @@ func (s *subscription) fireDrop() {
 }
 
 // close ends the subscription after an unsubscribe or teardown. Queued frames
-// are abandoned; clients reconcile from their next init.
+// are abandoned, clients reconcile from their next init.
 func (s *subscription) close() {
 	s.mu.Lock()
 	s.dropped = true
@@ -269,7 +269,7 @@ func (s *subscription) forward() {
 }
 
 // hub tracks one actor's subscribers. The map itself takes a lock because
-// stop() fans out from the manager goroutine; everything else still sequences
+// stop() fans out from the manager goroutine, everything else still sequences
 // through the actor mailbox, so per-subscriber order matches event order.
 type hub struct {
 	mu   sync.Mutex
@@ -278,7 +278,7 @@ type hub struct {
 
 func newHub() *hub { return &hub{subs: make(map[int64]*subscription)} }
 
-// attach registers a subscriber under the id its manager already assigned;
+// attach registers a subscriber under the id its manager already assigned,
 // one id namespace keeps detach and rebind lookups stable.
 func (h *hub) attach(sub *subscription) {
 	h.mu.Lock()
@@ -310,7 +310,7 @@ func (h *hub) snapshot() []*subscription {
 // publishEvent fans one upstream event out to every subscriber.
 func (h *hub) publishEvent(sessionID string, ev ctl.Event) {
 	frame := marshalEventFrame(sessionID, ev)
-	if frame == nil { // a required payload failed to encode; drop rather than corrupt
+	if frame == nil { // a required payload failed to encode, drop rather than corrupt
 		return
 	}
 	for _, sub := range h.snapshot() {
@@ -325,7 +325,7 @@ func (h *hub) publishChild(frame ChildFrame) {
 	}
 }
 
-// marshalEventFrame encodes one event frame; a payload that cannot encode is
+// marshalEventFrame encodes one event frame, a payload that cannot encode is
 // dropped rather than corrupting the stream, matching upstream's rule.
 func marshalEventFrame(sessionID string, ev ctl.Event) []byte {
 	if len(ev.Data) == 0 && needsData(ev.Name) {

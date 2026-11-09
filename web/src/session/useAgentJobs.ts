@@ -11,7 +11,7 @@ const pollLiveMs = 3_000
 
 // AgentJobs is what the sub-agent surfaces need from the pull listing:
 // records keyed by job id (sub-N, the activity row key) plus the guarded
-// stop fire. Rows and counts stay the push channels; this only adds the
+// stop fire. Rows and counts stay the push channels, this only adds the
 // per-job status, elapsed and stop affordances.
 export interface AgentJobs {
   byId: Map<string, AgentJob>
@@ -27,7 +27,7 @@ export interface AgentJobs {
 // useAgentJobs re-lists a session's sub-agent jobs while any job is live
 // (chips visible or tallies nonzero) and right after a stop, per the pull
 // contract: no event family carries job records, so reconnect needs no
-// re-sync beyond the next list. Listing failures leave the last records up;
+// re-sync beyond the next list. Listing failures leave the last records up
 // the coded unavailable answer alone hides the surfaces, and a refused stop
 // toasts.
 export function useAgentJobs(
@@ -41,13 +41,13 @@ export function useAgentJobs(
   const [stopping, setStopping] = useState(false)
   const live = jobsLive(activity, segments)
 
-  // listSeq orders pulls so only the newest reply commits; two overlapping
+  // listSeq orders pulls so only the newest reply commits, two overlapping
   // reads (a cadence tick racing a stop's relist) must never land an older
   // reply last. The effect cleanup bumps it too, dropping replies still in
   // flight across a teardown, which covers stop's signal-less relist.
   const listSeq = useRef(0)
 
-  // list reads one listing; the coded unavailable answer alone hides the
+  // list reads one listing, the coded unavailable answer alone hides the
   // surfaces, everything else stays silent since rows and counts stay
   // truthful via push.
   const list = useCallback(

@@ -8,7 +8,7 @@ import type { ArmedConfirmOptions } from './useArmedConfirm'
 // The arm/confirm guard for destructive buttons: one click arms, the second
 // confirms, and the timer, a focus move onto another control, a disabled
 // transition or fresh resetKey data disarms. Scroll voids the arm only once
-// it carries the control out of view; document-level focus loss keeps it.
+// it carries the control out of view, document-level focus loss keeps it.
 
 function scrollerScrolls() {
   const scroller = document.createElement('div')

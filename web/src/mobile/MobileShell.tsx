@@ -20,7 +20,7 @@ export default function MobileShell({ children }: { children: ReactNode }) {
   const { needsInputCount } = useWorkspace()
   const location = useLocation()
 
-  // Sessions lights on home itself and session views below it; any /jobs path
+  // Sessions lights on home itself and session views below it, any /jobs path
   // lights Jobs. Desktop-only paths (/focused, /tile, /sessions) redirect home
   // in AuthGate before rendering, so no extra rules are needed.
   const sessionsRoute = location.pathname === '/' || location.pathname.startsWith('/s/')

@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	// maxAttachmentBytes bounds one upload; vision models reject far larger
+	// maxAttachmentBytes bounds one upload, vision models reject far larger
 	// images, and the bytes land on local disk either way.
 	maxAttachmentBytes = 20 << 20
 
@@ -28,7 +28,7 @@ type attachmentReply struct {
 }
 
 // handleSessionAttachment stores one uploaded file for @-reference submits.
-// The body is multipart/form-data with a single "file" field; bytes are kept
+// The body is multipart/form-data with a single "file" field, bytes are kept
 // verbatim under <state>/attachments/<session id>/.
 func (s *apiServer) handleSessionAttachment(w http.ResponseWriter, r *http.Request) {
 	sessionID := sanitizeAttachmentName(r.PathValue("id"))
@@ -74,10 +74,10 @@ func (s *apiServer) handleSessionAttachment(w http.ResponseWriter, r *http.Reque
 }
 
 // attachmentName builds the stored file name: a timestamp and random token
-// keep concurrent uploads apart; only the extension survives from the client.
+// keep concurrent uploads apart, only the extension survives from the client.
 func attachmentName(now time.Time, original string) string {
 	var b [8]byte
-	rand.Read(b[:]) // crypto/rand never fails; nothing sensible to answer anyway
+	rand.Read(b[:]) // crypto/rand never fails, nothing sensible to answer anyway
 	name := now.UTC().Format("20060102-150405") + "-" + hex.EncodeToString(b[:])
 	if ext := sanitizeAttachmentExt(filepath.Ext(original)); ext != "" {
 		name += "." + ext
@@ -116,7 +116,7 @@ func sanitizeAttachmentName(name string) string {
 		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_':
 			b.WriteRune(r)
 		case r == '.':
-			if b.Len() > 0 { // an inner dot survives; a leading one never does
+			if b.Len() > 0 { // an inner dot survives, a leading one never does
 				b.WriteRune(r)
 			}
 		default: // drop anything path-like outright

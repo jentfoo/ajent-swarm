@@ -21,18 +21,13 @@ import {
 // answered elsewhere shows its real outcome as a resolved state, never an error.
 //
 // Permit cards hide ajent's "Allow with note" behind one optional note input:
-// a typed note rides the Allow or Deny pick, which answers at once and records
-// a pending intent so the barrier's follow-up ask auto-resolves
-// (decisionNote.ts) instead of reading as required input.
+// the typed note rides Allow or Deny and records a pending intent so the
+// barrier's follow-up ask auto-resolves (decisionNote.ts).
 //
-// Autofocus belongs to the focused pane only (dialog-focus-policy.md):
-// autoFocusDialogs marks the dock whose session holds keyboard focus, and only
-// that dock's head card may take the caret — on mount, so later arrivals and
-// background panes never steal it. Unfocused panes surface through attention.
-//
-// Digits follow the same focus rule live: while the focused pane's head card
-// answers by option index, 1..9 pick that option (dialogKeys.ts), so approvals
-// clear from the keys the way the rail jumps panes.
+// Autofocus belongs to the focused pane only (dialog-focus-policy.md): its
+// head card takes the caret on mount, later arrivals and background panes
+// never steal it. Digits follow the same rule: while the focused head card
+// answers by option index, 1..9 pick that option (dialogKeys.ts).
 export function DialogDock({
   sessionId,
   dialogs,
@@ -106,7 +101,7 @@ function DialogCard({
   const multi = dialog.multi === true && dialog.options !== undefined
   const permit = isPermitDialog(dialog) && !multi
 
-  // permit cards hide "Allow with note"; other dialogs render every option
+  // permit cards hide "Allow with note", other dialogs render every option
   const options = dialog.options ?? []
   const choices = permit
     ? permitChoices(options)
@@ -160,7 +155,7 @@ function DialogCard({
         ) : dialog.options !== undefined ? (
           choices.map((choice, pos) => {
             // only the head card answers digits (dialogKeys.ts), so only it
-            // names them; aria-keyshortcuts exposes the key accessibly while
+            // names them, aria-keyshortcuts exposes the key accessibly while
             // the hidden badge keeps the button's name its label alone
             const digit = head && pos < answerDigitCount ? String(pos + 1) : undefined
             return (
@@ -192,7 +187,7 @@ function DialogCard({
   )
 }
 
-// SecretAnswer masks its input; the answer's text never echoes anywhere.
+// SecretAnswer masks its input, the answer's text never echoes anywhere.
 function SecretAnswer({
   busy,
   autoFocus,

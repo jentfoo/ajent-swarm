@@ -35,7 +35,7 @@ function PopoverLayer(): ReactElement {
   )
 }
 
-// Escape on window; the return reports whether the hook claimed the press.
+// Escape on window, the return reports whether the hook claimed the press.
 function escape(modifiers: KeyboardEventInit = {}): boolean {
   const ev = new KeyboardEvent('keydown', {
     key: 'Escape',
@@ -174,7 +174,7 @@ describe('useRewindGesture', () => {
     const view = mount()
     escape()
 
-    // a tile pane switch unbinds the keys; back in focus needs a fresh pair
+    // a tile pane switch unbinds the keys, back in focus needs a fresh pair
     view.rerender(<Harness idle onRewind={onRewind} enabled={false} />)
     view.rerender(<Harness idle onRewind={onRewind} />)
     clock += 10

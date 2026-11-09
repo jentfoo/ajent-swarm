@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { useCopyText } from './useCopyText'
 
-// jsdom ships no clipboard; each file stubs it so the requirement stays
+// jsdom ships no clipboard, each file stubs it so the requirement stays
 // visible at the call sites it covers
 function stubClipboard(writeText: (text: string) => Promise<void>) {
   const fn = vi.fn(writeText)

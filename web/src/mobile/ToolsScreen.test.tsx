@@ -94,7 +94,7 @@ describe('ToolsScreen', () => {
     await user.click(boxes[1])
 
     // the second toggle must carry the first one even though no stream rows
-    // landed in between; deriving from stale rows would silently undo it
+    // landed in between, deriving from stale rows would silently undo it
     await vi.waitFor(() => expect(sentNames(spy)).toHaveLength(2))
     expect(sentNames(spy)[0]).toEqual(['read_file'])
     expect(sentNames(spy)[1]).toEqual(['read_file', 'write_file'])
@@ -112,7 +112,7 @@ describe('ToolsScreen', () => {
     await user.click(screen.getAllByRole('checkbox')[0])
     expect(screen.getAllByRole('checkbox')[0]).toBeChecked()
 
-    // the tools event confirms; intent clears and only stream rows decide
+    // the tools event confirms, intent clears and only stream rows decide
     rerenderWith(snapFor(enabled))
     expect(screen.getAllByRole('checkbox')[0]).toBeChecked()
     rerenderWith(snapFor(toolRows())) // an external change lands afterwards

@@ -5,7 +5,7 @@ import { DiffCard, EditOpDiff, gutterWidth, intralineSpans } from './DiffCard'
 import type { EditOp } from './editInput'
 
 // Marker-prefixed content (frontmatter fences, "--foo") is legitimate body
-// text; dropping it would hide deletions and mislead review.
+// text, dropping it would hide deletions and mislead review.
 
 function rows(kind: string): string[] {
   return Array.from(document.querySelectorAll(`.diff-line.${kind} .diff-text`)).map(

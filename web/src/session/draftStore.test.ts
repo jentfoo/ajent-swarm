@@ -2,7 +2,7 @@ import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 
 import { readDraft, resetDrafts, writeDraft } from './draftStore'
 
-// readStored parses what persistence actually wrote; null when nothing did.
+// readStored parses what persistence actually wrote, null when nothing did.
 function readStored(): unknown {
   const raw = localStorage.getItem('swarm.drafts.v1')
   return raw === null ? null : JSON.parse(raw)

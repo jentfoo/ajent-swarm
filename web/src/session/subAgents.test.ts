@@ -118,7 +118,7 @@ describe('subAgentTally', () => {
   })
 
   it('prefers structured counts over the prose', () => {
-    // upstream wording may drift; the counts are the contract
+    // upstream wording may drift, the counts are the contract
     const tally = subAgentTally(
       [],
       segment('subagents: unreadable prose', { running: 1, queued: 2, done: 5 }),

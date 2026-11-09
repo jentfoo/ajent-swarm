@@ -22,7 +22,7 @@ import { useSubmitPress } from '../session/submitPress'
 // at once and records a pending intent so the barrier's follow-up ask
 // auto-resolves (decisionNote.ts) instead of reading as required input. A
 // dialog answered elsewhere shows its real outcome as a chip that leaves on
-// its own or on tap; secret dialogs take over a dedicated screen with show and
+// its own or on tap, secret dialogs take over a dedicated screen with show and
 // hide.
 export function TouchDialogDock({
   sessionId,
@@ -100,7 +100,7 @@ function TouchDialogCard({
   const multi = dialog.multi === true && dialog.options !== undefined
   const permit = isPermitDialog(dialog) && !multi
 
-  // permit cards hide "Allow with note"; other dialogs render every option
+  // permit cards hide "Allow with note", other dialogs render every option
   const options = dialog.options ?? []
   const choices = permit
     ? permitChoices(options)
@@ -138,7 +138,7 @@ function TouchDialogCard({
           </button>
         </MultiPickList>
       ) : dialog.options !== undefined ? (
-        // permit and deny are separate full-width buttons; the answer rides
+        // permit and deny are separate full-width buttons, the answer rides
         // each option's own tap so nothing depends on a compact row
         choices.map((choice, pos) => (
           <button
@@ -190,7 +190,7 @@ function SecretDialogScreen({
   const submit = (ev: FormEvent) => {
     ev.preventDefault()
     if (empty) return
-    // the answer's text never echoes anywhere; clearing at once keeps a wrong
+    // the answer's text never echoes anywhere, clearing at once keeps a wrong
     // tap from resubmitting a stale value
     const answer = text
     setText('')

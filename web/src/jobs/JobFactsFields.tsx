@@ -23,7 +23,7 @@ export function FieldError({ text }: { text: string }) {
 
 // JobFactsFields renders the launch facts both job forms share: name,
 // workspace, model, permission and the custom tool set. patch applies partial
-// draft edits; workspaces and models feed the picker suggestions, toolOptions
+// draft edits, workspaces and models feed the picker suggestions, toolOptions
 // the tool rows (may be empty when nothing serves). workspaceError surfaces a
 // server-side path check beside the field.
 export function JobFactsFields({

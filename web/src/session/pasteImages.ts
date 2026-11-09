@@ -11,12 +11,12 @@ export interface PasteData {
   readonly files: ArrayLike<File>
 }
 
-// pasteImageFiles returns the clipboard's image files when they should win —
-// images present, no usable plain-text variant beside them — else null for
+// pasteImageFiles returns the clipboard's image files when they should win
+// (images present, no usable plain-text variant beside them), else null for
 // default handling. Non-image files never join: text-file inlining stays
 // picker-only.
 export function pasteImageFiles(data: PasteData): File[] | null {
-  // whitespace is padding some editors ship under an image; the image wins
+  // whitespace is padding some editors ship under an image, the image wins
   if (data.getData('text').trim() !== '') return null
   const images = Array.from(data.files).filter((file) => file.type.startsWith('image/'))
   return images.length > 0 ? images : null

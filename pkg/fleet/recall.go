@@ -21,7 +21,7 @@ import (
 // keeps swarm's classification identical to ajent's own editor-history rule.
 const recallSecretPrefix = "secret:"
 
-// maxRecallPending bounds the submit ledger awaiting its committed entry; an
+// maxRecallPending bounds the submit ledger awaiting its committed entry, an
 // evicted submit simply keeps its recorded text.
 const maxRecallPending = 256
 
@@ -44,7 +44,7 @@ type RecallStore interface {
 
 // RecallLines serves a session's workspace recall mirror: the typed prompts
 // submitted through swarm there, newest first, query narrowing by
-// case-insensitive substring. No store configured reads empty; an unknown
+// case-insensitive substring. No store configured reads empty, an unknown
 // session refuses.
 func (m *Manager) RecallLines(ctx context.Context, sessionID, query string, limit int) ([]RecallLine, error) {
 	a := m.route(sessionID)
@@ -92,13 +92,13 @@ func (a *sessionActor) recordRecallSubmit(params ctl.SubmitParams) {
 // recallObserve watches one applied upstream event for facts a tracked submit
 // waits on: the committed entry's classification, and a wire-redacted queue
 // row whose text upstream withheld. Queue drops mean absence of commit, never
-// redaction, so they resolve nothing here; dropped prompts stay recallable.
+// redaction, so they resolve nothing here, dropped prompts stay recallable.
 func (a *sessionActor) recallObserve(ev ctl.Event) {
 	if len(a.recallIDs) == 0 {
 		return
 	}
 	switch ev.Name {
-	case ctl.EventQueued: // full replacement; only this family redacts texts
+	case ctl.EventQueued: // full replacement, only this family redacts texts
 		var d ctl.QueuedData
 		if err := ev.Decode(&d); err != nil {
 			return
@@ -119,7 +119,7 @@ func (a *sessionActor) recallObserve(ev ctl.Event) {
 
 // recallCommitEntry resolves the tracked submits one committed message names.
 // A typed prompt never commits injected upstream, so members of an injected
-// entry withhold; a normal commit settles them with their recorded text.
+// entry withhold, a normal commit settles them with their recorded text.
 func (a *sessionActor) recallCommitEntry(e ctl.Entry) {
 	if e.Type != string(session.TypeMessage) || len(e.Data) == 0 {
 		return

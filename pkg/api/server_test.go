@@ -33,7 +33,7 @@ func TestServe(t *testing.T) {
 		ln, err := lc.Listen(t.Context(), "tcp", "127.0.0.1:0")
 		require.NoError(t, err)
 
-		// serving on an already-closed listener fails at once; a live listener
+		// serving on an already-closed listener fails at once, a live listener
 		// would block here until its context cancels
 		require.NoError(t, ln.Close())
 		srv := NewServer(http.NewServeMux())

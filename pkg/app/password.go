@@ -12,7 +12,7 @@ import (
 )
 
 // PasswordEnv carries a resolved login password through headless starts and
-// the --daemon handoff; startup consumes and unsets it.
+// the --daemon handoff, startup consumes and unsets it.
 const PasswordEnv = "AJENT_SWARM_PASSWORD"
 
 // promptAttempts bounds the set-and-confirm loop before startup fails.

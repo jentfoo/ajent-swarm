@@ -25,7 +25,7 @@ export default function MobileHome() {
   const { refreshSessions } = useSwarm()
   const facts = useLaunchFacts()
 
-  // pull-to-refresh re-reads both listings in parallel; each keeps its own
+  // pull-to-refresh re-reads both listings in parallel, each keeps its own
   // error story, so a refusal only means stale rows until the next poll.
   const { refreshSaved } = facts
   const refreshAll = useCallback(async () => {
@@ -139,7 +139,7 @@ function LaunchForm({
 }
 
 // SavedResume lists recorded sessions for resume, riding the shared resume
-// path. Rows show title or tilde path, recency and message count; newer-format
+// path. Rows show title or tilde path, recency and message count, newer-format
 // recordings are marked blocked and refuse instead of launching into a
 // guaranteed failure.
 function SavedResume({

@@ -64,7 +64,7 @@ type meReply struct {
 	Home     string `json:"home,omitempty"`
 }
 
-// handleMe reports the authenticated principal; unauthenticated callers get
+// handleMe reports the authenticated principal, unauthenticated callers get
 // 401 so the placeholder page can pick its form.
 func (s *apiServer) handleMe(w http.ResponseWriter, r *http.Request) {
 	p, ok := auth.PrincipalFrom(r.Context())
@@ -74,7 +74,7 @@ func (s *apiServer) handleMe(w http.ResponseWriter, r *http.Request) {
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		home = "" // no home to fold paths against; clients show absolutes
+		home = "" // no home to fold paths against, clients show absolutes
 	}
 	writeJSON(w, http.StatusOK, meReply{Username: p.Username, Via: p.Via, Home: home})
 }

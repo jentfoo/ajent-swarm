@@ -43,7 +43,7 @@ export function reachableSession(s: SessionStatus): boolean {
 // TileWorkspace treats sessions like windows in a tiling manager: a split
 // tree with per-pane tab strips, drag-to-split and drag-to-reorder, full
 // keyboard management. The tree persists in the layout profile, so reloads
-// and mode switches never disturb the arrangement; ended sessions stay as
+// and mode switches never disturb the arrangement, ended sessions stay as
 // tabs with their final state until closed. An explicit ?open= list (the
 // Tile button's live set or a sessions-grid selection) retiles from scratch
 // on every fresh navigation carrying it, while a plain visit restores
@@ -124,7 +124,7 @@ export default function TileWorkspace() {
     // focus lands on the first pane: focusedPaneId is a pane id in the
     // persisted layout profile, not a session id
     setTileLayout({ tree: next, focusedPaneId: paneIds(next)[0] })
-    // seeding runs once per mount; guards above keep later dep changes quiet
+    // seeding runs once per mount, guards above keep later dep changes quiet
   }, [tree, sessions, setTileLayout, setSearchParams, searchParams])
 
   const focusPane = useCallback((paneId: string) => commit(tree, paneId), [commit, tree])
@@ -359,7 +359,7 @@ interface NodeProps {
   onResizeSplit: (splitId: string, ratio: number) => void
 }
 
-// NodeView renders one split or pane; splits lay their children out along the
+// NodeView renders one split or pane, splits lay their children out along the
 // direction with the ratio on the first child.
 function NodeView(props: NodeProps) {
   const { node } = props
@@ -394,7 +394,7 @@ function Divider({
   splitId: string
   onResize: (splitId: string, ratio: number) => void
 }) {
-  // null while idle; the box is fixed at drag start, resizing only reshuffles
+  // null while idle, the box is fixed at drag start, resizing only reshuffles
   // the split's children inside it
   const dragRef = useRef<{ pointerId: number; rect: DOMRect } | null>(null)
 
@@ -457,7 +457,7 @@ function PaneView({
 }: NodeProps & { pane: TilePane }) {
   const isFocused = pane.id === focused
   const hint = dropHint?.paneId === pane.id ? dropHint.zone : null
-  // ids tie each tab to the pane body it selects; pane ids are unique in the
+  // ids tie each tab to the pane body it selects, pane ids are unique in the
   // tree, so twin panes holding one session never collide
   const panelId = `tile-panel-${pane.id}`
   const tabIdFor = (sessionId: string) => `tile-tab-${pane.id}-${sessionId}`
@@ -619,7 +619,7 @@ function SessionPicker({
   const { sessions } = useSwarm()
   const [open, setOpen] = useState(false)
   const addRef = useRef<HTMLButtonElement>(null)
-  // Connected or active first, then the rest; each keeps its listing order.
+  // Connected or active first, then the rest, each keeps its listing order.
   const ordered = useMemo(() => {
     const live = sessions.filter(reachableSession)
     const rest = sessions.filter((s) => !reachableSession(s))

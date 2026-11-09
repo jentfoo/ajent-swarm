@@ -4,7 +4,7 @@ import { deriveBlocks, maxRecallPrompts, mergeRecallSources, recallPrompts } fro
 import type { DerivedBlock, RecallPrompt, ToolCallInfo } from './derive'
 import type { Entry } from '../api/types'
 
-// Fixtures transcribed from ajent's docs/control-api.md entry shapes; the
+// Fixtures transcribed from ajent's docs/control-api.md entry shapes, the
 // classification mirrors pkg/session/replay.go's shared echo rule.
 
 function blocks(entries: Entry[], hide?: Set<string>, order?: string[]) {
@@ -41,7 +41,7 @@ function injectedEntry(id: string, text: string): Entry {
   })
 }
 
-// callPartsOf flattens an assistant block's calls; text parts stay inline.
+// callPartsOf flattens an assistant block's calls, text parts stay inline.
 function callPartsOf(block: DerivedBlock): ToolCallInfo[] {
   if (block.kind !== 'assistant') return []
   return block.parts.flatMap((p) => (p.kind === 'call' ? [p.call] : []))
@@ -93,7 +93,7 @@ describe('deriveBlocks user classification', () => {
   })
 
   it('keeps injected body shape past the label gap', () => {
-    // only the blank lines separating label from body collapse; interior blank
+    // only the blank lines separating label from body collapse, interior blank
     // lines and indentation are the record itself
     const out = blocks([injectedEntry('01I', 'User Ran: cat f\n\n  indented\n\nplain')])
     expect(out[0]).toMatchObject({ label: 'User Ran: cat f', body: '  indented\n\nplain' })
@@ -203,7 +203,7 @@ describe('deriveBlocks assistant shape', () => {
     const out = blocks([assistant, carrier], new Set(['live1']))
     expect(out[0]).toMatchObject({ kind: 'assistant' })
     if (out[0].kind !== 'assistant') return
-    // only the retired call renders; the live card covers it until handoff
+    // only the retired call renders, the live card covers it until handoff
     expect(callPartsOf(out[0]).map((c) => c.id)).toEqual(['done1'])
   })
 
@@ -212,7 +212,7 @@ describe('deriveBlocks assistant shape', () => {
       { type: 'tool_call', data: { id: 'c1', name: 'bash' } },
     ])
 
-    // the map rides the applier state; derivation only looks up by call id
+    // the map rides the applier state, derivation only looks up by call id
     const verdicts = new Map([
       ['c1', 'auto allowed'],
       ['c9', 'never attached'],
@@ -254,7 +254,7 @@ describe('deriveBlocks non-message entries', () => {
   it('walks the chain order it is given, not the entry map', () => {
     const root = messageEntry('01ROOT', undefined, 'user', [textBlock('root')])
     const reply = messageEntry('01REPLY', '01ROOT', 'assistant', [textBlock('reply')])
-    // file order arrives reversed here; the chain ids dictate rendering order
+    // file order arrives reversed here, the chain ids dictate rendering order
     const out = blocks([reply, root], undefined, ['01ROOT', '01REPLY'])
     expect(out.map((b) => b.kind)).toEqual(['user', 'assistant'])
   })

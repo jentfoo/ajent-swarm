@@ -27,7 +27,7 @@ interface SubmitPress {
 // a moving target. Suppressed, one tap submits with the keyboard staying open,
 // and an empty draft trades the submit for the keyboard's dismissal. Pass the
 // input holding the draft, whether the draft is empty, and the host's own
-// disabled state; fine pointers keep the default press.
+// disabled state, fine pointers keep the default press.
 export function useSubmitPress(
   input: RefObject<HTMLInputElement | HTMLTextAreaElement | null>,
   empty: boolean,

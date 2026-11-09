@@ -42,7 +42,7 @@ export default function RunsHistory() {
   const abortRef = useRef<AbortController | null>(null)
   useEffect(() => () => abortRef.current?.abort(), [])
 
-  // The explicit job filter takes the value so a change reloads at once; the
+  // The explicit job filter takes the value so a change reloads at once, the
   // poll's initial tick covers the mount-time load and later cadence ticks
   // read the latest filter through the callback ref.
   const load = useCallback(
@@ -220,7 +220,7 @@ type RunRowProps = {
   onOpen: () => void
 }
 
-// OpenDetailButton is the keyboard path onto one run's detail in both layouts;
+// OpenDetailButton is the keyboard path onto one run's detail in both layouts
 // the table keeps it inline while the card's action row gives it a 44px floor.
 function OpenDetailButton({ onOpen }: { onOpen: () => void }) {
   return (
@@ -291,7 +291,7 @@ function RunCard({ run, facts, onOpen }: RunRowProps) {
 }
 
 // RunDetailLayer mounts the open detail as its own history layer, so platform
-// back peels the modal instead of leaving /jobs/runs and dropping filters;
+// back peels the modal instead of leaving /jobs/runs and dropping filters
 // the shared RunDetail itself stays desktop-neutral.
 function RunDetailLayer({ run, onClose }: { run: Run; onClose: () => void }): ReactElement {
   useOverlayBack(onClose)

@@ -23,7 +23,7 @@ export interface ToolToggles {
 // useToolToggles is the toggle intent machine every tools surface shares:
 // each flip lands as intent keyed by the streamed rows it was decided against,
 // so quick successive flips compose instead of clobbering and the next tools
-// event settles them — a confirmed toggle reads as itself, an external flip is
+// event settles them: a confirmed toggle reads as itself, an external flip is
 // never masked by stale intent. A refusal never reaches the stream, so it
 // drops its own intent and the row snaps back.
 export function useToolToggles(
@@ -31,7 +31,7 @@ export function useToolToggles(
   rows: readonly ToolState[],
   onToast: (text: string, level?: 'info' | 'error') => void,
 ): ToolToggles {
-  // the ref is the truth same-tick toggles compose on; commit mirrors it
+  // the ref is the truth same-tick toggles compose on, commit mirrors it
   // into state just to re-render
   const [, setToggles] = useState<Record<string, ToolIntent>>({})
   const ref = useRef<Record<string, ToolIntent>>({})

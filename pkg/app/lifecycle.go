@@ -14,7 +14,7 @@ import (
 	"github.com/jentfoo/ajent/pkg/paths"
 )
 
-// Stop escalation windows and poll cadence; tunable so tests stay quick.
+// Stop escalation windows and poll cadence, tunable so tests stay quick.
 var (
 	stopTermWait = 10 * time.Second
 	stopKillWait = 5 * time.Second
@@ -109,7 +109,7 @@ func resolvePidPath(stateDir, pidfile string) (string, error) {
 	return filepath.Join(home, swarmDirName, pidFileName), nil
 }
 
-// readPidFile reads the pid recorded in path; any unreadable or malformed
+// readPidFile reads the pid recorded in path, any unreadable or malformed
 // file reports not running.
 func readPidFile(path string) (int, error) {
 	data, err := os.ReadFile(path)

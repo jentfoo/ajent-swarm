@@ -2,9 +2,9 @@
 // ajent's TUI editor keys (pkg/tui/editor.go): Ctrl+K kills from the caret to
 // the line's end, Ctrl+U from the line's start to the caret, and Ctrl+Y
 // restores the buffer the last kill replaced. The TUI kills respect wrapped
-// visual rows because it paints them; a textarea cannot know wrapping without
-// measuring, so these operate on logical lines — the caret to the nearest
-// newline or value boundary — an accepted difference.
+// visual rows because it paints them, a textarea cannot know wrapping without
+// measuring, so these operate on logical lines (the caret to the nearest
+// newline or value boundary), an accepted difference.
 
 export interface EditState {
   value: string

@@ -21,7 +21,7 @@ var ErrClosed = errors.New("log writer is closed")
 type Writer struct {
 	mu      sync.Mutex
 	path    string
-	max     int64 // rotate when a write would push size past this; 0 disables
+	max     int64 // rotate when a write would push size past this, 0 disables
 	backups int   // archives kept besides the live file
 	file    *os.File
 	size    int64 // current live file size, tracked to avoid a stat per write
@@ -102,7 +102,7 @@ func (w *Writer) rotateLocked() error {
 // TruncateRotate copytruncates path once it exceeds maxBytes: content moves to
 // path.1, older archives shift, at most backups are kept, then the live file
 // is truncated to zero. Truncation stays safe for writers holding the file
-// open in append mode, which is how child logs are inherited; writes landing
+// open in append mode, which is how child logs are inherited, writes landing
 // in the copy-to-truncate window are lost, which is acceptable for captured
 // process output. A missing or under-cap file is not an error.
 func TruncateRotate(path string, maxBytes int64, backups int) error {

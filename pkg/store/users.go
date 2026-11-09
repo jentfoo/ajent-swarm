@@ -36,7 +36,7 @@ func (s *Store) User(ctx context.Context, username string) (User, error) {
 	return u, nil
 }
 
-// SoleUser returns the only users row; flows here keep at most one.
+// SoleUser returns the only users row, flows here keep at most one.
 func (s *Store) SoleUser(ctx context.Context) (User, error) {
 	const q = `SELECT username, password_hash FROM users ORDER BY username LIMIT 1`
 	var u User

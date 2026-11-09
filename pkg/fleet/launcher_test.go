@@ -95,7 +95,7 @@ func (f *fakeChildStore) Children(_ context.Context) ([]ChildRecord, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	out := bulk.MapValuesSlice(f.rows)
-	// the SQLite store reads newest first; adopt must stay order-agnostic
+	// the SQLite store reads newest first, adopt must stay order-agnostic
 	slices.SortFunc(out, func(a, b ChildRecord) int { return cmp.Compare(b.ID, a.ID) })
 	return out, nil
 }
@@ -120,7 +120,7 @@ type launchEnv struct {
 	cs   *fakeChildStore
 }
 
-// stubChildScript stands in for the ajent binary; its behavior follows
+// stubChildScript stands in for the ajent binary, its behavior follows
 // STUB_CHILD_MODE, which tests set before launching.
 const stubChildScript = `#!/bin/sh
 record() {
@@ -526,7 +526,7 @@ func TestLauncher(t *testing.T) {
 			return ok && st.SpawnedBy == SpawnedByExternal && st.State == ChildOnline
 		}, 3*time.Second, testPoll)
 
-		// the stop reaches /exit instead of answering the stale row's silence;
+		// the stop reaches /exit instead of answering the stale row's silence,
 		// the resume is not a swarm child, so no signal may fly. The session
 		// ends after ajent answers, like the real /exit round trip.
 		runStop := make(chan struct{})
@@ -940,7 +940,7 @@ func TestLauncher(t *testing.T) {
 		})
 
 		t.Run("stop_exits_and_reaps", func(t *testing.T) {
-			// the stop path ends the child without signals; this run is provably
+			// the stop path ends the child without signals, this run is provably
 			// empty, so like stopped_fresh_session_dropped its rows drop instead of
 			// tombstoning with an exit code nothing can resume from
 			require.NoError(t, env.m.StopSession(t.Context(), res.SessionID))
@@ -957,7 +957,7 @@ func TestLauncher(t *testing.T) {
 			cmd.Dir = ws
 			require.NoError(t, cmd.Start())
 			// the test owns the process, so only a reap turns its exit visible
-			// to signal zero; one waiter reaps it for every check here
+			// to signal zero, one waiter reaps it for every check here
 			waited := make(chan struct{})
 			go func() {
 				_, _ = cmd.Process.Wait()
@@ -1003,7 +1003,7 @@ func TestLauncher(t *testing.T) {
 }
 
 // integrationBin names the env var holding a built ajent binary for the
-// phase 04 integration tests; unit runs stay hermetic without it.
+// phase 04 integration tests, unit runs stay hermetic without it.
 const integrationBin = "AJENT_SWARM_TEST_AJENT"
 
 // integrationModels seeds a minimal provider so ajent serve starts without
@@ -1054,7 +1054,7 @@ func assertSubmitRefused(t *testing.T, sessionID string, pid int) {
 }
 
 // failingDeleteStore answers every delete with an error, the shape a broken
-// store takes; every other verb forwards to the in-memory fake.
+// store takes, every other verb forwards to the in-memory fake.
 type failingDeleteStore struct{ *fakeChildStore }
 
 func (f failingDeleteStore) DeleteChild(context.Context, int64) error {

@@ -113,7 +113,7 @@ export interface CtlState {
   seq?: number
 }
 
-// Entry is one transcript line. Data stays opaque here; renderers decode the
+// Entry is one transcript line. Data stays opaque here, renderers decode the
 // per-type payloads they know and ignore the rest.
 export interface Entry {
   id: string
@@ -299,8 +299,8 @@ export interface RecallRow {
 export type RewindKind = 'user' | 'assistant' | 'compaction'
 
 // RewindCandidate is one rewirable entry of the transcript tree, every fork
-// included; anything upstream refuses never lists here. Depth and Guide draw
-// the context tree; Active marks the current head's path; Text carries a user
+// included, anything upstream refuses never lists here. Depth and Guide draw
+// the context tree, Active marks the current head's path, Text carries a user
 // prompt in full for rewind-and-edit prefill.
 export interface RewindCandidate {
   id: string
@@ -339,7 +339,7 @@ export interface FilesReply {
 
 // RecallLineRow is one row of the workspace recall mirror from GET
 // /recall-lines: a typed prompt submitted through swarm in that workspace,
-// newest first. Text is never empty; withheld rows stay server-side.
+// newest first. Text is never empty, withheld rows stay server-side.
 export interface RecallLineRow {
   id: number
   text: string
@@ -351,7 +351,7 @@ export interface RecallLinesReply {
 }
 
 // SavedSession is one row of the resume picker listing, most recently used
-// first; target is what a launch passes back for the row.
+// first, target is what a launch passes back for the row.
 export interface SavedSession {
   id: string
   name?: string
@@ -410,7 +410,7 @@ export interface Job {
 }
 
 // QueueRequest is the POST /api/jobs/queue body: one prompt parked until the
-// fleet is idle. Name, workspace and prompt are required; the optional fields
+// fleet is idle. Name, workspace and prompt are required, the optional fields
 // shape the launch. The fixed job shape around them is server-owned.
 export interface QueueRequest {
   name: string
@@ -425,7 +425,7 @@ export interface QueueRequest {
 }
 
 // Run is one row of run history from /api/runs. sessionId stays absent until
-// the launch path returned one; a skipped run never launched anything.
+// the launch path returned one, a skipped run never launched anything.
 export interface Run {
   id: number
   jobId?: number // unlinked when its job was deleted
@@ -465,7 +465,7 @@ export interface LaunchRequest {
 }
 
 // ModelListing is GET /api/sessions/{id}/models, the models.get registry with
-// its active key; a controller picks without riding a picker.
+// its active key, a controller picks without riding a picker.
 export interface ModelListing {
   active: string
   models: ModelState[]

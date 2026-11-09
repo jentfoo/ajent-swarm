@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// maxSettingRunes bounds one stored setting value; every value today is a
+// maxSettingRunes bounds one stored setting value, every value today is a
 // model key, so anything longer is garbage.
 const maxSettingRunes = 200
 

@@ -12,18 +12,18 @@ import (
 // Control-method endpoints: upstream control-surface commands (models,
 // tools, settings) proxied onto live sessions, plus swarm-side display titles.
 
-// modelSetRequest is the POST /model body; a missing model is bad-request.
+// modelSetRequest is the POST /model body, a missing model is bad-request.
 type modelSetRequest struct {
 	Model string `json:"model"`
 }
 
-// toolsRequest reshapes the enabled set; names left out keep their state past
+// toolsRequest reshapes the enabled set, names left out keep their state past
 // the first dispatched prompt (widen-only upstream rule).
 type toolsRequest struct {
 	Names []string `json:"names"`
 }
 
-// settingSetRequest applies one row; value carries the JSON in the row's own
+// settingSetRequest applies one row, value carries the JSON in the row's own
 // shape and persist optionally copies it to user or project.
 type settingSetRequest struct {
 	Key     string          `json:"key"`
@@ -31,7 +31,7 @@ type settingSetRequest struct {
 	Persist string          `json:"persist,omitempty"`
 }
 
-// titleRequest renames a session in swarm storage only; empty clears.
+// titleRequest renames a session in swarm storage only, empty clears.
 type titleRequest struct {
 	Title string `json:"title"`
 }
@@ -47,7 +47,7 @@ func (s *apiServer) handleSessionModels(w http.ResponseWriter, r *http.Request) 
 }
 
 // handleSessionModelSet switches the session-only model and answers what it
-// resolved to; a running turn queues the switch at its boundary.
+// resolved to, a running turn queues the switch at its boundary.
 func (s *apiServer) handleSessionModelSet(w http.ResponseWriter, r *http.Request) {
 	var req modelSetRequest
 	if !readRequest(w, r, &req) {
@@ -95,7 +95,7 @@ func (s *apiServer) handleSessionSettings(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, data)
 }
 
-// handleSessionSettingSet applies one setting as a session override; the reply
+// handleSessionSettingSet applies one setting as a session override, the reply
 // is the row after the change so menus re-render from it.
 func (s *apiServer) handleSessionSettingSet(w http.ResponseWriter, r *http.Request) {
 	var req settingSetRequest
@@ -130,8 +130,7 @@ func (s *apiServer) handleSessionTitle(w http.ResponseWriter, r *http.Request) {
 	case err == nil:
 		w.WriteHeader(http.StatusNoContent)
 	case errors.Is(err, fleet.ErrUnknownSession):
-		// SetTitle only returns that sentinel for an empty id: renames target
-		// swarm storage, not tracked sessions, so this is a bad request
+		// SetTitle refuses only on an empty id, renames never touch ajent names
 		writeError(w, http.StatusBadRequest, codeInvalidRequest, "sessionId must not be empty")
 	case errors.Is(err, fleet.ErrNoTitleStore):
 		writeError(w, http.StatusInternalServerError, codeInternalError, err.Error())

@@ -27,7 +27,7 @@ const (
 )
 
 // schedule is a job's resolved fire cadence. Kind selects among the store's
-// schedule kinds; TZ resolves as an IANA zone name, empty for server local.
+// schedule kinds, TZ resolves as an IANA zone name, empty for server local.
 // Weekdays restricts recurring slots to chosen days, empty meaning every day.
 type schedule struct {
 	Kind      string // store.ScheduleOnce, ScheduleInterval or ScheduleDaily
@@ -62,7 +62,7 @@ func scheduleOf(j store.Job) (schedule, error) {
 	}
 }
 
-// locationOf resolves an IANA zone name; empty means server local time.
+// locationOf resolves an IANA zone name, empty means server local time.
 func locationOf(name string) (*time.Location, error) {
 	if strings.TrimSpace(name) == "" {
 		return time.Local, nil
@@ -76,7 +76,7 @@ func locationOf(name string) (*time.Location, error) {
 
 // NextAfter returns the first scheduled slot strictly after from. Interval
 // slots stay anchored on the job's creation, so catch-up is arithmetic and a
-// long downtime never storms; daily slots evaluate in the job's own zone per
+// long downtime never storms, daily slots evaluate in the job's own zone per
 // fire (local-wall semantics across DST edges). A weekday restriction skips
 // slots landing on unchosen days.
 func (s schedule) NextAfter(created time.Time, from time.Time) (time.Time, error) {
@@ -145,7 +145,7 @@ type weekdayName struct {
 	day   time.Weekday
 }
 
-// weekdayNames maps the stored tokens onto Go weekdays; order is display order.
+// weekdayNames maps the stored tokens onto Go weekdays, order is display order.
 var weekdayNames = []weekdayName{
 	{"sun", time.Sunday}, {"mon", time.Monday}, {"tue", time.Tuesday},
 	{"wed", time.Wednesday}, {"thu", time.Thursday}, {"fri", time.Friday},
@@ -250,7 +250,7 @@ func PreviewTimes(j store.Job, from time.Time, count int) ([]time.Time, error) {
 }
 
 // ValidateJob normalizes and validates one job's fields. It mirrors the
-// launch path's flag rules so a stored job always spawns cleanly; it reports
+// launch path's flag rules so a stored job always spawns cleanly, it reports
 // the first problem found.
 func ValidateJob(j *store.Job) error {
 	j.Name = strings.TrimSpace(j.Name)
@@ -294,7 +294,7 @@ func ValidateJob(j *store.Job) error {
 		return fmt.Errorf("unknown permission %q", j.Permission)
 	}
 
-	// a custom tool set is the whole enabled list at launch; the flag off
+	// a custom tool set is the whole enabled list at launch, the flag off
 	// means "session default, do not touch the tool set"
 	if !j.ToolsCustom {
 		j.Tools = ""
@@ -352,7 +352,7 @@ func ValidateJob(j *store.Job) error {
 		return fmt.Errorf("unknown schedule kind %q", j.ScheduleKind)
 	}
 
-	// weekdays only restrict recurring kinds; a once job keeps its slot as-is
+	// weekdays only restrict recurring kinds, a once job keeps its slot as-is
 	if j.ScheduleKind != store.ScheduleOnce {
 		weekdays, err := parseWeekdays(j.Weekdays)
 		if err != nil {

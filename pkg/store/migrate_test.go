@@ -139,7 +139,7 @@ func TestMigrate(t *testing.T) {
 }
 
 // openBeforeVersion replays every migration below want onto a fresh database,
-// recording versions the way Open would; the caller closes the handle so Open
+// recording versions the way Open would, the caller closes the handle so Open
 // applies the remaining migrations as a real upgrade.
 func openBeforeVersion(t *testing.T, path string, want int) *sql.DB {
 	t.Helper()

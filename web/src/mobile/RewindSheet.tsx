@@ -6,7 +6,7 @@ import { BottomSheet } from './BottomSheet'
 // RewindSheet is the phone chrome over the shared rewind picker: a draggable
 // bottom sheet, touch-driven, listing the same candidates in the same order as
 // the desktop dialog with the same pick contract. The body lives in
-// RewindList; theme CSS folds the tree chrome away and keeps the 44px rows.
+// RewindList, theme CSS folds the tree chrome away and keeps the 44px rows.
 export function RewindSheet({
   sessionId,
   open,

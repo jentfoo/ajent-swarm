@@ -41,7 +41,7 @@ function twoByTwo(): TileNode {
   )
 }
 
-// sessions flattens each pane's tabs in document order; tiled trees hold one
+// sessions flattens each pane's tabs in document order, tiled trees hold one
 // tab per pane, so this reads back the ids tileFor was given.
 function sessions(tree: TileNode): string[] {
   if (tree.kind === 'pane') return tree.tabs
@@ -146,7 +146,7 @@ describe('tile tree operations', () => {
     const reordered = moveTab(added, left.id, 's9', left.id, 0)
     expect(findPane(reordered, 'left')!.tabs).toEqual(['s9', 's1'])
 
-    // move across panes; the emptied source pane disappears
+    // move across panes, the emptied source pane disappears
     const moved = moveTab(tree, 'left', 's1', 'rightTop', 0) as TileSplit
     expect(moved.kind).toBe('split')
     expect(findPane(moved, 'rightTop')!.tabs).toEqual(['s1', 's2'])

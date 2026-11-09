@@ -259,7 +259,7 @@ func TestRecallLedger(t *testing.T) {
 		f.Broadcast(ctl.EventQueued,
 			ctl.QueuedData{Rows: []ctl.QueueRow{{ID: "c1", Text: "interrupted"}}})
 		// a drop means the prompt never commits, not that its text was
-		// refused; upstream keeps dropped prompts recallable too
+		// refused, upstream keeps dropped prompts recallable too
 		f.Broadcast(ctl.EventQueueDropped, ctl.QueueDroppedData{
 			Rows: []ctl.QueueRow{{ID: "c1"}}, Cause: "interrupt"})
 
@@ -277,7 +277,7 @@ func TestRecallLedger(t *testing.T) {
 		require.NoError(t, m.SubmitTracked(t.Context(), f.SessionID(),
 			ctl.SubmitParams{Line: "dropped mid-flight", PendingID: "c1"}))
 
-		// the commit rides the transcript a reconnect backfills; no live
+		// the commit rides the transcript a reconnect backfills, no live
 		// entry.append announces it again
 		f.DropConns()
 		data, err := json.Marshal(session.MessageData{

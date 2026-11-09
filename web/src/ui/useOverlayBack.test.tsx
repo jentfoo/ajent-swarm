@@ -7,7 +7,7 @@ import { useOverlayBack } from './useOverlayBack'
 
 // The overlay↔history loop against the real window history: opening stamps an
 // entry, a pop event closes the topmost layer, and a layer's own close steps
-// back over its entry — never over one another's, never twice, never once the
+// back over its entry, never over one another's, never twice, never once the
 // router has pushed past it, and never on an entry left unmarked. Stacked
 // teardowns unwind every dead entry they leave behind, and a consume
 // superseded mid-flight dies with the next landing. Every test leaves history
@@ -38,7 +38,7 @@ function Harness({
 }
 
 // Gate mounts the layer behind an open flag, for rendering directly under a
-// root StrictMode — the placement that double-invokes effects like the app's
+// root StrictMode, the placement that double-invokes effects like the app's
 // dev render does
 function Gate({ open }: { open: boolean }): ReactElement | null {
   return open ? <Layer onClose={() => {}} /> : null
@@ -55,7 +55,7 @@ function stamp(): number | undefined {
 
 // settle delivers the popstate a mocked history.back would have fired. The
 // mocked traversal leaves history in place, so a settle can read as a foreign
-// back that closes the top layer — a no-op once no layers remain
+// back that closes the top layer, a no-op once no layers remain
 function settle(): void {
   window.dispatchEvent(new PopStateEvent('popstate'))
 }
@@ -92,7 +92,7 @@ describe('useOverlayBack', () => {
     expect(closeB).toHaveBeenCalledTimes(1)
     expect(closeA).not.toHaveBeenCalled()
 
-    // the state change the close drives unmounts the layer and consumes it;
+    // the state change the close drives unmounts the layer and consumes it
     // each settle delivers the pop the mocked traversal skipped
     rerender(<Harness a onCloseA={closeA} />)
     expect(back).toHaveBeenCalledTimes(1)
@@ -133,7 +133,7 @@ describe('useOverlayBack', () => {
 
     // one rerender tears both layers down, the timeout-driven case: the lower
     // layer's cleanup runs first and declines (the top entry is its
-    // neighbor's), so exactly one pop follows for one owned entry — never a
+    // neighbor's), so exactly one pop follows for one owned entry, never a
     // double pop
     rerender(<Harness />)
     expect(back).toHaveBeenCalledTimes(1)
@@ -162,12 +162,12 @@ describe('useOverlayBack', () => {
     const back = vi.spyOn(window.history, 'back')
     const view = render(<Harness a b onCloseA={closeA} onCloseB={closeB} />)
 
-    // the close queues a consume traversal; a reopen pushes before it runs,
+    // the close queues a consume traversal, a reopen pushes before it runs,
     // and that push cancels the traversal in jsdom and in browsers
     view.rerender(<Harness a onCloseA={closeA} onCloseB={closeB} />)
     view.rerender(<Harness a b onCloseA={closeA} onCloseB={closeB} />)
 
-    // each genuine back must close the reopened layer; a stale land stamp from
+    // each genuine back must close the reopened layer, a stale land stamp from
     // the cancelled traversal would swallow the second press
     window.history.back()
     await vi.waitFor(() => expect(closeB).toHaveBeenCalledTimes(1))
@@ -188,13 +188,13 @@ describe('useOverlayBack', () => {
     const stampA = stamp()
     const stampB = stamp()
 
-    // the close queues a consume; a router push above it cancels the traversal
+    // the close queues a consume, a router push above it cancels the traversal
     // before it lands, stranding the expectation
     view.rerender(<Harness a onCloseA={closeA} />)
     window.history.pushState({ usr: null, key: 'k', idx: 5 }, '/other')
 
     // the genuine back over the router entry lands on the closed layer's dead
-    // entry and still closes the top layer; the teardown that follows must not
+    // entry and still closes the top layer, the teardown that follows must not
     // be blocked by the stranded expectation
     window.history.back()
     await vi.waitFor(() => expect(closeA).toHaveBeenCalledTimes(1))

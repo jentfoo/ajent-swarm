@@ -12,7 +12,7 @@ import { stubCoarsePointer } from '../test/matchMedia'
 import { MockWebSocket } from '../test/mockWebSocket'
 
 // The mode menu picks straight from the fixed upstream vocabulary through
-// mode.set; a session without a gate renders no affordance at all. The header
+// mode.set, a session without a gate renders no affordance at all. The header
 // carries identity: the swarm listing's label beside the short session id.
 
 let fetchMock: ReturnType<typeof vi.fn>
@@ -23,7 +23,7 @@ beforeEach(() => {
     return Response.json([])
   })
   vi.stubGlobal('fetch', fetchMock)
-  // SwarmProvider connects a socket on mount; a silent stand-in keeps jsdom
+  // SwarmProvider connects a socket on mount, a silent stand-in keeps jsdom
   // from attempting a real one
   vi.stubGlobal('WebSocket', MockWebSocket)
 })
@@ -134,7 +134,7 @@ describe('ModeMenu', () => {
   })
 
   it('closes on platform back for touch pointers', async () => {
-    // the history-bound popover mounts only here; fine-pointer tests above run
+    // the history-bound popover mounts only here, fine-pointer tests above run
     // with the setup's matchMedia stub and keep desktop's plain MenuPopover
     stubCoarsePointer()
     const back = vi.spyOn(window.history, 'back').mockImplementation(() => {})

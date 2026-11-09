@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { EntryBlock } from './EntryBlock'
 import type { DerivedBlock } from '../state/derive'
 
-// The committed assistant block renders content in wire order; the regression
+// The committed assistant block renders content in wire order, the regression
 // where an edit card always landed under the turn's closing message lives here.
 
 type AssistantBlock = Extract<DerivedBlock, { kind: 'assistant' }>
@@ -26,7 +26,7 @@ function childShapes(entry: HTMLElement): string[] {
   })
 }
 
-// jsdom ships no clipboard; each file stubs it so the requirement stays
+// jsdom ships no clipboard, each file stubs it so the requirement stays
 // visible at the call sites it covers
 function stubClipboard(writeText: (text: string) => Promise<void>) {
   const fn = vi.fn(writeText)

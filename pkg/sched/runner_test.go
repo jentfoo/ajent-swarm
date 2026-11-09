@@ -373,7 +373,7 @@ func TestRunner(t *testing.T) {
 		assert.Equal(t, "serve workspace", title)
 	})
 
-	// a resumed session already carries its own history; the job label may not
+	// a resumed session already carries its own history, the job label may not
 	// stomp whatever it is called today
 	t.Run("resume_mode_keeps_session_title", func(t *testing.T) {
 		h := newHarness(t, nil)
@@ -507,7 +507,7 @@ func TestRunner(t *testing.T) {
 
 	t.Run("queued_run_keeps_stub", func(t *testing.T) {
 		// the queued flow against a real manager and stub server: the run lands,
-		// the row goes and the session is never told to exit; not parallel, since
+		// the row goes and the session is never told to exit, not parallel, since
 		// it pins AJENT_HOME for the process-wide discovery default
 		env, _ := newE2ESched(t, nil)
 
@@ -547,11 +547,11 @@ func TestRunner(t *testing.T) {
 
 	t.Run("end_to_end_through_fleet", func(t *testing.T) {
 		// one run against a real manager and stub server, so the watcher consumes
-		// genuinely encoded frames from a live actor; not parallel, since it pins
+		// genuinely encoded frames from a live actor, not parallel, since it pins
 		// AJENT_HOME for the process-wide discovery default
 		env, _ := newE2ESched(t, nil)
 
-		// the stub cannot run prompts; once our submit lands it plays the landing
+		// the stub cannot run prompts, once our submit lands it plays the landing
 		// sequence a real ajent would emit for that pendingId
 		env.onSubmit("say hi", func(pendingID string) {
 			env.stub.Broadcast(ctl.EventEntryAppend, ctl.EntryData{
@@ -568,7 +568,7 @@ func TestRunner(t *testing.T) {
 		run := env.h.waitForRun(id, store.RunOK)
 		assert.Equal(t, env.stub.SessionID(), run.SessionID)
 
-		// the prompt went out with its synthetic pendingId and teardown followed;
+		// the prompt went out with its synthetic pendingId and teardown followed,
 		// /exit trails the terminal row finish persists, so poll until it lands
 		var submits []string
 		require.Eventually(t, func() bool {
@@ -588,7 +588,7 @@ func TestRunner(t *testing.T) {
 
 	t.Run("parks_at_dialog_through_fleet", func(t *testing.T) {
 		// the awaiting_input transition against a stub holding a dialog open: the
-		// row parks for the UI to see instead of failing; not parallel (AJENT_HOME)
+		// row parks for the UI to see instead of failing, not parallel (AJENT_HOME)
 		env, _ := newE2ESched(t, nil)
 
 		// no landing ever commits: the permission barrier holds the editor
@@ -657,7 +657,7 @@ func newE2ESched(t *testing.T, mutate func(*Options)) (*e2eEnv, string) {
 	return env, home
 }
 
-// onSubmit reacts to the run's prompt submit the moment it lands; the stub
+// onSubmit reacts to the run's prompt submit the moment it lands, the stub
 // invokes the hook synchronously from its request loop.
 func (env *e2eEnv) onSubmit(line string, react func(pendingID string)) {
 	env.stub.OnSubmit(func(p ctl.SubmitParams) {

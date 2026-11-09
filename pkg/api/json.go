@@ -7,10 +7,10 @@ import (
 	"net/http"
 )
 
-// maxBodyBytes bounds every request body; the API carries small JSON only.
+// maxBodyBytes bounds every request body, the API carries small JSON only.
 const maxBodyBytes = 1 << 20
 
-// Wire codes shared across handlers; clients branch on codes, not prose.
+// Wire codes shared across handlers, clients branch on codes, not prose.
 const (
 	codeInternalError   = "internal_error"
 	codeInvalidRequest  = "invalid_request"
@@ -60,7 +60,7 @@ func readOptionalRequest(w http.ResponseWriter, r *http.Request, dst any) bool {
 	return decodeBody(w, r, dst, false)
 }
 
-// decodeBody shares the strict decoding both request readers apply; require
+// decodeBody shares the strict decoding both request readers apply, require
 // decides whether a missing body is an error.
 func decodeBody(w http.ResponseWriter, r *http.Request, dst any, require bool) bool {
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)

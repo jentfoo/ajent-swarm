@@ -23,8 +23,7 @@ func (s *apiServer) handleLaunch(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, fleet.ErrInvalidLaunch):
 		writeError(w, http.StatusBadRequest, codeInvalidRequest, err.Error())
 	case errors.Is(err, fleet.ErrUnknownSaved):
-		// an unrecorded resume target: the transcript never landed or ajent
-		// dropped it on exit, so no child is spawned to rediscover that
+		// unknown saved: never recorded, or dropped by ajent at exit
 		writeError(w, http.StatusNotFound, codeSessionNotFound, err.Error())
 	default:
 		writeError(w, http.StatusInternalServerError, "launch_failed", err.Error())
@@ -41,7 +40,7 @@ func (s *apiServer) handleStop(w http.ResponseWriter, r *http.Request) {
 	}
 	var ce *ctl.Error
 	if errors.Is(err, fleet.ErrUnknownSession) || errors.As(err, &ce) {
-		// mapped failures keep their codes; anything else names the stop itself
+		// mapped failures keep their codes, anything else names the stop itself
 		writeCommandFailure(w, err)
 		return
 	}

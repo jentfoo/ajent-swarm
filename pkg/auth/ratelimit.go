@@ -12,7 +12,7 @@ type failWindow struct {
 	start time.Time
 }
 
-// limiterMaxTracked bounds the key map; expired entries prune away once it
+// limiterMaxTracked bounds the key map, expired entries prune away once it
 // fills, and a same-window IP spray evicts one entry to hold the bound.
 const limiterMaxTracked = 4096
 

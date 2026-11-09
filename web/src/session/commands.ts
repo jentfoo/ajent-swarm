@@ -1,5 +1,5 @@
 // ajent's slash-command table plus the query rules behind the composer's
-// command menu. The table is data so an ajent addition is a one-line change;
+// command menu. The table is data so an ajent addition is a one-line change
 // ajent's dispatch stays authoritative for what a submitted line does.
 
 export interface CommandDoc {

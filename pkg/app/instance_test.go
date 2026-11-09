@@ -16,7 +16,7 @@ import (
 
 // acquireEventually takes one lock, retrying briefly: under parallel temp-dir
 // churn a fresh directory can land on an inode whose flock entry from a just-
-// deleted sibling is still being torn down. That ghost clears on its own; a
+// deleted sibling is still being torn down. That ghost clears on its own, a
 // genuinely un-released lock never would, so the retry cannot mask a bug.
 func acquireEventually(t *testing.T, dir string) *instanceLock {
 	t.Helper()

@@ -78,7 +78,7 @@ func TestSchedule(t *testing.T) {
 		loc := "America/New_York"
 		s := schedule{Kind: store.ScheduleDaily, DailyTime: "02:30", Loc: mustLoc(t, loc)}
 
-		// spring forward skips 02:30; Go normalizes the nonexistent wall clock to
+		// spring forward skips 02:30, Go normalizes the nonexistent wall clock to
 		// its valid pre-transition reading (01:30 EST = UTC-5), the same instant
 		// 02:30 EDT would have been
 		spring := atZone(t, loc, "2025-03-09 01:00:00") // clocks jump 02:00 -> 03:00
@@ -86,7 +86,7 @@ func TestSchedule(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "06:30", next.UTC().Format("15:04")) // = 02:30 EDT
 
-		// fall back repeats 01:xx; the wall clock resolves to one unambiguous slot
+		// fall back repeats 01:xx, the wall clock resolves to one unambiguous slot
 		fall := atZone(t, loc, "2025-11-02 00:59:00") // just before 01:00 happens twice
 		next, err = s.NextAfter(fall.Add(-time.Hour), fall)
 		require.NoError(t, err)
@@ -151,7 +151,7 @@ func TestSchedule(t *testing.T) {
 			j := sampleJob(store.ScheduleDaily)
 			j.CreatedAt = now
 			j.DailyTime = "09:00"
-			j.TZ = "UTC" // pin the zone; empty means server local
+			j.TZ = "UTC" // pin the zone, empty means server local
 			next, err := InitialNext(j, now)
 			require.NoError(t, err)
 			assert.Equal(t, "2025-05-02 09:00", next.UTC().Format("2006-01-02 15:04"))
@@ -317,7 +317,7 @@ func TestSchedule(t *testing.T) {
 		j.CreatedAt = atZone(t, loc, "2025-01-01 00:00:00")
 
 		t.Run("spring_forward", func(t *testing.T) {
-			// the 02:30 wall clock does not exist on 2025-03-09; Go normalizes it
+			// the 02:30 wall clock does not exist on 2025-03-09, Go normalizes it
 			// to its post-transition instant (02:30 EDT = 06:30Z), and each later
 			// day fires at that same UTC time while EDT lasts
 			from := atZone(t, loc, "2025-03-09 01:00:00")
@@ -329,7 +329,7 @@ func TestSchedule(t *testing.T) {
 		})
 
 		t.Run("fall_back", func(t *testing.T) {
-			// 2025-11-02 repeats 01:xx; the 02:30 slot resolves to one instant
+			// 2025-11-02 repeats 01:xx, the 02:30 slot resolves to one instant
 			// (02:30 EST = 07:30Z)
 			from := atZone(t, loc, "2025-11-02 00:59:00")
 			times, err := PreviewTimes(j, from, 2)
@@ -421,7 +421,7 @@ func TestSchedule(t *testing.T) {
 	})
 
 	t.Run("daily_with_weekdays", func(t *testing.T) {
-		// 2025-05-01 is a Thursday; the restriction keeps mondays only
+		// 2025-05-01 is a Thursday, the restriction keeps mondays only
 		s := schedule{Kind: store.ScheduleDaily, DailyTime: "09:00",
 			Loc: mustLoc(t, "UTC"), Weekdays: []time.Weekday{time.Monday}}
 
@@ -444,7 +444,7 @@ func TestSchedule(t *testing.T) {
 	})
 
 	t.Run("interval_with_weekdays", func(t *testing.T) {
-		// slots anchored hourly from thursday noon; only fridays may fire
+		// slots anchored hourly from thursday noon, only fridays may fire
 		created := atZone(t, "UTC", "2025-05-01 12:00:00")
 		s := schedule{Kind: store.ScheduleInterval, Interval: time.Hour,
 			Loc: mustLoc(t, "UTC"), Weekdays: []time.Weekday{time.Friday}}

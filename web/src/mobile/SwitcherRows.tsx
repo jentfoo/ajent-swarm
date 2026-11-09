@@ -72,7 +72,7 @@ export function SwitcherRows({
 }
 
 // RenameLayer mounts the open editor as its own history layer, so platform
-// back peels the editor while the sheet beneath stays put; the shared
+// back peels the editor while the sheet beneath stays put, the shared
 // RenameEditorModal itself stays desktop-neutral.
 function RenameLayer({ row, onDone }: { row: SwitcherRow; onDone: () => void }): ReactElement {
   useOverlayBack(onDone)
@@ -91,7 +91,7 @@ function SwitchRow({
   onSettings: () => void
 }) {
   const { itemFor, acknowledgeItem } = useWorkspace()
-  // pressed styles the row; the handlers spread without it
+  // pressed styles the row, the handlers spread without it
   const { pressed, ...pressProps } = useLongPress(onRename)
   // the check-off resolves live from the digest so a settled row never offers one
   const item = itemFor(row.sessionId)
@@ -134,7 +134,7 @@ function SwitchRow({
 // RowActions is the row's trailing action area, mirroring the desktop card's
 // bar minus Open (the row itself opens): Rename on every row, Settings and
 // Stop for live rows, Resume for ended ones with a recorded workspace. Stop
-// carries the shared danger variant and arm/confirm guard; like the desktop
+// carries the shared danger variant and arm/confirm guard, like the desktop
 // card it holds across listing polls, while a relaunch resets it by remounting
 // this row under a fresh instance key. It swallows clicks and
 // pointer-downs so tapping or holding an action never reads as the row's own
@@ -168,7 +168,7 @@ function RowActions({
   }
 
   // no resetKey: polls rebuild row objects every couple of seconds, so an
-  // object key would void the arm between taps; instance swaps remount this
+  // object key would void the arm between taps, instance swaps remount this
   // row disarmed instead
   const confirm = useArmedConfirm(() => void stop(), { disabled: busy })
 

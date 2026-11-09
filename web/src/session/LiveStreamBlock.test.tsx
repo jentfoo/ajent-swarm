@@ -99,7 +99,7 @@ describe('LiveStreamBlock thinking panel', () => {
     )
     expect(thinkingPanel()?.open).toBe(false)
 
-    // reopening reports ownership; the matching intent never rewrites the DOM
+    // reopening reports ownership, the matching intent never rewrites the DOM
     await user.click(screen.getByText('thinking…'))
     expect(onThinkingToggle).toHaveBeenCalledWith(true)
     rerender(<LiveStreamBlock live={liveFor({ thinking: 'hmm', thinkingOpen: true })} />)
@@ -195,7 +195,7 @@ describe('LiveStreamBlock tool cards', () => {
   })
 
   it('ranks the chips band in submission order', () => {
-    // parallel starts race to publish; rank keeps the list in job order
+    // parallel starts race to publish, rank keeps the list in job order
     render(
       <LiveStreamBlock
         live={liveFor()}

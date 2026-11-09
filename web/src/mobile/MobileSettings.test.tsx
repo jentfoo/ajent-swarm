@@ -9,7 +9,7 @@ import { SwarmProvider } from '../providers/swarm'
 import { WorkspaceProvider } from '../providers/workspace'
 
 // The full-screen global settings entry point: theme, the notification
-// permission and swarm's own settings live here; per-session agent settings
+// permission and swarm's own settings live here, per-session agent settings
 // ride each session screen instead.
 
 const REGISTRY = [
@@ -17,7 +17,7 @@ const REGISTRY = [
   { key: 'anthropic/claude-haiku', short: 'haiku', window: 100000, caps: {} },
 ]
 
-// jsdom ships no Notification; the stand-in pins one permission per mount.
+// jsdom ships no Notification, the stand-in pins one permission per mount.
 function stubNotification(permission: 'granted' | 'denied') {
   vi.stubGlobal(
     'Notification',

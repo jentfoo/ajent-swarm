@@ -114,7 +114,7 @@ func TestLaunchHandlers(t *testing.T) {
 		require.Equal(t, http.StatusOK, code)
 		require.Len(t, rows, 2)
 
-		// most recently used first; the named session has the newer entries
+		// most recently used first, the named session has the newer entries
 		assert.Equal(t, fix.namedID, rows[0].ID)
 		assert.Equal(t, "deploy-job", rows[0].Name)
 		assert.Equal(t, "deploy-job", rows[0].Target)
@@ -188,7 +188,7 @@ func TestLaunchHandlers(t *testing.T) {
 		server, client, _ := newLaunchAPI(t)
 
 		t.Run("invalid_launch_is_400", func(t *testing.T) {
-			// refused before any process work; the fleet here has no launch
+			// refused before any process work, the fleet here has no launch
 			// wiring, so nothing else could succeed either
 			code, _ := callJSON[struct{}](t, client, server.URL, http.MethodPost, "/api/sessions",
 				fleet.LaunchRequest{Mode: fleet.LaunchResume})

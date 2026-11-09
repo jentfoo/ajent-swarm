@@ -119,7 +119,7 @@ describe('AppShell', () => {
   })
 
   it('keeps desktop chrome at phone width', async () => {
-    // shell choice under the breakpoint belongs to AuthGate; AppShell has no
+    // shell choice under the breakpoint belongs to AuthGate, AppShell has no
     // phone-width branches, so matchMedia reporting mobile changes nothing here
     vi.stubGlobal('matchMedia', (query: string) => ({
       matches: query === mobileLayout,

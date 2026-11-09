@@ -19,7 +19,7 @@ const (
 	interruptedNote = "interrupted by a service restart"
 )
 
-// Options tunes the scheduler; zero values take production defaults.
+// Options tunes the scheduler, zero values take production defaults.
 type Options struct {
 	Log    *slog.Logger
 	Store  *store.Store
@@ -31,7 +31,7 @@ type Options struct {
 	RetentionDays int           // run rows and child logs older than this prune away, 0 keeps forever
 	RetentionMax  int           // run row count cap, 0 unbounded
 
-	ChildrenDir string // child log directory for retention sweeps; may be empty
+	ChildrenDir string // child log directory for retention sweeps, may be empty
 }
 
 // withDefaults resolves the production fallbacks.
@@ -65,7 +65,7 @@ type Scheduler struct {
 	stopOnce sync.Once
 }
 
-// New builds a scheduler over one store and fleet runner; Start begins the
+// New builds a scheduler over one store and fleet runner, Start begins the
 // trigger loop.
 func New(opts Options) *Scheduler {
 	opts.withDefaults()
@@ -76,7 +76,7 @@ func New(opts Options) *Scheduler {
 		runner: opts.Runner,
 		nudge:  make(chan struct{}, 1),
 	}
-	// watchers and manual fires may run before Start; Start swaps in the
+	// watchers and manual fires may run before Start, Start swaps in the
 	// service's own context
 	s.baseCtx, s.cancel = context.WithCancel(context.Background())
 	s.ctx = context.WithoutCancel(s.baseCtx)
@@ -98,7 +98,7 @@ func (s *Scheduler) Start(ctx context.Context) {
 	}
 
 	// a crash mid-run leaves queued rows with no slot and no watcher to finish
-	// them; the sweep above already settled their runs
+	// them, the sweep above already settled their runs
 	if n, err := s.store.PruneAbandonedQueued(bookkeeping); err != nil {
 		s.log.Warn("queued-job sweep failed", "err", err)
 	} else if n > 0 {
@@ -106,7 +106,7 @@ func (s *Scheduler) Start(ctx context.Context) {
 	}
 
 	s.wg.Add(1)
-	go func() { //nolint:contextcheck // loop binds ctx at Start; bookkeeping detaches
+	go func() { //nolint:contextcheck // loop binds ctx at Start, bookkeeping detaches
 		defer s.wg.Done()
 		s.loop()
 	}()
@@ -189,7 +189,7 @@ func (s *Scheduler) nextWait(idleHeld bool) time.Duration {
 // fireDue claims one due slot: run-when-idle jobs wait for a quiet fleet
 // (skipping once their delay cap passes), missed jobs follow their on_missed
 // policy, and the schedule always advances before any launch. A claimed run
-// then executes asynchronously; a skipped or refused slot only records its
+// then executes asynchronously, a skipped or refused slot only records its
 // row. It reports whether the job stayed due waiting for an idle fleet.
 func (s *Scheduler) fireDue(j store.Job, now time.Time) bool {
 	slot := *j.NextRunAt
@@ -220,7 +220,7 @@ func (s *Scheduler) fireDue(j store.Job, now time.Time) bool {
 	}
 
 	id, final, claimed := s.claimFire(j, slot, now, run)
-	if !claimed { // advanced or deleted elsewhere; nothing to do
+	if !claimed { // advanced or deleted elsewhere, nothing to do
 		return false
 	}
 	run.ID = id
@@ -257,7 +257,7 @@ func (s *Scheduler) skipDue(j store.Job, slot time.Time, reason string) {
 
 // claimFire advances the slot and records one scheduled run, claiming it so
 // restarts never double-fire. It reports the claimed run's id and final
-// status; claimed is false when the schedule is broken or another pass
+// status, claimed is false when the schedule is broken or another pass
 // advanced or deleted the slot first.
 func (s *Scheduler) claimFire(j store.Job, slot, now time.Time, run store.Run) (int64, string, bool) {
 	var newNext *time.Time // nil clears the schedule (a fired one-shot)
@@ -304,7 +304,7 @@ func (s *Scheduler) baseRun(j store.Job, trigger string, now time.Time) store.Ru
 
 // FireNow manually fires one job regardless of its schedule or enabled state.
 // The overlap policy and the global run limit still apply. The returned row
-// is what was recorded; execution continues in the background.
+// is what was recorded, execution continues in the background.
 func (s *Scheduler) FireNow(ctx context.Context, jobID int64) (store.Run, error) {
 	j, err := s.store.JobByID(ctx, jobID)
 	if err != nil {
@@ -325,7 +325,7 @@ func (s *Scheduler) FireNow(ctx context.Context, jobID int64) (store.Run, error)
 	return run, nil
 }
 
-// Job and run reads and writes for the API layer; the scheduler owns no
+// Job and run reads and writes for the API layer, the scheduler owns no
 // cached job state, so these pass straight through to the store.
 
 // Jobs lists every stored job.

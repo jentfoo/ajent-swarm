@@ -2,7 +2,7 @@ import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 
 import { prependDraft, readDraft, writeDraft } from './draftStore'
 
-// placedAboveNotice names a prefill that merged above existing text; views
+// placedAboveNotice names a prefill that merged above existing text, views
 // surface it so an arrival above the draft is noticed (composer-draft-policy).
 export const placedAboveNotice = 'Placed above your existing draft.'
 
@@ -11,7 +11,7 @@ interface ComposerDraft {
   // setDraft applies one edit and writes through to storage.
   setDraft: (text: string) => void
   // prefill places rewound or recalled text under the prepend rule, returning
-  // whether it merged above a non-empty draft; empty text is ignored.
+  // whether it merged above a non-empty draft, empty text is ignored.
   prefill: (text: string) => boolean
 }
 

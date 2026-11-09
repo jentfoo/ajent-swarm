@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-// filesMax bounds one completion answer; a prefix matching more entries than
+// filesMax bounds one completion answer, a prefix matching more entries than
 // this simply truncates, and typing another character narrows it.
 const filesMax = 50
 
@@ -22,7 +22,7 @@ type FileSuggestion struct {
 // Files answers composer @-completion for one session: entries of the query's
 // directory whose name matches its last segment, resolved against the
 // session's working directory unless the query is absolute. A trailing
-// separator completes inside the named directory; a leading ~ expands to the
+// separator completes inside the named directory, a leading ~ expands to the
 // service home. An unreadable or missing directory answers empty: completion
 // stays silent rather than erroring in the composer.
 func (m *Manager) Files(ctx context.Context, sessionID string, query string) ([]FileSuggestion, error) {

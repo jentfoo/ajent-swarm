@@ -10,7 +10,7 @@ export const outcomeChipTtlMs = 1_500
 
 // ResolvedChip is the answered-elsewhere chip every dock renders. It
 // self-dismisses shortly after appearing and leaves on click, so an answer
-// decided elsewhere never lingers in view or store state; the timer is per id
+// decided elsewhere never lingers in view or store state, the timer is per id
 // and ignores parent re-renders. Touch surfaces read the detail inline,
 // desktop keeps the same line one hover away.
 export function ResolvedChip({

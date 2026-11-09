@@ -68,7 +68,7 @@ type MenuPopoverProps = {
 // pointerdown: only the topmost of stacked popovers answers Escape, presses
 // another listener already claimed are left alone, and closing returns focus
 // to the element focused before opening. Children keep their own menu
-// markup; only placement lives here.
+// markup, only placement lives here.
 export function MenuPopover({
   anchorRef,
   onClose,
@@ -142,7 +142,7 @@ export function MenuPopover({
     }
     const onPointerDown = (ev: PointerEvent) => {
       const target = ev.target as Node
-      // the trigger toggles itself; inside the menu is this component's ground
+      // the trigger toggles itself, inside the menu is this component's ground
       if (menuRef.current?.contains(target) || anchorRef.current?.contains(target)) return
       closeRef.current()
     }

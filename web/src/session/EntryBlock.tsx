@@ -24,7 +24,7 @@ function EntryBlockImpl({ block }: { block: DerivedBlock }) {
     case 'injected':
       return <InjectedEntry block={block} />
     case 'assistant': {
-      // copy payload: raw text parts joined with blank lines; thinking stays out
+      // copy payload: raw text parts joined with blank lines, thinking stays out
       // (collapsed, not part of what the model said) and calls own their cards
       const raw = block.parts
         .flatMap((part) => (part.kind === 'text' ? [part.text] : []))
@@ -104,7 +104,7 @@ const injectedHeadLines = 10
 // shape: label as header line, body as plain monospace output. The body never
 // reaches the markdown renderer, matching ajent's TUI trap about tool text.
 // A staged shell run's flush carries the shell-run class so delivered output
-// keeps the live card's accent; a `!!` run records nothing, so a delivered
+// keeps the live card's accent, a `!!` run records nothing, so a delivered
 // shell run is always a staged one.
 function InjectedEntry({ block }: { block: Extract<DerivedBlock, { kind: 'injected' }> }) {
   const [open, setOpen] = useState(false)
@@ -130,7 +130,7 @@ function InjectedEntry({ block }: { block: Extract<DerivedBlock, { kind: 'inject
   )
 }
 
-// ImageRow renders user-message attachments; deferred bodies (init tails) show a
+// ImageRow renders user-message attachments, deferred bodies (init tails) show a
 // placeholder until an /entries page fetch brings them at full fidelity.
 function ImageRow({ images }: { images: ImageView[] }) {
   if (images.length === 0) return null
@@ -154,7 +154,7 @@ function ImageRow({ images }: { images: ImageView[] }) {
   )
 }
 
-// systemText renders the familiar types as chips; unknown payload fields
+// systemText renders the familiar types as chips, unknown payload fields
 // round-trip upstream, so anything missing reads generically.
 function systemText(type: string, d: Record<string, unknown>): string {
   switch (type) {

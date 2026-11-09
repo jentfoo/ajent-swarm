@@ -4,7 +4,7 @@
 //
 //   - user messages classify as user, tool-result carrier or injected
 //     context (replayed or not) by the shared rule in pkg/session/replay.go
-//   - tool results fold under the call headers they answer; a result whose
+//   - tool results fold under the call headers they answer, a result whose
 //     call is absent renders standalone
 //   - compaction draws as a divider, notices stay level-tinted, and unknown
 //     entry types render as muted generic cards
@@ -153,7 +153,7 @@ export function mergeRecallSources(
   return out
 }
 
-// deriveNotice keeps a committed notice's level tint; the wire key is
+// deriveNotice keeps a committed notice's level tint, the wire key is
 // `message` here where live notice events use `text`.
 function deriveNotice(entry: Entry): DerivedBlock {
   const d = (entry.data ?? {}) as { message?: string; level?: string }
@@ -193,13 +193,13 @@ function deriveMessage(
     return deriveAssistant(entry.id, blocks, pendingCalls, hideLiveToolIds, verdicts, d.stop)
   }
   if (role !== 'user') {
-    // system-role messages carry no standalone shape; replay paints nothing
+    // system-role messages carry no standalone shape, replay paints nothing
     return undefined
   }
 
   const text = joinText(blocks)
   if (d.injected) {
-    // injected context opens no turn; it draws only when replay-marked,
+    // injected context opens no turn, it draws only when replay-marked,
     // matching replay's InjectBlock path
     if (!d.replayed) return undefined
     const inject = splitInject(text)

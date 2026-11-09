@@ -79,7 +79,7 @@ func (s *Store) DeleteExpiredSessions(ctx context.Context, now time.Time) (int64
 	return n, nil
 }
 
-// unixSec converts a time to stored unix seconds; the zero time stores as 0.
+// unixSec converts a time to stored unix seconds, the zero time stores as 0.
 func unixSec(t time.Time) int64 {
 	if t.IsZero() {
 		return 0

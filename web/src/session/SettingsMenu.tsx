@@ -131,7 +131,7 @@ function SettingEditor({
   )
 }
 
-// modelSettingKey is upstream's model row; its value must name a registry
+// modelSettingKey is upstream's model row, its value must name a registry
 // entry, so it edits as a selection instead of free text.
 const modelSettingKey = 'model'
 
@@ -180,7 +180,7 @@ function ModelSettingRow({
   )
 }
 
-// stringify renders one wire JSON value for editing; parseValue reads the
+// stringify renders one wire JSON value for editing, parseValue reads the
 // editor's text back in the row's own shape.
 function stringify(value: unknown): string {
   if (value === undefined || value === null) return ''

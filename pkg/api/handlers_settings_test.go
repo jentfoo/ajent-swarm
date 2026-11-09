@@ -96,7 +96,7 @@ func TestSettingsHandlers(t *testing.T) {
 
 	t.Run("tool_options_endpoint", func(t *testing.T) {
 		h := newSessionAPI(t)
-		// snapshots seed each actor's view at attach, so they precede serving; the
+		// snapshots seed each actor's view at attach, so they precede serving, the
 		// two sessions share one tool name, which the union must collapse
 		a := h.newStub("01TOOLSOPTS0000000000", fleettest.Options{})
 		a.SetSnapshot(ctl.State{

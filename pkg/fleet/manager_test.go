@@ -75,7 +75,7 @@ func externalFleet(t *testing.T, cs *fakeChildStore, live func() ([]ctl.Instance
 	return m
 }
 
-// subscribeTest registers one test viewer; frames flow into the channel.
+// subscribeTest registers one test viewer, frames flow into the channel.
 func subscribeTest(t *testing.T, m *Manager, sessionID string) (*Subscription, <-chan []byte) {
 	t.Helper()
 	out := make(chan []byte, 256)
@@ -98,7 +98,7 @@ type frame struct {
 	env wire
 }
 
-// readFrame pulls one frame; a stall fails through the Eventually window.
+// readFrame pulls one frame, a stall fails through the Eventually window.
 func readFrame(t *testing.T, in <-chan []byte) frame {
 	t.Helper()
 	var b []byte
@@ -487,7 +487,7 @@ func TestManager(t *testing.T) {
 
 			rows := m.Sessions()
 			require.Len(t, rows, 3)
-			// alive sorts before exited ones; ended rows run most-recent-first
+			// alive sorts before exited ones, ended rows run most-recent-first
 			assert.Equal(t, "01LIVESESSION000000", rows[0].SessionID)
 			assert.Equal(t, ChildOnline, rows[0].State)
 			assert.Equal(t, "01EXITMID0000000000", rows[1].SessionID)
@@ -543,7 +543,7 @@ func TestManager(t *testing.T) {
 
 			rows := m.Sessions()
 			require.Len(t, rows, maxExitedPinned)
-			// the newest four survive; the two oldest dropped off
+			// the newest four survive, the two oldest dropped off
 			assert.Equal(t, "A-session-padding0", rows[0].SessionID)
 			assert.Equal(t, "D-session-padding0", rows[maxExitedPinned-1].SessionID)
 		})

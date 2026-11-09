@@ -22,7 +22,7 @@ func newTestAuth(t *testing.T, opts ...Option) (*Service, *store.Store, *testClo
 	clock := &testClock{now: time.Unix(1_700_000_000, 0)}
 	opts = append([]Option{
 		WithClock(clock.Now),
-		WithBcryptCost(bcrypt.MinCost), // keep the suite fast; cost 12 is covered by defaults
+		WithBcryptCost(bcrypt.MinCost), // keep the suite fast, cost 12 is covered by defaults
 	}, opts...)
 	svc, err := NewService(st, opts...)
 	require.NoError(t, err)

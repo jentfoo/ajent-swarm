@@ -8,7 +8,7 @@ import { dismissNotificationPrompt, notificationsPromptDue } from '../providers/
 // session needs input and permission is still undecided, one small affordance
 // offers to enable them, so the tap shares the gesture context of the alert
 // that prompted it. Visibility derives straight from attention, permission and
-// the anti-nag state; MobileShell keeps this mounted for the page's lifetime,
+// the anti-nag state, MobileShell keeps this mounted for the page's lifetime,
 // so a refusal mutes the rest of the visit on its own.
 export default function NotificationPrompt(): ReactElement | null {
   const {

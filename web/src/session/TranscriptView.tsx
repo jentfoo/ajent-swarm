@@ -10,7 +10,7 @@ import type { AppliedSessionState, DiffView } from '../state/eventApplier'
 import type { LoadOlderResult } from '../stream/sessionStore'
 import { deriveBlocks } from '../state/derive'
 
-// Bottom gap still counting as "at the latest row"; scrolling above it
+// Bottom gap still counting as "at the latest row", scrolling above it
 // disengages autoscroll and shows the jump pill.
 const stickGap = 60
 
@@ -21,7 +21,7 @@ const pullDownPx = 64
 // TranscriptView renders the committed chain as a virtualized block list keyed
 // by entry id, with each anchored diff riding its block's row, unanchored ones
 // trailing beneath, and the pinned live stream at the bottom. Stick-to-bottom
-// autoscroll disengages on scroll-up; a pill jumps back to the latest. A
+// autoscroll disengages on scroll-up, a pill jumps back to the latest. A
 // sessionId change (swapping sessions inside one hosted view) re-lands on the
 // latest too.
 export function TranscriptView({
@@ -47,7 +47,7 @@ export function TranscriptView({
   const anchorRef = useRef<string | null>(null) // block id kept in view across a prepend
   const lastTopRef = useRef(0) // previous scrollTop, for the direction check
   const [showPill, setShowPill] = useState(false)
-  // Why the last load-older attempt failed; a retry that answers clears it.
+  // Why the last load-older attempt failed, a retry that answers clears it.
   const [loadError, setLoadError] = useState('')
 
   const setStuck = useCallback((stuck: boolean) => {
@@ -70,7 +70,7 @@ export function TranscriptView({
   )
 
   // Derivation re-runs only when the chain object or the live tool set
-  // changes; streaming deltas touch neither, so settled history renders once.
+  // changes, streaming deltas touch neither, so settled history renders once.
   // The entries map mutates in place with a stable identity, which is why the
   // chain is the trigger.
   const blocks = useMemo(
@@ -78,7 +78,7 @@ export function TranscriptView({
     [state.chain, state.entries, hideLiveToolIds, verdicts],
   )
 
-  // Diffs anchor to the block they arrived after; a card sits inside its row
+  // Diffs anchor to the block they arrived after, a card sits inside its row
   // wrapper so the virtualizer measures them together. Trailing holds the
   // pre-history case ('' anchor) plus anchors with no visible block, never
   // rewound-away history: the applier prunes those on branch changes.
@@ -98,7 +98,7 @@ export function TranscriptView({
     return { diffsByAnchor: byAnchor, trailingDiffs: trailing }
   }, [blocks, state.diffs])
 
-  // TanStack Virtual returns unstable function values by design; the compiler
+  // TanStack Virtual returns unstable function values by design, the compiler
   // opt-out is documented upstream and safe with our row keys.
   // eslint-disable-next-line react-hooks/incompatible-library
   const virtualizer = useVirtualizer({
@@ -143,7 +143,7 @@ export function TranscriptView({
     lastTopRef.current = el.scrollTop
   }, [setStuck])
 
-  // Loading older history prepends rows; anchor the previously-first block so
+  // Loading older history prepends rows, anchor the previously-first block so
   // the view does not jump, and disengage autoscroll while reading. A dry or
   // failed page drops the anchor instead of letting it fire later.
   const loadOlderAnchored = useCallback(async () => {
@@ -151,7 +151,7 @@ export function TranscriptView({
     setStuck(false)
     const result = await loadOlder()
     if (result.kind !== 'loaded') {
-      // no page is landing; a failure paints its reason until a retry answers
+      // no page is landing, a failure paints its reason until a retry answers
       anchorRef.current = null
       setLoadError(result.kind === 'failed' ? result.message : '')
       return
@@ -163,7 +163,7 @@ export function TranscriptView({
     if (anchorRef.current === null) return
     const id = anchorRef.current
     anchorRef.current = null
-    // Block indexes are what the virtualizer scrolls by; chain positions skip
+    // Block indexes are what the virtualizer scrolls by, chain positions skip
     // entries that derive to no block.
     const idx = blocks.findIndex((b) => b.id === id)
     if (idx > 0) virtualizer.scrollToIndex(idx, { align: 'start' })
@@ -175,7 +175,7 @@ export function TranscriptView({
     if (el) el.scrollTop = el.scrollHeight // the observer settles measurement
   }, [setStuck])
 
-  // A hosted view swaps sessions in place; the new session's transcript
+  // A hosted view swaps sessions in place, the new session's transcript
   // always opens on its latest, never wherever the previous one sat. Local
   // control state resets with it, so no old failure reason carries over.
   const lastSessionRef = useRef(sessionId)
@@ -187,7 +187,7 @@ export function TranscriptView({
   }, [sessionId, jumpToLatest])
 
   // Pull-to-latest: while already at the top of history, dragging further down
-  // is dead overscroll — exactly where a gesture cannot fight scrolling. The
+  // is dead overscroll, exactly where a gesture cannot fight scrolling. The
   // drag distance rides touchmove so it works through the rubber band. A touch
   // that scrolled first stays void for its whole life and only one finger
   // qualifies, mirroring usePullToRefresh.
@@ -198,7 +198,7 @@ export function TranscriptView({
     let startY: number | null = null
     let scrolled = false // the page moved under the finger; voids the candidate
     const begin = (ev: TouchEvent) => {
-      // one fresh finger seeds a candidate; anything else kills it
+      // one fresh finger seeds a candidate, anything else kills it
       startY = ev.touches.length === 1 ? ev.touches[0].clientY : null
       scrolled = false
     }

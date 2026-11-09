@@ -203,7 +203,7 @@ describe('FocusedWorkspace', () => {
     return [...rail().querySelectorAll<HTMLElement>('[data-session-id]')]
   }
 
-  // The stream connects eagerly; opening the socket lets subscriptions fly.
+  // The stream connects eagerly, opening the socket lets subscriptions fly.
   async function openSocket() {
     await waitFor(() => expect(sockets.length).toBeGreaterThan(0))
     act(() => sockets[0].open())
@@ -268,7 +268,7 @@ describe('FocusedWorkspace', () => {
       expect(opens).toEqual([{ type: 'subscribe', sessionId: DIALOG }])
     })
 
-    // swapping rows keeps the old subscription warm; the new one joins
+    // swapping rows keeps the old subscription warm, the new one joins
     await user.click(within(rail()).getByText('worker session'))
     await waitFor(() => {
       const opens = sockets[0].sent.map((raw) => JSON.parse(raw))
@@ -285,7 +285,7 @@ describe('FocusedWorkspace', () => {
     await user.keyboard('j') // review -> dialog
     await user.keyboard('r')
 
-    // the acked dialog leaves the queue; the review row keeps topping it and
+    // the acked dialog leaves the queue, the review row keeps topping it and
     // the settled session drops to Waiting with no reason line
     await waitFor(() => expect(screen.queryByText('allow write access?')).not.toBeInTheDocument())
     expect(railRows()[0].textContent).toContain('review session')
@@ -298,7 +298,7 @@ describe('FocusedWorkspace', () => {
     renderFocused()
     await openSocket()
 
-    // the two needs rows carry one each; waiting and working offer no ack
+    // the two needs rows carry one each, waiting and working offer no ack
     const checks = screen.getAllByLabelText(/Mark .* reviewed/)
     expect(checks.map((b) => b.getAttribute('aria-label'))).toEqual([
       'Mark review session reviewed',
@@ -397,7 +397,7 @@ describe('FocusedWorkspace', () => {
     await user.keyboard('j')
     expect(railRows()[0].getAttribute('data-cursor')).toBe('true')
 
-    // Escape closes through the overlay's own handling; bindings then return
+    // Escape closes through the overlay's own handling, bindings then return
     await user.keyboard('{Escape}')
     expect(screen.queryByRole('dialog', { name: 'Keyboard shortcuts' })).not.toBeInTheDocument()
     await user.keyboard('j')

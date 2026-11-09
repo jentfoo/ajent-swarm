@@ -17,14 +17,14 @@ interface Step {
   land: number
 }
 
-// stamped entries by stamp. A layer entry knows the stamped entry it sits on;
+// stamped entries by stamp. A layer entry knows the stamped entry it sits on
 // an adopted entry only marks foreign ground (a router entry), so a consume
 // never departs from one.
 type Entry = { below: number; layer: true } | { layer: false }
 
 // Open layers, outermost last.
 let layers: Layer[] = []
-// the one consume traversal in flight; null once landed or superseded
+// the one consume traversal in flight, null once landed or superseded
 let pending: Step | null = null
 const entries = new Map<number, Entry>()
 let nextStamp = 1
@@ -57,11 +57,11 @@ const onPop = () => {
   const mine = pending !== null && pending.land === here
   if (pending !== null) {
     // the traversal landed where it queued for, or was canceled or superseded
-    // by whatever landing arrived instead; its expectation dies either way
+    // by whatever landing arrived instead, its expectation dies either way
     pending = null
   }
   if (mine) {
-    // our own consume stepped onto the entry it queued for; the router has
+    // our own consume stepped onto the entry it queued for, the router has
     // nothing new to show for it either. A stacked teardown lands on another
     // dead entry below: keep consuming until an entry something else owns is
     // current
@@ -73,23 +73,18 @@ const onPop = () => {
 }
 
 // useOverlayBack ties one overlay layer to history for as long as it is
-// mounted. Opening pushes an entry beside the current one, so the platform
-// back gesture and the browser back button close the topmost overlay instead
-// of leaving the session, and closing through the layer's own controls (a
-// drag, Escape, a Back button, a timeout) consumes that entry rather than
-// leaving it behind.
+// mounted. Opening pushes an entry beside the current one, so platform back
+// and the browser back button close the topmost overlay instead of leaving
+// the session, and a layer's own close (drag, Escape, timeout) consumes its
+// entry rather than leaving it behind.
 //
 // The two directions compose without looping: pop events close overlays, and
 // overlay-initiated closes only step back over an entry this module pushed
-// that no live layer still owns. A navigation the router pushed on top (a
-// switcher row switching sessions) recycles or buries the entry, so closing
-// then leaves history alone.
-//
-// The entry a layer opens on is adopted when it carries no stamp of its own,
-// so every consume lands on a stamped entry and an unmarked landing always
-// reads as a real navigation. A consume queues the entry it will land on and
-// dies with the next push or foreign landing — browsers cancel superseded
-// traversals — so a cancelled consume can never swallow a later genuine back.
+// that no live layer still owns. A router navigation on top recycles or
+// buries the entry, so closing then leaves history alone. An unstamped
+// landing reads as a real navigation, and a consume dies with the next push
+// or foreign landing (browsers cancel superseded traversals), so it can
+// never swallow a later genuine back.
 export function useOverlayBack(onClose: () => void): void {
   // latest onClose, so the close paths never resubscribe
   const closeRef = useRef(onClose)
@@ -103,7 +98,7 @@ export function useOverlayBack(onClose: () => void): void {
       window.addEventListener('popstate', onPop)
     }
 
-    // this open's push cancels any traversal still queued; a step that will
+    // this open's push cancels any traversal still queued, a step that will
     // never land must not outlive it
     pending = null
 

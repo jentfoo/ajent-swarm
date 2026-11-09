@@ -24,7 +24,7 @@ function Harness({
   const scroller = useRef<HTMLDivElement>(null)
   const refreshing = usePullToRefresh(surface, onRefresh)
 
-  // jsdom lays nothing out; report real overflow so resolution lands on the
+  // jsdom lays nothing out, report real overflow so resolution lands on the
   // page scroller the way a long launcher page does
   useEffect(() => {
     const el = scroller.current!
@@ -127,7 +127,7 @@ describe('usePullToRefresh', () => {
     fireEvent.touchEnd(row, { touches: [], changedTouches: [{ clientY: 320 }] })
     expect(onRefresh).not.toHaveBeenCalled()
 
-    // the voided touch leaves nothing behind; a pull from rest still plays
+    // the voided touch leaves nothing behind, a pull from rest still plays
     pullGesture(row, 200, 300)
     await settle()
     expect(onRefresh).toHaveBeenCalledTimes(1)
@@ -198,7 +198,7 @@ describe('usePullToRefresh', () => {
 
     render(<Harness onRefresh={onRefresh} />)
 
-    // one finger seeds the gesture; a second landing mid-drag kills it even
+    // one finger seeds the gesture, a second landing mid-drag kills it even
     // when the last finger lifts far below where the first landed
     const row = screen.getByTestId('row')
     fireEvent.touchStart(row, { touches: [{ clientY: 200 }] })

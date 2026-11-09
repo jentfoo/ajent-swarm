@@ -16,7 +16,7 @@ import (
 const modelRowWait = 500 * time.Millisecond
 
 // ModelRow is one session's model facts. Current always comes from that
-// session's snapshot; switching happens through ModelSet against the same
+// session's snapshot, switching happens through ModelSet against the same
 // registry models.get lists, with no picker dialog to ride.
 type ModelRow struct {
 	SessionID string         `json:"sessionId"`

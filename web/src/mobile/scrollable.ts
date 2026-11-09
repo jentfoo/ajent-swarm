@@ -1,6 +1,6 @@
 // scrollableUnder resolves what a touch would scroll on one axis: the nearest
 // element at or above the touched node that really scrolls that way. Mobile
-// pages scroll inside the shell's content element, never the window; the
+// pages scroll inside the shell's content element, never the window, the
 // document root stands in when no inner scroller exists.
 export function scrollableUnder(target: Element, axis: 'x' | 'y'): HTMLElement {
   let node: Element | null = target

@@ -32,7 +32,7 @@ export function MarkdownBlock({ text }: { text: string }) {
   )
 }
 
-// Code fences route through the shiki highlighter; inline code stays plain.
+// Code fences route through the shiki highlighter, inline code stays plain.
 const components: Components = {
   pre: ({ children }) => <>{children}</>,
   code: CodeRenderer,

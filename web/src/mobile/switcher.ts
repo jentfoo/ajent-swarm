@@ -18,7 +18,7 @@ import {
   type SessionBadge,
 } from '../workspace/attention'
 
-// The ended tail keeps at least minEndedRows rows; older runs beyond that
+// The ended tail keeps at least minEndedRows rows, older runs beyond that
 // drop off, staying reachable through saved sessions and their transcripts.
 const minEndedRows = 4
 
@@ -59,7 +59,7 @@ const sectionOrder: readonly SwitcherSection[] = ['needs', 'waiting', 'working',
 // buildSwitcherRows folds the listing and attention items into sheet rows.
 // Attention is optional: a missing digest merely drops badges and reasons
 // until its next poll. Digests pair with their own instance when both sides
-// know the pid; otherwise any digest for the session stands in.
+// know the pid, otherwise any digest for the session stands in.
 export function buildSwitcherRows(
   sessions: readonly SessionStatus[],
   labelFor: (s: SessionStatus) => string,
@@ -119,7 +119,7 @@ export function buildSwitcherRows(
   return [...alive.map((a) => a.row), ...capEnded(exited)]
 }
 
-// capEnded keeps the pinned minimum plus every exit inside the recent window;
+// capEnded keeps the pinned minimum plus every exit inside the recent window
 // rows arrive most-recent-first, so everything past the window drops as one
 // tail. Rows without a timestamp rank oldest and only fill the minimum.
 function capEnded(rows: readonly SwitcherRow[]): SwitcherRow[] {
@@ -155,7 +155,7 @@ export function groupSwitcherRows(rows: readonly SwitcherRow[]): GroupedSwitcher
     // the render path enforces the ended window even when a producer skips it
     const sectionRows = section === 'ended' ? capEnded(matched) : matched
     if (sectionRows.length === 0) return []
-    // only the ended tail is switcher-specific; alive headings read the
+    // only the ended tail is switcher-specific, alive headings read the
     // shared queue titles so the sheet cannot drift from the desktop rail
     const title = section === 'ended' ? 'Recent' : attentionSectionTitles[section]
     return [{ section, title, rows: sectionRows }]

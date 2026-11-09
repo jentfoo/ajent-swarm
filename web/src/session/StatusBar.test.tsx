@@ -8,12 +8,12 @@ import type { CtlState } from '../api/types'
 import type { LiveTurn } from '../state/eventApplier'
 
 // The status bar renders the streamed segments plus context, queue and
-// activity; model and permission mode live in the header, so neither appears
+// activity, model and permission mode live in the header, so neither appears
 // here. The meter fills against the compaction budget with a `~`-marked count,
 // plain activity rows lead newest first under one overflow marker, and the
 // tooltips carry the fuller context and usage breakdowns. The tools panel
-// offers every registered tool as a toggle — readOnly is permission metadata,
-// not a lock — with widen-only state after the first prompt rendered as
+// offers every registered tool as a toggle (readOnly is permission metadata,
+// not a lock) with widen-only state after the first prompt rendered as
 // disabled instead of a silent refusal, and quick flips composing through the
 // shared toggle intent until the tools event settles them.
 
@@ -88,7 +88,7 @@ describe('StatusBar segments', () => {
       />,
     )
     expect(screen.getByText('1.2k')).toBeInTheDocument()
-    // both label lengths render; CSS picks one by bar width
+    // both label lengths render, CSS picks one by bar width
     expect(screen.getByText('1.2k tok')).toBeInTheDocument()
     expect(screen.queryByText(/path/)).not.toBeInTheDocument() // empty removed
     expect(screen.queryByText('auto+write')).not.toBeInTheDocument() // header owns mode
@@ -138,7 +138,7 @@ describe('StatusBar segments', () => {
   })
 
   it('reads structured counts ahead of the prose', () => {
-    // a wording drift may scramble the sentence; the counts are the contract
+    // a wording drift may scramble the sentence, the counts are the contract
     render(
       <StatusBar
         snap={snapFor({
@@ -205,7 +205,7 @@ describe('StatusBar segments', () => {
   })
 
   it('rests idle on snapshot facts despite stale live residue', () => {
-    // a sealed buffer can still paint; only the snapshot reports activity
+    // a sealed buffer can still paint, only the snapshot reports activity
     const residue: LiveTurn = {
       model: 'sonnet',
       thinking: 'leftover thinking',
@@ -397,7 +397,7 @@ describe('ToolsPanel toggle intent', () => {
     await user.click(boxes[0])
     await user.click(boxes[1])
     // the second post carries the first even though no tools event landed in
-    // between; recomputing from streamed rows would undo it
+    // between, recomputing from streamed rows would undo it
     await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2))
     expect(sentNames(fetchSpy)).toEqual([['bash'], ['bash', 'search']])
     expect(boxes[0]).toBeChecked()

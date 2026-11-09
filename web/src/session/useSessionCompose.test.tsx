@@ -91,7 +91,7 @@ describe('useSessionCompose', () => {
       },
     )
     fetcher = new FetchRouter()
-    // the provider's discovery polls ride along; only /recall answers matter
+    // the provider's discovery polls ride along, only /recall answers matter
     fetcher
       .on('/api/sessions', () => Response.json([]))
       .on('/api/attention', () => Response.json([]))

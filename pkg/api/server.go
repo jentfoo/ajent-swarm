@@ -23,7 +23,7 @@ func NewServer(handler http.Handler) *http.Server {
 }
 
 // Serve accepts connections until ctx is cancelled, then drains in-flight
-// requests under a bounded wait. A listener failure returns its error; a
+// requests under a bounded wait. A listener failure returns its error, a
 // signal always leads to a clean return.
 func Serve(ctx context.Context, srv *http.Server, ln net.Listener, log *slog.Logger) error {
 	serveErr := make(chan error, 1)

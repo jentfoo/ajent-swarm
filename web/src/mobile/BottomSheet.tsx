@@ -7,7 +7,7 @@ import { overlayTopmost, useOverlayDismiss } from '../ui/overlayStack'
 import { useOverlayBack } from '../ui/useOverlayBack'
 
 // dismissThreshold is how far the sheet must be dragged down before release
-// closes it; below that it springs back open.
+// closes it, below that it springs back open.
 const dismissThreshold = 96
 
 // tapSlop is how far a handle press may wander before it stops reading as a
@@ -48,7 +48,7 @@ export function BottomSheet({
   )
 }
 
-// SheetLayer is the open sheet; mounting is what opens it, so the drag offset,
+// SheetLayer is the open sheet, mounting is what opens it, so the drag offset,
 // focus and the history entry live exactly as long as the sheet does and a
 // reopen can never inherit any of them.
 function SheetLayer({
@@ -75,7 +75,7 @@ function SheetLayer({
     const sheet = sheetRef.current
     if (sheet === null) return
 
-    // content carrying autoFocus keeps its caret; otherwise the panel takes
+    // content carrying autoFocus keeps its caret, otherwise the panel takes
     // it, so Tab starts at the handle, never behind the backdrop
     if (!sheet.contains(document.activeElement)) sheet.focus()
 
@@ -114,7 +114,7 @@ function SheetLayer({
     setDragY(Math.max(0, ev.clientY - start.current.y))
   }
 
-  // the release decision reads the last committed offset; updaters stay pure,
+  // the release decision reads the last committed offset, updaters stay pure,
   // so StrictMode's double render cannot close the sheet twice
   const onPointerUp = (ev: ReactPointerEvent<HTMLDivElement>) => {
     const began = start.current

@@ -47,7 +47,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(
     () =>
       onUnauthorized(() => {
-        // An expired session surfaces anywhere; the login screen reads the
+        // An expired session surfaces anywhere, the login screen reads the
         // current location from the router to restore it afterwards.
         setStatus((prev) => (prev === 'authed' ? 'anon' : prev))
       }),
@@ -62,7 +62,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const bootstrap = useCallback(async (password: string) => {
-    // Bootstrap sets the first password but issues no session; the login
+    // Bootstrap sets the first password but issues no session, the login
     // screen takes over once the gate clears.
     try {
       await auth.bootstrap(password)

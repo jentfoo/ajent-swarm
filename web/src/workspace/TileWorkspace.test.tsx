@@ -73,7 +73,7 @@ function attentionRows(): AttentionRow[] {
   ]
 }
 
-// pendingDialog is one text-answer interaction; paneAnswer finds the card's
+// pendingDialog is one text-answer interaction, paneAnswer finds the card's
 // input inside a pane's dock.
 function pendingDialog(id: number, prompt: string) {
   return { id, kind: 'input', prompt, text: true }
@@ -108,7 +108,7 @@ describe('TileWorkspace', () => {
       'swarm.workspace.v1',
       JSON.stringify({ mode: 'tile', focused: {}, tile: { tree, focusedPaneId: 'p1' } }),
     )
-    // jsdom ships no pointer capture; divider drags only need the events
+    // jsdom ships no pointer capture, divider drags only need the events
     Element.prototype.setPointerCapture = () => {}
     vi.stubGlobal(
       'WebSocket',
@@ -218,11 +218,11 @@ describe('TileWorkspace', () => {
       expect(opens).toContainEqual({ type: 'subscribe', sessionId: RIGHT })
     })
 
-    // two panes, one each; the tree survived the round trip through storage
+    // two panes, one each, the tree survived the round trip through storage
     expect(document.querySelectorAll('[data-pane-id]')).toHaveLength(2)
     expect(document.querySelector('[data-pane-id="p1"]')?.className).toContain('focused')
 
-    // the backgrounded session with a dialog badges; the focused one does not
+    // the backgrounded session with a dialog badges, the focused one does not
     const badges = document.querySelectorAll('.tab-badge.needs-input')
     expect(badges).toHaveLength(1)
     expect(badges[0].getAttribute('aria-label')).toBe('needs input')
@@ -248,7 +248,7 @@ describe('TileWorkspace', () => {
     })
     expect(await screen.findByText('background key?')).toBeInTheDocument()
 
-    // cross-pane theft is the bug the focus policy exists for; attention
+    // cross-pane theft is the bug the focus policy exists for, attention
     // surfaces it instead (the badge case above covers that claim)
     const background = paneAnswer('p2')
     expect(background).not.toBeNull()
@@ -276,7 +276,7 @@ describe('TileWorkspace', () => {
     const user = userEvent.setup()
     await user.click(screen.getByLabelText('Close right'))
 
-    // the pane emptied away; the left pane remains as the whole tree
+    // the pane emptied away, the left pane remains as the whole tree
     await waitFor(() => expect(document.querySelectorAll('[data-pane-id]')).toHaveLength(1))
     expect(document.querySelector('[data-pane-id="p1"]')).not.toBeNull()
     const stored = JSON.parse(localStorage.getItem('swarm.workspace.v1') ?? '{}')
@@ -383,7 +383,7 @@ describe('TileWorkspace', () => {
     renderTile()
     await screen.findAllByText('right')
 
-    // closing the last tab empties the tree; auto-tiling must not re-seed it
+    // closing the last tab empties the tree, auto-tiling must not re-seed it
     const user = userEvent.setup()
     await user.click(screen.getByLabelText('Close right'))
     await waitFor(() => expect(document.querySelectorAll('[data-pane-id]')).toHaveLength(1))
@@ -564,7 +564,7 @@ describe('TileWorkspace', () => {
     renderTile()
     await screen.findAllByText('right')
 
-    // the class carries the kind for color, the label carries the words; the
+    // the class carries the kind for color, the label carries the words, the
     // backgrounded pane badges while the focused one stays clean
     const badges = document.querySelectorAll('.tab-badge.needs-review')
     expect(badges).toHaveLength(1)

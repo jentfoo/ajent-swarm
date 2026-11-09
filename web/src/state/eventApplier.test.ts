@@ -6,7 +6,7 @@ import { entry, ev, initFrame, messageEntry, testState } from './testFixtures'
 import type { Entry } from '../api/types'
 import type { CtlState, WireEvent } from '../api/types'
 
-// Events pass straight through; actions carry their own type tag.
+// Events pass straight through, actions carry their own type tag.
 type ApplyItem = ApplierAction | WireEvent
 
 function apply(state: AppliedSessionState, ...items: ApplyItem[]): AppliedSessionState {
@@ -95,7 +95,7 @@ describe('applierReducer committed family', () => {
     expect(s.chain.rooted).toBe(false)
     expect(s.healTick).toBe(1)
 
-    // The page fetch bridges the gap; overlap with what we hold dedupes.
+    // The page fetch bridges the gap, overlap with what we hold dedupes.
     const older = messageEntry('01OLDER', '01ROOT', 'user', 'prompt')
     s = apply(s, { type: 'backfill', entries: [older, root] })
     expect(s.chain.rooted).toBe(true)
@@ -115,7 +115,7 @@ describe('applierReducer committed family', () => {
     expect(s.chain.ids).toEqual([])
     expect(s.healTick).toBe(1)
 
-    // First page bridges to the next gap; only a later page reaches a root.
+    // First page bridges to the next gap, only a later page reaches a root.
     s = apply(s, { type: 'backfill', entries: [messageEntry('01C', '01B', 'assistant', 'c')] })
     expect(s.chain.ids).toEqual(['01C'])
     expect(s.chain.rooted).toBe(false)
@@ -156,7 +156,7 @@ describe('applierReducer dialogs', () => {
     s = apply(s, { type: 'snapshot', state: snap({ interactions: [dialog(7)], queuedRows: [] }) })
     expect(s.snapshot.interactions).toEqual([dialog(7)])
 
-    // Settled closes it; a snapshot no longer listing it clears it too.
+    // Settled closes it, a snapshot no longer listing it clears it too.
     s = apply(s, ev('interaction.settled', 2, { id: 7 }))
     expect(s.snapshot.interactions).toHaveLength(0)
     const cleared = apply(s, ev('interaction.pending', 3, dialog(8)), {
@@ -330,7 +330,7 @@ describe('applierReducer keyed families', () => {
     expect(s.snapshot.spinning).toBe(true)
     s = apply(s, ev('status', 4, { segment: { key: 'mode', text: '', order: 3 } }))
     expect(s.snapshot.status?.segments).toEqual([])
-    // A drop can lose the spinning:false event; a resnapshot clears it.
+    // A drop can lose the spinning:false event, a resnapshot clears it.
     s = apply(s, { type: 'snapshot', state: snap({ spinning: false }) })
     expect(s.snapshot.spinning).toBe(false)
   })
@@ -433,7 +433,7 @@ describe('applierReducer live turn buffers', () => {
   it('keeps the spinner off the live path', () => {
     let s = apply(initialSessionState(), ev('turn.start', 1, { model: 'm' }))
     expect(s.snapshot.running).toBe(true)
-    // spinning is not a turn event's job; snapshots reconcile it.
+    // spinning is not a turn event's job, snapshots reconcile it.
     s = apply(s, ev('status', 2, { spinning: true }), ev('turn.end', 3, {}))
     expect(s.snapshot.spinning).toBe(true)
   })
@@ -477,7 +477,7 @@ describe('applierReducer live thinking toggles', () => {
     )
     expect(s.live?.thinkingOpen).toBe(false)
 
-    // the step's entry commits; the committed thinking drains from it
+    // the step's entry commits, the committed thinking drains from it
     const committed = assistantWith([
       { type: 'thinking', data: { text: 'one' } },
       { type: 'tool_call', data: { id: 'c1', name: 'bash' } },
@@ -550,14 +550,14 @@ describe('applierReducer resnapshot poll-only fields', () => {
 
 describe('applierReducer seat state', () => {
   it('reads swarm displacement as our own takeover', () => {
-    // swarm force-claiming announces loss to the previous holder; this
+    // swarm force-claiming announces loss to the previous holder, this
     // single-user service is the new holder, so SeatBadge clears at once.
     const s = apply(initialSessionState(), ev('seat.lost', 1, { from: 'human-2', to: 'swarm' }))
     expect(s.snapshot.seat).toEqual({ held: true, holder: 'swarm', yours: true })
   })
 
   it('merges seat through resnapshots like poll-only facts', () => {
-    // A seat release spends no event number; the next snapshot is where the
+    // A seat release spends no event number, the next snapshot is where the
     // badge learns it.
     let s = apply(initialSessionState(), ev('seat.lost', 1, { from: 'swarm', to: 'human-2' }))
     expect(s.snapshot.seat).toEqual({ held: true, holder: 'human-2', yours: false })
@@ -591,7 +591,7 @@ describe('applierReducer snapshot ordering', () => {
   })
 
   it('stale stamp keeps event state', () => {
-    // The poll fired, then the stream announced a dialog and queue rows; the
+    // The poll fired, then the stream announced a dialog and queue rows, the
     // in-flight response read before all that and must not empty them.
     let s = apply(
       initialSessionState(),
@@ -644,7 +644,7 @@ describe('applierReducer snapshot ordering', () => {
       ev('turn.start', 5, { model: 'm' }),
       ev('tool.output', 6, { id: 'c1', delta: 'partial out' }),
     )
-    // The read predates the turn; it must not retire its freshly streamed card.
+    // The read predates the turn, it must not retire its freshly streamed card.
     s = apply(s, { type: 'snapshot', state: snap({ seq: 4, running: false }) })
     expect(s.live?.tools[0]?.outputs).toEqual(['partial out'])
 
@@ -743,7 +743,7 @@ describe('applierReducer diff anchoring', () => {
   })
 })
 
-// assistantWith builds one committed message entry with arbitrary blocks;
+// assistantWith builds one committed message entry with arbitrary blocks
 // role defaults to assistant, which is what the echo rules drain.
 function assistantWith(content: unknown[], role = 'assistant'): Entry {
   return entry(
@@ -804,7 +804,7 @@ describe('applierReducer mid-turn exit', () => {
     )
     const ended = apply(initialSessionState(), ...midTurn, ev('turn.end', 6, { stop: 'end_turn' }))
 
-    // identical turn state plus the reason; only the spinner also dies
+    // identical turn state plus the reason, only the spinner also dies
     expect(exited.exitReason).toBe('unsettled')
     expect(ended.exitReason).toBeUndefined()
     expect(exited.live).toEqual(ended.live)
@@ -911,7 +911,7 @@ describe('applierReducer tool card state', () => {
       ev('tool.output', 3, { id: 'c1', delta: 'partial out' }),
     )
 
-    // the carrier entry and turn.end never arrived; the snapshot says idle
+    // the carrier entry and turn.end never arrived, the snapshot says idle
     s = apply(s, { type: 'snapshot', state: snap({ running: false }) })
     expect(s.live).toBeNull()
 
@@ -1064,7 +1064,7 @@ describe('applierReducer user shell cards', () => {
       ev('tool.output', 5, { id: 'shell-1', delta: 'building...' }),
       ev('turn.end', 6, { stop: 'end_turn' }),
     )
-    // the model call seals at turn end; the staged run outlives the turn
+    // the model call seals at turn end, the staged run outlives the turn
     expect(s.live?.tools.find((t) => t.id === 'c1')?.closed).toBe(true)
     expect(s.live?.tools.find((t) => t.id === 'shell-1')?.closed).toBeUndefined()
 
@@ -1262,7 +1262,7 @@ describe('applierReducer echo fidelity', () => {
     )
     const committed = assistantWith([{ type: 'text', data: { text: 'committed' } }])
     s = apply(s, ev('entry.append', 3, { entry: committed }))
-    // a mismatch leaves the painted prefix; nothing is lost
+    // a mismatch leaves the painted prefix, nothing is lost
     expect(s.live?.text).toBe('streamed')
   })
 })

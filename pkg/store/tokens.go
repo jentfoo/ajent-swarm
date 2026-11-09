@@ -18,7 +18,7 @@ type APIToken struct {
 	LastUsed  time.Time // zero when the token was never used
 }
 
-// CreateAPIToken inserts a new token row; a duplicate name or hash reports
+// CreateAPIToken inserts a new token row, a duplicate name or hash reports
 // ErrConflict.
 func (s *Store) CreateAPIToken(ctx context.Context, tok APIToken) error {
 	const q = `INSERT INTO api_tokens (name, token_hash, created_at, last_used_at)

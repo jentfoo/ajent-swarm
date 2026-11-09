@@ -1,7 +1,7 @@
 import indexHtml from '../../index.html?raw'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-// index.html's head script applies the stored theme before first paint; these
+// index.html's head script applies the stored theme before first paint, these
 // tests pin its decision rules to SwarmProvider's readStored/preferredTheme so
 // the two cannot drift apart.
 
@@ -16,7 +16,7 @@ function runBootstrap(): string | undefined {
   return document.documentElement.dataset.theme
 }
 
-// jsdom ships no matchMedia; tests that exercise the scheme fallback stub it.
+// jsdom ships no matchMedia, tests that exercise the scheme fallback stub it.
 function stubScheme(prefersLight: boolean) {
   vi.stubGlobal('matchMedia', (query: string) => ({
     matches: prefersLight && query.includes('light'),

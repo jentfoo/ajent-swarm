@@ -13,7 +13,7 @@ import (
 	"github.com/jentfoo/ajent/pkg/session"
 )
 
-// pageDefault is test-only; production paging defaults live in pkg/api.
+// pageDefault is test-only, production paging defaults live in pkg/api.
 const pageDefault = 200
 
 // seqEvent builds one event outside the stub for view-level tests.
@@ -274,7 +274,7 @@ func TestView(t *testing.T) {
 	})
 
 	t.Run("session_exit_settles_an_open_turn", func(t *testing.T) {
-		// teardown can exit before the turn settles; the final view feeds
+		// teardown can exit before the turn settles, the final view feeds
 		// reattach greetings, REST reads and the listing, so busy state dies
 		// with the run
 		v := emptyView()
@@ -365,7 +365,7 @@ func TestView(t *testing.T) {
 		v := emptyView()
 		v.appendEntry(ctl.Entry{ID: "with-image", Type: string(session.TypeMessage), Data: data})
 
-		// the entry itself is untouched; only the init tail defers bodies
+		// the entry itself is untouched, only the init tail defers bodies
 		entries, _ := v.initTail()
 		require.Len(t, entries, 1)
 		assert.Contains(t, string(entries[0].Data), `"mediaType":"image/png"`)

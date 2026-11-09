@@ -32,7 +32,7 @@ type SavedSession struct {
 	UpdatedMs int64  `json:"updatedMs"`           // unix milliseconds
 	Messages  int    `json:"messages"`
 	First     string `json:"first,omitempty"`
-	Blocked   bool   `json:"blocked"` // recorded in a newer format; resume would refuse it
+	Blocked   bool   `json:"blocked"` // recorded in a newer format, resume would refuse it
 	Live      bool   `json:"live"`    // tracked by the fleet right now
 }
 
@@ -83,7 +83,7 @@ func (m *Manager) SavedSessions() ([]SavedSession, error) {
 
 // SavedEntries reads one recorded transcript for offline browsing: the file
 // read branches by a tip derived at read time, since listings carry no head.
-// before names the previous page's oldest entry; the cursor continues back.
+// before names the previous page's oldest entry, the cursor continues back.
 func (m *Manager) SavedEntries(target, before string, limit int) (SavedEntriesPage, error) {
 	row, err := m.savedRow(target)
 	if err != nil {
@@ -128,7 +128,7 @@ func (m *Manager) savedRow(target string) (session.Listed, error) {
 	return session.Listed{}, fmt.Errorf("%w: %s", ErrUnknownSaved, target)
 }
 
-// errNoSavedMatch reports a target that matched no row; findSavedRow uses it
+// errNoSavedMatch reports a target that matched no row, findSavedRow uses it
 // to tell misses apart from ambiguity and store errors.
 var errNoSavedMatch = errors.New("no saved session matches")
 
@@ -188,7 +188,7 @@ func recordedTip(entries []session.Entry) string {
 			tip, has = e, true
 		}
 	}
-	if !has { // every entry referenced: a corrupt tree; the file tail stands in
+	if !has { // every entry referenced: a corrupt tree, the file tail stands in
 		tip = entries[len(entries)-1]
 	}
 	return tip.ID
@@ -211,7 +211,7 @@ func pageBranch(branch []session.Entry, before string, limit int) ([]ctl.Entry, 
 		wireEntry)
 }
 
-// unixMilli renders a listing timestamp; zero stays zero.
+// unixMilli renders a listing timestamp, zero stays zero.
 func unixMilli(t time.Time) int64 {
 	if t.IsZero() {
 		return 0

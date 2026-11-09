@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 
 import { MarkdownBlock } from './MarkdownBlock'
 
-// Model output is untrusted input; these are the hard guarantees.
+// Model output is untrusted input, these are the hard guarantees.
 
 describe('MarkdownBlock sanitize', () => {
   it('never renders raw HTML from model output', () => {
@@ -24,7 +24,7 @@ describe('MarkdownBlock sanitize', () => {
   it('renders GFM tables and task lists through the sanitizer', () => {
     render(<MarkdownBlock text={'| a | b |\n|---|---|\n| 1 | 2 |\n\n- [x] done item'} />)
     expect(document.querySelector('table')).not.toBeNull()
-    // the checkbox input is dropped by the default schema; the list stays
+    // the checkbox input is dropped by the default schema, the list stays
     expect(screen.getByText(/done item/)).toBeInTheDocument()
   })
 

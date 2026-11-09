@@ -25,7 +25,7 @@ interface Raised {
   closed: boolean
 }
 
-// jsdom ships no Notification; a granted stand-in that records every
+// jsdom ships no Notification, a granted stand-in that records every
 // construction unlocks the publish path and covers the default wiring.
 class StubNotification {
   static permission = 'granted'

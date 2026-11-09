@@ -52,7 +52,7 @@ export const fleet = {
   ackAttention: (req: AttentionAck) => post<void>('/api/attention/ack', req),
   launch: (req: LaunchRequest) => post<LaunchResult>('/api/sessions', req),
   saved: () => get<SavedSession[]>('/api/saved-sessions'),
-  // Offline transcript read for a recorded session; before continues the walk
+  // Offline transcript read for a recorded session, before continues the walk
   // back in time from a previous page's cursor.
   savedEntries: (id: string, before = '', limit = 200) => {
     const params = new URLSearchParams({ limit: String(limit) })
@@ -96,13 +96,13 @@ export const sessions = {
   submit: (id: string, line: string, pendingId?: string) =>
     post<SubmitReply>(withID(id, '/submit'), { line, pendingId }),
   interrupt: (id: string) => post<{ stopped?: string }>(withID(id, '/interrupt')),
-  // mode jumps straight to a named level; upstream's cycle stays server-side
+  // mode jumps straight to a named level, upstream's cycle stays server-side
   setMode: (id: string, mode: string) => post<ModeReply>(withID(id, '/mode'), { mode }),
   rewind: (id: string, head: string) => post<RewindReply>(withID(id, '/rewind'), { head }),
   resolve: (id: string, answer: ResolveAnswer) =>
     post<ResolveReply>(withID(id, '/resolve'), answer),
   recall: (id: string) => post<RecallRow>(withID(id, '/recall')),
-  // agents.list is the structured sub-agent read; stop takes one job id or
+  // agents.list is the structured sub-agent read, stop takes one job id or
   // {all:true}, with exactly-one validated upstream.
   agents: (id: string, signal?: AbortSignal) =>
     get<AgentsListResult>(withID(id, '/agents'), { signal }),
@@ -132,19 +132,19 @@ export const sessions = {
     get<ModelListing>(withID(id, '/models'), { signal }),
   setModel: (id: string, model: string) => post<{ model: string }>(withID(id, '/model'), { model }),
 
-  // tools.set reshapes the enabled set; settings.get/set read and write rows.
+  // tools.set reshapes the enabled set, settings.get/set read and write rows.
   setTools: (id: string, names: string[]) => post<ToolSetReply>(withID(id, '/tools'), { names }),
   settings: (id: string, signal?: AbortSignal) =>
     get<SettingsRowsReply>(withID(id, '/settings'), { signal }),
   setSetting: (id: string, key: string, value: unknown, persist?: 'user' | 'project') =>
     post<SettingSetReply>(withID(id, '/setting'), { key, value, persist }),
 
-  // swarm-side display titles; empty clears, ajent's own names stay untouched.
+  // swarm-side display titles, empty clears, ajent's own names stay untouched.
   setTitle: (id: string, title: string) => post<void>(withID(id, '/title'), { title }),
 }
 
 // Scheduled jobs and their run history. preview evaluates one draft schedule
-// server-side through the trigger loop's own arithmetic; queue parks one
+// server-side through the trigger loop's own arithmetic, queue parks one
 // prompt on a one-shot row that waits for an idle fleet.
 export const jobsApi = {
   list: (signal?: AbortSignal) => get<Job[]>('/api/jobs', { signal }),
@@ -157,7 +157,7 @@ export const jobsApi = {
     post<SchedulePreview>('/api/jobs/preview', { ...job, count }, { signal }),
 }
 
-// Run history across every job; ?job= narrows to one.
+// Run history across every job, ?job= narrows to one.
 export const runsApi = {
   list: (jobId?: number, limit = 200, signal?: AbortSignal) => {
     const params = new URLSearchParams({ limit: String(limit) })

@@ -19,7 +19,7 @@ export type SocketState = 'connecting' | 'open' | 'closed'
 // delivery reads as lost.
 export type SessionPhase = 'connecting' | 'live' | 'resyncing' | 'ended' | 'lost'
 
-// SocketLike is the slice of WebSocket the client drives; tests inject a mock.
+// SocketLike is the slice of WebSocket the client drives, tests inject a mock.
 // The handler signatures mirror lib.dom's own so a real WebSocket satisfies
 // it structurally without casts.
 interface SocketLike {
@@ -95,7 +95,7 @@ export class SwarmStream {
   // --- public surface ---
 
   // subscribe registers one view on a session's frames. Repeat subscriptions
-  // reference count; the wire sees one subscribe until the last view leaves.
+  // reference count, the wire sees one subscribe until the last view leaves.
   subscribe(sessionId: string, onFrame: FrameListener): () => void {
     const refs = (this.refs.get(sessionId) ?? 0) + 1
     this.refs.set(sessionId, refs)
@@ -136,7 +136,7 @@ export class SwarmStream {
   }
 
   // connect opens the shared socket eagerly so the global connection banner
-  // reflects reality before any view subscribes; later subscribes ride it.
+  // reflects reality before any view subscribes, later subscribes ride it.
   connect(): void {
     if (this.destroyed || this.socket !== null) return
     this.retryAttempt = 0
@@ -145,7 +145,7 @@ export class SwarmStream {
 
   // resync asks the backend to re-push one session's init, rebuilding state in
   // place without dropping other subscriptions. An ended session holds its
-  // final view; there is nothing left to rebuild.
+  // final view, there is nothing left to rebuild.
   resync(sessionId: string): void {
     if (!this.refs.has(sessionId)) return
     if (this.phases.get(sessionId) === 'ended') return
@@ -179,7 +179,7 @@ export class SwarmStream {
   }
 
   // disconnect tears the socket and timers down while keeping the client
-  // usable; a later subscribe reconnects on demand. Used by provider cleanup.
+  // usable, a later subscribe reconnects on demand. Used by provider cleanup.
   disconnect(): void {
     document.removeEventListener('visibilitychange', this.handleVisibility)
     if (this.retryTimer !== null) {
@@ -199,7 +199,7 @@ export class SwarmStream {
     ws?.close()
   }
 
-  // destroy tears the client down permanently; used by tests.
+  // destroy tears the client down permanently, used by tests.
   destroy(): void {
     this.destroyed = true
     this.disconnect()
@@ -219,7 +219,7 @@ export class SwarmStream {
 
   private ensureSocket() {
     if (this.destroyed || this.socket !== null) return
-    // the visibility handler only matters once a socket exists; registering
+    // the visibility handler only matters once a socket exists, registering
     // here keeps an unused instance (a StrictMode discard) off the document
     document.addEventListener('visibilitychange', this.handleVisibility)
     if (this.retryTimer !== null) {
@@ -235,7 +235,7 @@ export class SwarmStream {
       this.lastFrameAt = Date.now()
       this.retryAttempt = 0
       this.setState('open')
-      // Re-join every ref'd session; a fresh socket knows no subscriptions.
+      // Re-join every ref'd session, a fresh socket knows no subscriptions.
       for (const sessionId of this.listeners.keys()) {
         if (this.phases.get(sessionId) === 'ended') continue // definitive end, never rejoins
         this.sendFrame({ type: 'subscribe', sessionId })
@@ -267,7 +267,7 @@ export class SwarmStream {
         clearInterval(this.watchdog)
         this.watchdog = null
       }
-      // Held state is stale until the next init; keep it visible while we retry.
+      // Held state is stale until the next init, keep it visible while we retry.
       for (const sessionId of this.listeners.keys()) {
         if (this.phases.get(sessionId) === 'ended') continue // an exit outlives socket churn
         this.setPhase(sessionId, this.phases.has(sessionId) ? 'resyncing' : 'connecting')
@@ -276,7 +276,7 @@ export class SwarmStream {
     }
 
     ws.onerror = () => {
-      // The close event follows; nothing to do beyond keeping state coherent.
+      // The close event follows, nothing to do beyond keeping state coherent.
     }
   }
 
@@ -293,7 +293,7 @@ export class SwarmStream {
 
   private checkStale = () => {
     if (!this.isOpen() || this.lastFrameAt === 0) return
-    // Backgrounded tabs throttle timers, so a late check is normal; only real
+    // Backgrounded tabs throttle timers, so a late check is normal, only real
     // staleness closes the socket, and close drives reconnect.
     if (Date.now() - this.lastFrameAt > this.staleAfterMs) {
       this.socket?.close()
@@ -303,7 +303,7 @@ export class SwarmStream {
   private handleVisibility = () => {
     if (document.visibilityState !== 'visible') return
     if (this.isOpen()) {
-      // Backgrounded tabs miss frames; every held view resnapshots at once.
+      // Backgrounded tabs miss frames, every held view resnapshots at once.
       for (const sessionId of this.listeners.keys()) {
         this.resync(sessionId)
       }
@@ -323,7 +323,7 @@ export class SwarmStream {
     try {
       this.socket.send(JSON.stringify(frame))
     } catch {
-      // Send failures surface through close; reconnect resubscribes.
+      // Send failures surface through close, reconnect resubscribes.
     }
   }
 
@@ -387,7 +387,7 @@ export class SwarmStream {
 
   // scheduleResubscribe re-sends one session's subscribe after a backoff, so a
   // refused or retired subscription rejoins as soon as the fleet can serve it.
-  // Exhausted attempts mark the phase lost; an ended session never retries.
+  // Exhausted attempts mark the phase lost, an ended session never retries.
   private scheduleResubscribe(sessionId: string): void {
     if (this.destroyed || !this.refs.has(sessionId)) return
     if (this.phases.get(sessionId) === 'ended') return // definitive end, stops retrying

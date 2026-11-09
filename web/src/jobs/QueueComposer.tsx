@@ -13,7 +13,7 @@ import { ModalShell } from '../ui/ModalShell'
 // QueueComposer is the short form behind the Queue action: one prompt parked
 // until no session has been active for ten minutes, then run once in a fresh
 // session that stays open for review. Launch facts render through the block
-// the job editor shares; the fixed policy reads as quiet text since the
+// the job editor shares, the fixed policy reads as quiet text since the
 // server owns it.
 export function QueueComposer({
   workspaces,

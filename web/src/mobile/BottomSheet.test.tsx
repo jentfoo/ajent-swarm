@@ -50,7 +50,7 @@ function FocusHarness({ children }: { children: ReactElement }) {
 const opener = () => screen.getByRole('button', { name: 'opener' })
 const sheetDialog = () => screen.getByRole('dialog', { name: 'Session switcher' })
 
-// a consume queued by the previous test's cleanup never navigated in jsdom;
+// a consume queued by the previous test's cleanup never navigated in jsdom
 // drain its pending pop event so it cannot swallow this test's own
 beforeEach(() => {
   window.dispatchEvent(new PopStateEvent('popstate'))
@@ -60,7 +60,7 @@ beforeEach(() => {
 
 describe('BottomSheet', () => {
   beforeEach(() => {
-    // jsdom ships no pointer capture; the drag only needs the events
+    // jsdom ships no pointer capture, the drag only needs the events
     Element.prototype.setPointerCapture = () => {}
   })
   afterEach(() => {
@@ -311,7 +311,7 @@ describe('BottomSheet', () => {
       screen.getByRole('textbox', { name: 'Sheet input' }).focus()
     })
 
-    // the backdrop publishes the inset; theme.css shrinks it from the bottom,
+    // the backdrop publishes the inset, theme.css shrinks it from the bottom,
     // since ancestor padding cannot move a position:fixed panel
     const backdrop = document.querySelector('.sheet-backdrop') as HTMLElement
     expect(backdrop.style.getPropertyValue('--keyboard-inset')).toBe('0px')

@@ -10,7 +10,7 @@ import { ModalShell } from '../ui/ModalShell'
 
 // The key binding lives at window level and every guard reads a mirror of the
 // latest options, so each case mounts one config and dispatches Escape
-// directly; a deferred fetch lets one case hold a request on the wire.
+// directly, a deferred fetch lets one case hold a request on the wire.
 
 const VIEW = '01ESCTEST000000'
 
@@ -37,7 +37,7 @@ function Harness(props: HarnessProps): ReactElement {
   )
 }
 
-// Escape on window; the return reports whether the hook claimed the press.
+// Escape on window, the return reports whether the hook claimed the press.
 function escape(modifiers: KeyboardEventInit = {}): boolean {
   const ev = new KeyboardEvent('keydown', {
     key: 'Escape',

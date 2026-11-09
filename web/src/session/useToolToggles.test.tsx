@@ -82,7 +82,7 @@ describe('useToolToggles', () => {
     await act(async () => result.current.toggle(initial[0]))
     expect(result.current.enabledOf(initial[0])).toBe(true)
 
-    // the tools event confirms; the streamed fact decides now
+    // the tools event confirms, the streamed fact decides now
     const confirmed = rowsFor({ read_file: true })
     rerender({ rows: confirmed })
     expect(result.current.enabledOf(confirmed[0])).toBe(true)

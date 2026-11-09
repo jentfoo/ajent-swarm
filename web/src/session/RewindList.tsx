@@ -9,9 +9,9 @@ import { absoluteTime, kindClass, kindLabel, relativeTime } from './rewind'
 // RewindList is the one rewind picker body behind both chromes: the desktop
 // dialog's modal and the phone's bottom sheet. Candidates load per mount,
 // every kind lists in the server's tree order with no cap, and one pick
-// rewinds, toasts success, prefills a prompt for an edit — warning first when
-// its text arrived truncated — and closes. `keyboard` runs the desktop cursor:
-// arrows or j/k move it, Enter picks beneath it; sheets stay touch-driven.
+// rewinds, toasts success, prefills a prompt for an edit (warning first when
+// its text arrived truncated) and closes. `keyboard` runs the desktop cursor:
+// arrows or j/k move it, Enter picks beneath it, sheets stay touch-driven.
 export function RewindList({
   sessionId,
   keyboard = false,

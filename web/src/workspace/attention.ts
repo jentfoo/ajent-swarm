@@ -4,7 +4,7 @@
 // The kind, reason and wait of a row arrive derived on the /api/attention
 // digest, folded there against the server-side acknowledgment ledger, so every
 // device renders one attention state. Acknowledging happens by acting
-// (answering the dialog, submitting a prompt) or an explicit check-off; either
+// (answering the dialog, submitting a prompt) or an explicit check-off, either
 // way it lands as POST /api/attention/ack and the settled row reads back on
 // the next digest poll.
 //
@@ -39,7 +39,7 @@ export interface AttentionItem {
 }
 
 // deriveItem maps one digest row onto the shared item shape. The kind, reason
-// and wait render verbatim from the server's derivation; only the busy fact
+// and wait render verbatim from the server's derivation, only the busy fact
 // folds locally so badges can lead the digest by one snapshot.
 export function deriveItem(row: AttentionRow): AttentionItem {
   return {
@@ -69,7 +69,7 @@ export function ackBodyFor(item: AttentionItem): AttentionAck | undefined {
 // --- badge states ---
 
 // SessionBadge is one live session's at-a-glance badge state. The switcher
-// rows render it directly; the session headers fold waiting into idle.
+// rows render it directly, the session headers fold waiting into idle.
 export type SessionBadge = 'input' | 'running' | 'waiting' | 'idle'
 
 // sessionBadgeOf ranks one session's badge state from its own busy fact plus
@@ -170,7 +170,7 @@ export function compareAttention(a: AttentionSort, b: AttentionSort): number {
 // The digest carries no timestamp for idle or busy transitions, so each
 // session's arrival in its current queue is stamped client-side: one map,
 // re-stamped only when the kind changes, pruned when the session leaves.
-// Reloads re-stamp; settled order is cosmetic and never persisted.
+// Reloads re-stamp, settled order is cosmetic and never persisted.
 const queueEntries = new Map<string, { kind: AttentionKind; at: number }>()
 
 // queueKey pairs queue entries by instance.
@@ -199,7 +199,7 @@ function stampQueueEntries(items: readonly AttentionItem[]): AttentionItem[] {
   return stamped
 }
 
-// resetQueueEntries clears arrival stamps; only tests need this for
+// resetQueueEntries clears arrival stamps, only tests need this for
 // isolation between cases.
 export function resetQueueEntries(): void {
   queueEntries.clear()
@@ -246,7 +246,7 @@ export function attendBadgeLabels(count: number): { title: string; 'aria-label':
 
 // describeStop turns a turn end into the listing card's one-line summary.
 // Mirrors stopReasonText in pkg/fleet/attention.go, which derives the digest's
-// needs-review reason; keep them in step.
+// needs-review reason, keep them in step.
 export function describeStop(stop: string | undefined, err: string | undefined): string {
   if (err) return 'turn failed'
   switch (stop) {

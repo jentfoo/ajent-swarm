@@ -18,7 +18,7 @@ export interface LaunchFormController {
   setModel: (key: string) => void
   busy: boolean
   error: string
-  // launch posts one request built from the form state; it resolves the new
+  // launch posts one request built from the form state, it resolves the new
   // session id, or null with the error already surfaced. Busy holds through a
   // success because every caller navigates away on it.
   launch: (target: LaunchTarget) => Promise<string | null>

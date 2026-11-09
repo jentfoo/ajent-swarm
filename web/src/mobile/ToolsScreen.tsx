@@ -8,10 +8,10 @@ import { PushedScreen } from './PushedScreen'
 // ToolsScreen is the pushed full-screen tools panel: snapshot rows with their
 // sources, toggled through tools.set's shared intent machine
 // (useToolToggles), so quick flips compose and settle from the next tools
-// event. Each toggle submits the complete desired set — a free replacement
+// event. Each toggle submits the complete desired set, a free replacement
 // before the run's first prompt, enable-only after, where upstream keeps
 // names left out unchanged and refusals surface as toasts. The readOnly flag
-// is permission metadata, never a toggle lock; rows an already-dispatched run
+// is permission metadata, never a toggle lock, rows an already-dispatched run
 // cannot release render disabled like on desktop.
 export function ToolsScreen({
   sessionId,

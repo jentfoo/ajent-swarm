@@ -53,7 +53,7 @@ func (r *scriptRunner) Launch(ctx context.Context, _ fleet.LaunchRequest) (fleet
 	return fleet.LaunchResult{SessionID: r.session}, nil
 }
 
-// LastBusyAt reports a quiet fleet; no job in these tests waits for idle.
+// LastBusyAt reports a quiet fleet, no job in these tests waits for idle.
 func (r *scriptRunner) LastBusyAt() time.Time { return time.Time{} }
 
 func (r *scriptRunner) Submit(_ context.Context, _ string, params ctl.SubmitParams) error {
@@ -94,7 +94,7 @@ func (r *scriptRunner) playLanding(pid string) {
 	}))
 }
 
-// mustJSONFrame encodes one stream frame; only unreachable types fail.
+// mustJSONFrame encodes one stream frame, only unreachable types fail.
 func mustJSONFrame(v any) []byte {
 	b, err := json.Marshal(v)
 	if err != nil {
@@ -246,7 +246,7 @@ func (env *schedEnv) holdLaunches(t *testing.T) {
 	env.runner.mu.Unlock()
 }
 
-// releaseLaunches frees parked launches; safe without any.
+// releaseLaunches frees parked launches, safe without any.
 func (env *schedEnv) releaseLaunches() {
 	env.runner.mu.Lock()
 	gate := env.runner.block
@@ -285,7 +285,7 @@ func TestJobHandlers(t *testing.T) {
 		})
 
 		t.Run("create_accepts_disabled_once_without_slot", func(t *testing.T) {
-			// only an armed row needs a slot; a parked draft carries none
+			// only an armed row needs a slot, a parked draft carries none
 			created := env.createJob(t, client, "parked", map[string]any{
 				"scheduleKind": store.ScheduleOnce,
 				"enabled":      false,

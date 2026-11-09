@@ -23,9 +23,9 @@ const nonTextInputs = new Set([
 // useKeyboardInset tracks how much of the layout viewport a software keyboard
 // (or any floating browser chrome) covers, so a mobile composer can rise above
 // it and the transcript stays visible while the keyboard animates. The hook
-// reads window.visualViewport only; desktop browsers without one report zero.
+// reads window.visualViewport only, desktop browsers without one report zero.
 //
-// visualViewport resize events fire repeatedly during the keyboard animation;
+// visualViewport resize events fire repeatedly during the keyboard animation
 // every value flows through state so consumers re-render with each step and
 // their sticky bottoms ride along instead of jumping at the end.
 export function useKeyboardInset(): number {

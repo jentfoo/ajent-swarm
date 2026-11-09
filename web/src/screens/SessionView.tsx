@@ -25,11 +25,11 @@ import { useSessionCompose } from '../session/useSessionCompose'
 // SessionView is the single-session experience: slim status header with
 // controls, virtualized transcript over reconciled state, dialog dock above a
 // queue-aware composer, and a bottom status bar answering "what is the agent
-// doing" at a glance. The workspace modes host it by sessionId; the /s/:sessionId
+// doing" at a glance. The workspace modes host it by sessionId, the /s/:sessionId
 // route keeps a standalone focused view for deep links. focused marks the
 // surface that holds keyboard focus: dialogs take the caret there (head card,
 // on mount), render inert in background panes, and its stream answers Escape
-// with an interrupt — twice, while idle, with the rewind picker.
+// with an interrupt, twice, while idle, with the rewind picker.
 //
 // The content keys on sessionId, so every host presents a swap as a remount:
 // that session's own draft restores from the store while sheets, menus, toasts
@@ -46,7 +46,7 @@ export default function SessionView({
   return <SessionSurface key={sessionId} sessionId={sessionId} focused={focused} />
 }
 
-// SessionSurface is one session's mounted presentation; the key above makes a
+// SessionSurface is one session's mounted presentation, the key above makes a
 // session swap a remount, so local state never outlives its session.
 function SessionSurface({ sessionId, focused }: { sessionId: string; focused: boolean }) {
   const { state, phase, loadOlder, dispatch } = useSessionChannel(sessionId)
@@ -69,12 +69,12 @@ function SessionSurface({ sessionId, focused }: { sessionId: string; focused: bo
 
   const working = sessionBusy(snap)
   const ended = endedBanner(phase, state.exitReason)
-  // the wire's queuedRows is optional; chips and the recall gate share one read
+  // the wire's queuedRows is optional, chips and the recall gate share one read
   const queuedRows = snap.queuedRows ?? []
   // sub-agent job records are pull-only: re-listed while any job is live, so
   // the chips band and poll cards carry stop controls and real statuses
   const agentJobs = useAgentJobs(sessionId, snap.activity, snap.status?.segments, pushToast)
-  // Escape interrupts while this surface is being viewed; only the focused tile
+  // Escape interrupts while this surface is being viewed, only the focused tile
   // pane binds it. The same guarded fire drives the composer's Stop button.
   const { interrupt, inFlight: stopBusy } = useInterruptStream({
     sessionId,

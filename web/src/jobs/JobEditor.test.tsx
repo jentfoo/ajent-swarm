@@ -153,7 +153,7 @@ describe('JobEditor', () => {
     renderEditor({ job: storedJob })
     await settlePreview()
 
-    // the backend's own message lands in the preview slot; the draft itself is valid
+    // the backend's own message lands in the preview slot, the draft itself is valid
     expect(screen.getByText('daily time must be HH:MM')).toBeInTheDocument()
   })
 
@@ -214,7 +214,7 @@ describe('JobEditor', () => {
 
     await user.type(screen.getByRole('textbox', { name: /^Name/ }), 'weekly')
     await user.type(screen.getByLabelText(/Workspace directory/), '/repo')
-    // mondays and fridays only; the picker rides every recurring kind,
+    // mondays and fridays only, the picker rides every recurring kind,
     // interval included, for an always-on job that rests on weekends
     await user.click(screen.getByRole('checkbox', { name: /Mon/ }))
     await user.click(screen.getByRole('checkbox', { name: /Fri/ }))
@@ -254,7 +254,7 @@ describe('JobEditor', () => {
   it('keeps a stored weekday set checked when editing', () => {
     renderEditor({ job: { ...storedJob, weekdays: 'tue,thu' } })
 
-    // checkbox state comes from the draft, not the debounced preview; the
+    // checkbox state comes from the draft, not the debounced preview, the
     // pending timer dies with the unmount at cleanup
     expect(screen.getByRole('checkbox', { name: /Tue/ })).toBeChecked()
     expect(screen.getByRole('checkbox', { name: /Thu/ })).toBeChecked()

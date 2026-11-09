@@ -23,7 +23,7 @@ const (
 	pathMe    = "/api/me"
 )
 
-// Config wires the API handler to its collaborators; all fields are required.
+// Config wires the API handler to its collaborators, all fields are required.
 type Config struct {
 	Auth                 *auth.Service
 	Fleet                *fleet.Manager   // session listing, streams and commands
@@ -132,7 +132,7 @@ func Handler(cfg Config) http.Handler {
 		}
 	}
 
-	// unmatched /api paths answer JSON, never the SPA; a wrong-method hit on a
+	// unmatched /api paths answer JSON, never the SPA, a wrong-method hit on a
 	// known path answers 405 from the Allow set above
 	apiMux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		if methods, ok := allow[r.URL.Path]; ok {
@@ -152,7 +152,7 @@ func Handler(cfg Config) http.Handler {
 
 // securityHeaders sets the baseline protection headers on every response.
 // API results carry session state and transcripts, so they also opt out of
-// caching; static content keeps the cache classes pkg/web applies by path.
+// caching, static content keeps the cache classes pkg/web applies by path.
 func securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
@@ -167,7 +167,7 @@ func securityHeaders(next http.Handler) http.Handler {
 }
 
 // exemptFromAuth lists the requests the gate lets through once a password
-// exists. Login and me are status probes; bootstrap stays listed so an
+// exists. Login and me are status probes, bootstrap stays listed so an
 // already-bootstrapped service can answer 409 instead of 401.
 func exemptFromAuth(r *http.Request) bool {
 	switch r.URL.Path {

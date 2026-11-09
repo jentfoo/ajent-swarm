@@ -74,7 +74,7 @@ func (s *apiServer) handleStream(w http.ResponseWriter, r *http.Request) {
 	sc.readPump()
 }
 
-// fail tears the connection down once; every blocked path unwinds through it.
+// fail tears the connection down once, every blocked path unwinds through it.
 func (sc *streamConn) fail() {
 	sc.once.Do(func() {
 		close(sc.done)
@@ -182,7 +182,7 @@ func (sc *streamConn) sync(f *fleet.ClientFrame) {
 	sc.srv.fleet.Resync(sub)
 }
 
-// pushError queues one error frame; the connection stays open. SessionID may
+// pushError queues one error frame, the connection stays open. SessionID may
 // be empty for frame-level refusals that name no session.
 func (sc *streamConn) pushError(code, message, sessionID string) {
 	frame, _ := json.Marshal(fleet.ErrorFrame{
@@ -225,8 +225,7 @@ func (sc *streamConn) writePump() {
 			if err := sc.ws.WriteMessage(websocket.TextMessage, heartbeat); err != nil {
 				return
 			}
-			// a protocol-level ping as well: browsers pong automatically, so
-			// half-open sockets surface on the read side without client code
+			// also pings the protocol: browsers pong, surfacing half-opens for free
 			_ = sc.ws.WriteControl(websocket.PingMessage, nil, time.Now().Add(wsWriteWait))
 		}
 	}

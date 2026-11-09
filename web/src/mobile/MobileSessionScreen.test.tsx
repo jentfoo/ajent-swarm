@@ -262,7 +262,7 @@ describe('MobileSessionScreen', () => {
       })
     })
 
-    // header collapses to the model chip; no desktop controls
+    // header collapses to the model chip, no desktop controls
     expect(await screen.findByRole('button', { name: /sonnet/ })).toBeInTheDocument()
     expect(screen.getByLabelText('Back to launcher')).toBeInTheDocument()
 
@@ -363,7 +363,7 @@ describe('MobileSessionScreen', () => {
       })
     })
 
-    // the header carries no interrupt control; the composer's Stop does
+    // the header carries no interrupt control, the composer's Stop does
     expect(screen.queryByRole('button', { name: 'Interrupt' })).not.toBeInTheDocument()
     const stop = await screen.findByRole('button', { name: 'Stop' })
     const send = screen.getByRole('button', { name: 'Send' })
@@ -409,7 +409,7 @@ describe('MobileSessionScreen', () => {
     })
     await screen.findByRole('button', { name: /sonnet/ })
 
-    // the sheet pads above the keyboard through --keyboard-inset; theme.css
+    // the sheet pads above the keyboard through --keyboard-inset, theme.css
     // adds the safe-area baseline and lifts fixed overlays with the same value
     const screenEl = document.querySelector('.mobile-session') as HTMLElement
     expect(screenEl.style.getPropertyValue('--keyboard-inset')).toBe('0px')
@@ -420,7 +420,7 @@ describe('MobileSessionScreen', () => {
       ;(screenEl.querySelector('.composer textarea') as HTMLElement).focus()
     })
 
-    // the keyboard rises in steps; every intermediate inset lands so the
+    // the keyboard rises in steps, every intermediate inset lands so the
     // transcript stays visible and autoscroll stays pinned while it animates
     vvHeight = window.innerHeight - 120
     act(() => {
@@ -531,7 +531,7 @@ describe('MobileSessionScreen', () => {
     await openHeaderMenu(user, 'Rewind')
     expect(await screen.findByRole('dialog', { name: /Rewind/ })).toBeInTheDocument()
 
-    // every kind lists, desktop's set verbatim; the head stays inert
+    // every kind lists, desktop's set verbatim, the head stays inert
     expect(screen.getByText('first prompt text')).toBeInTheDocument()
     expect(screen.getByTestId('rewind-01C2')).toHaveTextContent("it's started")
     expect(screen.getByTestId('rewind-01C3')).toHaveAttribute('aria-disabled', 'true')
@@ -766,7 +766,7 @@ describe('MobileSessionScreen', () => {
     })
     await screen.findByRole('button', { name: /sonnet/ })
 
-    // one finger seeds the gesture at the edge; a pinch kills it even when
+    // one finger seeds the gesture at the edge, a pinch kills it even when
     // the last finger lifts far right of where the first landed
     const surface = document.querySelector('.mobile-session') as HTMLElement
     fireEvent.touchStart(surface, {
@@ -842,7 +842,7 @@ describe('MobileSessionScreen', () => {
 
   it('closes the mode menu on browser back instead of leaving the session', async () => {
     // touch device: the chip rides the history-bound popover, so a pop closes
-    // the menu; with desktop's plain popover nothing would answer the gesture
+    // the menu, with desktop's plain popover nothing would answer the gesture
     stubCoarsePointer()
     const back = vi.spyOn(window.history, 'back').mockImplementation(() => {})
     try {
@@ -961,7 +961,7 @@ describe('MobileSessionScreen', () => {
     })
     expect(await screen.findByText('seat: swarm')).toBeInTheDocument()
 
-    // a free seat renders nothing; writes take the seat lazily
+    // a free seat renders nothing, writes take the seat lazily
     act(() => {
       ws.message({
         type: 'init',

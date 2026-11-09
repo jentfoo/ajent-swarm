@@ -8,7 +8,7 @@ import { useDialogAnswerKeys } from '../session/dialogKeys'
 import { useWorkspaceKeys } from './keys'
 import type { WorkspaceKeyHandlers } from './keys'
 
-// The hook binds window keydown; events dispatch with a cancelable event so
+// The hook binds window keydown, events dispatch with a cancelable event so
 // each preventDefault claim shows up in defaultPrevented. Shifted keys carry
 // their produced character ('|') and only ev.code names the physical key.
 
@@ -60,7 +60,7 @@ describe('useWorkspaceKeys', () => {
     const handlers = { onSplitDown: vi.fn(), onSplitRight: vi.fn() }
     mount(handlers)
 
-    // with Shift held browsers report '|' as the key; only ev.code still
+    // with Shift held browsers report '|' as the key, only ev.code still
     // names the backslash, so this is what makes Mod+Shift+\ reachable
     expect(press({ key: '|', code: 'Backslash', ctrlKey: true, shiftKey: true })).toBe(true)
     expect(handlers.onSplitDown).toHaveBeenCalledOnce()
@@ -118,7 +118,7 @@ describe('useWorkspaceKeys', () => {
     mount({ onNext: vi.fn(), onSplitRight: vi.fn() })
 
     // browsers reserve Ctrl/Cmd+W for closing the tab, so pressing it closed
-    // swarm itself; pane close stays with its visible X control
+    // swarm itself, pane close stays with its visible X control
     expect(press({ key: 'w', ctrlKey: true })).toBe(false)
   })
 
@@ -157,7 +157,7 @@ describe('useWorkspaceKeys', () => {
     view.container.appendChild(button)
     button.focus()
 
-    // clicking a control leaves focus behind; Enter must click it again, not
+    // clicking a control leaves focus behind, Enter must click it again, not
     // be swallowed by the queue shortcut on top of that activation
     expect(pressOn(button, { key: 'Enter' })).toBe(false)
     expect(handlers.onOpen).not.toHaveBeenCalled()
@@ -178,7 +178,7 @@ describe('useWorkspaceKeys', () => {
     const handlers = { onOpen: vi.fn() }
     const view = mount(handlers)
     // rail rows are div[role=button] and get no native keyboard activation,
-    // so nothing double-fires; the workspace must keep answering them
+    // so nothing double-fires, the workspace must keep answering them
     const row = document.createElement('div')
     row.setAttribute('role', 'button')
     view.container.appendChild(row)
@@ -230,7 +230,7 @@ describe('useWorkspaceKeys', () => {
     onDigit.mockClear()
     expect(press({ key: '4' })).toBe(true) // claimed by the dialog, not a jump
     expect(onDigit).not.toHaveBeenCalled()
-    // only the digits rest; the rest of the workspace keeps its keys
+    // only the digits rest, the rest of the workspace keeps its keys
     expect(press({ key: 'j' })).toBe(true)
     expect(onNext).toHaveBeenCalledOnce()
 

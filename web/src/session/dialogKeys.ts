@@ -7,13 +7,13 @@ import { overlayOpen } from '../ui/overlayStack'
 // double-answer one press.
 const claims: symbol[] = []
 
-// Head-card option keys answer 1..answerDigitCount by visible position;
+// Head-card option keys answer 1..answerDigitCount by visible position
 // DialogDock's head card names each option with this same range.
 export const answerDigitCount = 9
 const digitKey = new RegExp(`^[1-${answerDigitCount}]$`)
 
 // dialogDigitsClaimed reports whether a focused pane's head dialog answers
-// digit keys right now; workspace digit jumps stand down while one does.
+// digit keys right now, workspace digit jumps stand down while one does.
 export function dialogDigitsClaimed(): boolean {
   return claims.length > 0
 }

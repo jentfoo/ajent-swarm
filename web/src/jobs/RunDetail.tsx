@@ -67,7 +67,7 @@ function RunFacts({ run }: { run: Run }) {
 }
 
 // RunSessionFacts routes to what the run created: a live session opens in the
-// session view; anything else renders its recorded transcript inline.
+// session view, anything else renders its recorded transcript inline.
 function RunSessionFacts({
   run,
   status,

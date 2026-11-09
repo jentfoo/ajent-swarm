@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// Child origins recorded in the children table; empty origins read as swarm,
+// Child origins recorded in the children table, empty origins read as swarm,
 // matching the column's legacy default.
 const (
 	OriginSwarm    = "swarm"
@@ -108,7 +108,7 @@ func (s *Store) UpdateChild(ctx context.Context, ch Child) error {
 	return nil
 }
 
-// DeleteChild removes one child row by id; an unknown id is already gone.
+// DeleteChild removes one child row by id, an unknown id is already gone.
 func (s *Store) DeleteChild(ctx context.Context, id int64) error {
 	const q = `DELETE FROM children WHERE id = ?`
 	if _, err := s.db.ExecContext(ctx, q, id); err != nil {

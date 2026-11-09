@@ -235,7 +235,7 @@ func TestSessionHandlers(t *testing.T) {
 			require.Equal(t, http.StatusOK, code)
 			assert.Equal(t, "allow-all", res.Mode)
 
-			// the jump rides mode.set alone; nothing else fired for this request
+			// the jump rides mode.set alone, nothing else fired for this request
 			recent := f.Received()[before:]
 			require.Len(t, recent, 1)
 			sent := receivedParams[ctl.ModeSetParams](h, f, ctl.MethodModeSet)[0]

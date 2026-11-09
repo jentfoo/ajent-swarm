@@ -26,7 +26,7 @@ export function useInterruptStream({
   enabled = true,
 }: UseInterruptStreamOptions): { interrupt: () => void; inFlight: boolean } {
   const [inFlight, setInFlight] = useState(false)
-  // the key listener binds once; every decision below reads this mirror
+  // the key listener binds once, every decision below reads this mirror
   const ref = useRef({ sessionId, busy, onToast })
   useEffect(() => {
     ref.current = { sessionId, busy, onToast }

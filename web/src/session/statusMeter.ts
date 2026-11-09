@@ -17,7 +17,7 @@ export function contextBudget(ctx: ContextData): number {
   return ctx.compact > 0 ? ctx.compact : ctx.window
 }
 
-// contextPct is the fill percent against the budget, clamped to 0..100;
+// contextPct is the fill percent against the budget, clamped to 0..100
 // 0 when the window is unknown.
 export function contextPct(ctx: ContextData): number {
   const budget = contextBudget(ctx)

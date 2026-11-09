@@ -3,7 +3,7 @@ import type { ReactElement } from 'react'
 import type { SessionBadge } from '../workspace/attention'
 
 // The copy and class per badge state. 'ended' widens the vocabulary for the
-// switcher's exited tail; the headers stop at the live states.
+// switcher's exited tail, the headers stop at the live states.
 const badgeClasses: Record<SessionBadge | 'ended', string> = {
   input: 'danger',
   running: 'accent',

@@ -376,7 +376,7 @@ describe('SwarmStream reconnects', () => {
     const ws = lastSocket()
     ws.open()
 
-    // Nothing arrives past the open; the watchdog gives up on the socket.
+    // Nothing arrives past the open, the watchdog gives up on the socket.
     await vi.advanceTimersByTimeAsync(20_000)
     expect(ws.readyState).toBe(3)
   })

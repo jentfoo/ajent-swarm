@@ -8,7 +8,7 @@ import { ModelSelectOptions } from '../ui/ModelSelectOptions'
 
 // TitleModelSelect is the swarm-level session titling model picker. The
 // options are the union of live sessions' model registries, grouped per
-// provider so same-named models stay distinguishable; an empty value means
+// provider so same-named models stay distinguishable, an empty value means
 // each session names itself with its own model. A stored model that has gone
 // missing stays visible flagged as missing, and the titler itself falls back
 // to the default when a run with it fails, so a stale value can never break

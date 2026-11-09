@@ -8,8 +8,8 @@ import { overlayEnter, overlayLeave, overlayTopmost } from './overlayStack'
 // render in a `card modal` over a fixed backdrop. A backdrop click or plain
 // Escape calls `onClose`, Tab cycles inside, focus that escapes is pulled back
 // while open, and closing returns focus to the element focused before opening.
-// `label` names the dialog for assistive technology; `className` adds classes
-// beside `card modal` so per-dialog widths still apply (e.g. rename-modal);
+// `label` names the dialog for assistive technology, `className` adds classes
+// beside `card modal` so per-dialog widths still apply (e.g. rename-modal)
 // `showClose` adds a visible × in the card's corner beside the Esc convention.
 // `onKey`, when set, receives every other plain keydown while this shell is
 // the topmost layer and the press is unclaimed, so dialog content can bind
@@ -48,7 +48,7 @@ export function ModalShell({
     if (card === null) return
 
     overlayEnter(card)
-    // content carrying autoFocus keeps its caret; otherwise the card takes it,
+    // content carrying autoFocus keeps its caret, otherwise the card takes it,
     // so typing starts inside the dialog, never behind the backdrop
     if (!card.contains(document.activeElement)) card.focus()
 
@@ -57,7 +57,7 @@ export function ModalShell({
     const onWindowKey = (ev: KeyboardEvent) => {
       // only the topmost layer answers, and never a press claimed elsewhere
       if (!topmost() || ev.defaultPrevented) return
-      // chords like Ctrl+Escape belong to the platform, never to a layer;
+      // chords like Ctrl+Escape belong to the platform, never to a layer
       // Shift stays free because keys like ? arrive shifted
       if (ev.ctrlKey || ev.metaKey || ev.altKey) return
       if (ev.key === 'Escape') closeRef.current()

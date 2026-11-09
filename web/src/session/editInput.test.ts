@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { parseEditInput } from './editInput'
 
-// The parser mirrors ajent's decodeEditParams tolerance (pkg/tools/edit.go);
+// The parser mirrors ajent's decodeEditParams tolerance (pkg/tools/edit.go)
 // anything that decoder would reject must parse to undefined so the card
 // pretty-prints the raw input instead of a half-read diff.
 

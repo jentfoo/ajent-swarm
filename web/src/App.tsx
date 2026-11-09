@@ -6,7 +6,7 @@ import { WorkspaceProvider } from './providers/workspace'
 import AuthGate from './AuthGate'
 import LoginScreen from './screens/LoginScreen'
 
-// One component tree with two chrome variants; the router is the same under
+// One component tree with two chrome variants, the router is the same under
 // both, since mobile routes mirror the desktop tree. The workspace provider
 // carries the layout profile and the shared attention model.
 export default function App() {

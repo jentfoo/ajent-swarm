@@ -43,7 +43,7 @@ const edgeZonePx = 24
 
 // MobileSessionScreen drives one session on a phone. The component tree stays
 // shared with desktop (TranscriptView, notices, dialogs, queue chips, Composer,
-// StatusBar); only the chrome forks: a sticky one-line header carrying the
+// StatusBar), only the chrome forks: a sticky one-line header carrying the
 // session label, the shared status badge, the model chip and mode menu, with
 // the secondary actions collapsed behind one menu button. The working turn's
 // Stop rides beside Send, and dialogs stack as full-width cards above the
@@ -58,7 +58,7 @@ export default function MobileSessionScreen(): ReactElement {
   return <MobileSessionSurface key={sessionId} sessionId={sessionId} />
 }
 
-// MobileSessionSurface is one session's mounted presentation; the key above
+// MobileSessionSurface is one session's mounted presentation, the key above
 // makes a session swap a remount, so local state never outlives its session.
 function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElement {
   const { state, phase, loadOlder, dispatch } = useSessionChannel(sessionId)
@@ -83,7 +83,7 @@ function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElemen
   const [sheetOpen, setSheetOpen] = useState(false)
   const keyboardInset = useKeyboardInset()
 
-  // Edge-swipe from the left reopens the switcher over any session view; the
+  // Edge-swipe from the left reopens the switcher over any session view, the
   // touch zone is only the first 24px so transcript selection never fights it.
   const edgeStart = useRef<{ x: number; y: number } | null>(null)
 
@@ -92,7 +92,7 @@ function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElemen
   // sub-agent job records are pull-only: re-listed while any job is live, so
   // the chips band and poll cards carry stop controls and real statuses
   const agentJobs = useAgentJobs(sessionId, snap.activity, snap.status?.segments, pushToast)
-  // Escape shares the composer Stop button's guarded fire; sheets and pushed
+  // Escape shares the composer Stop button's guarded fire, sheets and pushed
   // screens gate it through the shared overlay stack, so the interrupt stands
   // down behind any open layer without naming each one
   const { interrupt, inFlight: stopBusy } = useInterruptStream({
@@ -108,7 +108,7 @@ function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElemen
       className="session-screen mobile-session"
       style={keyboardInsetStyle(keyboardInset)}
       onTouchStart={(ev) => {
-        // one fresh finger seeds a candidate; anything else (a second touch
+        // one fresh finger seeds a candidate, anything else (a second touch
         // landing mid-gesture, a pinch) kills the pending one. A touch targets
         // the element it began on, so one starting inside a sideways scroller
         // stands down: dragging a long code line scrolls its fence instead of

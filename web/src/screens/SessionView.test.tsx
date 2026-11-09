@@ -11,7 +11,7 @@ import { MockWebSocket } from '../test/mockWebSocket'
 import { resetDrafts } from '../session/draftStore'
 
 // The backend round trip runs against fetch mocks shaped exactly like the Go
-// handlers answer; the stream rides a mock WebSocket through the real client.
+// handlers answer, the stream rides a mock WebSocket through the real client.
 // This exercises provider, channel hook, applier and the composed view end to
 // end, including the echo-fidelity and pending-row contracts of phase 08.
 
@@ -218,7 +218,7 @@ describe('SessionView', () => {
       return expect(matches).toHaveLength(1)
     })
 
-    // turn.end clears the pinned row; still one copy
+    // turn.end clears the pinned row, still one copy
     frame(ws, wireEvent('turn.end', 4, { stop: 'end_turn' }))
     await waitFor(() => expect(screen.queryByLabelText('Live stream')).not.toBeInTheDocument())
     expect(await screen.findAllByText(/Hello streamed world/)).toHaveLength(1)
@@ -317,7 +317,7 @@ describe('SessionView', () => {
 
     const card = await screen.findByTestId('diff-card')
     expect(card.textContent).toContain('src/main.go')
-    // unified patch text never rides the wire; lines render with their sign
+    // unified patch text never rides the wire, lines render with their sign
     expect(card.querySelector('.diff-line.add .diff-text')?.textContent).toBe('THREE')
     expect(card.querySelector('.diff-line.del .diff-text')?.textContent).toBe('two')
   })
@@ -490,7 +490,7 @@ describe('SessionView', () => {
   })
 
   // A stubbed clock holds the rewind gesture's two presses deterministically
-  // inside and outside its window; the press helper reports the claim.
+  // inside and outside its window, the press helper reports the claim.
   function doubleEscapeSetup() {
     fetcher.on(`/api/sessions/${VIEW}/candidates`, () =>
       Response.json({ head: '', candidates: [] }),
@@ -607,7 +607,7 @@ describe('SessionView', () => {
       await screen.findByRole('dialog', { name: 'Rewind to an earlier point' }),
     ).toBeInTheDocument()
 
-    // the picker's own Escape closes it; the press behind never re-opens it
+    // the picker's own Escape closes it, the press behind never re-opens it
     await gesture.press()
     await waitFor(() =>
       expect(
@@ -657,7 +657,7 @@ describe('SessionView', () => {
     frame(ws, { type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
     frame(ws, wireEvent('turn.start', 1, { model: 'sonnet' }))
 
-    // the header carries no interrupt control; the composer's Stop does
+    // the header carries no interrupt control, the composer's Stop does
     expect(screen.queryByRole('button', { name: 'Interrupt' })).not.toBeInTheDocument()
     const stop = await screen.findByRole('button', { name: 'Stop' })
     const send = screen.getByRole('button', { name: 'Send' })
@@ -680,7 +680,7 @@ describe('SessionView', () => {
     const user = userEvent.setup()
     await user.type(promptBox, 'my unsent idea{Enter}')
 
-    // the optimistic row resolves as refused; the error surfaces beside it
+    // the optimistic row resolves as refused, the error surfaces beside it
     expect(await screen.findByText(/a dialog holds input/)).toBeInTheDocument()
     expect(screen.getByText('refused')).toBeInTheDocument()
     // and the composer still holds exactly what was typed
@@ -977,7 +977,7 @@ describe('SessionView', () => {
     )
   })
 
-  // Hosted views swap sessions by prop (focus rail, tile tabs); the key on the
+  // Hosted views swap sessions by prop (focus rail, tile tabs), the key on the
   // content must present every swap as a remount so chrome and drafts follow
   // the session instead of bleeding across it.
   function renderHosted(id: string) {

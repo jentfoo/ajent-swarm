@@ -10,7 +10,7 @@ import type { ActivityRow, AgentJob } from '../api/types'
 // Input rendering: edit calls render one diff per op instead of escaped JSON,
 // every other shape pretty-prints, and long committed outputs collapse behind
 // the header's line count. Open/close behavior is covered from the outside by
-// EntryBlock and LiveStreamBlock tests; this file pins the body itself.
+// EntryBlock and LiveStreamBlock tests, this file pins the body itself.
 
 function rows(kind: string): string[] {
   return Array.from(document.querySelectorAll(`.diff-line.${kind} .diff-text`)).map(
@@ -319,7 +319,7 @@ describe('ToolCallCard disclosure state', () => {
 describe('ToolCallCard sub-agent jobs', () => {
   const chipRow = (key: string): ActivityRow => ({ key, text: `${key}  reading files`, rank: 0 })
 
-  // chip finds one job's live-line element; the double space in upstream rows
+  // chip finds one job's live-line element, the double space in upstream rows
   // defeats getByText's default whitespace collapsing.
   const chip = (key: string): Element | null =>
     document.querySelector(`.sub-agent-chip[data-sub-key="${key}"]`)

@@ -42,7 +42,7 @@ export function searchKey(
     case 'input':
       return { search: refilter(s, s.query + filterQuery(key.text)), outcome: 'stay' }
     case 'replace':
-      // virtual keyboards and IMEs bypass claimed keydowns entirely; their
+      // virtual keyboards and IMEs bypass claimed keydowns entirely, their
       // whole edit arrives as one change, so restate the query verbatim
       return { search: refilter(s, filterQuery(key.query)), outcome: 'stay' }
     case 'backspace': {
@@ -52,7 +52,7 @@ export function searchKey(
       return { search: refilter(s, chars.slice(0, -1).join('')), outcome: 'stay' }
     }
     case 'step-older': {
-      // the only stepping key; oldest folds back onto the newest
+      // the only stepping key, oldest folds back onto the newest
       const cursor = s.matches.length === 0 ? 0 : (s.cursor + 1) % s.matches.length
       return { search: { ...s, cursor }, outcome: 'stay' }
     }

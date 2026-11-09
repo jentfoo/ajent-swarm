@@ -107,7 +107,7 @@ func (s *Store) DialogAcks(ctx context.Context) ([]DialogAck, error) {
 }
 
 // TurnAcks returns every session's acknowledged turn-end watermark keyed by
-// session id; a missing row simply means nothing was acknowledged yet.
+// session id, a missing row simply means nothing was acknowledged yet.
 func (s *Store) TurnAcks(ctx context.Context) (map[string]int64, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT session_id, turn_end FROM attention_turn_acks`)

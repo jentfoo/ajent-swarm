@@ -29,7 +29,7 @@ type Store struct {
 
 // Open opens or creates the database at path and applies pending migrations.
 func Open(path string) (*Store, error) {
-	// pragmas ride the DSN so fresh connections inherit them; WAL persists in
+	// pragmas ride the DSN so fresh connections inherit them, WAL persists in
 	// the file and busy_timeout covers external readers of it
 	dsn := "file:" + path +
 		"?_pragma=busy_timeout(5000)" +

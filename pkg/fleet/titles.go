@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// storeWriteWait bounds one write-through to swarm's SQLite store; WAL
+// storeWriteWait bounds one write-through to swarm's SQLite store, WAL
 // answers fast, so anything slower means the store is wedged.
 const storeWriteWait = 5 * time.Second
 
@@ -23,7 +23,7 @@ type TitleStore interface {
 	SessionTitles(ctx context.Context) (map[string]string, error)
 }
 
-// maxTitleRunes bounds one display title at the fleet boundary; the store
+// maxTitleRunes bounds one display title at the fleet boundary, the store
 // clips too, but a bounded write keeps the cache and the store in step.
 const maxTitleRunes = 120
 
@@ -43,7 +43,7 @@ func (m *Manager) loadTitles(ctx context.Context) {
 	m.mu.Unlock()
 }
 
-// titleFor looks one cached display title up; empty when none is stored.
+// titleFor looks one cached display title up, empty when none is stored.
 func (m *Manager) titleFor(sessionID string) string {
 	m.mu.Lock()
 	defer m.mu.Unlock()

@@ -72,7 +72,7 @@ func TestNamer(t *testing.T) {
 			return store.snapshot()[f.SessionID()] == "Fix login flow"
 		}, 2*time.Second, testPoll)
 
-		// every surface sees the title; ajent's own session name stays clean
+		// every surface sees the title, ajent's own session name stays clean
 		rows := m.Sessions()
 		require.Len(t, rows, 1)
 		assert.Equal(t, "Fix login flow", rows[0].Title)

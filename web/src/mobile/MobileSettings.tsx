@@ -77,7 +77,7 @@ function NotificationRow(): ReactElement {
   )
 }
 
-// Status text for the settled permissions; the undecided state is not a status
+// Status text for the settled permissions, the undecided state is not a status
 // at all, it carries the enable action instead.
 const permissionStatus: Record<Exclude<NotificationPermission, 'default'>, string> = {
   granted: 'On',

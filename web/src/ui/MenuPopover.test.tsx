@@ -41,7 +41,7 @@ beforeEach(() => {
   })
 })
 
-// the resize case pins innerHeight; restore the jsdom default between tests
+// the resize case pins innerHeight, restore the jsdom default between tests
 const innerHeightDesc = Object.getOwnPropertyDescriptor(window, 'innerHeight')!
 
 afterEach(() => {
@@ -51,7 +51,7 @@ afterEach(() => {
 
 // Harness keeps the popover open beside a trigger under an overflow-clipped
 // ancestor, the pane condition MenuPopover exists to escape. startOpen=false
-// exercises the click-to-open flow so the trigger holds focus while opening;
+// exercises the click-to-open flow so the trigger holds focus while opening
 // label names trigger and menu together so stacked instances stay distinct.
 function Harness({
   align = 'left',
@@ -100,7 +100,7 @@ describe('MenuPopover', () => {
     expect(menu.closest('.clip')).toBeNull()
   })
 
-  // placement math lives in placeMenu's own describe below; the component
+  // placement math lives in placeMenu's own describe below, the component
   // cases here cover wiring only
 
   it('stays open for presses inside the menu', async () => {
@@ -134,7 +134,7 @@ describe('MenuPopover', () => {
   })
 
   it('answers escape only on the topmost popover', async () => {
-    // two pane menus can stack; one press unwinds exactly one layer, topmost
+    // two pane menus can stack, one press unwinds exactly one layer, topmost
     const user = userEvent.setup()
     render(
       <>
@@ -218,7 +218,7 @@ describe('MenuPopover', () => {
     const user = userEvent.setup()
     render(<Harness />)
     await user.click(screen.getByText('trigger'))
-    // the press lands on the anchor, which toggles; no outside-close fights it
+    // the press lands on the anchor, which toggles, no outside-close fights it
     expect(screen.queryByRole('menu')).not.toBeInTheDocument()
   })
 })
@@ -267,7 +267,7 @@ describe('placeMenu', () => {
 
   it('keeps a taller-than-viewport menu inside the top edge', () => {
     const tall = { width: 200, height: 120 }
-    // below is roomier but cannot fit either; pin at the margin, not off-screen
+    // below is roomier but cannot fit either, pin at the margin, not off-screen
     expect(
       placeMenu({ ...anchor, top: 10, bottom: 30 }, tall, { width: 1024, height: 100 }, 'left'),
     ).toEqual({ left: 300, top: 8 })

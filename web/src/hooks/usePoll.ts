@@ -32,7 +32,7 @@ export function usePoll(fn: () => void, intervalMs: number, backgroundMs?: numbe
         tick()
         start(intervalMs)
       } else {
-        // Backgrounded tabs throttle timers; a slower poll keeps running only
+        // Backgrounded tabs throttle timers, a slower poll keeps running only
         // for callers that asked for it.
         start(backgroundMs ?? intervalMs)
       }

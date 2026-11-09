@@ -14,11 +14,11 @@ import { ConnectionBanner } from '../ui/ConnectionBanner'
 // only navigate away.
 const workspacePaths = new Set(['/', '/focused', '/tile'])
 
-// AppShell is the desktop chrome, mounted only above the breakpoint; AuthGate
+// AppShell is the desktop chrome, mounted only above the breakpoint, AuthGate
 // swaps in MobileShell below it, so no phone-width branches belong here. The
 // workspace mode switch (workspace routes only) and the attention badge live
 // here, the theme toggle sits beside them, and the hamburger opens swarm's
-// global settings; per-session agent settings ride each session's own chrome.
+// global settings, per-session agent settings ride each session's own chrome.
 export default function AppShell({ children }: { children: ReactNode }) {
   const { sessions, connection, theme, setTheme } = useSwarm()
   const {

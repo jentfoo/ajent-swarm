@@ -13,7 +13,7 @@ import (
 )
 
 // pruneChildLogs removes captured child logs older than the retention cutoff.
-// Live children keep appending, so their files stay fresh and survive; a log
+// Live children keep appending, so their files stay fresh and survive, a log
 // that vanished already is not an error. Directories are left alone.
 func pruneChildLogs(dir string, cutoff time.Time, log *slog.Logger) {
 	entries, err := os.ReadDir(dir)

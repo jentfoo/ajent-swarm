@@ -6,7 +6,7 @@ import { SettingsMenu } from './SettingsMenu'
 
 // HamburgerDialog is the open/close shell both ☰ settings menus share: a
 // trigger plus, when open, children in a centered modal so edge-of-grid cards
-// keep the menu on page. `label` names trigger and dialog; `title` overrides
+// keep the menu on page. `label` names trigger and dialog, `title` overrides
 // the trigger hover text.
 export function HamburgerDialog({
   label,

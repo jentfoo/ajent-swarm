@@ -8,7 +8,7 @@ import type { AttentionItem } from '../workspace/attention'
 
 export type NotificationPermission = 'default' | 'granted' | 'denied' | 'unsupported'
 
-// One raised notification; close withdraws it from the tray.
+// One raised notification, close withdraws it from the tray.
 interface DisposableNotification {
   close(): void
 }
@@ -33,7 +33,7 @@ export interface BridgeHost {
 export interface NotificationBridge {
   // permission reports the current grant without prompting.
   permission(): NotificationPermission
-  // ensurePermission asks the user from a click; false means refused or
+  // ensurePermission asks the user from a click, false means refused or
   // unsupported.
   ensurePermission(): Promise<boolean>
   // publish raises notifications for new needs-input items while hidden and
@@ -66,7 +66,7 @@ function defaultNotify(req: NotificationRequest): DisposableNotification {
 export function createNotificationBridge(options: BridgeOptions = {}): NotificationBridge {
   const hidden = options.hidden ?? (() => document.visibilityState === 'hidden')
   const notify = options.notify ?? defaultNotify
-  // Raised notifications keyed by announce key; a present key marks its item
+  // Raised notifications keyed by announce key, a present key marks its item
   // announced, so it stays one notification per item until it settles.
   const raised = new Map<string, DisposableNotification>()
 
@@ -126,7 +126,7 @@ export function createNotificationBridge(options: BridgeOptions = {}): Notificat
             }),
           )
         } catch {
-          // construction can fail; the unset key lets a later digest retry
+          // construction can fail, the unset key lets a later digest retry
         }
       }
     },

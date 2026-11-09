@@ -20,7 +20,7 @@ export function displayName(
   return shortID(s.sessionId)
 }
 
-// tildePath renders an absolute path relative to the service's home directory;
+// tildePath renders an absolute path relative to the service's home directory
 // paths outside it stay absolute.
 export function tildePath(p: string, home: string | undefined): string {
   if (!home || !p.startsWith(home + '/')) return p

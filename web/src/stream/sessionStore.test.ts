@@ -129,7 +129,7 @@ describe('SessionStore', () => {
   })
 
   it('keeps recently viewed sessions warm and evicts beyond the cap', async () => {
-    // four released sessions stay subscribed; a fifth evicts the coldest
+    // four released sessions stay subscribed, a fifth evicts the coldest
     for (const id of ['a', 'b', 'c', 'd']) store.acquire(id)()
     store.acquire('e')()
     const ws = openSocket()
@@ -197,7 +197,7 @@ describe('SessionStore', () => {
 
   it('keeps stream state newer than a stale snapshot read', async () => {
     // The poll's response was read upstream before the dialog opened and lands
-    // after its event; the stamp says so, so only poll-only facts merge.
+    // after its event, the stamp says so, so only poll-only facts merge.
     const snap = { ...snapshotFor('s1'), seq: 3, cwd: '/elsewhere', interactions: [] }
     vi.mocked(fetch).mockImplementation(() => Promise.resolve(Response.json(snap)))
     store.acquire('s1')
@@ -265,7 +265,7 @@ describe('SessionStore', () => {
     await vi.advanceTimersByTimeAsync(0)
     expect(store.peek('s1').snapshot.cwd).toBe('/after-turn')
 
-    // the older reply lands last; its stamp passes the reducer's freshness
+    // the older reply lands last, its stamp passes the reducer's freshness
     // gate, so only the ordering guard keeps it from regressing fresher state
     replies[0](Response.json(beforeTurn))
     await vi.advanceTimersByTimeAsync(0)
@@ -372,7 +372,7 @@ describe('SessionStore', () => {
     expect(store.peek('s1').snapshot.running).toBe(false)
     expect(store.peek('s1').snapshot.spinning).toBe(false)
 
-    // the fleet's final view still carries the busy facts at a fresh stamp;
+    // the fleet's final view still carries the busy facts at a fresh stamp
     // landing it must not resurrect them
     respond(Response.json({ ...snapshotFor('s1'), seq: 3, running: true, spinning: true }))
     await vi.advanceTimersByTimeAsync(0)

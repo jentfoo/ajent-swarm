@@ -32,7 +32,7 @@ const (
 	attachDirName   = "attachments" // composer uploads referenced by @path
 )
 
-// rotateEvery is the cadence for copytruncate logs this process does not own;
+// rotateEvery is the cadence for copytruncate logs this process does not own,
 // a var so tests can shorten it.
 var rotateEvery = time.Hour
 

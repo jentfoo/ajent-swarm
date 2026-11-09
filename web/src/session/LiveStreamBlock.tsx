@@ -13,7 +13,7 @@ import type { ToolResultView } from '../state/derive'
 // rAF-batched buffers so transcript rows never re-render per delta. It paints
 // through the same markdown pipeline the committed entry will, so the handoff
 // at turn end swaps nothing visibly. Sub-agent jobs stream as live chips above
-// it, the one full list; a waiting poll card shows its own job's state line.
+// it, the one full list, a waiting poll card shows its own job's state line.
 // agentJobs carries the pull listing: record status, elapsed and stop.
 export function LiveStreamBlock({
   live,
@@ -25,7 +25,7 @@ export function LiveStreamBlock({
   activity?: ActivityRow[]
   agentJobs?: AgentJobs
   // Reports each manual panel toggle's post-click state so the applier can
-  // stop applying programmatic collapses; absent leaves toggles view-local.
+  // stop applying programmatic collapses, absent leaves toggles view-local.
   onThinkingToggle?: (open: boolean) => void
 }) {
   const current = useRafThrottled(live)

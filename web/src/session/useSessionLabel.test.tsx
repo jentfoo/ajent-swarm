@@ -74,7 +74,7 @@ describe('useSessionLabel', () => {
       return Response.json([])
     })
     vi.stubGlobal('fetch', fetchMock)
-    // SwarmProvider connects a socket on mount; a silent stand-in keeps jsdom
+    // SwarmProvider connects a socket on mount, a silent stand-in keeps jsdom
     // from attempting a real one
     vi.stubGlobal('WebSocket', MockWebSocket)
   })

@@ -16,11 +16,11 @@ import (
 )
 
 // Run execution tuning. The submit window covers a session that is still
-// starting and a resumed one whose old dialog is about to clear; a refusal
+// starting and a resumed one whose old dialog is about to clear, a refusal
 // after it records the failure instead of hanging.
 const (
 	framesQueue = 256
-	maxRunError = 8 << 10 // launch failures carry log tails; keep rows bounded
+	maxRunError = 8 << 10 // launch failures carry log tails, keep rows bounded
 
 	triggerCommandTimeout = 5 * time.Minute  // a hung gate cannot wedge the loop
 	triggerOutputMax      = 4 << 10          // gate output prepended to the prompt
@@ -37,7 +37,7 @@ var (
 	submitEvery    = 500 * time.Millisecond
 	resubscribeGap = 250 * time.Millisecond
 
-	// timeoutUnit converts a job's configured minutes; shrunk by tests too.
+	// timeoutUnit converts a job's configured minutes, shrunk by tests too.
 	timeoutUnit = time.Minute
 )
 
@@ -74,7 +74,7 @@ func (s *Scheduler) execute(run store.Run, j store.Job) {
 	if gate := strings.TrimSpace(j.TriggerCommand); gate != "" {
 		out, code, err := runTriggerCommand(ctx, strings.TrimSpace(j.Workspace), gate)
 		passed, why := gatePassed(j.TriggerOn, code, err)
-		if !passed { // the schedule already advanced; history records the veto
+		if !passed { // the schedule already advanced, history records the veto
 			s.finish(run, j, store.RunSkipped, why)
 			return
 		}
@@ -103,14 +103,9 @@ func (s *Scheduler) execute(run store.Run, j store.Job) {
 	}
 	s.titleFromJob(ctx, req.Mode, run.SessionID, j)
 
-	// a custom set reshapes the fresh session before any prompt lands: ajent's
-	// tools.set is a free replacement until the first dispatched prompt. A set
-	// that never applies fails the run like a refused submit, since the job
-	// asked for a shape the session does not have.
+	// tools.set is free before any prompt lands, refusal fails the run
 	if j.ToolsCustom {
-		// unknown names are ignored upstream, so a workspace missing a tool
-		// degrades to the rest of the set; resumed or kept-alive sessions past
-		// their first prompt follow the widen-only rule
+		// unknown names drop upstream, widen-only sessions keep extras
 		err := s.controlRetry(ctx, "tools", func() error {
 			_, err := s.runner.ToolsSet(ctx, run.SessionID, parseToolList(j.Tools))
 			return err
@@ -149,7 +144,7 @@ func (s *Scheduler) execute(run store.Run, j store.Job) {
 
 // pump keeps one live subscription on the session's stream for as long as
 // watching lasts: it re-subscribes after an overflow drop and retries while no
-// actor tracks the session yet. Frames flow into out; drops need no signal,
+// actor tracks the session yet. Frames flow into out, drops need no signal,
 // because every fresh subscription greets with a reconciling init.
 func (s *Scheduler) pump(sessionID string, out chan<- []byte, done <-chan struct{}) {
 	for {
@@ -186,7 +181,7 @@ func (s *Scheduler) pump(sessionID string, out chan<- []byte, done <-chan struct
 		case <-done:
 			s.runner.Unsubscribe(sub)
 			return
-		case <-dropped: // the queue overflowed; rebuild on a fresh subscription
+		case <-dropped: // the queue overflowed, rebuild on a fresh subscription
 			s.runner.Unsubscribe(sub)
 		}
 	}
@@ -226,7 +221,7 @@ func (s *Scheduler) controlRetry(ctx context.Context, verb string, call func() e
 
 // titleFromJob labels a freshly launched session with the job's name, so its
 // listings read as the job before any prompt lands. Only new sessions take
-// the label; resumed ones carry their own history and titles stay put.
+// the label, resumed ones carry their own history and titles stay put.
 func (s *Scheduler) titleFromJob(ctx context.Context, mode fleet.LaunchMode,
 	sessionID string, j store.Job) {
 	// an unset spawn mode launches fresh, matching LaunchRequest normalization
@@ -270,7 +265,7 @@ type watchState struct {
 	stopped  bool // the session itself ended
 }
 
-// outcome is a terminal watcher conclusion; an empty status keeps waiting.
+// outcome is a terminal watcher conclusion, an empty status keeps waiting.
 type outcome struct {
 	status string
 	err    string
@@ -296,8 +291,7 @@ func (w *watchState) apply(raw []byte, persist func(status string)) outcome {
 					w.landed = true
 				}
 			}
-			// evaluated after folding so an init carrying both the committed
-			// landing and a rest state still concludes the run
+			// folded first, so an init with landing plus idle still concludes
 			if w.landed && f.State.Idle {
 				w.idle = true
 			}
@@ -356,7 +350,7 @@ func (w *watchState) applyEvent(ev ctl.Event, persist func(string)) outcome {
 	case ctl.EventSessionExit: // always the last event before close
 		var d ctl.SessionExitData
 		_ = ev.Decode(&d)
-		if w.landed { // the prompt's work happened; a clean end completes it
+		if w.landed { // the prompt's work happened, a clean end completes it
 			return outcome{store.RunOK, ""}
 		}
 		return outcome{store.RunFailed,
@@ -386,7 +380,7 @@ func (w *watchState) settle(persist func(status string)) outcome {
 	return outcome{}
 }
 
-// runBudget resolves a job's watch duration in minutes; zero watches unbounded.
+// runBudget resolves a job's watch duration in minutes, zero watches unbounded.
 func runBudget(minutes int) (time.Duration, bool) {
 	if minutes <= 0 { // validation rejects negatives, but old rows may hold them
 		return 0, false
@@ -395,7 +389,7 @@ func runBudget(minutes int) (time.Duration, bool) {
 }
 
 // awaitSettled consumes the run's stream until it concludes or its bounded
-// timeout lands. The budget runs from the row's start, so launch time counts;
+// timeout lands. The budget runs from the row's start, so launch time counts,
 // a job with no timeout watches unbounded.
 func (s *Scheduler) awaitSettled(run store.Run, j store.Job, frames <-chan []byte) outcome {
 	w := &watchState{pid: pendingID(run)}
@@ -463,7 +457,7 @@ func orNone(s string) string {
 }
 
 // finish records the terminal status, then tears the session down unless the
-// job keeps it alive. A queued job's row goes once its outcome is recorded;
+// job keeps it alive. A queued job's row goes once its outcome is recorded,
 // the keep/stop decision reads the stored row first so KeepAlive still wins.
 // Bookkeeping detaches from shutdown cancellation so a stopping service still
 // writes what it knows.
@@ -493,7 +487,7 @@ func (s *Scheduler) finish(run store.Run, j store.Job, status string, note strin
 	}
 }
 
-// dropQueuedJob removes a queued row whose run reached a terminal outcome;
+// dropQueuedJob removes a queued row whose run reached a terminal outcome,
 // a concurrent drop (a user deleting it mid-run) is fine. DeleteJob unlinks
 // its runs, so history rows read as ad-hoc manual runs afterwards.
 func (s *Scheduler) dropQueuedJob(id int64) {
@@ -516,7 +510,7 @@ func (s *Scheduler) stopAfter(run store.Run) bool {
 }
 
 // runTriggerCommand executes one gate under sh -c with a bounded wait,
-// returning its combined output and exit code; an interrupted context or a
+// returning its combined output and exit code, an interrupted context or a
 // timeout reports the Go error instead. The empty dir inherits swarm's cwd.
 func runTriggerCommand(ctx context.Context, dir, command string) (string, int, error) {
 	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), triggerCommandTimeout)

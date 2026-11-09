@@ -44,7 +44,7 @@ export function RenameControl({
 // RenameEditorModal is the one rename surface for every breakpoint: the
 // desktop card bar and the mobile switcher rows both open it over ModalShell,
 // so an edit behaves identically wherever it starts. Submitting empty clears
-// the stored title, falling labels back to names and paths; saving refreshes
+// the stored title, falling labels back to names and paths, saving refreshes
 // the listing so every label re-renders without waiting out the poll.
 export function RenameEditorModal({
   sessionId,

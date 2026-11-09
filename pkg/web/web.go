@@ -19,7 +19,7 @@ var distFS embed.FS
 
 const indexHTML = "index.html"
 
-// assetsDir holds the Vite fingerprinted bundles; a content hash in every
+// assetsDir holds the Vite fingerprinted bundles, a content hash in every
 // name means those responses can cache forever and never need revalidation.
 const assetsDir = "assets/"
 
@@ -31,7 +31,7 @@ const (
 )
 
 // contentSecurityPolicy guards the SPA document. The script hash pins the
-// inline theme-bootstrap; web_test.go recomputes it from the embedded
+// inline theme-bootstrap, web_test.go recomputes it from the embedded
 // document so an edit to that script fails there first. unsafe-inline covers
 // shiki's style attributes, data: and blob: cover base64 transcript images.
 const contentSecurityPolicy = "default-src 'self'; " +
@@ -41,7 +41,7 @@ const contentSecurityPolicy = "default-src 'self'; " +
 	"object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
 
 // Handler serves the embedded dist directory. A path without an extension
-// that misses a file renders the SPA document; an asset miss stays 404 so a
+// that misses a file renders the SPA document, an asset miss stays 404 so a
 // broken script reference is visible instead of silently parsing HTML.
 func Handler() http.Handler {
 	sub, err := fs.Sub(distFS, "dist")
@@ -65,8 +65,7 @@ func Handler() http.Handler {
 		f, err := sub.Open(name)
 		if err != nil {
 			if path.Ext(name) != "" {
-				// no negative caching, a rebuild that adds the path back
-				// must be honored immediately
+				// no negative caching: a rebuilt asset must apply at once
 				w.Header().Set("Cache-Control", cacheRevalidate)
 				http.NotFound(w, r)
 				return
@@ -101,7 +100,7 @@ func serveDocument(w http.ResponseWriter, r *http.Request, fsys fs.FS, etag stri
 	w.Header().Set("Cache-Control", cacheRevalidate)
 	w.Header().Set("ETag", etag)
 	f, err := fsys.Open(indexHTML)
-	if err != nil { // only for a broken embed; index.html always exists
+	if err != nil { // only for a broken embed, index.html always exists
 		http.NotFound(w, r)
 		return
 	}
@@ -110,7 +109,7 @@ func serveDocument(w http.ResponseWriter, r *http.Request, fsys fs.FS, etag stri
 	http.ServeContent(w, r, indexHTML, time.Time{}, content)
 }
 
-// documentETag returns the strong etag for the embedded document bytes;
+// documentETag returns the strong etag for the embedded document bytes,
 // panics only for a broken embed, like the dist check in Handler.
 func documentETag(fsys fs.FS) string {
 	b, err := fs.ReadFile(fsys, indexHTML)

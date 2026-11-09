@@ -14,7 +14,7 @@ import (
 )
 
 // Bounds on what the actor retains and what an init carries. Retention is
-// generous; init tails are deliberately small so a subscribe stays cheap.
+// generous, init tails are deliberately small so a subscribe stays cheap.
 const (
 	maxRetainedEntries = 8192
 	maxRetainedBytes   = 64 << 20 // entry payloads held in memory per session
@@ -27,7 +27,7 @@ const (
 
 // view is the reconciled state of one ajent instance: snapshot fields kept
 // current by the watermark machine, plus the committed entries. Owned by one
-// actor goroutine; no locks.
+// actor goroutine, no locks.
 type view struct {
 	seq uint64 // last applied event number, everything at or below is dropped
 
@@ -72,7 +72,7 @@ type entryRecord struct {
 
 // buildView seeds a fresh view from backfill: the snapshot and the transcript
 // branch through its head, taken under the same watermark. Live events past
-// the watermark apply on top; overlap dedupes by entry id alone.
+// the watermark apply on top, overlap dedupes by entry id alone.
 func buildView(snap ctl.State, branch []session.Entry, watermark uint64) *view {
 	v := &view{
 		seq:        watermark,
@@ -178,7 +178,7 @@ func (v *view) apply(ev ctl.Event) {
 		}
 		v.queuedRows = d.Rows
 
-	case ctl.EventQueueDropped: // names rows a removal cleared; resolve by id
+	case ctl.EventQueueDropped: // names rows a removal cleared, resolve by id
 		var d ctl.QueueDroppedData
 		if err := ev.Decode(&d); err != nil || len(d.Rows) == 0 {
 			return
@@ -246,7 +246,7 @@ func (v *view) apply(ev ctl.Event) {
 		})
 		delete(v.dialogSeen, d.ID)
 
-	case ctl.EventSeatLost: // displaced without probing; the new holder is named
+	case ctl.EventSeatLost: // displaced without probing, the new holder is named
 		var d ctl.SeatLostData
 		if err := ev.Decode(&d); err != nil || d.To == "" {
 			return
@@ -279,7 +279,7 @@ func (v *view) applyStatus(ev ctl.Event) {
 	}
 }
 
-// pendingInteraction records one open dialog; a re-announcement updates in place.
+// pendingInteraction records one open dialog, a re-announcement updates in place.
 func (v *view) pendingInteraction(d ctl.InteractionPendingData) {
 	if i := slices.IndexFunc(v.interactions, func(p ctl.InteractionPendingData) bool { return p.ID == d.ID }); i >= 0 {
 		v.interactions[i] = d
@@ -455,7 +455,7 @@ func (v *view) initTail() ([]ctl.Entry, string) {
 }
 
 // pageEntries returns up to limit full-fidelity entries older than before,
-// oldest first. An empty before walks back from the newest entry; an unknown
+// oldest first. An empty before walks back from the newest entry, an unknown
 // cursor yields an empty page.
 func (v *view) pageEntries(before string, limit int) ([]ctl.Entry, string) {
 	end := len(v.entries)
@@ -472,7 +472,7 @@ func (v *view) pageEntries(before string, limit int) ([]ctl.Entry, string) {
 }
 
 // deferImageBodies replaces base64 image payloads with their media type so an
-// init never carries megabytes of pixels; /entries returns the full bodies.
+// init never carries megabytes of pixels, /entries returns the full bodies.
 func deferImageBodies(e ctl.Entry) ctl.Entry {
 	stripped, changed := stripImages(e.Data)
 	if !changed {
@@ -484,7 +484,7 @@ func deferImageBodies(e ctl.Entry) ctl.Entry {
 
 // stripImages walks one JSON value replacing every image block body
 // {"mediaType":..., "data":...} with its media type alone. It reports whether
-// anything changed; untouched values keep their exact bytes.
+// anything changed, untouched values keep their exact bytes.
 func stripImages(raw json.RawMessage) (json.RawMessage, bool) {
 	trimmed := bytes.TrimSpace(raw)
 	if len(trimmed) == 0 || !bytes.Contains(trimmed, []byte(`"image"`)) {
@@ -549,7 +549,7 @@ func stripImages(raw json.RawMessage) (json.RawMessage, bool) {
 	}
 }
 
-// mustJSON encodes v; only unreachable types fail here.
+// mustJSON encodes v, only unreachable types fail here.
 func mustJSON(v any) json.RawMessage {
 	b, err := json.Marshal(v)
 	if err != nil {

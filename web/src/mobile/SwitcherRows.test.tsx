@@ -43,7 +43,7 @@ function SessionProbe() {
   return <div data-testid="session-view">{sessionId}</div>
 }
 
-// stubFacts answers the providers' bootstrap calls; each rendering test also
+// stubFacts answers the providers' bootstrap calls, each rendering test also
 // awaits one findBy so the settled AuthProvider fetch lands inside act.
 function stubFacts() {
   vi.stubGlobal(
@@ -56,7 +56,7 @@ function stubFacts() {
 }
 
 // needsInputDialog is one attention digest row with an open dialog, the same
-// shape GET /api/attention answers with; settled flips it to the settled read
+// shape GET /api/attention answers with, settled flips it to the settled read
 // the server answers after one acknowledgment lands.
 let attention: unknown[]
 const needsInputDialog = () => [
@@ -274,7 +274,7 @@ describe('SwitcherRows', () => {
       row({ sessionId: '01B', label: 'other' }),
     ])
 
-    // the badge and the check-off both ride the digest; only the dialog row
+    // the badge and the check-off both ride the digest, only the dialog row
     await screen.findByText('needs input')
     const user = userEvent.setup()
     // the check-off button lands a fetch tick after the badge, so wait for it
@@ -425,7 +425,7 @@ describe('SwitcherRows', () => {
     await user.click(screen.getByRole('button', { name: 'Stop' }))
     expect(screen.getByRole('button', { name: 'Stop?' })).toBeInTheDocument()
 
-    // a listing poll rebuilds every row object, same instance included; the
+    // a listing poll rebuilds every row object, same instance included, the
     // arm must survive it or no human taps twice within one poll cadence
     view.rerender(tree([row()]))
     expect(screen.getByRole('button', { name: 'Stop?' })).toBeInTheDocument()
@@ -512,7 +512,7 @@ describe('SwitcherRows', () => {
     await screen.findByText('project')
 
     // the live row acts, the recorded ended row resumes, the workspace-less
-    // one offers nothing; rename needs neither seat state nor a workspace, so
+    // one offers nothing, rename needs neither seat state nor a workspace, so
     // it lands on every row
     expect(screen.getAllByRole('button', { name: 'Rename' })).toHaveLength(3)
     expect(screen.getAllByRole('button', { name: 'Settings' })).toHaveLength(1)

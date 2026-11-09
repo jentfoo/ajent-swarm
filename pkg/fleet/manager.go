@@ -38,24 +38,24 @@ const (
 // ErrUnknownSession reports a subscribe or command naming no tracked instance.
 var ErrUnknownSession = errors.New("unknown session")
 
-// Options tunes the manager; zero values take production defaults.
+// Options tunes the manager, zero values take production defaults.
 type Options struct {
 	Log          *slog.Logger
 	PollInterval time.Duration // registry watch cadence, about once a second
 	BackoffBase  time.Duration // actor redial base
 	BackoffMax   time.Duration // actor redial cap
 
-	// Owned names sessions swarm spawned; they force-claim the seat as holder
+	// Owned names sessions swarm spawned, they force-claim the seat as holder
 	// swarm at attach. External sessions observe until a write or an explicit
 	// take-control, so a human --attach is never displaced without asking.
 	Owned func(inst ctl.Instance) bool
 
-	// Discover reads the live registry; client.DiscoverLive when unset.
+	// Discover reads the live registry, client.DiscoverLive when unset.
 	Discover func() ([]ctl.Instance, error)
 
 	// Child launching: AjentBin and ChildrenDir must both be set for Launch
 	// to work. ChildStore persistence enables orphan re-adoption across
-	// restarts and retains external sessions in the listing; KillOnExit opts
+	// restarts and retains external sessions in the listing, KillOnExit opts
 	// into terminating running children at Stop.
 	AjentBin    string
 	ChildrenDir string
@@ -70,20 +70,20 @@ type Options struct {
 	// labeler run over their first prompt, and no display title is stored.
 	NoNaming bool
 
-	// TitleStore persists swarm-side display titles; nil disables storing them
+	// TitleStore persists swarm-side display titles, nil disables storing them
 	// and every listing falls back to agent names, paths and short ids.
 	TitleStore TitleStore
 
-	// SettingStore persists swarm-level settings (the titling model today);
+	// SettingStore persists swarm-level settings (the titling model today),
 	// nil keeps every setting at its default and refuses writes.
 	SettingStore SettingsStore
 
-	// RecallStore persists the workspace-wide recall mirror of typed submits;
+	// RecallStore persists the workspace-wide recall mirror of typed submits,
 	// nil disables recording and every recall-lines listing reads empty.
 	RecallStore RecallStore
 
 	// AckStore persists attention acknowledgments, so one device's check-off
-	// settles the row for every device and survives restarts; nil keeps every
+	// settles the row for every device and survives restarts, nil keeps every
 	// item unacknowledged and refuses writes.
 	AckStore AckStore
 }
@@ -133,7 +133,7 @@ type Manager struct {
 	turnAcks       map[string]int64          // cached acknowledged turn ends, mirrored from AckStore
 }
 
-// New builds a manager; Start begins the registry watch.
+// New builds a manager, Start begins the registry watch.
 func New(opts Options) *Manager {
 	if opts.Log == nil {
 		opts.Log = slog.Default()
@@ -281,8 +281,7 @@ func (m *Manager) diff() error {
 			stopping = append(stopping, a)
 			delete(m.actors, key)
 			if st := a.status.Load(); st.emptyRun() {
-				// stamp beside the removal: a settle finding neither stamp nor
-				// actor would keep the empty row for good
+				// without this stamp, a later settle finds nothing and keeps the row
 				m.markEmptyRunLocked(st.PID)
 			}
 		}
@@ -309,8 +308,7 @@ func (m *Manager) diff() error {
 	rebinds := m.planRebinds()
 	m.mu.Unlock()
 
-	// retiring instances tell their subscribers directly: publishing from here
-	// cannot race an attach still sitting in the actor's mailbox
+	// publish to them here: it cannot race an attach queued on the actor
 	for _, sub := range gone {
 		if sub.retire() {
 			sub.fireDrop()
@@ -322,7 +320,7 @@ func (m *Manager) diff() error {
 	}
 
 	for _, a := range stopping {
-		// a.inst is actor-confined; the retiring row carries its current facts
+		// a.inst is actor-confined, the retiring row carries its current facts
 		m.markExternalGone(a)
 		a.stop()
 		select {
@@ -474,7 +472,7 @@ func (m *Manager) registerLocked(sub *subscription) {
 	set[sub.id] = sub
 }
 
-// actorForLocked returns the actor serving a session; mu must be held. With
+// actorForLocked returns the actor serving a session, mu must be held. With
 // several live instances an online actor beats a degraded one.
 func (m *Manager) actorForLocked(sessionID string) *sessionActor {
 	rank := func(a *sessionActor) int {
@@ -500,7 +498,7 @@ func (m *Manager) actorForLocked(sessionID string) *sessionActor {
 }
 
 // Subscribe registers one viewer on a session's stream. deliver receives
-// pre-encoded frames and must not block indefinitely; onDrop fires when the
+// pre-encoded frames and must not block indefinitely, onDrop fires when the
 // subscription overflows, so the connection can be dropped fail-open.
 func (m *Manager) Subscribe(sessionID string, deliver func([]byte), onDrop func()) (*Subscription, error) {
 	if strings.TrimSpace(sessionID) == "" {
@@ -526,7 +524,7 @@ func (m *Manager) Subscribe(sessionID string, deliver func([]byte), onDrop func(
 	sub.hostKey = a.key // the actor serving this subscription, until a rebind moves it
 	m.mu.Unlock()
 
-	go sub.forward() // the queue serializes; frames only flow after attach
+	go sub.forward() // the queue serializes, frames only flow after attach
 
 	select {
 	case a.mailbox <- msgAttach{sub: sub}:
@@ -551,7 +549,7 @@ func (m *Manager) Unsubscribe(s *Subscription) {
 	sub.close()
 
 	if host != nil {
-		select { // best effort; a stopping actor needs no detach
+		select { // best effort, a stopping actor needs no detach
 		case host.mailbox <- msgDetach{sub: sub}:
 		default:
 		}
@@ -602,7 +600,7 @@ func (m *Manager) TakeControl(ctx context.Context, sessionID string) error {
 }
 
 // Entries pages through one session's retained committed entries. An empty
-// before walks back from the newest entry; the cursor continues the walk.
+// before walks back from the newest entry, the cursor continues the walk.
 func (m *Manager) Entries(ctx context.Context, sessionID, before string, limit int) ([]ctl.Entry, string, error) {
 	a := m.route(sessionID)
 	if a == nil {
@@ -621,7 +619,7 @@ func (m *Manager) route(sessionID string) *sessionActor {
 
 // Sessions lists every known session, one row each: live rows first,
 // sorted by session id then pid, followed by recently ended ones most recent
-// first. Twin instances serving one session list twice, told apart by pid;
+// first. Twin instances serving one session list twice, told apart by pid,
 // external sessions keep their row after they end.
 func (m *Manager) Sessions() []Status {
 	m.mu.Lock()
@@ -661,8 +659,7 @@ func (m *Manager) Sessions() []Status {
 			decorateChild(st, rec) // an actor keeps only its own spawn facts
 			continue
 		}
-		// a replaced record's session owns one row already: the tracked
-		// instance serving it now, or the newest untracked record before it
+		// its session has a row already: the live actor or an earlier record
 		if _, ok := tracked[rec.SessionID]; ok {
 			continue
 		}
@@ -700,7 +697,7 @@ func (m *Manager) Sessions() []Status {
 		}
 		return cmp.Compare(a.PID, b.PID)
 	})
-	// everything from the recent window stays listed; older exits only fill up to the pinned minimum
+	// everything from the recent window stays listed, older exits only fill up to the pinned minimum
 	kept := min(len(ended), maxExitedPinned)
 	for kept < len(ended) && time.Since(time.UnixMilli(ended[kept].ExitedAt)) <= endedKeepWindow {
 		kept++
@@ -747,7 +744,7 @@ type Attention struct {
 	AckedDialog bool  `json:"ackedDialog,omitempty"`
 	AckedTurn   int64 `json:"ackedTurn,omitempty"` // unix milliseconds
 
-	// Derived attention; clients render these verbatim. Since drives the
+	// Derived attention, clients render these verbatim. Since drives the
 	// needs queue's oldest-wait order (a dialog's wait or a turn end).
 	Kind   string `json:"kind"`
 	Reason string `json:"reason,omitempty"`
@@ -755,7 +752,7 @@ type Attention struct {
 }
 
 // servingStatuses snapshots the listing row of every actor whose session
-// still serves; the best-effort listing feeds filter on it.
+// still serves, the best-effort listing feeds filter on it.
 func (m *Manager) servingStatuses() []*Status {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -769,7 +766,7 @@ func (m *Manager) servingStatuses() []*Status {
 }
 
 // Attention summarizes every live session from its actor's reconciled view,
-// one row each, sorted by session id. Exited sessions drop out; a degraded
+// one row each, sorted by session id. Exited sessions drop out, a degraded
 // connection keeps its last known facts until tracking ends. Kind, reason and
 // wait are derived server-side against the acknowledgment ledger, so every
 // device renders one attention state.

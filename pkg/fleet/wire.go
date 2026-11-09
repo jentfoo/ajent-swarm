@@ -2,7 +2,7 @@ package fleet
 
 import "github.com/jentfoo/ajent/pkg/ctl"
 
-// Frame types on /api/stream. Client frames carry only the three verbs;
+// Frame types on /api/stream. Client frames carry only the three verbs,
 // everything a session emits arrives as event or child frames after an init.
 const (
 	FrameInit      = "init"
@@ -25,7 +25,7 @@ const (
 	ChildGone         = "gone" // removed from the fleet, no longer tracked
 )
 
-// ClientFrame is one browser-to-swarm stream frame. Type selects the verb;
+// ClientFrame is one browser-to-swarm stream frame. Type selects the verb,
 // SessionID names the session it applies to.
 type ClientFrame struct {
 	Type      string `json:"type"`
@@ -64,7 +64,7 @@ type ChildFrame struct {
 	Detail    string `json:"detail,omitempty"`
 }
 
-// ErrorFrame reports a refused stream verb; the connection stays open.
+// ErrorFrame reports a refused stream verb, the connection stays open.
 // SessionID names the session the refusal applies to, empty for frame-level
 // problems (bad JSON, unknown verbs) that name no session.
 type ErrorFrame struct {

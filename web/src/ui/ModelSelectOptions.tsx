@@ -6,7 +6,7 @@ import { providerGroups } from './modelGroups'
 // ModelSelectOptions renders a registry as a select's option body: one
 // optgroup per provider with short labels, loose models ungrouped by full
 // key. Every model select renders through this, so each reads like the chat
-// model button's grouped menu; call sites keep their own special options
+// model button's grouped menu, call sites keep their own special options
 // (defaults, missing-value fallbacks) around it.
 export function ModelSelectOptions({ models }: { models: ModelState[] }): ReactElement {
   const { groups, loose } = providerGroups(models)

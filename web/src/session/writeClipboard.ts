@@ -28,7 +28,7 @@ function execCopy(text: string): boolean {
 
   const ta = document.createElement('textarea')
   ta.value = text
-  // rendered but offscreen, fixed so focus never scrolls the page to reach it;
+  // rendered but offscreen, fixed so focus never scrolls the page to reach it
   // readonly keeps mobile keyboards closed
   ta.setAttribute('readonly', '')
   ta.style.position = 'fixed'

@@ -181,7 +181,7 @@ describe('SwarmProvider digest sync', () => {
       await vi.advanceTimersByTimeAsync(150)
     })
 
-    // still just the mount tick; only the poll owns these
+    // still just the mount tick, only the poll owns these
     expect(attentionFetches).toBe(1)
   })
 })
@@ -255,7 +255,7 @@ describe('SwarmProvider stale poll guards', () => {
       </SwarmProvider>,
     )
 
-    // the mount poll parks its reply; two forced refreshes overlap it
+    // the mount poll parks its reply, two forced refreshes overlap it
     expect(parkedSessions).toHaveLength(1)
     await act(async () => {
       void latestCtx.refreshSessions()
@@ -285,7 +285,7 @@ describe('SwarmProvider stale poll guards', () => {
       </SwarmProvider>,
     )
 
-    // the mount poll parks its reply; two forced refreshes overlap it
+    // the mount poll parks its reply, two forced refreshes overlap it
     expect(parkedAttention).toHaveLength(1)
     await act(async () => {
       void latestCtx.refreshAttention()

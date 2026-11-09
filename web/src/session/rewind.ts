@@ -32,7 +32,7 @@ export function kindClass(kind: RewindKind): string {
   }
 }
 
-// relativeTime renders a candidate's age, e.g. "96m ago"; minutes keep their
+// relativeTime renders a candidate's age, e.g. "96m ago", minutes keep their
 // precision through the first two hours, past a week it falls back to a short
 // date, unreadable stamps stay empty.
 export function relativeTime(ts: number, now: number = Date.now()): string {

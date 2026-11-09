@@ -10,17 +10,17 @@ export interface ModelMenuController {
   models: ModelState[] // the listing for this session; empty until one lands
   active: string // the listing's active key; '' until one lands
   // toggle closes an open menu, or fetches the registry once and opens after
-  // it lands — one fetch per open, never on dependency drift
+  // it lands, one fetch per open, never on dependency drift
   toggle: () => Promise<void>
   close: () => void
-  // pick switches through model.set; the menu closes only on success
+  // pick switches through model.set, the menu closes only on success
   pick: (key: string) => Promise<void>
 }
 
 // useModelMenu owns the model registry control both chat headers render: one
 // models.get fetch per open, model.set picks, and the busy state around both.
 // Failures surface through onToast and leave the menu closed. Consumers render
-// the body through ui/ModelMenuItems; hosts key on sessionId, so a swap
+// the body through ui/ModelMenuItems, hosts key on sessionId, so a swap
 // remounts and resets every piece of this state.
 export function useModelMenu(
   sessionId: string,
@@ -57,7 +57,7 @@ export function useModelMenu(
       try {
         await sessionAPI.setModel(sessionId, key)
         setOpen(false)
-        // the switch may queue behind a running turn; status.model announces it
+        // the switch may queue behind a running turn, status.model announces it
       } catch (err) {
         onToast(describeError(err, 'Model change refused.'), 'error')
       } finally {

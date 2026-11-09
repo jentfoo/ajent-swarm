@@ -26,7 +26,7 @@ function visibleSegments(segments: Segment[] | undefined): Segment[] {
 // StatusBar is the slim line under the transcript answering "what is the
 // agent doing" at a glance: the working glyph, streamed status segments,
 // context meter with its token count, queue depth and the current activity
-// rows. Model and permission mode live in the header; the upstream
+// rows. Model and permission mode live in the header, the upstream
 // permissions segment never renders here.
 export function StatusBar({ snap, live }: { snap: CtlState; live?: LiveTurn | null }) {
   const segments = visibleSegments(snap.status?.segments)

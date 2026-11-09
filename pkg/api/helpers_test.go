@@ -150,7 +150,7 @@ func (a recallStore) RecordRecallLine(ctx context.Context,
 func (a recallStore) ScrubRecallLine(ctx context.Context, id int64) error {
 	err := a.st.ScrubRecallLine(ctx, id)
 	if errors.Is(err, store.ErrNotFound) {
-		return nil // the cap already pruned the row; nothing to withhold
+		return nil // the cap already pruned the row, nothing to withhold
 	}
 	return err
 }

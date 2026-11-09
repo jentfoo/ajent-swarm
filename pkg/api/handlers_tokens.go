@@ -15,7 +15,7 @@ type tokenBody struct {
 	LastUsed  string `json:"lastUsed"`  // RFC 3339, empty when never used
 }
 
-// rfcTime renders stored timestamps; the zero time stays empty.
+// rfcTime renders stored timestamps, the zero time stays empty.
 func rfcTime(t time.Time) string {
 	if t.IsZero() {
 		return ""
@@ -37,7 +37,7 @@ func (s *apiServer) handleTokenList(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
-// handleTokenCreate mints one bearer token; the plaintext secret appears only
+// handleTokenCreate mints one bearer token, the plaintext secret appears only
 // in this response.
 func (s *apiServer) handleTokenCreate(w http.ResponseWriter, r *http.Request) {
 	var req struct {

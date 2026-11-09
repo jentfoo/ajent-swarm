@@ -22,7 +22,7 @@ import WorkspaceRoute from './screens/WorkspaceRoute'
 // where it started.
 //
 // Two chrome variants host the same route ideas. Desktop keeps the pane-capable
-// bar; mobile swaps in its own routes — launcher and switcher as
+// bar, mobile swaps in its own routes (launcher and switcher as
 // the root view, a compact single-session screen, full-screen settings, and a
 // read-only transcript for ended sessions.
 export default function AuthGate(): ReactElement {

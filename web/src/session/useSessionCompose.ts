@@ -24,10 +24,10 @@ interface SessionCompose {
   // committed typed prompts with the workspace-wide mirror, accept lands a
   // match under the prepend rule, and refresh re-reads the mirror.
   recall: ComposerRecall
-  // recallToEdit pops the newest queued prompt back into the composer; secret
+  // recallToEdit pops the newest queued prompt back into the composer, secret
   // rows refuse upstream and their toast says so.
   recallToEdit: () => Promise<void>
-  // dialogs is the open-dialog set; while it holds input the composer disables.
+  // dialogs is the open-dialog set, while it holds input the composer disables.
   dialogs: InteractionPending[]
   composerDisabled: boolean
   disabledReason: string
@@ -83,7 +83,7 @@ export function useSessionCompose(sessionId: string): SessionCompose {
 
   // recallAccept lands an accepted history-search match through the same
   // prepend-with-notice rule a rewind prefill takes, so an existing draft is
-  // never clobbered; the returned draft lets the composer place its caret.
+  // never clobbered, the returned draft lets the composer place its caret.
   const recallAccept = useCallback(
     (text: string, current: string): string => {
       const next = prependDraft(current, text)
@@ -94,7 +94,7 @@ export function useSessionCompose(sessionId: string): SessionCompose {
     [setDraft, pushToast],
   )
   // The source merges the session's committed prompts with the workspace
-  // recall mirror, one newest-first order; it re-derives with the chain, the
+  // recall mirror, one newest-first order, it re-derives with the chain, the
   // same trigger the transcript's own block derivation uses, and whenever a
   // mirror fetch lands.
   const recall = useMemo(
@@ -117,7 +117,7 @@ export function useSessionCompose(sessionId: string): SessionCompose {
 
   // A dialog holding input disables the composer ahead of any wire refusal.
   // Connecting and resyncing borrow the shared banner copy (phases.tsx) so the
-  // placeholder matches it; a lost or ended session keeps today's short line.
+  // placeholder matches it, a lost or ended session keeps today's short line.
   const dialogs = state.snapshot.interactions ?? []
   const composerDisabled = phase !== 'live' || dialogs.length > 0
   const disabledReason =

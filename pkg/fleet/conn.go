@@ -26,7 +26,7 @@ const (
 	dialBackoffBase = 500 * time.Millisecond
 	dialBackoffMax  = 8 * time.Second
 
-	// backfillWait covers state.get plus a full transcript read; big files
+	// backfillWait covers state.get plus a full transcript read, big files
 	// need more than one call budget.
 	backfillWait = 30 * time.Second
 
@@ -63,7 +63,7 @@ type Status struct {
 	Queued           int    `json:"queued"` // prompts waiting in the session's queue
 	OpenInteractions int    `json:"openInteractions"`
 	LastTurnEnd      int64  `json:"lastTurnEnd,omitempty"` // unix milliseconds
-	ExitedAt         int64  `json:"exitedAt,omitempty"`    // unix ms; ended sessions
+	ExitedAt         int64  `json:"exitedAt,omitempty"`    // unix ms, ended sessions
 
 	// Attention digest facts: what holds input and how the last turn ended,
 	// one line each so the desktop focus queue renders reasons without subscribing.
@@ -75,7 +75,7 @@ type Status struct {
 	Activity     string `json:"activity,omitempty"`     // top activity row, one line
 
 	// Spawn facts for children swarm launched: empty fields mean external or
-	// unknown. ExitCode appears once reaped, negative when a signal ended it;
+	// unknown. ExitCode appears once reaped, negative when a signal ended it,
 	// LogTail carries ajent's own failure hints for a reopen affordance.
 	SpawnedBy string `json:"spawnedBy"`
 	Argv      string `json:"argv,omitempty"`
@@ -96,7 +96,7 @@ func (st *Status) serving() bool { return st.served && st.State != ChildExited }
 // actor served and observed no message entry and no session name.
 func (st *Status) emptyRun() bool { return st.served && !st.hadActivity }
 
-// actorMsg is one mailbox message; the actor goroutine owns everything else.
+// actorMsg is one mailbox message, the actor goroutine owns everything else.
 type actorMsg interface{}
 
 type msgUpstream struct {
@@ -139,7 +139,7 @@ type entriesPage struct {
 type sessionActor struct {
 	mgr    *Manager
 	key    actorKey
-	inst   ctl.Instance // discovery record at spawn; hello refreshes the pid
+	inst   ctl.Instance // discovery record at spawn, hello refreshes the pid
 	log    *slog.Logger
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -153,7 +153,7 @@ type sessionActor struct {
 	// actor-goroutine-confined state below
 	conn       *client.Conn
 	transcript string // transcript file this instance's hello named
-	gen        uint64 // connection generation; stale messages drop by it
+	gen        uint64 // connection generation, stale messages drop by it
 	view       *view
 	pending    map[*subscription]struct{} // subscribers waiting for the first backfill
 	state      string
@@ -307,8 +307,7 @@ func (a *sessionActor) prepare(conn *client.Conn, hello ctl.Hello) error {
 	defer bcancel()
 	snap, branch, watermark, err := conn.Backfill(bctx)
 	if err != nil {
-		// recording is always on in serve mode, so a missing transcript is an
-		// error to report and retry, never a mode to render around
+		// serve mode always records: a missing transcript reports, not renders
 		return fmt.Errorf("backfill: %w", err)
 	}
 
@@ -316,8 +315,7 @@ func (a *sessionActor) prepare(conn *client.Conn, hello ctl.Hello) error {
 	if a.mgr.ownedInstance(a.inst) {
 		a.view.seat = ctl.SeatState{Held: true, Holder: holderName, Yours: true}
 	}
-	// adopted sessions name from backfill too: their first prompt predates the
-	// live stream, so no entry.append announces it; guards keep reconnects cheap
+	// resumed first prompts predate the stream, only backfill ever sees them
 	a.mgr.maybeNameSession(a)
 	a.recallBackfill(snap, branch) // a drop may have overrun a tracked submit's commit
 	return nil
@@ -373,7 +371,7 @@ func (a *sessionActor) drainUpstream() {
 }
 
 // idleUntilStopped keeps serving subscribers with the final view after a clean
-// exit; tracking ends when the manager sees the record leave discovery.
+// exit, tracking ends when the manager sees the record leave discovery.
 func (a *sessionActor) idleUntilStopped() {
 	for {
 		select {
@@ -518,7 +516,7 @@ func (a *sessionActor) buildInit() []byte {
 	})
 }
 
-// handleTakeControl issues one force claim on user command; seat policy never
+// handleTakeControl issues one force claim on user command, seat policy never
 // force-takes on its own, so two controllers cannot steal in a loop.
 func (a *sessionActor) handleTakeControl(msg msgTakeControl) {
 	if !a.ready() {
@@ -541,8 +539,7 @@ func (a *sessionActor) handleTakeControl(msg msgTakeControl) {
 // as seat-held rather than displacing its holder.
 func (a *sessionActor) handleStop(msg msgStop) {
 	if !a.ready() {
-		// deliberately uncoded: StopSession falls through to signals unless the
-		// child itself answers with a coded refusal
+		// uncoded on purpose: StopSession then falls back to signals for children
 		msg.reply <- errors.New("session is not connected")
 		return
 	}
@@ -571,7 +568,7 @@ func (a *sessionActor) exit(reason string) {
 }
 
 // publishChild records and fans out one lifecycle transition. Repeats of the
-// same degraded state stay quiet; the listing's detail covers progress.
+// same degraded state stay quiet, the listing's detail covers progress.
 func (a *sessionActor) publishChild(state, detail string) {
 	if state != ChildOnline && a.state == state && a.detail == detail {
 		return
@@ -584,7 +581,7 @@ func (a *sessionActor) publishChild(state, detail string) {
 	a.refreshStatus()
 }
 
-// waitBackoff sleeps one backoff step; false means stop.
+// waitBackoff sleeps one backoff step, false means stop.
 func (a *sessionActor) waitBackoff() bool {
 	timer := time.NewTimer(a.backoff)
 	defer timer.Stop()
@@ -649,7 +646,7 @@ func (a *sessionActor) refreshStatus() {
 	a.status.Store(st)
 }
 
-// stop shuts the actor down; safe to call again.
+// stop shuts the actor down, safe to call again.
 func (a *sessionActor) stop() {
 	a.cancel() // context.CancelFunc is idempotent
 }

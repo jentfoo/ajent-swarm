@@ -11,7 +11,7 @@ import { useToolToggles } from './useToolToggles'
 // instead of clobbering while the stream lags. After the run's first
 // dispatched prompt the apply rule is widen-only (toolRule.ts), so toggles
 // that would disable render disabled with their reason instead of refusing
-// as a surprise. The readOnly flag is permission metadata — every registered
+// as a surprise. The readOnly flag is permission metadata, every registered
 // tool stays toggleable here, matching upstream's own picker.
 export function ToolsPanel({
   sessionId,

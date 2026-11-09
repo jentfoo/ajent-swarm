@@ -11,10 +11,9 @@ import (
 )
 
 // IsolateHome pins AJENT_HOME to a fresh short temp directory and returns
-// it, so discovery and saved-session reads stay off the real home. The name
-// stays short because control socket paths cap at ~108 bytes and t.TempDir
-// embeds the test name. Tests that need a specific home call t.Setenv again
-// with their own.
+// it, so discovery and saved-session reads stay off the real home. The dir
+// name stays short because control socket paths cap at ~108 bytes. Tests
+// needing a specific home call t.Setenv again with their own.
 func IsolateHome(t *testing.T) string {
 	t.Helper()
 	home, err := os.MkdirTemp("", "ajent-home")

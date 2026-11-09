@@ -19,7 +19,7 @@ import (
 	"github.com/jentfoo/ajent/pkg/session"
 )
 
-// Entry is the transcript-entry shape writers hand to WriteTranscript; a thin
+// Entry is the transcript-entry shape writers hand to WriteTranscript, a thin
 // alias so tests need no second import.
 type Entry = session.Entry
 
@@ -30,8 +30,8 @@ const stubWorkspace = "/repo"
 type Options struct {
 	SessionID string
 	Name      string
-	Token     string // writer token; a fixed default when empty
-	PID       int    // hello pid override; this process when zero
+	Token     string // writer token, a fixed default when empty
+	PID       int    // hello pid override, this process when zero
 	Refuses   bool   // attach with control always refuses, seat-held
 }
 
@@ -118,7 +118,7 @@ func New(t *testing.T, home string, opts Options) *Stub {
 	return f
 }
 
-// WriteRegistry publishes the discovery record; pid must answer signal zero.
+// WriteRegistry publishes the discovery record, pid must answer signal zero.
 func (f *Stub) WriteRegistry(t *testing.T, pid int, startedAt time.Time) {
 	t.Helper()
 	b, err := json.Marshal(ctl.Instance{
@@ -237,14 +237,14 @@ func (f *Stub) Refuse(method, code, message string) {
 	f.refuseScript[method] = &ctl.Error{Code: code, Message: message}
 }
 
-// Result scripts one method's success payload; the default reply is empty.
+// Result scripts one method's success payload, the default reply is empty.
 func (f *Stub) Result(method string, result any) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.resultScript[method] = result
 }
 
-// OnSubmit registers fn to run whenever the stub serves a submit request;
+// OnSubmit registers fn to run whenever the stub serves a submit request,
 // the params are already recorded when it fires. Safe to call mid-flight.
 func (f *Stub) OnSubmit(fn func(ctl.SubmitParams)) {
 	f.mu.Lock()
@@ -321,7 +321,7 @@ func (f *Stub) serveConn(conn net.Conn) {
 	}
 }
 
-// handle answers one request; false closes the connection.
+// handle answers one request, false closes the connection.
 func (c *stubConn) handle(req ctl.Request) bool {
 	if rp, ok := c.s.scripted(req); ok {
 		return c.reply(rp)
@@ -438,7 +438,7 @@ func (f *Stub) scripted(req ctl.Request) (ctl.Reply, bool) {
 	return reply, true
 }
 
-// attach applies the seat rules; false refuses with seat-held.
+// attach applies the seat rules, false refuses with seat-held.
 func (c *stubConn) attach(p ctl.AttachParams) bool {
 	f := c.s
 	f.mu.Lock()

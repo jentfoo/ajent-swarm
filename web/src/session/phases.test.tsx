@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { endedBanner } from './phases'
 
-// The one banner derivation both session surfaces consume; pinning it here
+// The one banner derivation both session surfaces consume, pinning it here
 // keeps desktop and mobile copy from drifting apart again (phases.tsx).
 
 describe('endedBanner', () => {

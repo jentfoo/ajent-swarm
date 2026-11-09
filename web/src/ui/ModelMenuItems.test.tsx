@@ -174,7 +174,7 @@ describe('ModelMenuItems', () => {
       />,
     )
     const filter = screen.getByRole('searchbox')
-    // fireEvent answers whether the press was claimed; an empty query leaves
+    // fireEvent answers whether the press was claimed, an empty query leaves
     // it for the popover's own Escape close
     expect(fireEvent.keyDown(filter, { key: 'Escape' })).toBe(true)
 

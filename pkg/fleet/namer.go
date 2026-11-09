@@ -25,7 +25,7 @@ const (
 	titleSystem = "You name coding agent sessions. Answer with a short human-readable" +
 		" title of at most five words and nothing else. No explanation, no quotes."
 
-	// maxTitleLabelRunes keeps one title comfortably inside tight listing rows;
+	// maxTitleLabelRunes keeps one title comfortably inside tight listing rows,
 	// the store's own cap is wider and clips after us anyway.
 	maxTitleLabelRunes = 48
 )
@@ -87,7 +87,7 @@ func (m *Manager) autoName(sessionID, startPrompt string) error {
 }
 
 // sessionTitleFor asks a one-shot ajent run for the label. A configured
-// titling model rides along; when the run fails with it, the setting drops
+// titling model rides along, when the run fails with it, the setting drops
 // back to the default (each session's own model) for this naming and beyond.
 // Tools stay off via --no-tools and the scratch working directory keeps any
 // stray output away from real workspaces. The transcript ajent saves for that
@@ -136,7 +136,7 @@ func removeScratchTranscript(dir string) {
 	_ = os.RemoveAll(saved)
 }
 
-// runNamer executes one one-shot ajent run and sanitizes its answer; model
+// runNamer executes one one-shot ajent run and sanitizes its answer, model
 // selects the labeler's model, empty meaning ajent's own default.
 func runNamer(ctx context.Context, bin, dir, prompt, model string) (string, error) {
 	args := []string{"-p", prompt, "--system", titleSystem, "--no-tools"}

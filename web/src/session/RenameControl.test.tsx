@@ -142,7 +142,7 @@ describe('RenameControl', () => {
     expect(await screen.findByRole('button', { name: 'Rename project' })).toBeInTheDocument()
     expect(titleCalls()).toHaveLength(0)
 
-    // reopening starts a fresh edit; escape unwinds it the same way
+    // reopening starts a fresh edit, escape unwinds it the same way
     await user.click(pencil())
     await user.type(titleInput(), 'renamed again')
     await user.keyboard('{Escape}')

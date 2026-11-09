@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { writeClipboard } from './writeClipboard'
 
-// jsdom ships no clipboard and no execCommand; each file stubs them so the
+// jsdom ships no clipboard and no execCommand, each file stubs them so the
 // requirement stays visible at the call sites it covers
 function stubClipboard(writeText: (text: string) => Promise<void>) {
   const fn = vi.fn(writeText)

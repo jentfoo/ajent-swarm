@@ -39,7 +39,7 @@ func dialStream(t *testing.T, base string, header http.Header) (*websocket.Conn,
 	return websocket.DefaultDialer.Dial(u, header)
 }
 
-// readWSRaw pulls one raw stream frame; frames arrive once the handler runs.
+// readWSRaw pulls one raw stream frame, frames arrive once the handler runs.
 func readWSRaw(t *testing.T, ws *websocket.Conn) []byte {
 	t.Helper()
 	var raw json.RawMessage
@@ -148,7 +148,7 @@ func TestStream(t *testing.T) {
 		sendFrame(t, ws, fleet.ClientFrame{Type: "sync", SessionID: f.SessionID()})
 		expectWSFrame(t, ws, "init")
 
-		// unknown sessions answer with an error frame; the connection stays open
+		// unknown sessions answer with an error frame, the connection stays open
 		sendFrame(t, ws, fleet.ClientFrame{Type: "subscribe", SessionID: "01NOBODY00000000"})
 		errFrame := expectWSFrame(t, ws, "error")
 		assert.Equal(t, "unknown_session", errFrame.Code)
@@ -215,7 +215,7 @@ func TestStream(t *testing.T) {
 			assert.Equal(t, f.SessionID(), init.SessionID)
 		}
 
-		// One viewer leaves; the other keeps streaming.
+		// One viewer leaves, the other keeps streaming.
 		sendFrame(t, ws1, fleet.ClientFrame{Type: "unsubscribe", SessionID: f.SessionID()})
 		f.Broadcast(ctl.EventIdle, ctl.IdleData{Idle: true})
 		ev := expectWSFrame(t, ws2, "event")

@@ -28,7 +28,7 @@ export interface WorkspaceKeyHandlers {
   onResize?: (dir: Direction) => void // alt+arrow
 }
 
-// useWorkspaceKeys binds the workspace's global keys; pass null handlers to
+// useWorkspaceKeys binds the workspace's global keys, pass null handlers to
 // unbind. Handled events preventDefault so the browser never scrolls or
 // closes the tab out from under the shortcut.
 export function useWorkspaceKeys(handlers: WorkspaceKeyHandlers): void {
@@ -42,7 +42,7 @@ export function useWorkspaceKeys(handlers: WorkspaceKeyHandlers): void {
       // an earlier listener that claimed the event wins, e.g. the viewed
       // session's Escape interrupt
       if (ev.defaultPrevented) return
-      // editable targets win; behind any open overlay layer every
+      // editable targets win, behind any open overlay layer every
       // binding rests, leaving keys to what the layer shows instead of rows
       // and panes its backdrop hides
       if (caretInInput(ev.target) || overlayOpen()) return
@@ -112,7 +112,7 @@ export function useWorkspaceKeys(handlers: WorkspaceKeyHandlers): void {
       }
       if (mod || ev.altKey) return
       // a focused real button or link keeps its native activation, so Enter
-      // clicks the control instead of being swallowed by a queue shortcut;
+      // clicks the control instead of being swallowed by a queue shortcut
       // role-button markup gets no native activation, keys keep answering it
       const target = ev.target
       if (target instanceof HTMLButtonElement || target instanceof HTMLAnchorElement) return

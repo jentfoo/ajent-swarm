@@ -18,7 +18,7 @@ const refusedTtlMs = 8_000
 // rows form one chronological list capped at maxChips keeping the newest end,
 // where the recall affordance and live submit feedback sit, older rows
 // collapsing into one "+N more" line. Editing goes through recall in the
-// composer; since the wire's recall always pops the newest row, only that chip
+// composer, since the wire's recall always pops the newest row, only that chip
 // offers it. Refused submits expire refusedTtlMs after their refusal.
 export function QueuedPrompts({
   queuedRows,
@@ -42,7 +42,7 @@ export function QueuedPrompts({
   }, [freshRefused])
 
   // dropped rows are former queue contents, then the wire queue oldest first,
-  // then this client's in-flight submits; one order so the cap keeps the
+  // then this client's in-flight submits, one order so the cap keeps the
   // newest end
   const named = new Set(queuedRows.map((row) => row.id))
   const chips = [
@@ -54,12 +54,12 @@ export function QueuedPrompts({
         key={row.id}
         id={row.id}
         text={row.text}
-        // the wire's recall pops the newest row; older chips cannot edit yet
+        // the wire's recall pops the newest row, older chips cannot edit yet
         editable={i === queuedRows.length - 1}
         onEdit={onEdit}
       />
     )),
-    // optimistic rows the wire has not named yet stay visible; failed ones
+    // optimistic rows the wire has not named yet stay visible, failed ones
     // only while fresh
     ...pendings.flatMap((p) => {
       if (p.state !== 'pending' && p.state !== 'failed') return []
@@ -79,7 +79,7 @@ export function QueuedPrompts({
   )
 }
 
-// refusedVisible reports whether a failed row still shows its refusal chip;
+// refusedVisible reports whether a failed row still shows its refusal chip
 // an absent stamp reads as expired.
 function refusedVisible(p: PendingSubmit, now: number): boolean {
   return p.state === 'failed' && now - (p.failedAt ?? 0) < refusedTtlMs

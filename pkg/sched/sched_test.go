@@ -41,7 +41,7 @@ type fakeRunner struct {
 	blockLaunch chan struct{} // set: Launch blocks until closed, per call
 	deliver     func([]byte)  // deliverer of the latest subscription
 	onDrop      func()
-	busyAt      time.Time // what LastBusyAt reports; zero means quiet
+	busyAt      time.Time // what LastBusyAt reports, zero means quiet
 }
 
 // LastBusyAt answers with the scripted activity moment.
@@ -87,7 +87,7 @@ func (f *fakeRunner) Submit(_ context.Context, _ string, params ctl.SubmitParams
 	return nil
 }
 
-// ToolsSet records the requested set; toolsSetErr scripts a refusal.
+// ToolsSet records the requested set, toolsSetErr scripts a refusal.
 func (f *fakeRunner) ToolsSet(_ context.Context, _ string,
 	names []string) (ctl.ToolsSetResult, error) {
 	f.mu.Lock()
@@ -97,7 +97,7 @@ func (f *fakeRunner) ToolsSet(_ context.Context, _ string,
 	return ctl.ToolsSetResult{}, f.toolsSetErr
 }
 
-// SetTitle records the last title written per session; titleErr scripts a
+// SetTitle records the last title written per session, titleErr scripts a
 // failed write.
 func (f *fakeRunner) SetTitle(_ context.Context, sessionID, title string) error {
 	f.mu.Lock()
@@ -157,7 +157,7 @@ func (f *fakeRunner) replay(pid string) {
 
 func (f *fakeRunner) Unsubscribe(*fleet.Subscription) {}
 
-// mustJSON encodes v; only unreachable types fail.
+// mustJSON encodes v, only unreachable types fail.
 func mustJSON(v any) []byte {
 	b, err := json.Marshal(v)
 	if err != nil {
@@ -390,7 +390,7 @@ func TestScheduler(t *testing.T) {
 
 	t.Run("once_job_fires_and_clears", func(t *testing.T) {
 		// slots persist as whole unix seconds, so the future fire below can
-		// truncate to the current second and read nearly a second late; the wide
+		// truncate to the current second and read nearly a second late, the wide
 		// grace keeps that from racing while the late one-shot still clears it
 		h := newHarness(t, func(o *Options) { o.MissedGrace = 5 * time.Second })
 		h.start(t.Context())
@@ -533,7 +533,7 @@ func TestScheduler(t *testing.T) {
 		require.NoError(h.t, h.store.UpdateJob(h.t.Context(), j))
 		h.sched.Nudge()
 
-		// a nudged edit lands within a tick or two; the generous ceiling matches
+		// a nudged edit lands within a tick or two, the generous ceiling matches
 		// maxTick, since a loaded machine can starve the trigger loop longer than
 		// any tighter bound would honestly allow
 		require.Eventually(t, func() bool { return len(h.runRows(id)) == 2 },
@@ -654,7 +654,7 @@ func TestScheduler(t *testing.T) {
 		abandoned := mkQueued("abandoned", nil) // crash shape: slot claimed, run gone
 		waiting := mkQueued("waiting", &future)
 
-		// the realistic crash leaves a live run behind; the interrupted sweep
+		// the realistic crash leaves a live run behind, the interrupted sweep
 		// settles it before the queued sweep decides
 		crashed := mkQueued("crashed", nil)
 		jobID := crashed

@@ -5,7 +5,7 @@
 //   - events apply only above the watermark (ephemeral) and dedupe by entry
 //     id (committed)
 //   - a snapshot applies its event-covered fields only when stamped at or
-//     above the applied watermark; poll-only facts always merge
+//     above the applied watermark, poll-only facts always merge
 //   - keyed families replace wholesale, empty text removes a row
 //   - dialogs are state: rebuilt from snapshots, cleared when absent
 //   - a mid-turn session.exit closes the turn itself: no turn.end follows an
@@ -31,7 +31,7 @@ export interface DiffView {
   path: string
   before: string
   after: string
-  // Last entry id on the visible chain at arrival; '' when nothing was
+  // Last entry id on the visible chain at arrival, '' when nothing was
   // committed yet. Rendering pins the card beneath its block.
   afterId: string
 }
@@ -65,7 +65,7 @@ export interface LiveTurn {
   // Panel intent for the live thinking details. The panel renders
   // uncontrolled and follows only flips of this value, never per render.
   thinkingOpen: boolean
-  // Set once a user toggle reaches the applier; programmatic collapses then
+  // Set once a user toggle reaches the applier, programmatic collapses then
   // stop applying for the rest of this buffer.
   thinkingUserToggled?: boolean
   text: string
@@ -77,7 +77,7 @@ export interface NoticeView {
   key: string // '' for unkeyed notices, which stack instead of replacing
   text: string
   level: 'info' | 'warn' | 'error'
-  at: number // wall clock of arrival; rendering expires stale lines
+  at: number // wall clock of arrival, rendering expires stale lines
 }
 
 // PermitVerdict is one tool call's approval outcome, captured from upstream's
@@ -100,7 +100,7 @@ export interface PendingSubmit {
   id: string
   text: string
   state: PendingState
-  failedAt?: number // wall clock of the refusal; rendering expires refused rows off it
+  failedAt?: number // wall clock of the refusal, rendering expires refused rows off it
 }
 
 // DroppedQueueRow is one queued prompt a removal cleared, kept briefly so
@@ -126,7 +126,7 @@ export interface DialogOutcome {
 interface ChainInfo {
   ids: string[]
   rooted: boolean // false means older history exists beyond what we hold
-  oldestId: string // '' when empty; paging uses it as its before cursor
+  oldestId: string // '' when empty, paging uses it as its before cursor
 }
 
 // sessionBusy reports whether a session is mid-turn or parked at a spinner:
@@ -139,14 +139,14 @@ export function sessionBusy(s: { running: boolean; spinning?: boolean }): boolea
 export interface AppliedSessionState {
   seq: number // last applied event number, everything at or below is dropped
 
-  snapshot: CtlState // event-driven fields; poll-only ones merge via resnapshot
+  snapshot: CtlState // event-driven fields, poll-only ones merge via resnapshot
   entries: Map<string, Entry> // every entry received so far, by id
   childIndex: Map<string, string[]> // parent id ('' = root) to child ids in arrival order
   chain: ChainInfo
 
   live: LiveTurn | null
   notices: NoticeView[]
-  permitVerdicts: PermitVerdict[] // newest last, bounded; keeps chips past the handoff
+  permitVerdicts: PermitVerdict[] // newest last, bounded, keeps chips past the handoff
   prints: PrintCard[]
   diffs: DiffView[] // newest last, bounded
   pendings: PendingSubmit[]
@@ -154,9 +154,9 @@ export interface AppliedSessionState {
   resolvedElsewhere: DialogOutcome[] // dialogs settled without this viewer's answer
   ownDialogs: Set<number> // dialog ids this client answered; suppresses the outcome card
 
-  exitReason?: string // set once session.exit applies; the run ended, turn state is closed
+  exitReason?: string // set once session.exit applies, run ended and turn state closed
 
-  lastTurnEndAt: number // wall clock of the last applied turn close; drives resnapshot
+  lastTurnEndAt: number // wall clock of the last applied turn close, drives resnapshot
   healTick: number // bumped when a branch change left the chain incomplete
 }
 
@@ -233,7 +233,7 @@ function zeroUsage() {
   return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0 }
 }
 
-// --- payload decoders; malformed payloads drop rather than corrupting state ---
+// --- payload decoders, malformed payloads drop rather than corrupting state ---
 
 // MessageEntryData is a committed 'message' entry's data shape, decoded by
 // the reducer (queueIds) and transcript derivation (role, content, stop,
@@ -279,7 +279,7 @@ export function applierReducer(
       return next
     }
     case 'pendingFailed': {
-      // A refused submit never reached the queue; the draft stays in the composer.
+      // A refused submit never reached the queue, the draft stays in the composer.
       const failed = state.pendings.find((p) => p.id === action.pendingId)
       if (!failed || failed.state !== 'pending') return state
       const next = cloneShallow(state)
@@ -374,7 +374,7 @@ function applyEvent(state: AppliedSessionState, ev: WireEvent): AppliedSessionSt
       if (!isValidId(d?.head)) return next
       next.snapshot = { ...next.snapshot, head: d.head }
       recomputeChain(next)
-      // The visible chain must follow the branch; a head whose ancestors are
+      // The visible chain must follow the branch, a head whose ancestors are
       // missing locally triggers a resync or paged fetch in the channel hook.
       if (!next.chain.rooted) next.healTick += 1
       return next
@@ -548,7 +548,7 @@ function applyEvent(state: AppliedSessionState, ev: WireEvent): AppliedSessionSt
     }
 
     case 'turn.end': {
-      // Running derives from turn.start/turn.end; the spinner reconciles from
+      // Running derives from turn.start/turn.end, the spinner reconciles from
       // snapshots only. Poll-only totals refresh by resnapshotting after this.
       closeTurn(next)
       return next
@@ -566,7 +566,7 @@ function applyEvent(state: AppliedSessionState, ev: WireEvent): AppliedSessionSt
       if (!d?.id) return next
       const existing = next.snapshot.interactions ?? []
       const idx = existing.findIndex((dlg) => dlg.id === d.id)
-      // A re-announcement updates in place; a new dialog joins the oldest-first set.
+      // A re-announcement updates in place, a new dialog joins the oldest-first set.
       const interactions =
         idx >= 0 ? existing.map((dlg, i) => (i === idx ? d : dlg)) : [...existing, d]
       next.snapshot = { ...next.snapshot, interactions }
@@ -784,7 +784,7 @@ function applyToolEvent(next: AppliedSessionState, ev: WireEvent): AppliedSessio
       }
       if (result.error && result.output !== '') {
         // Upstream's recover path emits its fault-location notice immediately
-        // before this result; surface it on the failed card.
+        // before this result, surface it on the failed card.
         const fault = next.notices.findLast(
           (n) => n.level === 'error' && n.text.startsWith(result.output),
         )
@@ -810,7 +810,7 @@ function applyToolEvent(next: AppliedSessionState, ev: WireEvent): AppliedSessio
 // resnapshot is where SeatBadge learns either. The reply's stamp names the
 // watermark the actor had applied when it read: at or above ours, its
 // event-covered fields land wholesale since they fold every event this client
-// has seen; below, events already moved past the read and only those facts
+// has seen, below, events already moved past the read and only those facts
 // merge, so a late response can never empty a dialog, drop the live turn's
 // buffer, or queue rows the stream just announced.
 function applyResnapshot(state: AppliedSessionState, snap: CtlState): AppliedSessionState {
@@ -832,7 +832,7 @@ function applyResnapshot(state: AppliedSessionState, snap: CtlState): AppliedSes
   next.snapshot = {
     ...next.snapshot,
     session: { ...next.snapshot.session, name: snap.session.name },
-    // A drop can lose a turn's end event; the snapshot is where a stuck
+    // A drop can lose a turn's end event, the snapshot is where a stuck
     // spinner finally clears.
     spinning: snap.spinning,
     interactions: snap.interactions ?? [],
@@ -888,7 +888,7 @@ function closeLiveTurn(live: LiveTurn | null): LiveTurn | null {
   if (empty) return null
   return {
     ...live,
-    // the resting state at commit is collapsed unless the user owns the panel;
+    // the resting state at commit is collapsed unless the user owns the panel,
     // the committed block's own default keeps it collapsed after handoff
     thinkingOpen: live.thinkingUserToggled ? live.thinkingOpen : false,
     textOpen: false,
@@ -918,7 +918,7 @@ function insertEntry(state: AppliedSessionState, entry: Entry): boolean {
 }
 
 // A committed message resolves the optimistic rows it landed for via its
-// queueIds; several queued prompts may join into one entry.
+// queueIds, several queued prompts may join into one entry.
 function resolvePendingCommitted(state: AppliedSessionState, entry: Entry) {
   if (state.pendings.length === 0 || entry.type !== 'message') return
   const ids = decode<MessageEntryData>(entry.data)?.queueIds
@@ -961,8 +961,8 @@ function recomputeChain(state: AppliedSessionState): void {
 }
 
 // reconcilePendings resolves optimistic rows against authoritative queue
-// state. Rows named by the queued replacement are queued; rows a drop cleared
-// resolve as dropped; everything else keeps waiting for its committed entry.
+// state. Rows named by the queued replacement are queued, rows a drop cleared
+// resolve as dropped, everything else keeps waiting for its committed entry.
 function reconcilePendings(
   pendings: PendingSubmit[],
   queuedRows: QueueRow[] | undefined,
@@ -982,7 +982,7 @@ function reconcilePendings(
 // drainLiveCoveredBy removes what a committed entry already covers from the
 // live turn buffer, so streamed content hands off to its committed block
 // exactly once instead of rendering twice. Assistant entries carry this
-// step's text and thinking; carrier messages fold results under their calls,
+// step's text and thinking, carrier messages fold results under their calls,
 // which is when the live tool cards retire.
 function drainLiveCoveredBy(state: AppliedSessionState, entry: Entry): void {
   if (!state.live || entry.type !== 'message') return
@@ -995,7 +995,7 @@ function drainLiveCoveredBy(state: AppliedSessionState, entry: Entry): void {
   let changed = false
   if (role === 'assistant') {
     // Reversed so several same-family blocks peel off the painted tail in
-    // content order; forward iteration would only ever match the last one.
+    // content order, forward iteration would only ever match the last one.
     for (let i = blocks.length - 1; i >= 0; i--) {
       const block = blocks[i]
       if (block.type === 'text') {
@@ -1046,13 +1046,13 @@ function drainLiveCoveredBy(state: AppliedSessionState, entry: Entry): void {
 
 // stripSuffix removes one occurrence of covered from the end of painted,
 // where streamed deltas accumulate. A mismatch means the wire showed less
-// than the entry commits; the painted prefix stays and nothing is lost.
+// than the entry commits, so the painted prefix stays and nothing is lost.
 function stripSuffix(painted: string, covered: string): string {
   if (covered === '' || !painted.endsWith(covered)) return painted
   return painted.slice(0, painted.length - covered.length)
 }
 
-// userRanPrefix opens the injected message a staged run's flush commits; it
+// userRanPrefix opens the injected message a staged run's flush commits, it
 // also marks the delivered block that shares the live card's styling.
 export const userRanPrefix = 'User Ran: '
 
@@ -1103,7 +1103,7 @@ function cloneShallow(state: AppliedSessionState): AppliedSessionState {
 }
 
 function ensureLive(state: AppliedSessionState): void {
-  // Deltas and tool events after a lost turn.start still paint; every buffer
+  // Deltas and tool events after a lost turn.start still paint, every buffer
   // mounts expanded, so a mid-turn join streams with the panel open too.
   if (!state.live) {
     state.live = {

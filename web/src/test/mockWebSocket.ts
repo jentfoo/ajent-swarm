@@ -1,4 +1,4 @@
-// Minimal WebSocket stand-in shared by tests; the client only touches
+// Minimal WebSocket stand-in shared by tests, the client only touches
 // send/close plus its event handlers, and close() delivers onclose on a later
 // task like a browser does.
 export class MockWebSocket {

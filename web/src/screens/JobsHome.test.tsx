@@ -277,7 +277,7 @@ describe('JobsHome', () => {
   })
 
   it('badges each job with its newest run in the window', async () => {
-    // the shared run is the 09:00 failure; a later success must win the badge
+    // the shared run is the 09:00 failure, a later success must win the badge
     const older: Run = { ...run, id: 11 }
     const newer: Run = {
       ...run,

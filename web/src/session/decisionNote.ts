@@ -26,7 +26,7 @@ export function isPermitDialog(dialog: InteractionPending): boolean {
 
 // reasonAskDeny tolerantly matches the barrier's follow-up note ask by
 // prompt: "reason for denying" or "note for allowing" today. It reports the
-// ask's flavor; undefined when the prompt is not the note ask at all.
+// ask's flavor, undefined when the prompt is not the note ask at all.
 export function reasonAskDeny(prompt: string): boolean | undefined {
   const p = prompt.toLowerCase()
   if (p.includes(denyAskMarker)) return true
@@ -35,7 +35,7 @@ export function reasonAskDeny(prompt: string): boolean | undefined {
 }
 
 // opensNoteAsk reports whether picking this permit option opens the follow-up
-// ask (Deny and Allow with note do; Allow and session allows do not).
+// ask (Deny and Allow with note do, Allow and session allows do not).
 function noteAskOption(label: string): boolean {
   const l = label.toLowerCase()
   return l.includes(allowNoteOptionMarker) || l.includes(denyOptionMarker)
@@ -53,7 +53,7 @@ function allowNoteOption(label: string): boolean {
   return label.toLowerCase().includes(allowNoteOptionMarker)
 }
 
-// sessionAllowOption reports whether picking remembers for the session; ajent
+// sessionAllowOption reports whether picking remembers for the session, ajent
 // applies that grant without consulting a note.
 function sessionAllowOption(label: string): boolean {
   return label.toLowerCase().includes(sessionOptionMarker)
@@ -123,7 +123,7 @@ type SuppressionAction =
   | { type: 'hide'; ids: number[]; live: ReadonlySet<number> } // auto-answers begin
   | { type: 'reveal'; id: number } // a resolve failed; hand answering takes over
 
-// prune drops ids the session no longer announces; their settled events have
+// prune drops ids the session no longer announces, their settled events have
 // landed, so nothing flash-bound remains to hide. Returns prev when unchanged,
 // so scans that find nothing never re-render the dock.
 function prune(prev: ReadonlySet<number>, live: ReadonlySet<number>): ReadonlySet<number> {
@@ -172,7 +172,7 @@ const noSuppression: ReadonlySet<number> = new Set()
 // recorded at decision time resolves the barrier's follow-up ask on arrival,
 // typed text as the note and empty as a cancel, so the ask never renders here.
 // Suppressed ids name asks being auto-answered, which docks keep off screen
-// until the session stops announcing the dialog; a failed resolve drops the
+// until the session stops announcing the dialog, a failed resolve drops the
 // suppression at once so the ask falls back to hand answering. Without a
 // pending intent the ask renders as today, covering dialogs raised elsewhere.
 export function usePermitNoteAutoAnswer(
@@ -221,7 +221,7 @@ export function usePermitNoteAutoAnswer(
         .resolve(sessionId, body)
         .then(() => answeredRef.current(id)) // our answer: no answered-elsewhere chip
         .catch((err: unknown) => {
-          // settled keeps its benign meaning everywhere; matching the card, the
+          // settled keeps its benign meaning everywhere, matching the card, the
           // lost race still reads as this surface's answer. Any other failure
           // re-renders the ask for hand answering with the intent spent.
           if (err instanceof ApiError && err.code === 'settled') {
@@ -238,7 +238,7 @@ export function usePermitNoteAutoAnswer(
   }, [dialogs, sessionId])
 
   useEffect(() => {
-    // intents never outlive their dock; copies quiet the stale-ref lint
+    // intents never outlive their dock, copies quiet the stale-ref lint
     const intents = intentsRef.current
     const timers = timersRef.current
     const inFlight = inFlightRef.current

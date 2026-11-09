@@ -33,7 +33,7 @@ function Harness(props: HarnessProps): ReactElement {
   )
 }
 
-// Alt+ArrowUp dispatched on the given target; reports whether the hook claimed
+// Alt+ArrowUp dispatched on the given target, reports whether the hook claimed
 // the press.
 function altUp(target: EventTarget = window, modifiers: KeyboardEventInit = {}): boolean {
   const ev = new KeyboardEvent('keydown', {

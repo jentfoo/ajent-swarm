@@ -19,11 +19,11 @@ const (
 	CandidateAssistant  = "assistant"
 	CandidateCompaction = "compaction"
 
-	// candidateLabelMax caps each label so the picker feed stays list-sized;
+	// candidateLabelMax caps each label so the picker feed stays list-sized,
 	// full bodies stay on the entries endpoints.
 	candidateLabelMax = 160
 
-	// rewindTextMax caps one candidate's carried prompt text; past it the
+	// rewindTextMax caps one candidate's carried prompt text, past it the
 	// prefill marks itself truncated rather than shipping megabytes.
 	rewindTextMax = 32 << 10
 )
@@ -40,7 +40,7 @@ type RewindCandidate struct {
 
 	// Tree placement from ajent's own picker walk, so a browser renders the
 	// same context tree the TUI does. Text carries the full prompt of user
-	// rows for rewind-and-edit prefill; Truncated marks where it was cut.
+	// rows for rewind-and-edit prefill, Truncated marks where it was cut.
 	Depth     int    `json:"depth,omitempty"`
 	Guide     string `json:"guide,omitempty"`
 	Active    bool   `json:"active,omitempty"` // on the current head's path
@@ -123,7 +123,7 @@ func rewindCandidates(entries []session.Entry, head string) RewindCandidates {
 			continue
 		}
 
-		picker := strings.TrimSpace(label) // trim the ends; the cap below keeps it list-sized
+		picker := strings.TrimSpace(label) // trim the ends, the cap below keeps it list-sized
 		if runes := []rune(picker); len(runes) > candidateLabelMax {
 			picker = string(runes[:candidateLabelMax-1]) + "…"
 		}

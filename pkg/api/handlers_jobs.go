@@ -15,7 +15,7 @@ import (
 // maxRunLimit caps one history page.
 const maxRunLimit = 1000
 
-// Schedule preview bounds; the editor asks for three slots.
+// Schedule preview bounds, the editor asks for three slots.
 const (
 	defaultPreviewSlots = 3
 	maxPreviewSlots     = 50
@@ -38,7 +38,7 @@ type schedulePreview struct {
 
 // handleJobPreview computes one draft schedule's next fires through the same
 // evaluation code the trigger loop advances jobs with, so clients never
-// duplicate scheduling semantics. Schedule problems answer 400; a workspace
+// duplicate scheduling semantics. Schedule problems answer 400, a workspace
 // check reports in the reply, since an editor fixes one field at a time.
 func (s *apiServer) handleJobPreview(w http.ResponseWriter, r *http.Request) {
 	var req previewRequest
@@ -73,7 +73,7 @@ type jobRequest struct {
 }
 
 // applyEnabled resolves the request's enabled tri-state onto one job: an
-// explicit value wins; otherwise create defaults on and update keeps what the
+// explicit value wins, otherwise create defaults on and update keeps what the
 // stored row already says.
 func (req jobRequest) applyEnabled(dst *store.Job, fallback bool) {
 	switch {
@@ -181,7 +181,7 @@ func (s *apiServer) handleJobGet(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleJobUpdate replaces one job's fields. Schedule edits recompute the
-// next fire; other edits keep it.
+// next fire, other edits keep it.
 func (s *apiServer) handleJobUpdate(w http.ResponseWriter, r *http.Request) {
 	id := pathID(r)
 	current, err := s.sched.JobByID(r.Context(), id)
@@ -209,7 +209,7 @@ func (s *apiServer) handleJobUpdate(w http.ResponseWriter, r *http.Request) {
 			j.NextRunAt = &slot
 		}
 	}
-	// a fired or disabled once row carries no slot; enabling one arms it a
+	// a fired or disabled once row carries no slot, enabling one arms it a
 	// fixed day out instead of refusing, so the list toggle stays one click
 	if j.ScheduleKind == store.ScheduleOnce && j.Enabled && j.NextRunAt == nil {
 		slot := sched.ReArmOnce(time.Now())
@@ -309,7 +309,7 @@ func nextRunFor(j store.Job, enabled bool, recompute bool) (*time.Time, error) {
 	return j.NextRunAt, nil
 }
 
-// handleJobDelete removes one job; its run history survives unlinked.
+// handleJobDelete removes one job, its run history survives unlinked.
 func (s *apiServer) handleJobDelete(w http.ResponseWriter, r *http.Request) {
 	err := s.sched.DeleteJob(r.Context(), pathID(r))
 	if writeJobError(w, err) {
@@ -319,7 +319,7 @@ func (s *apiServer) handleJobDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleJobFire records and launches one manual fire of the job, disabled or
-// not; its schedule is untouched. Execution continues in the background.
+// not, its schedule is untouched. Execution continues in the background.
 func (s *apiServer) handleJobFire(w http.ResponseWriter, r *http.Request) {
 	run, err := s.sched.FireNow(r.Context(), pathID(r))
 	switch {

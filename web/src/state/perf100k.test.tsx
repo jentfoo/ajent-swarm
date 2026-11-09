@@ -9,7 +9,7 @@ import type { Entry } from '../api/types'
 // Phase 12 scale guard: one hundred thousand committed entries flow through
 // the applier in one init, a burst of streamed deltas applies on top, and an
 // older-history prepend re-roots the chain. A pathological slowdown still
-// fails via vitest's per-test timeout; the rendering side stays bounded by
+// fails via vitest's per-test timeout, the rendering side stays bounded by
 // the virtualizer, which the SessionView long-transcript test covers.
 
 // perfChain builds a single-parented chain of count entries, oldest first.
@@ -107,7 +107,7 @@ describe('applier at 100k entries', () => {
       </div>,
     )
 
-    // far fewer blocks paint than the chain holds; the DOM stays finite at
+    // far fewer blocks paint than the chain holds, the DOM stays finite at
     // any transcript depth
     const rendered = document.querySelectorAll('[data-entry-id]').length
     expect(rendered).toBeGreaterThan(0)

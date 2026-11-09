@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// maxTitleRunes bounds one stored display title; labels render in tight rows,
+// maxTitleRunes bounds one stored display title, labels render in tight rows,
 // so a giant one would only be clipped everywhere.
 const maxTitleRunes = 120
 
@@ -36,7 +36,7 @@ func (s *Store) SetSessionTitle(ctx context.Context, sessionID, title string) er
 }
 
 // SessionTitles returns every stored display title keyed by session id. A
-// missing table row simply means no title; the map is empty when none exist.
+// missing table row simply means no title, the map is empty when none exist.
 func (s *Store) SessionTitles(ctx context.Context) (map[string]string, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT session_id, title FROM session_titles`)
 	if err != nil {

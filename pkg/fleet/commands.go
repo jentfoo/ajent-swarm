@@ -9,7 +9,7 @@ import (
 
 // Session commands proxy one browser call onto the session's control socket.
 // Every verb runs on the session actor goroutine through its mailbox, so one
-// command is in flight per session and never inside the event pump; wire
+// command is in flight per session and never inside the event pump, wire
 // refusals surface as *ctl.Error for the API layer to map onto statuses.
 
 type msgSubmit struct {
@@ -210,7 +210,7 @@ func (a *sessionActor) handleModeCycle(msg msgModeCycle) {
 	defer cancel()
 	var mode string
 	var err error
-	if msg.mode != "" { // the dropdown's direct set; cycling stays for chips
+	if msg.mode != "" { // the dropdown's direct set, cycling stays for chips
 		mode, err = a.conn.ModeSet(cctx, msg.mode)
 	} else {
 		mode, err = a.conn.ModeCycle(cctx, msg.back)
@@ -218,7 +218,7 @@ func (a *sessionActor) handleModeCycle(msg msgModeCycle) {
 	msg.reply <- cmdString{value: mode, err: err}
 }
 
-// handleRewind forks onto an earlier transcript entry; candidate rules stay
+// handleRewind forks onto an earlier transcript entry, candidate rules stay
 // upstream's, so a refused head keeps its coded refusal.
 func (a *sessionActor) handleRewind(msg msgRewind) {
 	if !a.ready() {
@@ -235,7 +235,7 @@ func (a *sessionActor) handleRewind(msg msgRewind) {
 	msg.reply <- cmdString{value: head, err: err}
 }
 
-// handleResolve answers one open dialog; resolution runs off the lane
+// handleResolve answers one open dialog, resolution runs off the lane
 // upstream, so its reply follows the first answer that won.
 func (a *sessionActor) handleResolve(msg msgResolve) {
 	if !a.ready() {
@@ -267,7 +267,7 @@ func (a *sessionActor) handleRecall(msg msgRecall) {
 	msg.reply <- cmdRecall{row: row, err: err}
 }
 
-// handleAgentsList reads the session's sub-agent job records; answers any seat.
+// handleAgentsList reads the session's sub-agent job records, answers any seat.
 func (a *sessionActor) handleAgentsList(msg msgAgentsList) {
 	if !a.ready() {
 		msg.reply <- cmdAgents[ctl.AgentsListResult]{err: notReady()}
@@ -307,7 +307,7 @@ func (a *sessionActor) handleSnapshot(msg msgSnapshot) {
 	msg.reply <- snapshotReply{state: StampedState{State: a.view.snapshot(), Seq: a.view.seq}}
 }
 
-// handleModels lists the session's model registry; answers any seat.
+// handleModels lists the session's model registry, answers any seat.
 func (a *sessionActor) handleModels(msg msgSnapshotModels) {
 	if !a.ready() {
 		msg.reply <- cmdModels{err: notReady()}
@@ -319,7 +319,7 @@ func (a *sessionActor) handleModels(msg msgSnapshotModels) {
 	msg.reply <- cmdModels{data: data, err: err}
 }
 
-// handleModelSet switches the session-only model; refuses while unheld.
+// handleModelSet switches the session-only model, refuses while unheld.
 func (a *sessionActor) handleModelSet(msg msgSnapshotModelSet) {
 	if !a.ready() {
 		msg.reply <- cmdString{err: notReady()}
@@ -351,7 +351,7 @@ func (a *sessionActor) handleToolsSet(msg msgSnapshotTools) {
 	msg.reply <- cmdTools{res: res, err: err}
 }
 
-// handleSettings lists the /settings rows; answers any seat.
+// handleSettings lists the /settings rows, answers any seat.
 func (a *sessionActor) handleSettings(msg msgSnapshotSettings) {
 	if !a.ready() {
 		msg.reply <- cmdSettings[ctl.SettingsData]{err: notReady()}
@@ -439,7 +439,7 @@ func (m *Manager) ModeCycle(ctx context.Context, sessionID string, back bool) (s
 }
 
 // ModeSet jumps the permission mode straight to a named level. The returned
-// name is the mode now in effect; refusals carry upstream's message.
+// name is the mode now in effect, refusals carry upstream's message.
 func (m *Manager) ModeSet(ctx context.Context, sessionID string, mode string) (string, error) {
 	return m.modeChange(ctx, sessionID, msgModeCycle{mode: mode})
 }
@@ -476,7 +476,7 @@ func (m *Manager) Rewind(ctx context.Context, sessionID, head string) (string, e
 }
 
 // Resolve answers one pending interaction by id. A dialog that already
-// resolved refuses with the settled code; the first answer won.
+// resolved refuses with the settled code, the first answer won.
 func (m *Manager) Resolve(ctx context.Context, sessionID string, params ctl.ResolveParams) error {
 	a := m.route(sessionID)
 	if a == nil {
@@ -617,7 +617,7 @@ func (m *Manager) AgentsList(ctx context.Context, sessionID string) (ctl.AgentsL
 }
 
 // AgentsStop cancels one sub-agent job by id, or every in-flight job with
-// All. The reply counts the jobs actually cancelled; exactly one of the two
+// All. The reply counts the jobs actually cancelled, exactly one of the two
 // shapes is upstream's rule, so refusals carry its codes.
 func (m *Manager) AgentsStop(ctx context.Context, sessionID string, params ctl.AgentsStopParams) (ctl.AgentsStopResult, error) {
 	a := m.route(sessionID)

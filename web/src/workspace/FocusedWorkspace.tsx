@@ -15,11 +15,11 @@ import { attentionSectionTitles, isActionable } from './attention'
 import type { AttentionItem } from './attention'
 
 // FocusedWorkspace answers "what needs me right now": a ranked rail split
-// in three queues — states wanting a human answer above, idle agents
-// waiting below them, busy sessions last — beside exactly one SessionView.
+// in three queues (states wanting a human answer above, idle agents
+// waiting below them, busy sessions last) beside exactly one SessionView.
 // Rows are tabbable buttons with an inline check-off on actionable ones,
 // matching the j/k shortcuts and mobile's switcher rows. The selected
-// session persists in the layout profile; recently viewed sessions stay
+// session persists in the layout profile, recently viewed sessions stay
 // warm in the store, so swapping rows is instant.
 export default function FocusedWorkspace() {
   const { sessions } = useSwarm()
@@ -88,7 +88,7 @@ export default function FocusedWorkspace() {
   }, [cursor])
 
   // The rail's three queues in display order, titled from the shared model.
-  // Rows badge their own kind, so a queue never encodes state; empty queues
+  // Rows badge their own kind, so a queue never encodes state, empty queues
   // render no section at all.
   const railSections = (
     [
@@ -115,7 +115,7 @@ export default function FocusedWorkspace() {
         data-session-id={item.sessionId}
         onClick={() => open(item.sessionId)}
         onKeyDown={(ev) => {
-          // a tabbable row activates itself like the native button it imitates;
+          // a tabbable row activates itself like the native button it imitates
           // preventDefault stands the global Enter binding down, inner controls
           // keep their own activation
           if (ev.target !== ev.currentTarget) return

@@ -5,14 +5,14 @@ import { describeError } from '../api/errors'
 import { sessions } from '../api/endpoints'
 import type { ResolveAnswer } from '../api/types'
 
-// DialogAnswer is one answer body without its dialog id; the resolve hook owns
+// DialogAnswer is one answer body without its dialog id, the resolve hook owns
 // that, so callers never repeat it per control.
 type DialogAnswer = Omit<ResolveAnswer, 'dialogId'>
 
 interface DialogResolve {
   busy: boolean
   error: string
-  // resolve posts one answer for this dialog; a busy card answers nothing
+  // resolve posts one answer for this dialog, a busy card answers nothing
   resolve: (body: DialogAnswer) => Promise<void>
 }
 

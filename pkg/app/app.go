@@ -25,7 +25,7 @@ type Options struct {
 }
 
 // Run starts the service and returns the process exit code. With Daemon set it
-// spawns a detached copy of argv and waits only for its startup outcome;
+// spawns a detached copy of argv and waits only for its startup outcome,
 // otherwise it serves in the foreground until SIGINT or SIGTERM.
 func Run(opts Options, argv []string, stdout, stderr io.Writer) int {
 	if opts.Daemon && !isDaemonChild() {

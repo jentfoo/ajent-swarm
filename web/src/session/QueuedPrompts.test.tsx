@@ -7,7 +7,7 @@ import type { DroppedQueueRow, PendingSubmit } from '../state/eventApplier'
 import type { QueueRow } from '../api/types'
 
 // The chip list is a pure projection of reconciled queue state: one ordered
-// render under the cap. Every case mounts props directly; no channel involved.
+// render under the cap. Every case mounts props directly, no channel involved.
 
 function rows(...texts: string[]): QueueRow[] {
   return texts.map((text, i) => ({ id: `q${i}`, text }))

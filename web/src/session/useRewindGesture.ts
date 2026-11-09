@@ -7,7 +7,7 @@ import { overlayOpen } from '../ui/overlayStack'
 const rewindWindowMs = 400
 
 export interface UseRewindGestureOptions {
-  // idle gates the gesture to a session at rest; the caller decides whether a
+  // idle gates the gesture to a session at rest, the caller decides whether a
   // running turn, a spinner, a pending dialog or an unreachable stream keeps it
   idle: boolean
   onRewind: () => void
@@ -19,7 +19,7 @@ export interface UseRewindGestureOptions {
 // useRewindGesture binds ajent's idle rewind gesture on a session's viewing
 // surface: two plain Escapes inside the window fire `onRewind`, the picker's
 // opener. The first press stays unclaimed, so every single-Esc meaning keeps
-// working; only the second press is claimed, and only while nothing else owns
+// working, only the second press is claimed, and only while nothing else owns
 // Escape: an open overlay layer keeps it, a claim another listener already
 // made stands, and a not-idle press belongs to the interrupt. Any other key
 // ends the armed window, so a stray press never rewinds later.
@@ -28,12 +28,12 @@ export function useRewindGesture({
   onRewind,
   enabled = true,
 }: UseRewindGestureOptions): void {
-  // the key listener binds once; every decision below reads this mirror
+  // the key listener binds once, every decision below reads this mirror
   const ref = useRef({ idle, onRewind })
   useEffect(() => {
     ref.current = { idle, onRewind }
   })
-  // the clock reading of the first eligible Esc; null while unarmed
+  // the clock reading of the first eligible Esc, null while unarmed
   const armedRef = useRef<number | null>(null)
 
   useEffect(() => {

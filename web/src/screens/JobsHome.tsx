@@ -315,7 +315,7 @@ function EditorWithFacts({
 }) {
   const facts = useJobFacts()
 
-  // The editor suggests model keys through its free-text datalist; browsers
+  // The editor suggests model keys through its free-text datalist, browsers
   // only offer plain options there, so grouping stays in the select pickers.
   return (
     <JobEditor
@@ -408,7 +408,7 @@ function JobExcerpt({ className, excerpt }: { className: string; excerpt: Excerp
   )
 }
 
-// JobToggle is the optimistic enabled switch; JobsHome reverts on refusal.
+// JobToggle is the optimistic enabled switch, JobsHome reverts on refusal.
 function JobToggle({ job, onToggle }: { job: Job; onToggle: () => void }) {
   return (
     <label className="toggle-row">
@@ -461,8 +461,8 @@ function JobTableRow({ job, facts, onToggle, onFire }: JobRowProps) {
 }
 
 // JobCard is the phone presentation: one stacked card per job wearing the
-// switcher rows' touch language — last-run status beside the label, 44px
-// action floors — with labeled lines standing in for the table headers.
+// switcher rows' touch language (last-run status beside the label, 44px
+// action floors) with labeled lines standing in for the table headers.
 function JobCard({ job, facts, onToggle, onFire }: JobRowProps) {
   return (
     <div className="job-card" role="listitem" data-testid={`job-${job.id}`}>

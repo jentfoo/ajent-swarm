@@ -5,16 +5,16 @@ import type { ModelState, SavedSession } from '../api/types'
 import { useSwarm } from '../providers/swarm'
 
 export interface LaunchFacts {
-  // recorded sessions most recently used first; resume pickers and the
+  // recorded sessions most recently used first, resume pickers and the
   // workspace suggestions both read this one listing
   saved: SavedSession[]
-  // one row per distinct model key across live sessions, sorted by key;
+  // one row per distinct model key across live sessions, sorted by key
   // grouped selects render these through ui/ModelSelectOptions
   models: ModelState[]
   // workspaces of every seen session, live discovery before the saved
   // listing's recency order, duplicates dropped keeping first sight
   workspaceOptions: string[]
-  // refreshSaved re-reads the recorded listing in place; pull-to-refresh uses
+  // refreshSaved re-reads the recorded listing in place, pull-to-refresh uses
   // it so a new recording shows without waiting out a remount
   refreshSaved: () => Promise<void>
 }
@@ -22,7 +22,7 @@ export interface LaunchFacts {
 // useLaunchFacts gathers what the launch surfaces suggest from: known
 // workspaces across live and saved sessions, the deduped union of live model
 // registries, and the saved rows resume pickers render. Reads are best
-// effort; a refused one leaves that section empty instead of blocking a form.
+// effort, a refused one leaves that section empty instead of blocking a form.
 export function useLaunchFacts(): LaunchFacts {
   const { sessions } = useSwarm()
   const [saved, setSaved] = useState<SavedSession[]>([])
@@ -38,7 +38,7 @@ export function useLaunchFacts(): LaunchFacts {
         if (savedAliveRef.current) setSaved(rows)
       })
       .catch(() => {
-        // keep the current rows; a refused read retries on the next pull
+        // keep the current rows, a refused read retries on the next pull
       })
   }, [])
 
@@ -54,7 +54,7 @@ export function useLaunchFacts(): LaunchFacts {
     let alive = true
     modelsAPI
       .options()
-      // the server unions every live registry by key; an empty fleet answers null
+      // the server unions every live registry by key, an empty fleet answers null
       .then((rows) => alive && setModels(rows ?? []))
       .catch(() => {})
     return () => {

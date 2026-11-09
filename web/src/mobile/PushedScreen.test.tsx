@@ -8,7 +8,7 @@ import { PushedScreen } from './PushedScreen'
 // through the shared overlay stack, focus returning to the opener, and the
 // platform back gesture (a pop event) closing it like any other layer.
 
-// a consume queued by the previous test's cleanup never navigated in jsdom;
+// a consume queued by the previous test's cleanup never navigated in jsdom
 // drain its pending pop event so it cannot swallow this test's own
 beforeEach(() => {
   window.dispatchEvent(new PopStateEvent('popstate'))

@@ -177,7 +177,7 @@ func ValidLaunchMode(mode string) bool {
 	return slices.Contains(launchModes, LaunchMode(mode))
 }
 
-// ValidPermission reports whether permission is an allowed startup flag; the
+// ValidPermission reports whether permission is an allowed startup flag, the
 // empty string counts as one, meaning no explicit flag.
 func ValidPermission(permission string) bool {
 	return permission == "" || slices.Contains(launchPermissions, permission)
@@ -199,7 +199,7 @@ func shellQuote(arg string) string {
 }
 
 // ChildRecord is the persisted fact set for one tracked ajent process,
-// swarm-spawned or external by Origin. Exit fields stay zero while it runs;
+// swarm-spawned or external by Origin. Exit fields stay zero while it runs,
 // ExitCode is negative when a signal ended it and stays nil for externals,
 // which swarm never reaps.
 type ChildRecord struct {
@@ -218,7 +218,7 @@ type ChildRecord struct {
 	Origin      string // SpawnedBySwarm or SpawnedByExternal
 }
 
-// spawnedBy renders the record's origin for the listing; rows written before
+// spawnedBy renders the record's origin for the listing, rows written before
 // origins existed read as swarm.
 func (rec ChildRecord) spawnedBy() string {
 	if rec.Origin == SpawnedByExternal {
@@ -230,7 +230,7 @@ func (rec ChildRecord) spawnedBy() string {
 // ChildStore persists children across service restarts, so a restart can
 // re-adopt running ones and exited ones keep their exit facts. External
 // sessions persist the same rows with an external origin, so the listing
-// retains them too. DeleteChild removes one row by id; an unknown id is
+// retains them too. DeleteChild removes one row by id, an unknown id is
 // already gone.
 type ChildStore interface {
 	CreateChild(ctx context.Context, rec ChildRecord) (int64, error)

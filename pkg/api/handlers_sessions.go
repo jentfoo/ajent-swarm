@@ -16,7 +16,7 @@ import (
 const maxPendingID = 128
 
 // submitRequest is the POST /submit body. PendingID names the caller's
-// optimistic row; omit it and swarm mints one to echo back.
+// optimistic row, omit it and swarm mints one to echo back.
 type submitRequest struct {
 	Line      string `json:"line"`
 	PendingID string `json:"pendingId,omitempty"`
@@ -47,7 +47,7 @@ type rewindReply struct {
 }
 
 // resolveRequest answers one dialog. Exactly one of Index, Indexes, Text and
-// Cancel may ride; Chat only marks a text answer.
+// Cancel may ride, Chat only marks a text answer.
 type resolveRequest struct {
 	DialogID uint64  `json:"dialogId"`
 	Index    *int    `json:"index,omitempty"`
@@ -96,7 +96,7 @@ func (s *apiServer) handleSessionSubmit(w http.ResponseWriter, r *http.Request) 
 	pendingID := req.PendingID
 	if pendingID == "" {
 		var b [8]byte
-		rand.Read(b[:]) // crypto/rand never fails; nothing sensible to answer anyway
+		rand.Read(b[:]) // crypto/rand never fails, nothing sensible to answer anyway
 		pendingID = hex.EncodeToString(b[:])
 	}
 	err := s.fleet.SubmitTracked(r.Context(), r.PathValue("id"),
@@ -120,7 +120,7 @@ func (s *apiServer) handleSessionInterrupt(w http.ResponseWriter, r *http.Reques
 
 // handleSessionMode steps or sets the permission mode and answers with the
 // mode now in effect. A non-empty body mode jumps straight there, matching the
-// dropdown; an empty body cycles like Shift+Tab.
+// dropdown, an empty body cycles like Shift+Tab.
 func (s *apiServer) handleSessionMode(w http.ResponseWriter, r *http.Request) {
 	var req modeRequest
 	if !readOptionalRequest(w, r, &req) {
@@ -144,7 +144,7 @@ func (s *apiServer) handleSessionMode(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleSessionRewind forks onto an earlier transcript entry. Candidate rules
-// stay with the UI and upstream; a refused head keeps its coded refusal.
+// stay with the UI and upstream, a refused head keeps its coded refusal.
 func (s *apiServer) handleSessionRewind(w http.ResponseWriter, r *http.Request) {
 	var req rewindRequest
 	if !readRequest(w, r, &req) {
@@ -214,7 +214,7 @@ func (req resolveRequest) params() (ctl.ResolveParams, bool) {
 }
 
 // handleSessionRecall pops the newest queued prompt by row id for
-// edit-and-resubmit; no single-row delete verb exists upstream. An empty
+// edit-and-resubmit, no single-row delete verb exists upstream. An empty
 // result means nothing was queued.
 func (s *apiServer) handleSessionRecall(w http.ResponseWriter, r *http.Request) {
 	row, err := s.fleet.Recall(r.Context(), r.PathValue("id"))
@@ -244,7 +244,7 @@ func (s *apiServer) handleSessionAgents(w http.ResponseWriter, r *http.Request) 
 }
 
 // agentsStopRequest names one job by id, or every in-flight job with all.
-// Exactly-one is upstream's rule; the route forwards the shape unmunged.
+// Exactly-one is upstream's rule, the route forwards the shape unmunged.
 type agentsStopRequest struct {
 	ID  string `json:"id,omitempty"`
 	All bool   `json:"all,omitempty"`
@@ -319,7 +319,7 @@ type filesReply struct {
 }
 
 // handleSessionFiles completes @ file paths against the session's working
-// directory; an unreadable target answers empty rather than failing.
+// directory, an unreadable target answers empty rather than failing.
 func (s *apiServer) handleSessionFiles(w http.ResponseWriter, r *http.Request) {
 	items, err := s.fleet.Files(r.Context(), r.PathValue("id"), r.URL.Query().Get("query"))
 	if err != nil {
@@ -330,7 +330,7 @@ func (s *apiServer) handleSessionFiles(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleAttention serves the per-live-session digest behind the focus rail
-// and notification badges; no session stream is subscribed anywhere.
+// and notification badges, no session stream is subscribed anywhere.
 func (s *apiServer) handleAttention(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, orEmptySlice(s.fleet.Attention()))
 }

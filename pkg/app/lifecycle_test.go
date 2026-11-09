@@ -82,7 +82,7 @@ func TestLifecycle(t *testing.T) {
 	})
 
 	t.Run("stop_stale_pidfile", func(t *testing.T) {
-		// a pid very unlikely to exist; raised past any wrapped pid until free
+		// a pid very unlikely to exist, raised past any wrapped pid until free
 		pid := (1 << 22) + 424242
 		for i := 0; i < 1000 && (pidAlive(pid) || pid == os.Getpid()); i++ {
 			pid++

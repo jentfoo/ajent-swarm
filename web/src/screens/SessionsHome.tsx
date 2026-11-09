@@ -20,14 +20,14 @@ import { ModelSelect, WorkspaceSelect } from '../ui/LaunchFormFields'
 
 // SessionsHome is the live instance grid: state, workspace and seat badges
 // beside quick actions per session, with a compact launch panel. Checkboxes
-// multi-select sessions for tiling; an exited card stays listed with one-click
+// multi-select sessions for tiling, an exited card stays listed with one-click
 // resume and every live card keeps its explicit stop.
 export default function SessionsHome() {
   const { sessions } = useSwarm()
   const auth = useAuth()
   const home = auth.home
   const [launching, setLaunching] = useState(false)
-  // selection is by row key; Open workspace tiles them directly
+  // selection is by row key, Open workspace tiles them directly
   const [selected, setSelected] = useState<string[]>([])
   const navigate = useNavigate()
 
@@ -47,7 +47,7 @@ export default function SessionsHome() {
   }, [])
 
   // With a selection the workspace opens tile mode seeded with exactly those
-  // sessions; without one it lands in the focused workspace as usual. Twin
+  // sessions, without one it lands in the focused workspace as usual. Twin
   // rows repeat their session id so both tile.
   const openWorkspace = () => {
     if (selected.length > 0) {
@@ -217,7 +217,7 @@ function ActionsBar({ status: s }: { status: SessionStatus }) {
 // StopButton is the explicit exit control on every live card, armed before
 // it fires: the first click asks "Stop?", a second within the window stops.
 // The stop endpoint escalates on its own: /exit first, then SIGTERM and
-// SIGKILL for swarm children; external sessions end through /exit alone.
+// SIGKILL for swarm children, external sessions end through /exit alone.
 function StopButton({ sessionId }: { sessionId: string }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -281,7 +281,7 @@ function LaunchPanel({ home }: { home?: string }) {
   const { saved, models, workspaceOptions } = useLaunchFacts()
   const form = useLaunchForm()
 
-  // No mode picker: empty target launches new; a saved-session id resumes it;
+  // No mode picker: empty target launches new, a saved-session id resumes it
   // anything else is a create-or-resume session name.
   const [target, setTarget] = useState('')
   const launchTarget = useCallback((): LaunchTarget => {

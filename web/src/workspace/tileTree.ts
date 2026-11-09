@@ -5,7 +5,7 @@
 // profile can compare cheaply and persistence stays a JSON round trip.
 //
 // Ended sessions stay as tabs until closed, so layouts never shift underneath
-// the user; nothing here ever touches the live-session list.
+// the user, nothing here ever touches the live-session list.
 
 export type SplitDirection = 'row' | 'column' // row: children side by side
 export interface TilePane {
@@ -85,7 +85,7 @@ export function activateTab(tree: TileNode, paneId: string, sessionId: string): 
   )
 }
 
-// closeTab removes one session's tab; the pane closes when it empties and its
+// closeTab removes one session's tab, the pane closes when it empties and its
 // sibling takes the split's place. The active tab falls to a neighbor.
 export function closeTab(tree: TileNode, paneId: string, sessionId: string): TileNode | null {
   const pane = findPane(tree, paneId)
@@ -98,7 +98,7 @@ export function closeTab(tree: TileNode, paneId: string, sessionId: string): Til
   return replacePane(tree, paneId, { ...pane, tabs: next, active })
 }
 
-// removePane drops a whole pane; removing the last one empties the tree.
+// removePane drops a whole pane, removing the last one empties the tree.
 export function removePane(tree: TileNode, paneId: string): TileNode | null {
   if (tree.kind === 'pane') return tree.id === paneId ? null : tree
   const a = removePane(tree.a, paneId)
@@ -148,7 +148,7 @@ export function moveTab(
   if (fromPane === toPane) {
     const from = source.tabs.indexOf(sessionId)
     // The id is removed before splicing, so a forward target shifts down one
-    // slot to stay where the drop-before indicator sat; strip drops append.
+    // slot to stay where the drop-before indicator sat, strip drops append.
     let to: number
     if (toIndex >= target.tabs.length) {
       to = target.tabs.length - 1
@@ -195,7 +195,7 @@ const tileRowCap = 3
 
 // tileFor lays one pane per session id out as a balanced grid of equal panes:
 // rows hold at most three, wrapping over as few rows as possible with larger
-// rows first (5 → 3+2; 7 → 3+2+2), joined by column splits. Reading order is
+// rows first (5 → 3+2, 7 → 3+2+2), joined by column splits. Reading order is
 // left-to-right then top-down. ids must be non-empty.
 export function tileFor(ids: string[]): TileNode {
   if (ids.length === 0) throw new Error('tileFor requires at least one session id')

@@ -41,7 +41,7 @@ const composerBindings: [string, string][] = [
   ['Alt+↑', 'recall the newest queued prompt for editing'],
 ]
 
-// BindingTable renders one shortcut list; the overlay shows the mode's own
+// BindingTable renders one shortcut list, the overlay shows the mode's own
 // bindings, then the composer and dialog affordances both modes share.
 function BindingTable({ bindings }: { bindings: [string, string][] }) {
   return (
@@ -58,7 +58,7 @@ function BindingTable({ bindings }: { bindings: [string, string][] }) {
   )
 }
 
-// ShortcutOverlay is the one keyboard map shared by both workspace modes; ?
+// ShortcutOverlay is the one keyboard map shared by both workspace modes, ?
 // toggles it while Escape and clicks outside close it through ModalShell,
 // which also holds the workspace's own bindings down while it shows. The ?
 // press rides the shell's listener, so it answers only while this overlay is

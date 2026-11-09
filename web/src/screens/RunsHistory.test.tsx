@@ -106,7 +106,7 @@ describe('RunsHistory', () => {
   beforeEach(() => {
     localStorage.clear()
     runsReply = runs
-    // a consume queued by the previous test's cleanup never navigated in jsdom;
+    // a consume queued by the previous test's cleanup never navigated in jsdom
     // drain its pending pop event so it cannot swallow this test's own
     window.dispatchEvent(new PopStateEvent('popstate'))
     window.dispatchEvent(new PopStateEvent('popstate'))
@@ -411,7 +411,7 @@ describe('RunsHistory', () => {
     expect(screen.getByRole('dialog', { name: 'Run 12' })).toBeInTheDocument()
 
     // closing through the modal itself steps back over its entry, so a later
-    // platform back never replays this close; mocked inert because jsdom
+    // platform back never replays this close, mocked inert because jsdom
     // delivers the traversal as a task
     await user.keyboard('{Escape}')
     expect(screen.queryByRole('dialog', { name: 'Run 12' })).not.toBeInTheDocument()
@@ -421,7 +421,7 @@ describe('RunsHistory', () => {
 
   it('commits only the newest load', async () => {
     const signals: Array<AbortSignal | null | undefined> = []
-    // /api/runs replies park until released; this mock ignores abort, so a
+    // /api/runs replies park until released, this mock ignores abort, so a
     // superseded reply can still land late, which is what the commit guard
     // must reject.
     const parked: Array<{ job: string | null; resolve: (r: Response) => void }> = []
@@ -465,7 +465,7 @@ describe('RunsHistory', () => {
     expect(signals).toHaveLength(3)
     expect(signals[1]?.aborted).toBe(true)
 
-    // the newest reply lands first and commits; the stale all-jobs reply that
+    // the newest reply lands first and commits, the stale all-jobs reply that
     // follows must not repaint another job's rows under the narrowed select
     parked[2].resolve(Response.json([runs[1]]))
     await screen.findByTestId('run-12')

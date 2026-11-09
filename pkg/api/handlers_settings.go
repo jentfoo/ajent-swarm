@@ -15,7 +15,7 @@ type settingsReply struct {
 	TitleModel string `json:"titleModel"`
 }
 
-// settingsRequest carries one PUT body; fields omitted stay untouched.
+// settingsRequest carries one PUT body, fields omitted stay untouched.
 type settingsRequest struct {
 	TitleModel *string `json:"titleModel"`
 }

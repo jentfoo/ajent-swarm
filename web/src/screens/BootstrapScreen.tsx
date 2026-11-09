@@ -4,7 +4,7 @@ import type { FormEvent } from 'react'
 import { describeError } from '../api/errors'
 import { useAuth } from '../providers/auth'
 
-// bcrypt's hard input limit; the server rejects anything past it. Measured in
+// bcrypt's hard input limit, the server rejects anything past it. Measured in
 // bytes, so multibyte characters count heavier than they look.
 const maxPasswordBytes = 72
 

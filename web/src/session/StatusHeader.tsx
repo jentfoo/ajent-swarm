@@ -17,7 +17,7 @@ import { AgentSettingsMenu } from './AgentSettingsMenu'
 import { StatusBadge } from './StatusBadge'
 import { ToolsPanel } from './ToolsPanel'
 
-// The permission gate's fixed upstream vocabulary; mode.set refuses anything
+// The permission gate's fixed upstream vocabulary, mode.set refuses anything
 // else. Order matches ajent's own cycle so the menu reads as a progression.
 const permissionModes = ['allow-read', 'auto', 'auto+write', 'allow-all', 'block-all']
 
@@ -25,7 +25,7 @@ const permissionModes = ['allow-read', 'auto', 'auto+write', 'allow-all', 'block
 // listing label beside the short session id), the shared status badge and
 // action buttons. Everything that reads at a glance (segments, context,
 // queue, activity) lives in the status bar under the transcript. A running
-// turn stops from the composer's Stop button; sessions exit from the
+// turn stops from the composer's Stop button, sessions exit from the
 // sessions tab, so this header never tears one down. The ☰ here carries this
 // session's agent settings.
 export function StatusHeader({
@@ -67,7 +67,7 @@ export function StatusHeader({
 // ModeMenu picks the permission level straight from the fixed upstream
 // vocabulary through mode.set. A session without a gate hides the menu.
 // Coarse pointers bind the open menu to history, so platform back closes it
-// instead of leaving the session; fine pointers keep MenuPopover alone, where
+// instead of leaving the session, fine pointers keep MenuPopover alone, where
 // browser back belongs to navigation.
 export function ModeMenu({
   sessionId,

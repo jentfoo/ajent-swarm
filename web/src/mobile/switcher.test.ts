@@ -125,7 +125,7 @@ describe('buildSwitcherRows', () => {
     expect(rows[1]!.status).toBe('idle')
     expect(rows[2]!.status).toBe('waiting')
 
-    // waiting rows offer no check-off; actionable ones do
+    // waiting rows offer no check-off, actionable ones do
     expect(rows[0]!.checkOff).toBe(true)
     expect(rows[1]!.checkOff).toBe(true)
     expect(rows[2]!.checkOff).toBe(false)
@@ -203,7 +203,7 @@ describe('buildSwitcherRows', () => {
       ),
     ]
     const rows = buildSwitcherRows(exited, labelFor)
-    // five recent exits stay whole; the pinned minimum covers the older pair
+    // five recent exits stay whole, the pinned minimum covers the older pair
     const ended = rows.filter((r) => r.section === 'ended')
     expect(ended.map((r) => r.sessionId)).toEqual(['r4', 'r3', 'r2', 'r1', 'r0'])
   })

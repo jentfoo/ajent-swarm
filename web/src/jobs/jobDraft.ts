@@ -1,5 +1,5 @@
 // The editor's draft model. Validation mirrors pkg/sched.ValidateJob so
-// obvious mistakes surface before a save round trip; the server re-checks
+// obvious mistakes surface before a save round trip, the server re-checks
 // everything on save and its errors stay authoritative.
 
 import type {
@@ -103,7 +103,7 @@ export function defaultDraft(): JobDraft {
   }
 }
 
-// draftFromJob seeds the editor from a stored row; the interval resolves to
+// draftFromJob seeds the editor from a stored row, the interval resolves to
 // the whole-count unit splitInterval picked when it was saved.
 export function draftFromJob(job: Job): JobDraft {
   const interval = splitInterval(job.intervalSeconds)
@@ -145,7 +145,7 @@ export function duplicateDraft(job: Job): JobDraft {
   const draft = draftFromJob(job)
   if (job.scheduleKind === 'once') draft.onceAt = ''
   // encodeInto stops on a code-point boundary, so the clip mirrors the
-  // server's UTF-8 byte bound; lone surrogates read back as U+FFFD.
+  // server's UTF-8 byte bound, lone surrogates read back as U+FFFD.
   const buf = new Uint8Array(maxNameLen)
   const { written } = textEncoder.encodeInto(`Copy of ${draft.name}`, buf)
   draft.name = textDecoder.decode(buf.subarray(0, written))
@@ -154,7 +154,7 @@ export function duplicateDraft(job: Job): JobDraft {
 }
 
 // parseToolList reads the stored comma list onto names, dropping empties and
-// duplicates so a hand-edited row still opens; order follows the stored tokens.
+// duplicates so a hand-edited row still opens, order follows the stored tokens.
 function parseToolList(raw: string | undefined): string[] {
   if (!raw) return []
   return [
@@ -168,7 +168,7 @@ function parseToolList(raw: string | undefined): string[] {
 }
 
 // toPayload builds the request body a save or preview sends. Recurring jobs
-// never send nextRunAt, so an update recomputes their slot; editing rides
+// never send nextRunAt, so an update recomputes their slot, editing rides
 // createdAt along for previews to anchor interval slots exactly as the saved
 // row will.
 export function toPayload(draft: JobDraft, id?: number): Partial<Job> {
@@ -181,7 +181,7 @@ export function toPayload(draft: JobDraft, id?: number): Partial<Job> {
     model: draft.model.trim(),
     permission: draft.permission,
     toolsCustom: draft.customTools,
-    // the server clears the stored list when custom is off; sending the empty
+    // the server clears the stored list when custom is off, sending the empty
     // string keeps every client's payload describing the same row
     tools: draft.customTools ? draft.tools.join(',') : '',
     commandPrefix: draft.commandPrefix,
@@ -222,7 +222,7 @@ export function toPayload(draft: JobDraft, id?: number): Partial<Job> {
 }
 
 // validateDraft returns one message per offending field, mirroring the
-// backend's rules; an empty result means the save may proceed.
+// backend's rules, an empty result means the save may proceed.
 export function validateDraft(draft: JobDraft): DraftErrors {
   const errors: DraftErrors = {}
 
@@ -275,7 +275,7 @@ export function validateDraft(draft: JobDraft): DraftErrors {
 }
 
 // validSessionName mirrors ajent's session.ValidateName charset: letters,
-// digits, dash, underscore, dot and slash; no leading dash; bounded length.
+// digits, dash, underscore, dot and slash, no leading dash, bounded length.
 export function validSessionName(name: string): boolean {
   if (name === '' || byteLength(name) > maxSessionNameLen || name.startsWith('-')) return false
   for (const r of name) {
@@ -312,7 +312,7 @@ export function localInputToDate(value: string): Date | undefined {
 }
 
 // toLocalInput renders an ISO timestamp as the datetime-local input's format
-// in the viewer's own zone; a missing slot stays empty.
+// in the viewer's own zone, a missing slot stays empty.
 function toLocalInput(iso: string | null | undefined): string {
   if (!iso) return ''
   const d = new Date(iso)

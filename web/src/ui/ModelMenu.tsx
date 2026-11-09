@@ -11,7 +11,7 @@ import { useModelMenu } from './useModelMenu'
 // ModelMenu is the model chip both chat headers render, over the shared
 // useModelMenu controller with ModelMenuItems as the body. The pointer class
 // picks OverlayMenu against MenuPopover exactly like ModeMenu on the same
-// screen; the touch branch keeps the span wrapper the mobile header's
+// screen, the touch branch keeps the span wrapper the mobile header's
 // yielding rules target.
 export function ModelMenu({
   sessionId,

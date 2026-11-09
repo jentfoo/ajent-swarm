@@ -1,7 +1,7 @@
 import type { ModelState } from '../api/types'
 
 // providerGroups buckets the registry under each key's prefix before its
-// first slash, in first-appearance order; keys with no usable prefix come
+// first slash, in first-appearance order, keys with no usable prefix come
 // back loose.
 export function providerGroups(models: ModelState[]): {
   groups: { provider: string; models: ModelState[] }[]

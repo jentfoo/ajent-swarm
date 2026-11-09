@@ -9,7 +9,7 @@ import { agentJobStatusClass, cardSubAgentRow, formatElapsed, stoppableJob } fro
 import type { AgentJobs } from './useAgentJobs'
 
 // ToolCardView is what a card renders: a committed call's info or the live
-// shape with its streamed outputs. Live output appends while running; once
+// shape with its streamed outputs. Live output appends while running, once
 // deltas painted the body, result.output adds nothing.
 interface ToolCardView {
   id: string
@@ -36,7 +36,7 @@ export function ToolCallCard({
 }: {
   call: ToolCardView
   // Live sub-agent rows (sub-N keys): an agent_poll card renders the one job
-  // it waits on until its result lands; every other call renders none.
+  // it waits on until its result lands, every other call renders none.
   agents?: ActivityRow[]
   // The pull listing behind the job surfaces: per-job status and elapsed
   // plus the stop control on the poll card's own row. Absent (committed
@@ -45,7 +45,7 @@ export function ToolCallCard({
 }) {
   const ownJob = cardSubAgentRow(call, agents ?? [])
   const streamed = (call.outputs ?? []).join('')
-  // Deltas already painted the body when present; the committed result only
+  // Deltas already painted the body when present, the committed result only
   // fills a card whose stream nobody rendered. A failed card prefers the
   // upstream fault-location notice over its bare output prefix.
   const images = call.result?.images ?? []
@@ -56,7 +56,7 @@ export function ToolCallCard({
   const closed = call.closed === true && call.result === undefined
   const done = call.result !== undefined || closed
   // a staged run paints whole while streaming and collapses once done, until
-  // the user owns the toggle; other cards stay manual-only
+  // the user owns the toggle, other cards stay manual-only
   const streaming = call.shell === true && !done
   const [userOpen, setUserOpen] = useState<boolean | null>(null)
   const open = userOpen ?? streaming

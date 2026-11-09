@@ -1,7 +1,7 @@
 // LineKind mirrors ajent's classification of a submitted line (ParseLine in
 // ajent/pkg/command): prompt, /command dispatch, a !shell run staged onto
 // context, or a !! run excluded from context entirely. Ajent's dispatch stays
-// authoritative; this only drives the composer's shell-mode affordances.
+// authoritative, this only drives the composer's shell-mode affordances.
 export type LineKind = 'prompt' | 'command' | 'shell' | 'shell-excluded'
 
 // classifyLine sorts one line the way ajent will: `!!x` runs excluded from

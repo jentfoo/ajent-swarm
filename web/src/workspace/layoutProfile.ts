@@ -1,6 +1,6 @@
 // The layout profile: which workspace mode the browser is in plus each mode's
 // own state, persisted per browser in localStorage. Switching modes preserves
-// each one's layout independently; corrupt storage reads as the default.
+// each one's layout independently, corrupt storage reads as the default.
 import { useCallback, useState } from 'react'
 
 import { parseTree } from './tileTree'

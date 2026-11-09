@@ -31,7 +31,7 @@ export function CodeBlock({ code, lang }: { code: string; lang?: string }) {
       <CopyButton text={code} className="fence-copy" />
       <pre className="fence" data-lang={lang}>
         {html !== '' ? (
-          // shiki output is generated markup with the code escaped inside; no
+          // shiki output is generated markup with the code escaped inside, no
           // model-authored HTML crosses this boundary
           <div dangerouslySetInnerHTML={{ __html: html }} />
         ) : (

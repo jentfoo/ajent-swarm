@@ -53,13 +53,13 @@ function deferredUpload() {
   return { fetchSpy, reply: (res: Response) => resolve(res) }
 }
 
-// component swaps the module under test; the coarse-pointer cases re-import
+// component swaps the module under test, the coarse-pointer cases re-import
 // Composer with matchMedia stubbed, since the flag reads once at import.
 type HarnessOverrides = Partial<ComposerProps> & { component?: typeof Composer }
 
 // A controlled harness: SessionView owns the draft in production, so the test
 // mirrors that by feeding onChange back into value. A wired recall's accept
-// returns the draft it produced; the harness applies it through the same
+// returns the draft it produced, the harness applies it through the same
 // write, mirroring the hosts' setDraft side effect. Recall defaults to an
 // empty source under the real prepend rule.
 function Harness(overrides: HarnessOverrides = {}) {
@@ -127,7 +127,7 @@ describe('Composer @-completion', () => {
     expect(menu).toBeInTheDocument()
     await user.tab()
 
-    // the token became the completed path; files end with a space
+    // the token became the completed path, files end with a space
     expect((box as HTMLTextAreaElement).value).toBe('look at @src/main.go ')
   })
 
@@ -488,7 +488,7 @@ describe('Composer slash command menu', () => {
 
     await user.type(screen.getByLabelText('Prompt'), '/mod{ArrowDown}{Enter}')
 
-    // slash lines paint no optimistic row; the accepted command rides the wire
+    // slash lines paint no optimistic row, the accepted command rides the wire
     expect(onSubmit).not.toHaveBeenCalled()
     expect(bodies[0]).toMatchObject({ line: '/model' })
     await waitFor(() => expect(screen.getByLabelText('Prompt')).toHaveValue(''))
@@ -702,7 +702,7 @@ describe('Composer Ctrl+J newline', () => {
     await screen.findByRole('listbox', { name: 'Path suggestions' })
     await user.keyboard('{Control>}j{/Control}')
 
-    // the completion owns the keyboard; no newline slipped under it
+    // the completion owns the keyboard, no newline slipped under it
     expect(screen.getByRole('listbox', { name: 'Path suggestions' })).toBeInTheDocument()
     expect(box.value).toBe('look at @ma')
   })
@@ -867,7 +867,7 @@ describe('Composer kill and yank keys', () => {
     await screen.findByRole('listbox', { name: 'Path suggestions' })
     await user.keyboard('{Control>}k{/Control}')
 
-    // the menu owns the keyboard; nothing died under it
+    // the menu owns the keyboard, nothing died under it
     expect(screen.getByRole('listbox', { name: 'Path suggestions' })).toBeInTheDocument()
     expect(box.value).toBe('look at @ma')
 
@@ -921,7 +921,7 @@ describe('Composer kill and yank keys', () => {
     await user.type(box, 'abc')
     box.setSelectionRange(0, 0)
 
-    // Ctrl+U opens view source when it reaches the browser; an empty kill
+    // Ctrl+U opens view source when it reaches the browser, an empty kill
     // must still claim the press
     const press = createEvent.keyDown(box, { key: 'u', ctrlKey: true })
     fireEvent(box, press)
@@ -964,7 +964,7 @@ describe('Composer kill and yank keys', () => {
 })
 
 describe('Composer touch keyboard', () => {
-  // Touch cases run on coarseComposer's re-import; every other test in this
+  // Touch cases run on coarseComposer's re-import, every other test in this
   // file runs on the fine-pointer default the test setup ships.
   afterEach(() => {
     vi.unstubAllGlobals()
@@ -1186,7 +1186,7 @@ describe('Composer submit flow', () => {
     // a client-minted correlation rides every submit
     expect(String(onSubmit.mock.calls[0]![1]).length).toBeGreaterThan(8)
     await waitFor(() => expect(bodies[0]).toMatchObject({ line: 'fix the bug' }))
-    // acceptance clears; until then the draft stays exactly as typed
+    // acceptance clears, until then the draft stays exactly as typed
     await waitFor(() => expect(screen.getByLabelText('Prompt')).toHaveValue(''))
   })
 
@@ -1529,7 +1529,7 @@ describe('Composer attachments', () => {
     const file = new File(['const one = 1\n'], 'notes.txt', { type: 'text/plain' })
     await user.upload(screen.getByTestId('attach-input'), file)
 
-    // no upload call happened; the body landed in the draft fenced
+    // no upload call happened, the body landed in the draft fenced
     await waitFor(() => {
       expect(onChange).toHaveBeenCalled()
       const draft = String(onChange.mock.calls[0]![0])
@@ -1575,7 +1575,7 @@ describe('Composer attachments', () => {
     const file = new File(['png-bytes'], 'shot.png', { type: 'image/png' })
     await user.upload(screen.getByTestId('attach-input'), file)
 
-    // only the paperclip disables; the draft keeps taking keystrokes while
+    // only the paperclip disables, the draft keeps taking keystrokes while
     // the upload holds
     expect(screen.getByRole('button', { name: 'Attach files' })).toBeDisabled()
     await user.type(box, ' while it uploads')
@@ -1617,7 +1617,7 @@ describe('Composer image paste', () => {
     vi.unstubAllGlobals()
   })
 
-  // pasted fakes the clipboardData a real paste carries; jsdom implements no
+  // pasted fakes the clipboardData a real paste carries, jsdom implements no
   // default paste, so only handler behavior is observable here.
   function pasted(target: HTMLElement, files: File[], text = '') {
     fireEvent.paste(target, { clipboardData: { getData: () => text, files } })
@@ -1653,7 +1653,7 @@ describe('Composer image paste', () => {
     const onChange = vi.fn()
     render(Harness({ value: '', onChange }))
 
-    // some apps ship a rendered thumbnail beside formatted text; the note
+    // some apps ship a rendered thumbnail beside formatted text, the note
     // wins, so nothing uploads and this handler never touches the draft
     pasted(
       screen.getByLabelText('Prompt'),
@@ -1895,7 +1895,7 @@ describe('Composer history search', () => {
     await user.keyboard('{Control>}r{/Control}')
     await user.keyboard('retryy')
 
-    // 'retryy' matched nothing; one backspace trims the trailing y and both
+    // 'retryy' matched nothing, one backspace trims the trailing y and both
     // hits come back
     expect(screen.queryAllByRole('option')).toHaveLength(0)
     await user.keyboard('{Backspace}')
@@ -2076,7 +2076,7 @@ describe('Composer autosize cap', () => {
 
     const box = screen.getByLabelText('Prompt') as HTMLTextAreaElement
     // jsdom computes inline styles back out, so an inline px line-height stands
-    // in for the stylesheet; a stubbed scrollHeight plays overflow
+    // in for the stylesheet, a stubbed scrollHeight plays overflow
     box.style.lineHeight = '30px'
     Object.defineProperty(box, 'scrollHeight', { configurable: true, value: 9999 })
 

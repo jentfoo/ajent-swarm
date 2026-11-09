@@ -24,7 +24,7 @@ export async function coarseImport<T>(load: () => Promise<T>): Promise<T> {
 }
 
 // stubPhoneLayout reports only the shared 48rem breakpoint as matching, so
-// breakpoint-switched screens mount their card presentation; everything else
+// breakpoint-switched screens mount their card presentation, everything else
 // stays desktop.
 export function stubPhoneLayout(): void {
   vi.stubGlobal('matchMedia', (query: string) => ({

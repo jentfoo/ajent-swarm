@@ -183,10 +183,7 @@ func (v *view) apply(ev ctl.Event) {
 		if err := ev.Decode(&d); err != nil || len(d.Rows) == 0 {
 			return
 		}
-		dropped := make(map[string]struct{}, len(d.Rows))
-		for _, row := range d.Rows {
-			dropped[row.ID] = struct{}{}
-		}
+		dropped := bulk.SliceToSetBy(func(row ctl.QueueRow) string { return row.ID }, d.Rows)
 		v.queuedRows = slices.DeleteFunc(v.queuedRows, func(row ctl.QueueRow) bool {
 			_, hit := dropped[row.ID]
 			return hit

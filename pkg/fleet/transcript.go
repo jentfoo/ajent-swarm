@@ -54,10 +54,8 @@ func (m *Manager) SavedSessions() ([]SavedSession, error) {
 		return nil, err
 	}
 	m.mu.Lock()
-	live := make(map[string]struct{}, len(m.actors))
-	for key := range m.actors {
-		live[key.sessionID] = struct{}{}
-	}
+	live := bulk.SliceToSetBy(func(key actorKey) string { return key.sessionID },
+		bulk.MapKeysSlice(m.actors))
 	m.mu.Unlock()
 	out := make([]SavedSession, 0, len(rows))
 	for _, row := range rows {

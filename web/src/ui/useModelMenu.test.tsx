@@ -2,11 +2,13 @@ import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { ModelMenuItems } from './ModelMenuItems'
 import { useModelMenu } from './useModelMenu'
 
 // The model registry controller both chat headers share: one fetch per open,
 // model.set picks, and toasts on refusals. Hosts key on sessionId, so a swap
-// remounts and session hygiene lives there, not in the hook.
+// remounts and session hygiene lives there, not in the hook. The open body is
+// the real ModelMenuItems, so the filter's remount lifecycle lands here too.
 
 function MenuProbe({
   sessionId,
@@ -32,9 +34,14 @@ function MenuProbe({
       <button type="button" onClick={() => void menu.pick('other/model')}>
         pick
       </button>
-      {menu.models.map((m) => (
-        <span key={m.key} data-testid={`row-${m.key}`} />
-      ))}
+      {menu.open && (
+        <ModelMenuItems
+          models={menu.models}
+          active={menu.active}
+          currentKey=""
+          onPick={(key) => void menu.pick(key)}
+        />
+      )}
     </div>
   )
 }
@@ -65,7 +72,7 @@ describe('useModelMenu', () => {
 
     // open: one fetch, then the menu opens with the reply's active key
     await user.click(screen.getByRole('button', { name: 'toggle' }))
-    expect(await screen.findByTestId('row-a/m')).toBeInTheDocument()
+    expect(await screen.findByRole('menuitem', { name: /^m/ })).toBeInTheDocument()
     expect(screen.getByTestId('open')).toHaveTextContent('true')
     expect(screen.getByTestId('active')).toHaveTextContent('a/m')
     expect(vi.mocked(fetch).mock.calls.filter(([u]) => String(u).endsWith('/models'))).toHaveLength(
@@ -83,7 +90,7 @@ describe('useModelMenu', () => {
     await user.click(screen.getByRole('button', { name: 'toggle' }))
     expect(screen.getByTestId('open')).toHaveTextContent('false')
     await user.click(screen.getByRole('button', { name: 'toggle' }))
-    await screen.findByTestId('row-a/m')
+    await screen.findByRole('menuitem', { name: /^m/ })
     expect(vi.mocked(fetch).mock.calls.filter(([u]) => String(u).endsWith('/models'))).toHaveLength(
       2,
     )
@@ -100,7 +107,7 @@ describe('useModelMenu', () => {
     render(<MenuProbe sessionId="01S" fallbackKey="snap/key" onToast={() => {}} />)
 
     await user.click(screen.getByRole('button', { name: 'toggle' }))
-    expect(await screen.findByTestId('row-a/m')).toBeInTheDocument()
+    expect(await screen.findByRole('menuitem', { name: /^m/ })).toBeInTheDocument()
     expect(screen.getByTestId('active')).toHaveTextContent('snap/key')
   })
 
@@ -137,11 +144,41 @@ describe('useModelMenu', () => {
     render(<MenuProbe sessionId="01S" fallbackKey="x" onToast={onToast} />)
 
     await user.click(screen.getByRole('button', { name: 'toggle' }))
-    await screen.findByTestId('row-a/m')
+    await screen.findByRole('menuitem', { name: /^m/ })
 
     // a refused pick keeps the menu open for another choice
     await user.click(screen.getByRole('button', { name: 'pick' }))
     await vi.waitFor(() => expect(onToast).toHaveBeenCalledWith('two providers match', 'error'))
     expect(screen.getByTestId('open')).toHaveTextContent('true')
+  })
+
+  it('resets the filter query when the menu reopens', async () => {
+    const user = userEvent.setup()
+    stubFetch((url) => {
+      if (url === '/api/sessions/01S/models') {
+        return Response.json({
+          active: 'a/m',
+          models: [
+            { key: 'a/m', short: 'm' },
+            { key: 'a/other', short: 'other' },
+          ],
+        })
+      }
+      throw new Error(`unexpected fetch ${url}`)
+    })
+    render(<MenuProbe sessionId="01S" fallbackKey="x" onToast={() => {}} />)
+
+    await user.click(screen.getByRole('button', { name: 'toggle' }))
+    const filter = await screen.findByRole('searchbox')
+    await user.type(filter, 'other')
+    expect(screen.queryByRole('menuitem', { name: /^m/ })).not.toBeInTheDocument()
+
+    // the body unmounts on close, so the query dies with it
+    await user.click(screen.getByRole('button', { name: 'toggle' }))
+    expect(screen.queryByRole('searchbox')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'toggle' }))
+    expect(await screen.findByRole('searchbox')).toHaveValue('')
+    expect(screen.getByRole('menuitem', { name: /^m/ })).toBeInTheDocument()
   })
 })

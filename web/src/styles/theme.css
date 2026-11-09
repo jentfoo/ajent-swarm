@@ -2408,6 +2408,18 @@ label {
 .menu .model-menu-group {
   display: contents;
 }
+/* filter input heading the model menus; sticky so a long registry scrolls
+   under it while the query stays reachable */
+.menu .menu-filter-row {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface);
+  padding-bottom: calc(var(--unit) * 1);
+}
+.menu .menu-filter-row input {
+  width: 100%;
+}
 .tool-row {
   display: flex;
   align-items: center;

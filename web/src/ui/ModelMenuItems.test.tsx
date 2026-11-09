@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -12,9 +12,13 @@ const model = (key: string, short = '', window = 0): ModelState => ({
   caps: { reasoning: false, images: false, parallelToolCalls: false },
 })
 
-// The grouped menu body both chat model menus render: a muted heading per
-// provider, short labels with the full key as tooltip, loose models by full
-// key, the current badge on the active or snapshot key, and the empty message.
+const labels = () => screen.getAllByRole('menuitem').map((el) => el.textContent)
+
+// The grouped menu body both chat model menus render: a filter input above a
+// muted heading per provider, short labels with the full key as tooltip, loose
+// models by full key, the current badge on the active or snapshot key, and the
+// empty messages. Escape in the filter clears the query before the overlay's
+// own close can claim the press.
 describe('ModelMenuItems', () => {
   it('renders a heading before each provider group', () => {
     render(
@@ -97,6 +101,107 @@ describe('ModelMenuItems', () => {
     render(<ModelMenuItems models={[]} active="" currentKey="" onPick={() => {}} />)
     expect(screen.getByText('No models listed.')).toBeInTheDocument()
     expect(screen.queryByRole('menuitem')).not.toBeInTheDocument()
+    expect(screen.queryByRole('searchbox')).not.toBeInTheDocument()
+  })
+
+  it('takes the caret on mount', () => {
+    render(<ModelMenuItems models={[model('a/one')]} active="" currentKey="" onPick={() => {}} />)
+    expect(screen.getByRole('searchbox')).toHaveFocus()
+  })
+
+  it('narrows the tree live as the query types', async () => {
+    const user = userEvent.setup()
+    render(
+      <ModelMenuItems
+        models={[
+          model('anthropic/sonnet', 'sonnet'),
+          model('anthropic/haiku', 'haiku'),
+          model('openai/gpt', 'gpt'),
+          model('local-tuned'),
+        ]}
+        active=""
+        currentKey=""
+        onPick={() => {}}
+      />,
+    )
+    expect(labels()).toEqual(['sonnet', 'haiku', 'gpt', 'local-tuned'])
+
+    const filter = screen.getByRole('searchbox')
+    await user.type(filter, 'haiku')
+    expect(screen.queryByRole('group', { name: 'openai' })).not.toBeInTheDocument()
+    expect(labels()).toEqual(['haiku'])
+
+    // loosening the query brings the dropped groups back
+    await user.clear(filter)
+    expect(labels()).toEqual(['sonnet', 'haiku', 'gpt', 'local-tuned'])
+  })
+
+  it('shows the distinct no-match message for a filter miss', async () => {
+    const user = userEvent.setup()
+    render(
+      <ModelMenuItems models={[model('a/one', 'one')]} active="" currentKey="" onPick={() => {}} />,
+    )
+
+    await user.type(screen.getByRole('searchbox'), 'zzz')
+    expect(screen.getByText('No models match.')).toBeInTheDocument()
+    expect(screen.queryByText('No models listed.')).not.toBeInTheDocument()
+    expect(screen.queryByRole('menuitem')).not.toBeInTheDocument()
+  })
+
+  it('keeps the current badge on the active row while narrowed', async () => {
+    const user = userEvent.setup()
+    render(
+      <ModelMenuItems
+        models={[model('anthropic/sonnet', 'sonnet'), model('openai/gpt', 'gpt')]}
+        active="anthropic/sonnet"
+        currentKey=""
+        onPick={() => {}}
+      />,
+    )
+
+    await user.type(screen.getByRole('searchbox'), 'sonnet')
+    expect(labels()).toEqual(['sonnetcurrent'])
+  })
+
+  it('claims escape to clear the query before the layer close', async () => {
+    const user = userEvent.setup()
+    render(
+      <ModelMenuItems
+        models={[model('a/one', 'one'), model('b/two', 'two')]}
+        active=""
+        currentKey=""
+        onPick={() => {}}
+      />,
+    )
+    const filter = screen.getByRole('searchbox')
+    // fireEvent answers whether the press was claimed; an empty query leaves
+    // it for the popover's own Escape close
+    expect(fireEvent.keyDown(filter, { key: 'Escape' })).toBe(true)
+
+    await user.type(filter, 'zz')
+    expect(fireEvent.keyDown(filter, { key: 'Escape' })).toBe(false)
+    expect(filter).toHaveValue('')
+    expect(labels()).toEqual(['one', 'two'])
+  })
+
+  it('clears a stale query when the listing empties', async () => {
+    const user = userEvent.setup()
+    const models = [model('a/one', 'one')]
+    const view = render(
+      <ModelMenuItems models={models} active="" currentKey="" onPick={() => {}} />,
+    )
+
+    await user.type(screen.getByRole('searchbox'), 'zzz')
+    expect(screen.getByText('No models match.')).toBeInTheDocument()
+
+    view.rerender(<ModelMenuItems models={[]} active="" currentKey="" onPick={() => {}} />)
+    expect(screen.getByText('No models listed.')).toBeInTheDocument()
+    expect(screen.queryByText('No models match.')).not.toBeInTheDocument()
+
+    // the refill starts from an empty query, never the stale one
+    view.rerender(<ModelMenuItems models={models} active="" currentKey="" onPick={() => {}} />)
+    expect(screen.getByRole('searchbox')).toHaveValue('')
+    expect(screen.getByRole('menuitem', { name: 'one' })).toBeInTheDocument()
   })
 
   it('picks with the full key', async () => {

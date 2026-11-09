@@ -1239,6 +1239,16 @@ label {
   border-radius: 2px;
 }
 
+@media (max-width: 48rem) {
+  /* the popups open from touch too, so their rows and close button meet the
+     theme's touch floor */
+  .at-menu button,
+  .search-list button,
+  .search-close {
+    min-height: 44px;
+  }
+}
+
 /* rewind picker rows: one grid row per candidate, columns shared through
    subgrid so guide, tag, label and detail line up down the whole tree */
 .rewind-list {
@@ -1675,7 +1685,6 @@ label {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  touch-action: manipulation; /* no double-tap zoom lag on cards */
 }
 /* each card's labeled facts share one wrapping row so either side can take
    the width */
@@ -1818,6 +1827,17 @@ label {
    bottom sheets with drag handles, touch-sized dialogs, keyboard-aware
    composer spacing and pushed full-screen panels. */
 
+/* double-tap zoom stands down for tappable controls on phones: buttons,
+   links, role=button rows (rewind cards) and clickable card faces. :where
+   holds specificity at zero so drag surfaces keep their own touch-action
+   (the sheet handle). The breakpoint alone scopes it: AuthGate forks to the
+   mobile shell on this same query */
+@media (max-width: 48rem) {
+  :where(button, [role='button'], a, .switch-row, .job-card, .run-card) {
+    touch-action: manipulation;
+  }
+}
+
 .mobile-topbar {
   padding-right: calc(var(--unit) * 4);
 }
@@ -1868,7 +1888,6 @@ label {
   cursor: pointer;
   user-select: none;
   -webkit-user-select: none;
-  touch-action: manipulation; /* no double-tap zoom lag on rows */
 }
 .switch-row.pressed {
   background: var(--surface-2);

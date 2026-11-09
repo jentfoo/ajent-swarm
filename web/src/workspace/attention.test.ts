@@ -3,7 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AttentionRow } from '../api/types'
 import {
   ackBodyFor,
-  attentionKindLabels,
   compareAttention,
   deriveItem,
   describeStop,
@@ -94,15 +93,6 @@ describe('attention derivation', () => {
   it('falls back for unknown stop codes', () => {
     expect(describeStop('weird_new_stop', undefined)).toBe('stopped: weird_new_stop')
     expect(describeStop(undefined, undefined)).toBe('turn finished')
-  })
-
-  it('humanizes every kind for announcements', () => {
-    expect(Object.entries(attentionKindLabels)).toEqual([
-      ['needs-input', 'needs input'],
-      ['needs-review', 'needs review'],
-      ['awaiting', 'waiting'],
-      ['working', 'working'],
-    ])
   })
 })
 

@@ -75,6 +75,9 @@ func TestFailLimiter(t *testing.T) {
 		}
 		now = now.Add(2 * time.Minute)
 		l.Allow("fresh")
-		assert.LessOrEqual(t, len(l.wins), limiterMaxTracked)
+		// only the fresh window survives the prune, not just the cap bound
+		assert.Len(t, l.wins, 1)
+		_, ok := l.wins["fresh"]
+		assert.True(t, ok)
 	})
 }

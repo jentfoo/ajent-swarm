@@ -78,6 +78,7 @@ func postAttachment(t *testing.T, client *http.Client, baseURL, sessionID string
 	}
 	return resp, out
 }
+
 func TestSessionAttachments(t *testing.T) {
 	t.Parallel()
 
@@ -133,28 +134,51 @@ func TestSessionAttachments(t *testing.T) {
 	})
 }
 
-// TestSanitizeAttachmentName covers the session-id sanitizer directly, since
-// URL traversal never reaches the handler (the fetcher and mux normalize it
-// away): every separator and dot-segment reduces into one contained element.
 func TestSanitizeAttachmentName(t *testing.T) {
 	t.Parallel()
 
-	assert.Equal(t, "etc", sanitizeAttachmentName("../../etc"))
-	assert.Equal(t, "swarm-state", sanitizeAttachmentName("../../swarm-state"))
-	assert.Equal(t, "01-ABC_2", sanitizeAttachmentName("../01-ABC_2/"))
-
-	for _, in := range []string{"", ".", "..", "/"} {
-		assert.Empty(t, sanitizeAttachmentName(in))
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{name: "traversal_reduces_to_one_element", in: "../../etc", want: "etc"},
+		{name: "traversal_keeps_contained_name", in: "../../swarm-state", want: "swarm-state"},
+		{name: "separators_strip", in: "../01-ABC_2/", want: "01-ABC_2"},
+		{name: "empty"},
+		{name: "dot", in: "."},
+		{name: "dot_dot", in: ".."},
+		{name: "slash", in: "/"},
+		{name: "trims_whitespace", in: " a.b.c ", want: "a.b.c"},
 	}
-	assert.Equal(t, "a.b.c", sanitizeAttachmentName(" a.b.c "))
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tc.want, sanitizeAttachmentName(tc.in))
+		})
+	}
 }
 
 func TestSanitizeAttachmentExt(t *testing.T) {
 	t.Parallel()
 
-	// A hostile or overlong extension reduces to word characters.
-	assert.Empty(t, sanitizeAttachmentExt("....//"))
-	assert.Equal(t, "png", sanitizeAttachmentExt(".p/n/g?."))
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{name: "hostile_reduces_to_empty", in: "....//"},
+		{name: "path_chars_drop", in: ".p/n/g?.", want: "png"},
+		{name: "overlong_truncates", in: "." + strings.Repeat("a", 20), want: strings.Repeat("a", 16)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tc.want, sanitizeAttachmentExt(tc.in))
+		})
+	}
 }
 
 func TestAttachmentName(t *testing.T) {

@@ -11,15 +11,22 @@ import (
 func TestEnsureUser(t *testing.T) {
 	t.Parallel()
 
-	svc, _, _ := newTestAuth(t)
-	ctx := t.Context()
+	t.Run("seeds_the_user", func(t *testing.T) {
+		svc, _, _ := newTestAuth(t)
 
-	require.NoError(t, svc.EnsureUser(ctx, "jent"))
-	assert.Equal(t, "jent", svc.username)
+		require.NoError(t, svc.EnsureUser(t.Context(), "jent"))
+		assert.Equal(t, "jent", svc.username)
+	})
 
-	// a second start adopts the existing row instead of reseeding
-	require.NoError(t, svc.EnsureUser(ctx, "someoneelse"))
-	assert.Equal(t, "jent", svc.username)
+	t.Run("adopts_existing_row", func(t *testing.T) {
+		svc, _, _ := newTestAuth(t)
+		ctx := t.Context()
+		require.NoError(t, svc.EnsureUser(ctx, "jent"))
+
+		// a second start adopts the existing row instead of reseeding
+		require.NoError(t, svc.EnsureUser(ctx, "someoneelse"))
+		assert.Equal(t, "jent", svc.username)
+	})
 }
 
 func TestSetPassword(t *testing.T) {

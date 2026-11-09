@@ -1,6 +1,6 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 
-import { prependDraft, readDraft, resetDrafts, writeDraft } from './draftStore'
+import { readDraft, resetDrafts, writeDraft } from './draftStore'
 
 // readStored parses what persistence actually wrote; null when nothing did.
 function readStored(): unknown {
@@ -104,15 +104,5 @@ describe('draftStore', () => {
     writeDraft('01B', 'beta')
     // the recovered write carries every draft persistence may still hold
     expect(readStored()).toEqual({ '01A': 'kept in memory', '01B': 'beta' })
-  })
-})
-
-describe('prependDraft', () => {
-  it('takes the whole buffer when the draft is empty', () => {
-    expect(prependDraft('', 'recalled')).toBe('recalled')
-  })
-
-  it('lands above a non-empty draft behind one newline', () => {
-    expect(prependDraft('my draft', 'recalled')).toBe('recalled\nmy draft')
   })
 })

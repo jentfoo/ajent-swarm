@@ -108,18 +108,26 @@ func shrinkTimeout(t *testing.T) {
 	t.Cleanup(func() { timeoutUnit = old })
 }
 
-// TestRunBudget checks the zero and negative rows watch unbounded while a
-// configured budget converts through the timeout unit.
 func TestRunBudget(t *testing.T) {
-	_, bounded := runBudget(0)
-	assert.False(t, bounded)
+	t.Parallel()
 
-	_, bounded = runBudget(-5)
-	assert.False(t, bounded)
-
-	d, bounded := runBudget(30)
-	assert.True(t, bounded)
-	assert.Equal(t, 30*time.Minute, d)
+	cases := []struct {
+		name    string
+		minutes int
+		want    time.Duration
+		bounded bool
+	}{
+		{name: "zero_watches_unbounded", minutes: 0},
+		{name: "negative_watches_unbounded", minutes: -5},
+		{name: "configured_converts", minutes: 30, want: 30 * time.Minute, bounded: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			d, bounded := runBudget(tc.minutes)
+			assert.Equal(t, tc.want, d)
+			assert.Equal(t, tc.bounded, bounded)
+		})
+	}
 }
 
 func TestRunner(t *testing.T) {

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { ReactElement } from 'react'
-import { useNavigate, useParams } from 'react-router'
+import { Link, useLocation, useNavigate, useNavigationType, useParams } from 'react-router'
 
 import { describeError } from '../api/errors'
 import { fleet as fleetAPI } from '../api/endpoints'
@@ -12,14 +12,27 @@ import { useResume } from '../hooks/useResume'
 // entries endpoint, so it works however long ago the run finished.
 export default function EndedSessionScreen(): ReactElement {
   const { sessionId = '' } = useParams()
+  const location = useLocation()
   const navigate = useNavigate()
+  const navType = useNavigationType()
+
+  // Back pops history only with an in-app entry behind this screen. Cold deep
+  // links carry react-router's 'default' key; the login redirect also lands
+  // here cold, but replace rewrites location.key, so its navigation type closes
+  // that gap.
+  const canGoBack = location.key !== 'default' && navType !== 'REPLACE'
 
   return (
     <div className="ended-screen">
       <header className="pushed-header">
-        <button type="button" onClick={() => navigate(-1)}>
-          ← Back
-        </button>
+        {canGoBack ? (
+          <button type="button" onClick={() => navigate(-1)}>
+            ← Back
+          </button>
+        ) : (
+          // launcher link: never pops out of the app on a cold entry
+          <Link to="/">← Back</Link>
+        )}
         <h2>Ended session</h2>
         <ResumeButton sessionId={sessionId} />
       </header>

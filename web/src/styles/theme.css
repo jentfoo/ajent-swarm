@@ -2205,8 +2205,10 @@ label {
   flex: 1;
 }
 /* 44px touch-target floor for the header buttons; the ended screen reuses
-   this header, so its back and resume ride the same floor */
-.pushed-header button {
+   this header, so its back and resume ride the same floor (the cold deep-link
+   fallback renders Back as an anchor) */
+.pushed-header button,
+.pushed-header a {
   min-height: 44px;
 }
 /* fixed panels cover the whole viewport, so their sticky header carries the

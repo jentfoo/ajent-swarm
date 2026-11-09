@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import type { FormEvent, KeyboardEvent } from 'react'
+import type { FormEvent, KeyboardEvent, PointerEvent } from 'react'
 
 import { describeError } from '../api/errors'
 import { sessions as sessionAPI } from '../api/endpoints'
@@ -296,7 +296,7 @@ export function Composer({
     setDismissed(menuKey)
     setRawSearch(openSearch(recall.items))
     recall.refresh?.()
-    areaRef.current?.focus() // touch opens from a button; typing starts now
+    areaRef.current?.focus({ preventScroll: true }) // touch opens from a button; typing starts now
   }
 
   // applySearchKey feeds one machine key and resolves its outcome: accept
@@ -479,6 +479,15 @@ export function Composer({
     setPick({ key: '', index: 0, moved: false })
     onChange(next)
     return next
+  }
+
+  // A fresh tap focuses before the browser's default action so WebKit's
+  // keyboard reveal scroll never runs: it fights the inset lift and can land
+  // the view at the page top (preventScroll is iOS 15.5+). A focused
+  // composer keeps native caret placement.
+  const focusFreshTap = (ev: PointerEvent<HTMLTextAreaElement>) => {
+    if (ev.button !== 0) return
+    if (document.activeElement !== ev.currentTarget) ev.currentTarget.focus({ preventScroll: true })
   }
 
   // One completion menu can be open at most: a line-initial `/` leaves no
@@ -797,6 +806,7 @@ export function Composer({
             void attach(images)
           }}
           onKeyDown={onKeyDown}
+          onPointerDown={focusFreshTap}
           onSelect={(ev) => setCaret(ev.currentTarget.selectionStart ?? 0)}
         />
         {/* attach and send ride beside the prompt, not under it */}

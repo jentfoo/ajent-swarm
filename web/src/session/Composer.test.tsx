@@ -1134,6 +1134,30 @@ describe('Composer touch keyboard', () => {
   })
 })
 
+describe('Composer fresh-tap focus', () => {
+  it('first_tap_focuses_without_scroll', () => {
+    render(Harness())
+
+    // the early focus takes WebKit's keyboard reveal scroll out of play, so
+    // the composer rests where the inset lift put it instead of panning away
+    const box = screen.getByLabelText('Prompt') as HTMLTextAreaElement
+    const spy = vi.spyOn(box, 'focus')
+    fireEvent.pointerDown(box)
+    expect(spy).toHaveBeenCalledWith({ preventScroll: true })
+    expect(box).toHaveFocus()
+  })
+
+  it('focused_tap_keeps_native_caret', () => {
+    render(Harness())
+
+    const box = screen.getByLabelText('Prompt') as HTMLTextAreaElement
+    box.focus()
+    const spy = vi.spyOn(box, 'focus')
+    fireEvent.pointerDown(box)
+    expect(spy).not.toHaveBeenCalled()
+  })
+})
+
 describe('Composer submit flow', () => {
   afterEach(() => {
     vi.unstubAllGlobals()

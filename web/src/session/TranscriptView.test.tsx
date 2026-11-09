@@ -160,3 +160,42 @@ describe('TranscriptView load older failures', () => {
     expect(loadOlderButton()).toBeInTheDocument()
   })
 })
+
+// The phone keyboard shrinks the scroller step by step while the inset lifts
+// the composer, and WebKit's focus reveal pass can leave the stuck tail
+// anywhere along the way: each resize re-pins a stuck view and leaves a
+// reader scrolled away from the tail alone.
+describe('TranscriptView keyboard shrink', () => {
+  it('repins_stuck_view_on_scroller_resize', () => {
+    // jsdom ships no observer, so every ResizeObserver under this render is
+    // recorded and fired together, like one real resize batch
+    const fireAll: (() => void)[] = []
+    class RecordingRO {
+      constructor(cb: ResizeObserverCallback) {
+        fireAll.push(() => cb([] as unknown as ResizeObserverEntry[], null as never))
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+    const real = globalThis.ResizeObserver
+    globalThis.ResizeObserver = RecordingRO as unknown as typeof ResizeObserver
+    try {
+      const el = renderTranscript()
+
+      // WebKit's reveal pass left the tail stranded mid-scroll; the next
+      // inset step's resize re-pins it
+      el.scrollTop = 500
+      act(() => fireAll.forEach((fire) => fire()))
+      expect(el.scrollTop).toBe(2000)
+
+      // a reader scrolled away from the tail keeps their place
+      showPill(el)
+      el.scrollTop = 400
+      act(() => fireAll.forEach((fire) => fire()))
+      expect(el.scrollTop).toBe(400)
+    } finally {
+      globalThis.ResizeObserver = real
+    }
+  })
+})

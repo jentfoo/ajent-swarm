@@ -109,8 +109,12 @@ export function TranscriptView({
     getItemKey: (i) => blocks[i].id,
   })
 
-  // One ResizeObserver over the content wrapper keeps autoscroll honest
-  // through dynamic row measurement, live text growth and late image loads.
+  // One ResizeObserver over the content wrapper and the scroller keeps
+  // autoscroll honest through dynamic row measurement, live text growth and
+  // late image loads. Watching the scroller matters on phones: each keyboard
+  // inset step shrinks it mid-animation, so a stuck view re-pins instead of
+  // stranding the tail behind the composer or wherever WebKit's focus
+  // reveal pass left it.
   useEffect(() => {
     const el = scrollRef.current
     const content = contentRef.current
@@ -119,6 +123,7 @@ export function TranscriptView({
       if (stuckRef.current) el.scrollTop = el.scrollHeight
     })
     ro.observe(content)
+    ro.observe(el)
     el.scrollTop = el.scrollHeight // land on the latest history, not the top
     return () => ro.disconnect()
   }, [])

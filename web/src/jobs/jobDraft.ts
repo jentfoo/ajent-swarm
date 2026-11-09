@@ -167,6 +167,26 @@ function parseToolList(raw: string | undefined): string[] {
   ]
 }
 
+// draftsEqual reports whether a draft still matches the source it opened from,
+// the discard guard's clean test. Every field takes part: picked lists compare
+// as sets, since their pickers rebuild by filter and append so untoggling plus
+// retoggling reorders without changing what a close would lose; everything else
+// compares directly, so a new JobDraft field cannot slip the comparison.
+export function draftsEqual(a: JobDraft, b: JobDraft): boolean {
+  for (const key of Object.keys(a) as Array<keyof JobDraft>) {
+    const x = a[key]
+    const y = b[key]
+    if (Array.isArray(x) && Array.isArray(y)) {
+      const left = [...x].sort()
+      const right = [...y].sort()
+      if (!left.every((v, i) => v === right[i])) return false
+      continue
+    }
+    if (x !== y) return false
+  }
+  return true
+}
+
 // toPayload builds the request body a save or preview sends. Recurring jobs
 // never send nextRunAt, so an update recomputes their slot, editing rides
 // createdAt along for previews to anchor interval slots exactly as the saved

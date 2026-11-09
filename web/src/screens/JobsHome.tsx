@@ -117,7 +117,9 @@ export default function JobsHome() {
   // The poll's initial tick covers the mount-time load.
   usePoll(() => void load(), pollJobsMs)
 
-  const closeEditor = useCallback(() => navigate('/jobs'), [navigate])
+  // replace keeps closed editor routes out of history: Back from the list
+  // resumes where the viewer came from instead of reopening a settled form
+  const closeEditor = useCallback(() => navigate('/jobs', { replace: true }), [navigate])
 
   const onSaved = useCallback(
     async (saved: Job | undefined) => {

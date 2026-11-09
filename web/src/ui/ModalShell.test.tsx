@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 import { describe, expect, it, vi } from 'vitest'
@@ -114,6 +114,16 @@ function KeyedStack({ onKey }: { onKey: (ev: KeyboardEvent) => void }) {
         </ModalShell>
       )}
     </>
+  )
+}
+
+// GuardedHarness opts every shell into the discard guard; the harness stays
+// mounted so tests can observe what a refused close leaves behind.
+function GuardedHarness({ dirty, onClose }: { dirty?: boolean; onClose: () => void }) {
+  return (
+    <ModalShell label="Test dialog" showClose dirty={dirty} onClose={onClose}>
+      <button type="button">first</button>
+    </ModalShell>
   )
 }
 
@@ -269,5 +279,89 @@ describe('ModalShell', () => {
     expect(dialog()).toContainElement(close)
     await user.click(close)
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('asks before a guarded close and stays mounted on cancel', async () => {
+    const user = userEvent.setup()
+    const onClose = vi.fn()
+    render(<GuardedHarness dirty onClose={onClose} />)
+
+    await user.keyboard('{Escape}')
+    expect(onClose).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog', { name: 'Discard changes?' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Keep editing' }))
+    expect(screen.queryByRole('dialog', { name: 'Discard changes?' })).not.toBeInTheDocument()
+    expect(dialog()).toBeInTheDocument()
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('closes a guarded dialog only through its confirm', async () => {
+    const user = userEvent.setup()
+    const onClose = vi.fn()
+    render(<GuardedHarness dirty onClose={onClose} />)
+
+    // the backdrop and the corner × both land on the question, not the close
+    fireEvent.click(document.querySelector('.modal-backdrop')!)
+    expect(screen.getByRole('dialog', { name: 'Discard changes?' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Keep editing' }))
+
+    await user.click(screen.getByRole('button', { name: 'Close' }))
+    expect(onClose).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog', { name: 'Discard changes?' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Discard' }))
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('routes browser back through the guard and then the question', async () => {
+    const onClose = vi.fn()
+    render(<GuardedHarness dirty onClose={onClose} />)
+
+    // a pop closes the topmost layer, here the dialog's own shield, which asks
+    // instead of discarding
+    await act(async () => {
+      window.dispatchEvent(new PopStateEvent('popstate'))
+    })
+    expect(onClose).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog', { name: 'Discard changes?' })).toBeInTheDocument()
+
+    // a second back pops the confirm's own layer, cancelling it, not the dialog
+    await act(async () => {
+      window.dispatchEvent(new PopStateEvent('popstate'))
+    })
+    expect(screen.queryByRole('dialog', { name: 'Discard changes?' })).not.toBeInTheDocument()
+    expect(dialog()).toBeInTheDocument()
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('leaves history untouched on escape closes', async () => {
+    const user = userEvent.setup()
+    const back = vi.spyOn(window.history, 'back')
+    const onClose = vi.fn()
+    render(<GuardedHarness dirty onClose={onClose} />)
+
+    // a keypress never moves history, only a platform back already has, so the
+    // guard's own entry stays current beneath the question
+    await user.keyboard('{Escape}')
+    expect(back).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog', { name: 'Discard changes?' })).toBeInTheDocument()
+
+    // dismissing the question steps back over its own entry and nothing else
+    await user.click(screen.getByRole('button', { name: 'Keep editing' }))
+    await vi.waitFor(() => expect(back).toHaveBeenCalledTimes(1))
+    expect(dialog()).toBeInTheDocument()
+    expect(onClose).not.toHaveBeenCalled()
+    back.mockRestore()
+  })
+
+  it('closes directly while the guard holds nothing dirty', async () => {
+    const user = userEvent.setup()
+    const onClose = vi.fn()
+    render(<GuardedHarness dirty={false} onClose={onClose} />)
+
+    await user.keyboard('{Escape}')
+    expect(onClose).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('dialog', { name: 'Discard changes?' })).not.toBeInTheDocument()
   })
 })

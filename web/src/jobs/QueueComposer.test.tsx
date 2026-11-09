@@ -182,4 +182,45 @@ describe('QueueComposer', () => {
     expect(screen.queryByLabelText(/Session start/)).not.toBeInTheDocument()
     expect(screen.queryByLabelText(/Fire at/)).not.toBeInTheDocument()
   })
+
+  it('asks before discarding typed content and stays mounted on cancel', async () => {
+    const user = userEvent.setup()
+    const onCancel = vi.fn()
+    render(
+      <QueueComposer
+        workspaces={['/repo']}
+        models={[]}
+        toolOptions={[]}
+        onQueued={() => {}}
+        onCancel={onCancel}
+      />,
+    )
+
+    await user.type(screen.getByRole('textbox', { name: /^Prompt/ }), 'review the diff')
+    await user.keyboard('{Escape}')
+
+    expect(onCancel).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog', { name: 'Discard changes?' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Keep editing' }))
+    expect(screen.getByRole('dialog', { name: 'Queue a prompt' })).toBeInTheDocument()
+    expect(onCancel).not.toHaveBeenCalled()
+  })
+
+  it('closes an untouched composer directly on escape', async () => {
+    const user = userEvent.setup()
+    const onCancel = vi.fn()
+    render(
+      <QueueComposer
+        workspaces={[]}
+        models={[]}
+        toolOptions={[]}
+        onQueued={() => {}}
+        onCancel={onCancel}
+      />,
+    )
+
+    await user.keyboard('{Escape}')
+    expect(onCancel).toHaveBeenCalledTimes(1)
+  })
 })

@@ -402,4 +402,68 @@ describe('JobEditor', () => {
       tools: 'builtin:web_search,repo_search',
     })
   })
+
+  it('asks before discarding typed edits and stays mounted on cancel', async () => {
+    const user = userEvent.setup()
+    const onCancel = vi.fn()
+    renderEditor({ job: storedJob, onCancel })
+
+    await user.type(screen.getByRole('textbox', { name: /^Name/ }), 'renamed')
+    await user.keyboard('{Escape}')
+
+    expect(onCancel).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog', { name: 'Discard changes?' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Keep editing' }))
+    expect(screen.queryByRole('dialog', { name: 'Discard changes?' })).not.toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: /Edit job/ })).toBeInTheDocument()
+    expect(onCancel).not.toHaveBeenCalled()
+  })
+
+  it('closes a clean edit directly on escape', async () => {
+    const user = userEvent.setup()
+    const onCancel = vi.fn()
+    renderEditor({ job: storedJob, onCancel })
+
+    await user.keyboard('{Escape}')
+    expect(onCancel).toHaveBeenCalledTimes(1)
+  })
+
+  it('treats an untouched duplicate seed as clean', async () => {
+    const user = userEvent.setup()
+    const onCancel = vi.fn()
+    // the seed is what this mount opened with, so cancelling loses nothing yet
+    renderEditor({ seed: { ...defaultDraft(), name: 'Copy of nightly' }, onCancel })
+
+    await user.keyboard('{Escape}')
+    expect(onCancel).toHaveBeenCalledTimes(1)
+  })
+
+  it('guards the corner close and discards only on confirm', async () => {
+    const user = userEvent.setup()
+    const onCancel = vi.fn()
+    renderEditor({ job: storedJob, onCancel })
+
+    await user.type(screen.getByRole('textbox', { name: /^Name/ }), '!')
+    await user.click(screen.getByRole('button', { name: 'Close' }))
+    expect(onCancel).not.toHaveBeenCalled()
+
+    await user.click(screen.getByRole('button', { name: 'Discard' }))
+    expect(onCancel).toHaveBeenCalledTimes(1)
+  })
+
+  it('saves edited drafts without a discard prompt', async () => {
+    const user = userEvent.setup()
+    const onSaved = vi.fn()
+    renderEditor({ job: storedJob, onSaved })
+
+    await user.clear(screen.getByRole('textbox', { name: /^Name/ }))
+    await user.type(screen.getByRole('textbox', { name: /^Name/ }), 'renamed')
+    expect(screen.queryByRole('dialog', { name: 'Discard changes?' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Save changes' }))
+
+    await waitFor(() =>
+      expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ id: 3, name: 'renamed' })),
+    )
+  })
 })

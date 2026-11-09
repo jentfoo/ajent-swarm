@@ -4,7 +4,7 @@ import type { FormEvent } from 'react'
 import { describeError } from '../api/errors'
 import { jobsApi } from '../api/endpoints'
 import type { Job, ToolState } from '../api/types'
-import { defaultDraft, validateDraft } from './jobDraft'
+import { defaultDraft, draftsEqual, validateDraft } from './jobDraft'
 import type { DraftErrors, JobDraft } from './jobDraft'
 import { TriggerCommandFields } from './TriggerCommandFields'
 import { FieldError, JobFactsFields } from './JobFactsFields'
@@ -28,13 +28,17 @@ export function QueueComposer({
   onQueued: (job: Job) => void
   onCancel: () => void
 }) {
-  const [draft, setDraft] = useState(defaultDraft)
+  // source pins the untouched form: edits make the discard guard ask first
+  const [source] = useState(defaultDraft)
+  const [draft, setDraft] = useState<JobDraft>(source)
   // the queue always wants a prompt, unlike the editor's optional one
   const errors: DraftErrors = useMemo(() => {
     const found = validateDraft(draft)
     if (draft.prompt.trim() === '') found.prompt = 'Prompt is required.'
     return found
   }, [draft])
+  // true once a close would lose typed content
+  const dirty = !draftsEqual(draft, source)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
 
@@ -66,7 +70,13 @@ export function QueueComposer({
   }
 
   return (
-    <ModalShell label="Queue a prompt" className="job-editor" showClose onClose={onCancel}>
+    <ModalShell
+      label="Queue a prompt"
+      className="job-editor"
+      showClose
+      dirty={dirty}
+      onClose={onCancel}
+    >
       <form onSubmit={save}>
         <h2 style={{ marginTop: 0, fontSize: 'inherit' }}>Queue a prompt</h2>
 

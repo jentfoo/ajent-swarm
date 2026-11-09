@@ -3,6 +3,15 @@ import type { ReactElement, ReactNode } from 'react'
 
 import { cycleFocus } from './focusTrap'
 import { overlayEnter, overlayLeave, overlayTopmost } from './overlayStack'
+import { useOverlayBack } from './useOverlayBack'
+
+// HistoryShield ties one dialog to browser history for as long as it mounts:
+// platform back and the browser back button call `onClose` instead of
+// unmounting whatever hosts the dialog. It renders nothing itself.
+function HistoryShield({ onClose }: { onClose: () => void }) {
+  useOverlayBack(onClose)
+  return null
+}
 
 // ModalShell is the one dialog chrome every centered modal shares: children
 // render in a `card modal` over a fixed backdrop. A backdrop click or plain
@@ -15,11 +24,17 @@ import { overlayEnter, overlayLeave, overlayTopmost } from './overlayStack'
 // the topmost layer and the press is unclaimed, so dialog content can bind
 // its own keys under the same stack discipline (the shortcut overlay's ?
 // rides it).
+// Passing `dirty` opts the dialog into the discard guard for forms that hold
+// unsaved input: Escape, the backdrop, the × and browser back confirm before
+// closing while dirty holds. It also mounts a history entry for the dialog's
+// lifetime, so platform back reaches that same guard instead of unmounting the
+// form behind it. Omit it to close on every affordance directly.
 export function ModalShell({
   label,
   className,
   showClose = false,
   onKey,
+  dirty,
   onClose,
   children,
 }: {
@@ -27,6 +42,8 @@ export function ModalShell({
   className?: string
   showClose?: boolean
   onKey?: (ev: KeyboardEvent) => void
+  // any value mounts the history guard; true makes close requests ask first
+  dirty?: boolean
   onClose: () => void
   children: ReactNode
 }): ReactElement {
@@ -35,12 +52,53 @@ export function ModalShell({
   // fires later, at commit, so this is still the element focus returns to
   const [restoreTarget] = useState(() => document.activeElement as HTMLElement | null)
 
-  // latest onClose and onKey, so the window listener never resubscribes
+  const [confirming, setConfirming] = useState(false)
+  // remount key for the shield: a back-initiated request lands off the dialog's
+  // own entry, so remounting re-anchors one beneath the current position and
+  // later backs keep hitting the guard instead of leaving the page behind it
+  const [shieldEpoch, setShieldEpoch] = useState(0)
+
+  // latest onClose, onKey and guarded closer, so the window listener never
+  // resubscribes while the guard reads current state through the refs
   const closeRef = useRef(onClose)
   const keyRef = useRef(onKey)
+  const dirtyRef = useRef(dirty === true)
+  const requestRef = useRef(() => {})
+
+  // requestClose is every exit affordance's single entry point: while dirty
+  // holds it asks first instead of discarding typed content silently.
+  const requestClose = () => {
+    if (!dirtyRef.current) {
+      closeRef.current()
+      return
+    }
+    setConfirming(true)
+  }
+
+  // backRequested answers platform back, which has already stepped off the
+  // dialog's own entry. Only it re-anchors the shield: affordances that did
+  // not move history must leave their entry current, or every request would
+  // strand a dead entry behind the remount and grow the back stack.
+  const backRequested = () => {
+    setShieldEpoch((epoch) => epoch + 1)
+    requestClose()
+  }
+
+  // keepEditing answers the confirm: the dialog's shield sits directly beneath
+  // the confirm's own, so dismissing the question leaves this dialog guarded.
+  const keepEditing = () => setConfirming(false)
+
+  // discard settles the confirm into the real close the viewer asked for.
+  const discard = () => {
+    setConfirming(false)
+    closeRef.current()
+  }
+
   useEffect(() => {
     closeRef.current = onClose
     keyRef.current = onKey
+    dirtyRef.current = dirty === true
+    requestRef.current = requestClose
   })
 
   useEffect(() => {
@@ -60,7 +118,7 @@ export function ModalShell({
       // chords like Ctrl+Escape belong to the platform, never to a layer
       // Shift stays free because keys like ? arrive shifted
       if (ev.ctrlKey || ev.metaKey || ev.altKey) return
-      if (ev.key === 'Escape') closeRef.current()
+      if (ev.key === 'Escape') requestRef.current()
       else if (ev.key === 'Tab') cycleFocus(card, ev)
       else keyRef.current?.(ev)
     }
@@ -87,23 +145,44 @@ export function ModalShell({
   }, [restoreTarget])
 
   return (
-    <div className="modal-backdrop" role="presentation" onClick={onClose}>
-      <div
-        ref={cardRef}
-        className={className === undefined ? 'card modal' : `card modal ${className}`}
-        role="dialog"
-        aria-modal="true"
-        aria-label={label}
-        tabIndex={-1}
-        onClick={(ev) => ev.stopPropagation()}
-      >
-        {showClose && (
-          <button type="button" className="modal-close" aria-label="Close" onClick={onClose}>
-            ×
-          </button>
-        )}
-        {children}
+    <>
+      {dirty !== undefined && <HistoryShield key={shieldEpoch} onClose={backRequested} />}
+      <div className="modal-backdrop" role="presentation" onClick={requestClose}>
+        <div
+          ref={cardRef}
+          className={className === undefined ? 'card modal' : `card modal ${className}`}
+          role="dialog"
+          aria-modal="true"
+          aria-label={label}
+          tabIndex={-1}
+          onClick={(ev) => ev.stopPropagation()}
+        >
+          {showClose && (
+            <button type="button" className="modal-close" aria-label="Close" onClick={requestClose}>
+              ×
+            </button>
+          )}
+          {children}
+        </div>
       </div>
-    </div>
+      {confirming && (
+        <>
+          {/* a second back while asking cancels the question, never the dialog */}
+          <HistoryShield onClose={keepEditing} />
+          <ModalShell label="Discard changes?" className="discard-modal" onClose={keepEditing}>
+            <h2 style={{ marginTop: 0, fontSize: 'inherit' }}>Discard unsaved changes?</h2>
+            <p className="muted">Edits to this form are not saved yet.</p>
+            <div className="dialog-actions">
+              <button type="button" onClick={keepEditing}>
+                Keep editing
+              </button>
+              <button type="button" onClick={discard}>
+                Discard
+              </button>
+            </div>
+          </ModalShell>
+        </>
+      )}
+    </>
   )
 }

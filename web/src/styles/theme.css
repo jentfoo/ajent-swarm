@@ -2506,6 +2506,11 @@ label {
   width: min(28rem, 92vw);
 }
 
+/* the discard confirm rides above its dialog, narrower than a default card */
+.modal.discard-modal {
+  width: min(24rem, 92vw);
+}
+
 /* seat badge and stop affordance */
 .seat-badge {
   cursor: pointer;

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   defaultDraft,
   draftFromJob,
+  draftsEqual,
   duplicateDraft,
   localInputToDate,
   maxNameLen,
@@ -15,6 +16,7 @@ import {
   validSessionName,
 } from './jobDraft'
 import type { Job } from '../api/types'
+import type { WeekdayToken } from './schedule'
 
 const stored: Job = {
   id: 7,
@@ -349,5 +351,40 @@ describe('trigger fields', () => {
   it('flags an oversized trigger command', () => {
     const draft = { ...defaultDraft(), triggerCommand: 'x'.repeat(2001) }
     expect(validateDraft(draft)).toHaveProperty('triggerCommand')
+  })
+})
+
+describe('draftsEqual', () => {
+  it('matches untouched drafts against their sources', () => {
+    expect(draftsEqual(defaultDraft(), defaultDraft())).toBe(true)
+    const job = { ...stored, scheduleKind: 'interval' as const, intervalSeconds: 1800 }
+    expect(draftsEqual(draftFromJob(job), draftFromJob(job))).toBe(true)
+  })
+
+  it('flags any edited field', () => {
+    const cases: Array<{ name: string; edit: (d: ReturnType<typeof defaultDraft>) => void }> = [
+      { name: 'text_field', edit: (d) => void (d.name = 'changed') },
+      { name: 'number_field', edit: (d) => void (d.timeoutMinutes = 5) },
+      { name: 'boolean_field', edit: (d) => void (d.keepAlive = true) },
+      { name: 'picked_list', edit: (d) => d.weekdays.push('mon') },
+    ]
+    for (const tt of cases) {
+      const draft = defaultDraft()
+      tt.edit(draft)
+      expect(draftsEqual(draft, defaultDraft())).toBe(false)
+    }
+  })
+
+  it('reads reordered picks as the same choice', () => {
+    const picked = {
+      ...defaultDraft(),
+      weekdays: ['tue', 'thu'] as WeekdayToken[],
+      customTools: true,
+      tools: ['a', 'b'],
+    }
+    // the pickers rebuild their arrays by filter and append, so untoggle plus
+    // retoggle reorders without changing what would be lost on a close
+    const rebuilt = { ...picked, weekdays: ['thu', 'tue'] as WeekdayToken[], tools: ['b', 'a'] }
+    expect(draftsEqual(picked, rebuilt)).toBe(true)
   })
 })

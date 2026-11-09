@@ -5,7 +5,14 @@ import { describeError } from '../api/errors'
 import { jobsApi } from '../api/endpoints'
 import type { Job, ToolState } from '../api/types'
 import { useArmedConfirm } from '../hooks/useArmedConfirm'
-import { defaultDraft, draftFromJob, idleDelayOptions, toPayload, validateDraft } from './jobDraft'
+import {
+  defaultDraft,
+  draftsEqual,
+  draftFromJob,
+  idleDelayOptions,
+  toPayload,
+  validateDraft,
+} from './jobDraft'
 import type { DraftErrors, JobDraft } from './jobDraft'
 import { TriggerCommandFields } from './TriggerCommandFields'
 import { FieldError, JobFactsFields } from './JobFactsFields'
@@ -55,10 +62,14 @@ export function JobEditor({
   onSaved: (job: Job | undefined) => void // undefined after a delete
   onCancel: () => void
 }) {
-  const [draft, setDraft] = useState<JobDraft>(
-    () => seed ?? (job ? draftFromJob(job) : defaultDraft()),
-  )
+  // source pins what this mount opened with: the discard guard compares typed
+  // content against it, so poll refreshes of the stored row never tip it, and
+  // a duplicate seed opens clean until something is actually typed
+  const [source] = useState<JobDraft>(() => seed ?? (job ? draftFromJob(job) : defaultDraft()))
+  const [draft, setDraft] = useState(source)
   const errors: DraftErrors = useMemo(() => validateDraft(draft), [draft])
+  // true once a close would lose typed content
+  const dirty = !draftsEqual(draft, source)
   const [previewTimes, setPreviewTimes] = useState<string[]>([])
   const [workspaceError, setWorkspaceError] = useState('')
   const [previewError, setPreviewError] = useState('')
@@ -130,6 +141,7 @@ export function JobEditor({
       label={job !== undefined ? `Edit job ${draft.name}` : 'New job'}
       className="job-editor"
       showClose
+      dirty={dirty}
       onClose={onCancel}
     >
       <form onSubmit={save}>

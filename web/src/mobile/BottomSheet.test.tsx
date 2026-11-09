@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { StrictMode, useState } from 'react'
 import type { ReactElement } from 'react'
@@ -65,7 +65,6 @@ describe('BottomSheet', () => {
   })
   afterEach(() => {
     Reflect.deleteProperty(Element.prototype, 'setPointerCapture')
-    Reflect.deleteProperty(window, 'visualViewport')
   })
 
   it('renders nothing when closed', () => {
@@ -292,34 +291,5 @@ describe('BottomSheet', () => {
 
     const sheet = document.querySelector('.bottom-sheet') as HTMLElement
     expect(sheet.style.transform).toBe('')
-  })
-
-  it('docks above the keyboard through the inset custom property', () => {
-    // visualViewport stand-in with a mutable height for the inset hook
-    const vv = new EventTarget() as EventTarget & { height: number }
-    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 800 })
-    vv.height = 800
-    Object.defineProperty(window, 'visualViewport', { configurable: true, value: vv })
-
-    render(
-      <BottomSheet open onClose={() => {}} label="Session switcher">
-        <input aria-label="Sheet input" />
-      </BottomSheet>,
-    )
-    // an inset means a keyboard, which only exists while text entry holds focus
-    act(() => {
-      screen.getByRole('textbox', { name: 'Sheet input' }).focus()
-    })
-
-    // the backdrop publishes the inset, theme.css shrinks it from the bottom,
-    // since ancestor padding cannot move a position:fixed panel
-    const backdrop = document.querySelector('.sheet-backdrop') as HTMLElement
-    expect(backdrop.style.getPropertyValue('--keyboard-inset')).toBe('0px')
-
-    vv.height = 550
-    act(() => {
-      vv.dispatchEvent(new Event('resize'))
-    })
-    expect(backdrop.style.getPropertyValue('--keyboard-inset')).toBe('250px')
   })
 })

@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent, ReactElement } from 'react'
 
 import { cycleFocus } from '../ui/focusTrap'
-import { useKeyboardInset, keyboardInsetStyle } from '../hooks/useKeyboardInset'
 import { overlayTopmost, useOverlayDismiss } from '../ui/overlayStack'
 import { useOverlayBack } from '../ui/useOverlayBack'
 
@@ -17,9 +16,9 @@ const tapSlop = 8
 // BottomSheet is a full-width panel docked to the bottom with a drag handle:
 // drag it past the threshold, tap the handle, tap the backdrop or press
 // Escape to dismiss. Children render inside the scrollable body, so tall
-// content never fights the gesture. The sheet tracks the keyboard inset
-// itself: ancestor padding cannot move a position:fixed panel, so the backdrop
-// shrinks from the bottom instead.
+// content never fights the gesture. The backdrop reads --keyboard-inset,
+// which MobileShell publishes at :root: ancestor padding cannot move a
+// position:fixed panel, so the backdrop shrinks from the bottom instead.
 //
 // Mobile overlays follow one convention: draggable sheets for lightweight
 // pickers over the session (switcher, rewind), pushed full-screen *Screen
@@ -60,7 +59,6 @@ function SheetLayer({
   label: string
   children: ReactElement
 }): ReactElement {
-  const keyboardInset = useKeyboardInset()
   const [dragY, setDragY] = useState(0)
   const sheetRef = useRef<HTMLElement>(null)
   const start = useRef<{ x: number; y: number } | null>(null)
@@ -134,7 +132,7 @@ function SheetLayer({
   }
 
   return (
-    <div className="sheet-backdrop" style={keyboardInsetStyle(keyboardInset)} onClick={onClose}>
+    <div className="sheet-backdrop" onClick={onClose}>
       <section
         ref={sheetRef}
         role="dialog"

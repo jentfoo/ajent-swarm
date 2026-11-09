@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router'
 import type { ReactElement } from 'react'
@@ -62,10 +62,12 @@ describe('MobileShell', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals()
+    Reflect.deleteProperty(window, 'visualViewport')
+    document.body.innerHTML = '' // drops the seeded editable and toast probe
   })
 
   async function renderShell(initialEntry: string) {
-    render(
+    const view = render(
       <MemoryRouter initialEntries={[initialEntry]}>
         <AuthProvider>
           <SwarmProvider>
@@ -87,6 +89,7 @@ describe('MobileShell', () => {
     )
     // settle the mount-time auth and discovery reads inside act
     await screen.findByRole('link', { name: '1 sessions need input' })
+    return view
   }
 
   it.each([
@@ -117,5 +120,67 @@ describe('MobileShell', () => {
 
     await user.click(screen.getByRole('link', { name: 'Sessions' }))
     expect(await screen.findByTestId('url')).toHaveTextContent('/')
+  })
+
+  // keyboardViewport stands in for visualViewport like useKeyboardInset.test:
+  // resize events stand in for keyboard animation frames, and an inset means a
+  // keyboard, which only exists while text entry holds focus.
+  function keyboardViewport(): EventTarget & { height: number; scale: number } {
+    const vv = new EventTarget() as EventTarget & { height: number; scale: number }
+    vv.height = 800 // full viewport, no keyboard
+    vv.scale = 1
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 800 })
+    Object.defineProperty(window, 'visualViewport', { configurable: true, value: vv })
+    return vv
+  }
+
+  // openKeyboard seeds one focused editable, then shrinks the visual viewport:
+  // a keyboard only exists while text entry holds focus.
+  function openKeyboard(vv: EventTarget & { height: number }): HTMLInputElement {
+    const input = document.createElement('input')
+    document.body.appendChild(input)
+    act(() => {
+      input.focus()
+      vv.height = 500 // the keyboard covers a third of the layout viewport
+      vv.dispatchEvent(new Event('resize'))
+    })
+    return input
+  }
+
+  it('publishes one keyboard inset for every mobile screen', async () => {
+    const vv = keyboardViewport()
+    await renderShell('/')
+
+    // closed keyboard publishes zero, so nothing shifts at rest
+    expect(document.documentElement.style.getPropertyValue('--keyboard-inset')).toBe('0px')
+
+    const input = openKeyboard(vv)
+    expect(document.documentElement.style.getPropertyValue('--keyboard-inset')).toBe('300px')
+
+    // every fixed overlay inherits the root value, so a toast on home lifts
+    // above the keyboard exactly like one over an open session
+    const toasts = document.createElement('div')
+    toasts.className = 'toasts'
+    document.querySelector('.mobile-shell')!.appendChild(toasts)
+    expect(getComputedStyle(toasts).getPropertyValue('--keyboard-inset')).toBe('300px')
+
+    // releasing the editable drops the lift back to zero
+    act(() => {
+      input.blur()
+    })
+    expect(document.documentElement.style.getPropertyValue('--keyboard-inset')).toBe('0px')
+  })
+
+  it('clears the inset on unmount so desktop reads zero', async () => {
+    const vv = keyboardViewport()
+    const view = await renderShell('/')
+
+    openKeyboard(vv)
+    expect(document.documentElement.style.getPropertyValue('--keyboard-inset')).toBe('300px')
+
+    // crossing the breakpoint to AppShell unmounts this shell; a stale inset
+    // would lift desktop's own toasts off the bottom edge
+    view.unmount()
+    expect(document.documentElement.style.getPropertyValue('--keyboard-inset')).toBe('')
   })
 })

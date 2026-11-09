@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import type { CSSProperties } from 'react'
 
 // scaleEpsilon tolerates float noise in visualViewport.scale. Anything
 // beyond it reads as a page zoom rather than the default scale.
@@ -25,8 +24,8 @@ const nonTextInputs = new Set([
 // it and the transcript stays visible while the keyboard animates. The hook
 // reads window.visualViewport only, desktop browsers without one report zero.
 //
-// visualViewport resize events fire repeatedly during the keyboard animation
-// every value flows through state so consumers re-render with each step and
+// visualViewport resize events fire repeatedly during the keyboard animation.
+// Every value flows through state so consumers re-render with each step and
 // their sticky bottoms ride along instead of jumping at the end.
 export function useKeyboardInset(): number {
   const [inset, setInset] = useState(() => currentInset())
@@ -73,11 +72,4 @@ function currentInset(): number {
   if (Math.abs(vv.scale - 1) > scaleEpsilon) return 0
   if (!holdsCaret(document.activeElement)) return 0
   return Math.max(0, Math.round(window.innerHeight - vv.height))
-}
-
-// keyboardInsetStyle exposes an inset as --keyboard-inset, the custom property
-// theme.css reads to pad the composer column and offset fixed overlays. One
-// name keeps those rules in step with what components publish.
-export function keyboardInsetStyle(inset: number): CSSProperties {
-  return { '--keyboard-inset': `${inset}px` } as CSSProperties
 }

@@ -78,30 +78,10 @@ function snapshotFor(sessionId: string, overrides: Record<string, unknown> = {})
 describe('MobileSessionScreen', () => {
   let fetcher: FetchRouter
   const sockets: MockWebSocket[] = []
-  let vvHeight: number
 
   beforeEach(() => {
     localStorage.clear()
     resetDrafts() // drafts persist by session, so tests start from a clean slate
-    vvHeight = window.innerHeight // keyboard closed by default
-
-    // visualViewport stand-in with a mutable height for the inset hook
-    const listeners: Array<() => void> = []
-    Object.defineProperty(window, 'visualViewport', {
-      configurable: true,
-      value: {
-        get height() {
-          return vvHeight
-        },
-        offsetTop: 0,
-        addEventListener: (_: string, cb: () => void) => listeners.push(cb),
-        removeEventListener: (_: string, cb: () => void) => {
-          const i = listeners.indexOf(cb)
-          if (i >= 0) listeners.splice(i, 1)
-        },
-        fire: () => listeners.forEach((cb) => cb()),
-      },
-    })
 
     fetcher = new FetchRouter()
     fetcher
@@ -138,7 +118,6 @@ describe('MobileSessionScreen', () => {
 
   afterEach(() => {
     sockets.length = 0
-    Reflect.deleteProperty(window, 'visualViewport')
     vi.unstubAllGlobals()
   })
 
@@ -399,47 +378,6 @@ describe('MobileSessionScreen', () => {
       })
     })
     expect(screen.queryByRole('img', { name: /Context/ })).not.toBeInTheDocument()
-  })
-
-  it('feeds the keyboard inset to css for composer and overlays', async () => {
-    renderScreen()
-    const ws = await openSocket()
-    act(() => {
-      ws.message({ type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
-    })
-    await screen.findByRole('button', { name: /sonnet/ })
-
-    // the sheet pads above the keyboard through --keyboard-inset, theme.css
-    // adds the safe-area baseline and lifts fixed overlays with the same value
-    const screenEl = document.querySelector('.mobile-session') as HTMLElement
-    expect(screenEl.style.getPropertyValue('--keyboard-inset')).toBe('0px')
-
-    // an inset means a keyboard, which only exists while text entry holds
-    // focus. Composing in the textarea is what summons it
-    act(() => {
-      ;(screenEl.querySelector('.composer textarea') as HTMLElement).focus()
-    })
-
-    // the keyboard rises in steps, every intermediate inset lands so the
-    // transcript stays visible and autoscroll stays pinned while it animates
-    vvHeight = window.innerHeight - 120
-    act(() => {
-      ;(window.visualViewport as unknown as { fire: () => void }).fire()
-    })
-    expect(screenEl.style.getPropertyValue('--keyboard-inset')).toBe('120px')
-
-    vvHeight = window.innerHeight - 300
-    act(() => {
-      ;(window.visualViewport as unknown as { fire: () => void }).fire()
-    })
-    expect(screenEl.style.getPropertyValue('--keyboard-inset')).toBe('300px')
-
-    // closing the keyboard drops the lift back to zero
-    vvHeight = window.innerHeight
-    act(() => {
-      ;(window.visualViewport as unknown as { fire: () => void }).fire()
-    })
-    expect(screenEl.style.getPropertyValue('--keyboard-inset')).toBe('0px')
   })
 
   it('pushes the tools panel full-screen from the header menu', async () => {

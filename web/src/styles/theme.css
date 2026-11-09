@@ -820,7 +820,8 @@ label {
 .toasts {
   position: fixed;
   /* --keyboard-inset lifts notices above the OS keyboard, where ancestor
-     padding cannot reach a fixed element; unset on desktop reads as zero */
+     padding cannot reach a fixed element; MobileShell publishes it at :root,
+     so every mobile screen sees one value and desktop reads zero */
   bottom: calc(var(--unit) * 6 + var(--keyboard-inset, 0px));
   left: 50%;
   transform: translateX(-50%);
@@ -2001,7 +2002,7 @@ label {
   position: fixed;
   inset: 0;
   /* the sheet rides this offset above the keyboard; ancestor padding cannot
-     move a fixed element, so the component publishes --keyboard-inset here */
+     move a fixed element, so MobileShell publishes --keyboard-inset at :root */
   bottom: var(--keyboard-inset, 0px);
   background: color-mix(in srgb, var(--bg) 55%, transparent);
   z-index: 30;
@@ -2204,8 +2205,8 @@ label {
   display: flex;
   flex-direction: column;
   overflow-y: auto;
-  /* safe-area baseline plus the keyboard inset .mobile-session or
-     .sheet-backdrop publishes, so inputs inside scroll clear of the keyboard */
+  /* safe-area baseline plus the keyboard inset MobileShell publishes at
+     :root, so inputs inside scroll clear of the keyboard */
   padding-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--keyboard-inset, 0px));
 }
 .pushed-header {

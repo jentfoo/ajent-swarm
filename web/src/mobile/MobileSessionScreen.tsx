@@ -18,7 +18,6 @@ import { useInterruptStream } from '../session/useInterruptStream'
 import { useSessionCompose } from '../session/useSessionCompose'
 import { useSessionLabel } from '../session/useSessionLabel'
 import { Toasts } from '../hooks/Toasts'
-import { useKeyboardInset, keyboardInsetStyle } from '../hooks/useKeyboardInset'
 import { useSessionChannel } from '../hooks/useSessionChannel'
 import { overlayOpen } from '../ui/overlayStack'
 import { ModelMenu } from '../ui/ModelMenu'
@@ -81,7 +80,6 @@ function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElemen
   const [showRewind, setShowRewind] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [sheetOpen, setSheetOpen] = useState(false)
-  const keyboardInset = useKeyboardInset()
 
   // Edge-swipe from the left reopens the switcher over any session view, the
   // touch zone is only the first 24px so transcript selection never fights it.
@@ -106,7 +104,6 @@ function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElemen
   return (
     <div
       className="session-screen mobile-session"
-      style={keyboardInsetStyle(keyboardInset)}
       onTouchStart={(ev) => {
         // one fresh finger seeds a candidate, anything else (a second touch
         // landing mid-gesture, a pinch) kills the pending one. A touch targets

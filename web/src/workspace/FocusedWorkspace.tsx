@@ -8,6 +8,7 @@ import { useNow } from '../hooks/useNow'
 import SessionView from '../screens/SessionView'
 import { RenameControl } from '../session/RenameControl'
 import { tildePath } from '../session/names'
+import { relativeTime } from '../session/rewind'
 import { useSessionNamer } from '../session/useSessionLabel'
 import { useWorkspaceKeys } from './keys'
 import { ShortcutOverlay } from './ShortcutOverlay'
@@ -137,7 +138,12 @@ export default function FocusedWorkspace() {
               ) : (
                 <span className="badge">idle</span>
               ))}
-            {item.since > 0 && <span className="muted rail-wait">{waited(item.since, now)}</span>}
+            {/* since=0 is a row without a wait stamp */}
+            {item.since > 0 && (
+              <span className="muted rail-wait">
+                {relativeTime(item.since, now, { bare: true })}
+              </span>
+            )}
           </span>
         </span>
         {row?.workspace && (
@@ -201,13 +207,4 @@ export default function FocusedWorkspace() {
       {showShortcuts && <ShortcutOverlay mode="focused" onClose={() => setShowShortcuts(false)} />}
     </div>
   )
-}
-
-// waited renders one wait duration the rail reads at a glance.
-function waited(since: number, now: number): string {
-  const s = Math.max(0, Math.floor((now - since) / 1000))
-  if (s < 60) return `${s}s`
-  const m = Math.floor(s / 60)
-  if (m < 60) return `${m}m`
-  return `${Math.floor(m / 60)}h`
 }

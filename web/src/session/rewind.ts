@@ -32,19 +32,25 @@ export function kindClass(kind: RewindKind): string {
   }
 }
 
-// relativeTime renders a candidate's age, e.g. "96m ago", minutes keep their
-// precision through the first two hours, past a week it falls back to a short
-// date, unreadable stamps stay empty.
-export function relativeTime(ts: number, now: number = Date.now()): string {
+// relativeTime renders one age for every surface showing a timestamp's
+// distance from now (rewind picker, run history, focus rail), e.g. "96m ago":
+// minute precision holds two hours, past a week a short date, unreadable
+// stamps stay empty. `bare` drops the trailing "ago".
+export function relativeTime(
+  ts: number,
+  now: number = Date.now(),
+  opts?: { bare?: boolean },
+): string {
   if (!Number.isFinite(ts)) return ''
   const s = Math.max(0, Math.floor((now - ts) / 1000))
-  if (s < 60) return `${s}s ago`
+  const suffix = opts?.bare ? '' : ' ago'
+  if (s < 60) return `${s}s${suffix}`
   const m = Math.floor(s / 60)
-  if (m < 120) return `${m}m ago`
+  if (m < 120) return `${m}m${suffix}`
   const h = Math.floor(m / 60)
-  if (h < 24) return `${h}h ago`
+  if (h < 24) return `${h}h${suffix}`
   const d = Math.floor(h / 24)
-  if (d < 7) return `${d}d ago`
+  if (d < 7) return `${d}d${suffix}`
   return new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }
 

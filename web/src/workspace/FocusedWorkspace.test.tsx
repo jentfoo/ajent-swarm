@@ -237,6 +237,17 @@ describe('FocusedWorkspace', () => {
     expect(headings).toEqual(['Needs input (2)', 'Waiting (1)', 'Working (1)'])
   })
 
+  it('renders rail waits in the shared relative format', async () => {
+    attention = [...attentionRows(), waitingRow()]
+    renderFocused()
+    await openSocket()
+
+    // wait ages share the rewind/run-history dialect: bare durations, never
+    // "ago", and rows without a wait stamp render none at all
+    const waits = [...rail().querySelectorAll('.rail-wait')].map((w) => w.textContent ?? '')
+    expect(waits).toEqual(['1m', expect.stringMatching(/^\d+s$/)])
+  })
+
   it('hides empty queue sections', async () => {
     attention = []
     renderFocused()

@@ -241,9 +241,10 @@ describe('FocusedWorkspace', () => {
     attention = []
     renderFocused()
 
-    // an all-empty rail renders no section chrome, only the placeholder
+    // an all-empty rail renders no section chrome, only the empty notice
     expect(await screen.findByText('Select a session from the rail.')).toBeInTheDocument()
     expect(rail().querySelectorAll('.rail-section-title')).toHaveLength(0)
+    expect(screen.getByText('No sessions running')).toBeInTheDocument()
   })
 
   it('hides sections with no sessions', async () => {

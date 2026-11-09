@@ -172,15 +172,19 @@ export default function FocusedWorkspace() {
   return (
     <div className="workspace focused-workspace">
       <div className="focus-rail" ref={railRef} aria-label="Focus queue">
-        {railSections.map((section) => (
-          <div className="rail-section" key={section.queue}>
-            <div className="rail-section-title">
-              {attentionSectionTitles[section.queue]}{' '}
-              <span className="muted">({section.rows.length})</span>
+        {railSections.length === 0 ? (
+          <p className="muted">No sessions running</p>
+        ) : (
+          railSections.map((section) => (
+            <div className="rail-section" key={section.queue}>
+              <div className="rail-section-title">
+                {attentionSectionTitles[section.queue]}{' '}
+                <span className="muted">({section.rows.length})</span>
+              </div>
+              {section.rows.map((item) => renderRow(item))}
             </div>
-            {section.rows.map((item) => renderRow(item))}
-          </div>
-        ))}
+          ))
+        )}
       </div>
 
       <div className="workspace-main">

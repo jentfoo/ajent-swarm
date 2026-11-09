@@ -21,10 +21,10 @@ import { Toasts } from '../hooks/Toasts'
 import { useKeyboardInset, keyboardInsetStyle } from '../hooks/useKeyboardInset'
 import { useSessionChannel } from '../hooks/useSessionChannel'
 import { overlayOpen } from '../ui/overlayStack'
+import { ModelMenu } from '../ui/ModelMenu'
 import { OverlayMenu } from '../ui/OverlayMenu'
 import { useWorkspace } from '../providers/workspace'
 import { BottomSheet } from './BottomSheet'
-import { ModelChip } from './ModelChip'
 import { RewindSheet } from './RewindSheet'
 import { SettingsScreen } from './SettingsScreen'
 import { horizontallyScrollable } from './scrollable'
@@ -145,7 +145,7 @@ function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElemen
         <span className="session-title">{label}</span>
         {/* the same badge desktop's header renders, off the same derivation */}
         <StatusBadge status={headerBadgeOf(working, itemFor(sessionId))} />
-        <ModelChip sessionId={sessionId} snap={snap} onToast={pushToast} />
+        <ModelMenu sessionId={sessionId} snap={snap} onToast={pushToast} />
         <ModeMenu sessionId={sessionId} mode={snap.permission} onToast={pushToast} />
         {isTransientPhase(phase) && (
           <span className={`badge ${phase === 'resyncing' ? 'warn' : ''}`}>{phase}</span>

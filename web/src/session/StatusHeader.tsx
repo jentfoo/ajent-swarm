@@ -9,9 +9,8 @@ import { sessionBusy } from '../state/eventApplier'
 import { headerBadgeOf } from '../workspace/attention'
 import { useWorkspace } from '../providers/workspace'
 import { MenuPopover } from '../ui/MenuPopover'
-import { ModelMenuItems } from '../ui/ModelMenuItems'
+import { ModelMenu } from '../ui/ModelMenu'
 import { OverlayMenu } from '../ui/OverlayMenu'
-import { useModelMenu } from '../ui/useModelMenu'
 import { shortID } from './names'
 import { useSessionLabel } from './useSessionLabel'
 import { AgentSettingsMenu } from './AgentSettingsMenu'
@@ -144,54 +143,6 @@ export function ModeMenu({
             {items}
           </MenuPopover>
         ))}
-    </div>
-  )
-}
-
-// ModelMenu lists models.get's registry exactly as the running process
-// resolved it and switches through model.set — no picker dialog to ride or
-// cancel, and no user-config persist side effect. Fetch, pick and busy state
-// live in the shared useModelMenu controller; items render through the
-// shared grouped ModelMenuItems, the same body the mobile chip uses.
-// Refusals for unknown or ambiguous names surface as toasts with upstream's
-// message.
-function ModelMenu({
-  sessionId,
-  snap,
-  onToast,
-}: {
-  sessionId: string
-  snap: CtlState
-  onToast: (text: string, level?: 'info' | 'error') => void
-}) {
-  const menu = useModelMenu(sessionId, snap.model.key, onToast)
-  const chipRef = useRef<HTMLButtonElement>(null)
-
-  const label = snap.model.short || snap.model.key || 'model'
-  return (
-    <div className="model-menu">
-      <button
-        ref={chipRef}
-        type="button"
-        className="badge accent model-chip"
-        disabled={menu.busy}
-        title="Switch model"
-        aria-haspopup="menu"
-        aria-expanded={menu.open}
-        onClick={() => void menu.toggle()}
-      >
-        {label}
-      </button>
-      {menu.open && (
-        <MenuPopover anchorRef={chipRef} role="menu" className="menu card" onClose={menu.close}>
-          <ModelMenuItems
-            models={menu.models}
-            active={menu.active}
-            currentKey={snap.model.key}
-            onPick={(key) => void menu.pick(key)}
-          />
-        </MenuPopover>
-      )}
     </div>
   )
 }

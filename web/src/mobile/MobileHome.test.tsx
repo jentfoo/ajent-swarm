@@ -230,6 +230,12 @@ describe('MobileHome', () => {
     expect(sessionCalls).toBeGreaterThan(sessionsBefore)
     expect(screen.getByText('Refreshing…')).toBeInTheDocument()
 
+    // the status floats out of flow instead of opening a line above the
+    // launcher, so its appearance cannot shift content beneath a gesture
+    expect(screen.getByText('Refreshing…')).toHaveClass('pull-refresh')
+    const launchSection = screen.getByLabelText('New session')
+    expect(home.firstElementChild).toBe(launchSection)
+
     act(() => release())
     await waitFor(() => expect(screen.queryByText('Refreshing…')).not.toBeInTheDocument())
   })

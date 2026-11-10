@@ -25,7 +25,9 @@ export default function MobileHome() {
   const facts = useLaunchFacts()
 
   // pull-to-refresh re-reads both listings in parallel, each keeps its own
-  // error story, so a refusal only means stale rows until the next poll.
+  // error story, so a refusal only means stale rows until the next poll. The
+  // status rides .pull-refresh out of flow: inserting it mid-gesture must
+  // never displace the content beneath.
   const { refreshSaved } = facts
   const refreshAll = useCallback(async () => {
     await Promise.all([refreshSessions(), refreshSaved()])
@@ -37,12 +39,6 @@ export default function MobileHome() {
 
   return (
     <div className="mobile-home" ref={surfaceRef}>
-      {refreshing && (
-        <p className="muted" role="status">
-          Refreshing…
-        </p>
-      )}
-
       <NewSessionSection facts={facts} />
 
       <section aria-label="Live sessions">
@@ -59,6 +55,12 @@ export default function MobileHome() {
           <span className="muted">theme and global settings</span>
         </Link>
       </nav>
+
+      {refreshing && (
+        <p className="pull-refresh muted" role="status">
+          Refreshing…
+        </p>
+      )}
     </div>
   )
 }

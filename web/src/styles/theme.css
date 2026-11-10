@@ -1937,6 +1937,27 @@ label {
   flex-basis: 100%;
 }
 
+.mobile-home {
+  position: relative; /* anchors .pull-refresh over the launcher's top edge */
+}
+/* the pull-to-refresh status floats instead of joining flow, so appearing or
+   clearing never shifts content beneath an in-flight gesture. The small
+   negative offset rides .mobile-content's page padding, which a scroll port
+   shows at rest, so nothing clips */
+.pull-refresh {
+  position: absolute;
+  top: calc(var(--unit) * -2);
+  left: 50%;
+  transform: translateX(-50%);
+  margin: 0;
+  padding: calc(var(--unit) * 1) calc(var(--unit) * 3);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: var(--fs-small);
+  pointer-events: none; /* taps pass through to the controls beneath */
+}
+
 .mobile-home section {
   margin-bottom: calc(var(--unit) * 5);
 }

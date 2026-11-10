@@ -3,11 +3,13 @@ import { useEffect, useRef } from 'react'
 import type { ReactElement } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 
+import { useOverlayDismiss } from '../ui/overlayStack'
 import { usePullToRefresh } from './usePullToRefresh'
 
 // The launcher's pull gesture against a real ancestor scroller: a release past
 // the threshold at the very top fires once and shows a refreshing state, while
-// short drags, scrolled pages, dead row wrappers and extra fingers stay silent.
+// short drags, scrolled pages, dead row wrappers, extra fingers and an open
+// overlay layer stay silent.
 
 // Harness mirrors the launcher's shape: the ref'd surface sits inside the page
 // scroller, rows ride their own container. deadRows styles that container as a
@@ -16,9 +18,11 @@ import { usePullToRefresh } from './usePullToRefresh'
 function Harness({
   onRefresh,
   deadRows = false,
+  layered = false,
 }: {
   onRefresh: () => Promise<void>
   deadRows?: boolean
+  layered?: boolean
 }): ReactElement {
   const surface = useRef<HTMLDivElement>(null)
   const scroller = useRef<HTMLDivElement>(null)
@@ -33,13 +37,16 @@ function Harness({
   }, [])
 
   return (
-    <div ref={scroller} data-testid="scroller" style={{ overflowY: 'auto' }}>
-      <div ref={surface} data-testid="surface">
-        <div data-testid="rows" style={deadRows ? { overflowY: 'auto' } : undefined}>
-          <span data-testid="row">{refreshing ? 'refreshing' : 'idle'}</span>
+    <>
+      <div ref={scroller} data-testid="scroller" style={{ overflowY: 'auto' }}>
+        <div ref={surface} data-testid="surface">
+          <div data-testid="rows" style={deadRows ? { overflowY: 'auto' } : undefined}>
+            <span data-testid="row">{refreshing ? 'refreshing' : 'idle'}</span>
+          </div>
         </div>
       </div>
-    </div>
+      {layered && <Layer />}
+    </>
   )
 }
 
@@ -48,6 +55,17 @@ function pullGesture(el: HTMLElement, fromY: number, toY: number) {
   fireEvent.touchStart(el, { touches: [{ clientY: fromY }] })
   if (toY !== fromY) fireEvent.touchMove(el, { touches: [{ clientY: toY }] })
   fireEvent.touchEnd(el, { touches: [], changedTouches: [{ clientY: toY }] })
+}
+
+// Layer mounts one registered overlay element, the seam ModalShell,
+// BottomSheet and PushedScreen share through useOverlayDismiss, so
+// overlayOpen() reads true for exactly as long as it stays mounted.
+// Its own component because mounting is what registers: a prop toggle on the
+// harness never rebinds the hook.
+function Layer(): ReactElement {
+  const ref = useRef<HTMLDivElement>(null)
+  useOverlayDismiss(ref, () => {})
+  return <div ref={ref} data-testid="layer" />
 }
 
 // settle flushes the refresh continuation's state updates inside act
@@ -211,5 +229,36 @@ describe('usePullToRefresh', () => {
     fireEvent.touchEnd(row, { touches: [{ clientY: 200 }], changedTouches: [{ clientY: 400 }] })
 
     expect(onRefresh).not.toHaveBeenCalled()
+  })
+
+  it('stays silent behind a layer', async () => {
+    const onRefresh = vi.fn(async () => {})
+
+    // the open layer owns the page: even a full drag down at rest never seeds,
+    // so no refresh starts behind its backdrop
+    render(<Harness onRefresh={onRefresh} layered />)
+    pullGesture(screen.getByTestId('row'), 200, 300)
+    expect(onRefresh).not.toHaveBeenCalled()
+    expect(screen.getByTestId('row')).toHaveTextContent('idle')
+  })
+
+  it('late layer voids the release', async () => {
+    const onRefresh = vi.fn(async () => {})
+    const view = render(<Harness onRefresh={onRefresh} />)
+    const row = screen.getByTestId('row')
+
+    // the pull starts clean, then a long-press modal mounts mid-hold and its
+    // layer owns the page while the finger keeps dragging down
+    fireEvent.touchStart(row, { touches: [{ clientY: 200 }] })
+    view.rerender(<Harness onRefresh={onRefresh} layered />)
+    fireEvent.touchMove(row, { touches: [{ clientY: 320 }] })
+    fireEvent.touchEnd(row, { touches: [], changedTouches: [{ clientY: 320 }] })
+    expect(onRefresh).not.toHaveBeenCalled()
+
+    // the closed layer leaves nothing behind, a clean pull still plays once
+    view.rerender(<Harness onRefresh={onRefresh} />)
+    pullGesture(row, 200, 300)
+    await settle()
+    expect(onRefresh).toHaveBeenCalledTimes(1)
   })
 })

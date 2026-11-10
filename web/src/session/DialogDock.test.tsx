@@ -660,6 +660,103 @@ describe('DialogDock focus policy', () => {
   })
 })
 
+// Arrival announcements: one sr-only polite region rides every surface,
+// mounted empty like Notices so an arriving dialog mutates existing live-
+// region content instead of inserting a region already carrying text.
+describe('DialogDock arrival announcements', () => {
+  // the region exists with or without the dock's section, so it comes off
+  // the container rather than a label query
+  const region = (container: HTMLElement) =>
+    container.querySelector<HTMLElement>('[aria-live="polite"]')!
+
+  function arrivalDock(dialogs: InteractionPending[]) {
+    return render(
+      <DialogDock
+        sessionId="01S"
+        dialogs={dialogs}
+        outcomes={[]}
+        onAnsweredLocally={noop}
+        onOutcomeDismissed={noop}
+      />,
+    )
+  }
+
+  it('keeps the region mounted while empty', () => {
+    const { container } = arrivalDock([])
+
+    expect(region(container)).toBeEmptyDOMElement()
+  })
+
+  it('announces first arrival politely', () => {
+    const view = arrivalDock([])
+    view.rerender(
+      <DialogDock
+        sessionId="01S"
+        dialogs={[base({ prompt: 'Proceed?' })]}
+        outcomes={[]}
+        onAnsweredLocally={noop}
+        onOutcomeDismissed={noop}
+      />,
+    )
+
+    expect(region(view.container)).toHaveAttribute('aria-live', 'polite')
+    expect(region(view.container)).toHaveTextContent('A dialog needs an answer: Proceed?')
+  })
+
+  it('keeps stacked arrivals quiet', () => {
+    const view = arrivalDock([base({ id: 7, prompt: 'first question' })])
+    view.rerender(
+      <DialogDock
+        sessionId="01S"
+        dialogs={[
+          base({ id: 7, prompt: 'first question' }),
+          base({ id: 8, prompt: 'second question' }),
+        ]}
+        outcomes={[]}
+        onAnsweredLocally={noop}
+        onOutcomeDismissed={noop}
+      />,
+    )
+
+    // the head never moved, so the line stands and nothing re-announces
+    expect(region(view.container)).toHaveTextContent('A dialog needs an answer: first question')
+  })
+
+  it('names the next blocker after head settles', () => {
+    const view = arrivalDock([
+      base({ id: 7, prompt: 'first question' }),
+      base({ id: 8, prompt: 'second question' }),
+    ])
+    view.rerender(
+      <DialogDock
+        sessionId="01S"
+        dialogs={[base({ id: 8, prompt: 'second question' })]}
+        outcomes={[]}
+        onAnsweredLocally={noop}
+        onOutcomeDismissed={noop}
+      />,
+    )
+
+    expect(region(view.container)).toHaveTextContent('A dialog needs an answer: second question')
+  })
+
+  it('outcome chips stay silent', () => {
+    const view = arrivalDock([])
+    view.rerender(
+      <DialogDock
+        sessionId="01S"
+        dialogs={[]}
+        outcomes={[{ id: 9, answered: true, cancelled: false, index: 0 }]}
+        onAnsweredLocally={noop}
+        onOutcomeDismissed={noop}
+      />,
+    )
+
+    // chips announce through their own role=status, never the arrival region
+    expect(region(view.container)).toBeEmptyDOMElement()
+  })
+})
+
 // coarseDock re-imports the dock under the coarse-pointer stub, since the
 // touch gate reads once at module scope: a wide tablet runs the desktop chrome
 // on a coarse pointer, so the secret answer takes the shared press too.

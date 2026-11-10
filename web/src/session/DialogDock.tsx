@@ -23,6 +23,10 @@ import { usePermitNoteAutoAnswer } from './decisionNote'
 // auto-resolves (decisionNote.ts) instead of reading as required input.
 // Answered-elsewhere chips read their detail inline and leave on their own
 // or on tap. No head autofocus: focus belongs to the whole-screen composer.
+//
+// The first arrival announces through one sr-only polite region kept mounted
+// for the surface's whole life (dialogAnnouncement below), so assistive tech
+// hears what took the composer away exactly when input is lost.
 export function DialogDock({
   sessionId,
   dialogs,
@@ -39,36 +43,54 @@ export function DialogDock({
   autoFocusDialogs?: boolean
   onAnsweredLocally: (dialogId: number) => void
   onOutcomeDismissed: (dialogId: number) => void
-}): ReactElement | null {
+}): ReactElement {
   const { suppressed, recordIntent } = usePermitNoteAutoAnswer(
     sessionId,
     dialogs,
     onAnsweredLocally,
   )
   const visible = dialogs.filter((dlg) => !suppressed.has(dlg.id))
-  if (visible.length === 0 && outcomes.length === 0) return null
 
   return (
-    <section className={`dialog-dock ${touch ? 'touch' : ''}`.trim()} aria-label="Open dialogs">
-      {visible.map((dlg, i) => (
-        <DialogCardBody
-          key={dlg.id}
-          dialog={dlg}
-          sessionId={sessionId}
-          layout={touch ? 'touch' : 'compact'}
-          head={!touch && autoFocusDialogs && i === 0}
-          onAnsweredLocally={onAnsweredLocally}
-          onNoteIntent={recordIntent}
-        />
-      ))}
-      {outcomes.map((o) => (
-        <ResolvedChip
-          key={`outcome-${o.id}`}
-          outcome={o}
-          onDismiss={onOutcomeDismissed}
-          inlineDetail={touch}
-        />
-      ))}
-    </section>
+    <>
+      {/* mounted empty like Notices, so an arrival mutates live-region content */}
+      <span className="sr-only" aria-live="polite">
+        {dialogAnnouncement(visible)}
+      </span>
+      {(visible.length > 0 || outcomes.length > 0) && (
+        <section className={`dialog-dock ${touch ? 'touch' : ''}`.trim()} aria-label="Open dialogs">
+          {visible.map((dlg, i) => (
+            <DialogCardBody
+              key={dlg.id}
+              dialog={dlg}
+              sessionId={sessionId}
+              layout={touch ? 'touch' : 'compact'}
+              head={!touch && autoFocusDialogs && i === 0}
+              onAnsweredLocally={onAnsweredLocally}
+              onNoteIntent={recordIntent}
+            />
+          ))}
+          {outcomes.map((o) => (
+            <ResolvedChip
+              key={`outcome-${o.id}`}
+              outcome={o}
+              onDismiss={onOutcomeDismissed}
+              inlineDetail={touch}
+            />
+          ))}
+        </section>
+      )}
+    </>
   )
+}
+
+// dialogAnnouncement names the oldest open dialog as one polite line, empty
+// while nothing blocks so any later arrival always changes the region's text.
+// The head staying put keeps stacked arrivals and outcome chips quiet: the
+// line moves only when the set empties or the head itself is replaced.
+function dialogAnnouncement(visible: InteractionPending[]): string {
+  const head = visible[0]
+  if (head === undefined) return ''
+  // an empty prompt reads by its kind, matching the card's own fallback
+  return `A dialog needs an answer: ${head.prompt || `[${head.kind}]`}`
 }

@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -152,6 +152,68 @@ describe('RewindList', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1) // the candidates load alone
     expect(screen.getByTestId('rewind-03C')).not.toHaveAttribute('data-cursor')
+  })
+
+  it('one rewind per commit window', async () => {
+    const { bodies } = stubAPI(() => Response.json(forks))
+    const { onClose, onToast, onPrefill } = renderList()
+    const row = await screen.findByTestId('rewind-01U')
+
+    // two clicks inside one commit window: neither sees the other's busyId,
+    // only one rewind may start
+    await act(async () => {
+      row.click()
+      row.click()
+    })
+
+    expect(bodies).toEqual([{ head: '01U' }])
+    expect(onToast).toHaveBeenCalledTimes(1)
+    expect(onPrefill).toHaveBeenCalledTimes(1)
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('one rewind per key repeat', async () => {
+    const { bodies } = stubAPI(() => Response.json(forks))
+    const { onClose, onToast, onPrefill } = renderList(true)
+    await screen.findByTestId('rewind-01U')
+
+    // held Enter repeats before the busy state commits: only the first lands,
+    // and it picks beneath the cursor that opens beside the head
+    await act(async () => {
+      for (let i = 0; i < 3; i++) {
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }))
+      }
+    })
+
+    expect(bodies).toEqual([{ head: '03C' }])
+    expect(onToast).toHaveBeenCalledTimes(1)
+    expect(onPrefill).not.toHaveBeenCalled() // replies carry no prompt text
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('retries after a refused pick', async () => {
+    const user = userEvent.setup()
+    let attempts = 0
+    stubAPI(
+      () => Response.json(forks),
+      () => {
+        attempts++
+        return attempts === 1
+          ? Response.json({ error: 'busy', message: 'a turn is running' }, { status: 409 })
+          : Response.json({ head: '01U' })
+      },
+    )
+    const { onClose, onToast, onPrefill } = renderList()
+    const row = await screen.findByTestId('rewind-01U')
+
+    await user.click(row)
+    await vi.waitFor(() => expect(onToast).toHaveBeenCalledWith('a turn is running', 'error'))
+
+    // the guard frees once the refusal lands, so a retry can go out
+    await user.click(row)
+    await vi.waitFor(() => expect(onToast).toHaveBeenCalledWith('Rewound onto user.', 'info'))
+    expect(onPrefill).toHaveBeenCalledTimes(1)
+    expect(onClose).toHaveBeenCalled()
   })
 
   it('warns before a truncated prefill', async () => {

@@ -10,8 +10,10 @@ import { absoluteTime, kindClass, kindLabel, relativeTime } from './rewind'
 // dialog's modal and the phone's bottom sheet. Candidates load per mount,
 // every kind lists in the server's tree order with no cap, and one pick
 // rewinds, toasts success, prefills a prompt for an edit (warning first when
-// its text arrived truncated) and closes. `keyboard` runs the desktop cursor:
-// arrows or j/k move it, Enter picks beneath it, sheets stay touch-driven.
+// its text arrived truncated) and closes. At most one rewind is on the wire;
+// repeats inside one commit window stand down. `keyboard` runs the desktop
+// cursor: arrows or j/k move it, Enter picks beneath it, sheets stay
+// touch-driven.
 export function RewindList({
   sessionId,
   keyboard = false,
@@ -28,6 +30,8 @@ export function RewindList({
   const [candidates, setCandidates] = useState<RewindCandidate[] | null>(null)
   const [loadError, setLoadError] = useState('')
   const [busyId, setBusyId] = useState('')
+  // synchronous pick guard: a repeat lands before busyId commits
+  const pendingRef = useRef(false)
   const [cursorId, setCursorId] = useState('')
   const listRef = useRef<HTMLDivElement>(null)
 
@@ -58,7 +62,8 @@ export function RewindList({
   const cursor = pickable[cursorIndex]?.id ?? ''
 
   const pick = async (c: RewindCandidate) => {
-    if (busyId !== '' || c.isHead) return
+    if (pendingRef.current || c.isHead) return
+    pendingRef.current = true
     setBusyId(c.id)
     try {
       await sessionAPI.rewind(sessionId, c.id)
@@ -73,6 +78,7 @@ export function RewindList({
     } catch (err) {
       onToast(describeError(err, 'Rewind refused.'), 'error')
     } finally {
+      pendingRef.current = false
       setBusyId('')
     }
   }

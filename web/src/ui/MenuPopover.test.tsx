@@ -149,6 +149,13 @@ describe('MenuPopover', () => {
     expect(screen.getByRole('menu')).toBeInTheDocument()
   })
 
+  it('stands down for escape during composition', () => {
+    // Escape cancels an in-flight IME composition, never closes the layer
+    render(<Harness />)
+    fireEvent.keyDown(document.body, { key: 'Escape', isComposing: true })
+    expect(screen.getByRole('menu')).toBeInTheDocument()
+  })
+
   it('answers escape only on the topmost popover', async () => {
     // two pane menus can stack, one press unwinds exactly one layer, topmost
     const user = userEvent.setup()

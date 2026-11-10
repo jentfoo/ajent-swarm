@@ -410,6 +410,76 @@ describe('Composer caret and completion keys', () => {
   })
 })
 
+describe('Composer menu keys during composition', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  // composed fires one keydown flagged mid-composition, as IMEs deliver
+  // confirmations, candidate navigation and cancels
+  function composed(box: HTMLTextAreaElement, key: string) {
+    const press = createEvent.keyDown(box, { key, isComposing: true })
+    fireEvent(box, press)
+    return press
+  }
+
+  it('menu keys keep composition meaning', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal(
+      'fetch',
+      filesFetch({ ma: [{ path: 'src/main.go' }, { path: 'src/', dir: true }] }),
+    )
+    const onSubmit = vi.fn()
+    render(Harness({ onSubmit }))
+
+    const box = screen.getByLabelText('Prompt') as HTMLTextAreaElement
+    await user.type(box, 'look at @ma')
+    await screen.findByRole('listbox', { name: 'Path suggestions' })
+
+    // each menu key stands down mid-composition: no send or splice, no
+    // dismissal, arrows move no highlight
+    for (const key of ['Enter', 'ArrowDown', 'Tab', 'Escape']) {
+      expect(composed(box, key).defaultPrevented).toBe(false)
+    }
+    expect(onSubmit).not.toHaveBeenCalled()
+    expect(box.value).toBe('look at @ma')
+    expect(screen.getAllByRole('option')[0]).toHaveAttribute('aria-selected', 'true')
+
+    // once the composition lands, the keys resume their roles
+    await user.tab()
+    expect(box.value).toBe('look at @src/main.go ')
+  })
+
+  it('command menu stands down mid-composition', async () => {
+    const user = userEvent.setup()
+    const bodies: Record<string, unknown>[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string | URL, init?: RequestInit) => {
+        if (init?.body && !(init.body instanceof FormData)) {
+          bodies.push(JSON.parse(String(init.body)))
+          return Response.json({}, { status: 202 })
+        }
+        return Response.json({})
+      }),
+    )
+    render(Harness())
+
+    const box = screen.getByLabelText('Prompt') as HTMLTextAreaElement
+    await user.type(box, '/mo')
+    expect(screen.getByRole('listbox', { name: 'Commands' })).toBeInTheDocument()
+
+    // Escape cancels the composition instead of dismissing the menu
+    composed(box, 'Escape')
+    expect(screen.getByRole('listbox', { name: 'Commands' })).toBeInTheDocument()
+    expect(box.value).toBe('/mo')
+
+    // and an un-moved Enter afterwards submits the line as typed
+    await user.keyboard('{Enter}')
+    await waitFor(() => expect(bodies[0]).toMatchObject({ line: '/mo' }))
+  })
+})
+
 describe('Composer slash command menu', () => {
   afterEach(() => {
     vi.unstubAllGlobals()

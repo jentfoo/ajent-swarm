@@ -559,6 +559,8 @@ export function Composer({
     }
     if (search !== null && routeSearchKey(ev)) return
     if (menuKey !== '') {
+      // an IME mid-composition keeps its keys: candidates and cancel ride them
+      if (ev.nativeEvent.isComposing) return
       switch (ev.key) {
         case 'Tab':
           ev.preventDefault()
@@ -586,7 +588,7 @@ export function Composer({
           // working without modifiers, on desktop a moved selection completes
           // first, then sends, and an un-moved one falls through to send as
           // typed (the TUI overlay's key rules).
-          if (!ev.shiftKey && !ev.nativeEvent.isComposing) {
+          if (!ev.shiftKey) {
             ev.preventDefault()
             if (touchKeyboard) {
               acceptRow(highlight)

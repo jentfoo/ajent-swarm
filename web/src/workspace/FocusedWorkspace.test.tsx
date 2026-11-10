@@ -237,6 +237,23 @@ describe('FocusedWorkspace', () => {
     expect(headings).toEqual(['Needs input (2)', 'Waiting (1)', 'Working (1)'])
   })
 
+  it('badges a parked prompt queued inside the working queue', async () => {
+    attention = attentionRows().map((row) =>
+      row.sessionId === WORKER ? { ...row, parked: 1, parkedPrompt: 'run the tests' } : row,
+    )
+    renderFocused()
+    await openSocket()
+
+    const rows = railRows().map((row) => row.textContent ?? '')
+    // the turn is live, but the parked prompt owns the badge while the row
+    // itself sits in Working
+    expect(rows[2]).toContain('worker session')
+    expect(rows[2]).toContain('queued')
+    expect(rows[2]).not.toContain('running')
+    const headings = [...rail().querySelectorAll('.rail-section-title')].map((h) => h.textContent)
+    expect(headings).toEqual(['Needs input (2)', 'Working (1)'])
+  })
+
   it('renders rail waits in the shared relative format', async () => {
     attention = [...attentionRows(), waitingRow()]
     renderFocused()

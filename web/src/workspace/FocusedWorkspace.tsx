@@ -133,7 +133,9 @@ export default function FocusedWorkspace() {
             {item.kind === 'needs-review' && <span className="badge warn">review</span>}
             {item.kind === 'awaiting' && <span className="badge">waiting</span>}
             {item.kind === 'working' &&
-              (item.running ? (
+              (item.parked ? (
+                <span className="badge warn">queued</span>
+              ) : item.running ? (
                 <span className="badge accent">running</span>
               ) : (
                 <span className="badge">idle</span>

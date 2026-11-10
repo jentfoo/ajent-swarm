@@ -176,6 +176,27 @@ describe('session badge states', () => {
     expect(headerBadgeOf(false, digestRunning)).toBe('running')
   })
 
+  it('marks queued while a parked prompt waits out its idle window', () => {
+    const queued = deriveItem(
+      row({
+        sessionId: 'sb',
+        kind: 'working',
+        reason: 'queued: run the tests',
+        parked: 1,
+        parkedAt: 20,
+        since: 20,
+      }),
+    )
+    expect(queued.parked).toBe(true)
+    expect(sessionBadgeOf(false, queued)).toBe('queued')
+    expect(headerBadgeOf(false, queued)).toBe('queued')
+
+    // a parked prompt behind a live turn still badges queued: the queue
+    // outlives the turn, the row stays in Working through the kind
+    expect(sessionBadgeOf(true, queued)).toBe('queued')
+    expect(headerBadgeOf(true, queued)).toBe('queued')
+  })
+
   it('splits waiting from idle for the switcher and folds them for headers', () => {
     const awaiting = deriveItem(row({ sessionId: 'sb' }))
     expect(awaiting.kind).toBe('awaiting')

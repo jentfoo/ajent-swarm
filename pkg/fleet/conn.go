@@ -62,6 +62,23 @@ type digestFacts struct {
 	LastStop     string `json:"lastStop,omitempty"`     // stop reason of the last turn
 	LastStopErr  string `json:"lastStopErr,omitempty"`  // transport or context failure
 	Activity     string `json:"activity,omitempty"`     // top activity row, one line
+
+	Parked       int    `json:"parked,omitempty"`       // prompts parked for the next idle point
+	ParkedPrompt string `json:"parkedPrompt,omitempty"` // oldest one's text, one line
+	ParkedAt     int64  `json:"parkedAt,omitempty"`     // when the oldest parked, unix ms
+}
+
+// busyAt reports the session's newest busy moment: now while a turn runs or
+// a dialog waits, otherwise the last turn end. Zero means no known activity,
+// the one rule every idle gate shares.
+func (f digestFacts) busyAt() time.Time {
+	if f.Running || f.Spinning || f.OpenInteractions > 0 {
+		return time.Now()
+	}
+	if f.LastTurnEnd > 0 {
+		return time.UnixMilli(f.LastTurnEnd)
+	}
+	return time.Time{}
 }
 
 // Status is one row of the fleet listing: what the manager knows about an
@@ -171,6 +188,13 @@ type sessionActor struct {
 	// pendingId with arrival order beside it for bounded eviction
 	recallIDs   map[string]int64
 	recallOrder []string
+
+	// prompts parked until the fleet quiets down, plus the flush timer; a
+	// release or reconnect raises the busy floor: the turn a release starts is
+	// not observable yet and a drop may hide one entirely
+	parked    []parkedSubmit
+	parkTimer *time.Timer
+	busyFloor time.Time
 }
 
 // atomicStatus keeps the listing row readable off the actor goroutine. Every
@@ -325,6 +349,12 @@ func (a *sessionActor) prepare(conn *client.Conn, hello ctl.Hello) error {
 	// resumed first prompts predate the stream, only backfill ever sees them
 	a.mgr.maybeNameSession(a)
 	a.recallBackfill(snap, branch) // a drop may have overrun a tracked submit's commit
+	if len(a.parked) > 0 {
+		// a drop may hide this session's true last turn end: parks wait one
+		// full window past reconnect before they may flush
+		a.busyFloor = time.Now()
+	}
+	a.schedulePark() // parked lines from before the drop resume waiting
 	return nil
 }
 
@@ -422,6 +452,12 @@ func (a *sessionActor) handle(m actorMsg) {
 		msg.reply <- page
 	case msgSubmit:
 		a.handleSubmit(msg)
+	case msgParkSubmit:
+		a.handleParkSubmit(msg)
+	case msgParkRecall:
+		a.handleParkRecall(msg)
+	case msgParkDue:
+		a.handleParkDue()
 	case msgInterrupt:
 		a.handleInterrupt(msg)
 	case msgModeCycle:
@@ -564,6 +600,7 @@ func (a *sessionActor) exit(reason string) {
 	if a.state == ChildExited {
 		return
 	}
+	a.clearParked() // nothing can flush past an exit
 	a.closeConn()
 	a.publishChild(ChildExited, reason)
 	if a.view != nil && !a.view.hadActivity() {
@@ -642,6 +679,11 @@ func (a *sessionActor) refreshStatus() {
 		st.LastStop = a.view.lastStop
 		st.LastStopErr = digestText(a.view.lastStopErr)
 		st.Activity = digestText(a.view.activityPreview())
+		if len(a.parked) > 0 {
+			st.Parked = len(a.parked)
+			st.ParkedPrompt = parkPreview(a.parked)
+			st.ParkedAt = a.parked[0].queuedAt.UnixMilli()
+		}
 	}
 	if st.Name == "" {
 		st.Name = a.inst.SessionName

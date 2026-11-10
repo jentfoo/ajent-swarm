@@ -35,6 +35,7 @@ export interface AttentionItem {
   dialogId?: number // present on needs-input rows raised by a dialog
   turnEnd?: number // present on needs-review rows; the ack watermark target
   running: boolean
+  parked: boolean // a prompt waits in swarm for the session's next idle point
   queuedAt?: number // unix ms the session entered its current queue, client-stamped
 }
 
@@ -51,6 +52,7 @@ export function deriveItem(row: AttentionRow): AttentionItem {
     dialogId: row.dialogId,
     turnEnd: row.kind === 'needs-review' ? row.lastTurnEnd : undefined,
     running: sessionBusy(row),
+    parked: (row.parked ?? 0) > 0,
   }
 }
 
@@ -70,26 +72,30 @@ export function ackBodyFor(item: AttentionItem): AttentionAck | undefined {
 
 // SessionBadge is one live session's at-a-glance badge state. The switcher
 // rows render it directly, the session headers fold waiting into idle.
-export type SessionBadge = 'input' | 'running' | 'waiting' | 'idle'
+export type SessionBadge = 'input' | 'running' | 'queued' | 'waiting' | 'idle'
 
 // sessionBadgeOf ranks one session's badge state from its own busy fact plus
 // the shared attention item. A pending dialog parks the turn upstream, so
 // needs-input outranks running: the run is blocked on this human, not making
-// progress.
+// progress. A parked prompt outranks a live turn: the queue outlives the turn
+// and stays pending until the idle point, while the row itself sits in
+// Working through the digest kind.
 export function sessionBadgeOf(busy: boolean, item: AttentionItem | undefined): SessionBadge {
   if (item?.kind === 'needs-input') return 'input'
+  if (item?.parked) return 'queued'
   if (busy || (item?.running ?? false)) return 'running'
   if (item?.kind === 'awaiting') return 'waiting'
   return 'idle'
 }
 
-// HeaderBadge is the session headers' badge state: working, resting, or
-// blocked on a human.
-export type HeaderBadge = 'input' | 'running' | 'idle'
+// HeaderBadge is the session headers' badge state: working, resting, queued
+// for the next idle point, or blocked on a human.
+export type HeaderBadge = 'input' | 'running' | 'queued' | 'idle'
 
 // headerBadgeOf is the headers' coarsening of sessionBadgeOf: waiting folds
 // into idle, since the header answers working-versus-resting while the status
-// line under the transcript explains a resting agent.
+// line under the transcript explains a resting agent. A queued prompt stays
+// visible, it explains the wait itself.
 export function headerBadgeOf(busy: boolean, item: AttentionItem | undefined): HeaderBadge {
   const badge = sessionBadgeOf(busy, item)
   return badge === 'waiting' ? 'idle' : badge

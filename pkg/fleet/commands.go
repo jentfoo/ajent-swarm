@@ -166,17 +166,21 @@ func (a *sessionActor) handleSubmit(msg msgSubmit) {
 		msg.reply <- notReady()
 		return
 	}
-	if err := a.ensureWriteSeat(); err != nil {
-		msg.reply <- err
-		return
-	}
-	cctx, cancel := a.callWait()
-	defer cancel()
-	err := a.conn.Submit(cctx, msg.params)
+	err := a.submitUpstream(msg.params)
 	msg.reply <- err
 	if err == nil && msg.track {
 		a.recordRecallSubmit(msg.params)
 	}
+}
+
+// submitUpstream runs one write through the seat policy onto the wire.
+func (a *sessionActor) submitUpstream(params ctl.SubmitParams) error {
+	if err := a.ensureWriteSeat(); err != nil {
+		return err
+	}
+	cctx, cancel := a.callWait()
+	defer cancel()
+	return a.conn.Submit(cctx, params)
 }
 
 // handleInterrupt runs the Esc body remotely.

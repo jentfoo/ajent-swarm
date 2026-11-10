@@ -150,10 +150,11 @@ func (m *Manager) ackFactsFor(statuses []*Status) []ackFacts {
 }
 
 // deriveAttention folds one serving row and its ack facts into a digest row.
-// Needs input beats needs review, then an idle agent awaits its next prompt,
-// and only busy sessions work. The digest names only the oldest open dialog,
-// so a session with that one acknowledged still shows a generic count while
-// further dialogs wait.
+// Needs input beats a parked prompt (the dialog blocks the flush), a parked
+// session works while it waits out its quiet window, then an idle agent
+// awaits its next prompt, and only busy sessions work. The digest names only
+// the oldest open dialog, so a session with that one acknowledged still shows
+// a generic count while further dialogs wait.
 func deriveAttention(st *Status, acks ackFacts) Attention {
 	row := Attention{
 		digestFacts: st.digestFacts,
@@ -182,6 +183,22 @@ func deriveAttention(st *Status, acks ackFacts) Attention {
 	}
 
 	busy := st.Running || st.Spinning
+	if st.Parked > 0 {
+		row.Kind = AttentionWorking
+		row.Since = st.ParkedAt
+		switch {
+		case busy && strings.TrimSpace(st.Activity) != "":
+			row.Reason = st.Activity
+		case st.Parked > 1:
+			row.Reason = strconv.Itoa(st.Parked) + " prompts queued for idle"
+		case st.ParkedPrompt != "":
+			row.Reason = "queued: " + st.ParkedPrompt
+		default:
+			row.Reason = "prompt queued for idle"
+		}
+		return row
+	}
+
 	if !busy && st.LastTurnEnd > 0 && st.LastTurnEnd > acks.turn {
 		row.Kind = AttentionNeedsReview
 		row.Reason = stopReasonText(st.LastStop, st.LastStopErr)

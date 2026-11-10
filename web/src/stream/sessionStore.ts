@@ -258,10 +258,11 @@ export class SessionStore {
 const emptyState = initialSessionState()
 
 // digestSignature folds one applied state down to the facts the attention
-// digest ranks on: the open dialog set, busy flags and the last turn end. A
-// change between two states means the focus queue may re-sort, so only those
-// transitions are worth an out-of-band digest refresh, transcript and
-// activity churn keep riding the poll cadence.
+// digest ranks on: the open dialog set, busy flags, the last turn end, and
+// whether any prompt sits parked for the next idle point. A change between
+// two states means the focus queue may re-sort, so only those transitions
+// are worth an out-of-band digest refresh, transcript and activity churn
+// keep riding the poll cadence.
 function digestSignature(state: AppliedSessionState): string {
   const snap = state.snapshot
   return [
@@ -271,5 +272,6 @@ function digestSignature(state: AppliedSessionState): string {
     snap.idle,
     state.lastTurnEndAt,
     state.exitReason !== undefined,
+    state.pendings.some((p) => p.state === 'parked'),
   ].join('|')
 }

@@ -73,6 +73,10 @@ export interface ComposerProps {
   disabledReason: string
   onSubmit: (line: string, pendingId: string) => void // paints the optimistic row
   onSubmitFailed: (pendingId: string) => void // a refused submit never queued
+  // onQueue parks the line for the session's next idle point, painting the
+  // same optimistic row in its parked state
+  onQueue: (line: string, pendingId: string) => void
+  onQueueFailed: (pendingId: string) => void
   // stop rides beside Send, the surface decides when a streaming turn shows it
   stop?: { onClick: () => void; busy: boolean }
   // prompt recall: the Ctrl+R history search and the arrows that browse its
@@ -88,6 +92,8 @@ export interface ComposerProps {
 // swarm's state directory dropping an @<abs path> reference, since submits
 // are text-only. A draft opening with `!` or `!!` shows shell-mode
 // affordances (marker, staging hint, Run label) mirroring ajent's dispatch.
+// Queue parks the draft beside Send, holding it in swarm until the session
+// has been idle for the park window before the same submit runs.
 export function Composer({
   sessionId,
   value,
@@ -96,6 +102,8 @@ export function Composer({
   disabledReason,
   onSubmit,
   onSubmitFailed,
+  onQueue,
+  onQueueFailed,
   stop,
   recall,
 }: ComposerProps) {
@@ -282,6 +290,33 @@ export function Composer({
       if (!typedSinceSend.current && valueRef.current === draft) onChange('')
     },
     [disabled, sessionId, onSubmit, onSubmitFailed, onChange],
+  )
+
+  // queue parks one draft line for the session's next idle point: the same
+  // optimistic row and draft rules as send, only the wire call differs.
+  const queue = useCallback(
+    async (draft: string) => {
+      const line = draft.trim()
+      if (line === '' || disabled) return
+      if (inFlight.current.has(line)) return
+      const isPrompt = classifyLine(line) === 'prompt'
+      const pendingId = isPrompt ? newPendingID() : undefined
+      if (pendingId !== undefined) onQueue(line, pendingId)
+      inFlight.current.add(line)
+      typedSinceSend.current = false
+      setError('')
+      try {
+        await sessionAPI.queue(sessionId, line, pendingId)
+      } catch (err) {
+        inFlight.current.delete(line)
+        if (pendingId !== undefined) onQueueFailed(pendingId)
+        setError(describeError(err, 'Queue failed.'))
+        return // the refused text stays right where it is
+      }
+      inFlight.current.delete(line)
+      if (!typedSinceSend.current && valueRef.current === draft) onChange('')
+    },
+    [disabled, sessionId, onQueue, onQueueFailed, onChange],
   )
 
   // openSearchOverlay arms the blank Ctrl+R surface and refreshes the
@@ -841,51 +876,65 @@ export function Composer({
           onPointerDown={focusFreshTap}
           onSelect={(ev) => setCaret(ev.currentTarget.selectionStart ?? 0)}
         />
-        {/* attach and send ride beside the prompt, not under it */}
-        <div className="composer-actions">
-          <input
-            ref={fileRef}
-            type="file"
-            accept={textAccept}
-            multiple
-            hidden
-            data-testid="attach-input"
-            onChange={(ev) => void attach(ev.target.files)}
-          />
-          {/* touch has no modifier keys, so the search rides the toolbar */}
-          {touchKeyboard && (
+        {/* attach and send ride beside the prompt, Queue parks a draft
+            below them spanning the toolbar */}
+        <div className="composer-side">
+          <div className="composer-actions">
+            <input
+              ref={fileRef}
+              type="file"
+              accept={textAccept}
+              multiple
+              hidden
+              data-testid="attach-input"
+              onChange={(ev) => void attach(ev.target.files)}
+            />
+            {/* touch has no modifier keys, so the search rides the toolbar */}
+            {touchKeyboard && (
+              <button
+                type="button"
+                disabled={disabled}
+                onClick={openSearchOverlay}
+                aria-label="Search prompt history"
+                title="Search prompt history"
+              >
+                🔍
+              </button>
+            )}
             <button
               type="button"
-              disabled={disabled}
-              onClick={openSearchOverlay}
-              aria-label="Search prompt history"
-              title="Search prompt history"
+              disabled={disabled || uploading}
+              onClick={() => fileRef.current?.click()}
+              aria-label="Attach files"
+              title="Attach images or text files"
             >
-              🔍
+              {uploading ? '…' : '📎'}
             </button>
-          )}
+            {/* stop rides beside Send, ahead of it in the touch order */}
+            {stop && (
+              <button type="button" onClick={stop.onClick} disabled={stop.busy}>
+                {stop.busy ? 'Stopping…' : 'Stop'}
+              </button>
+            )}
+            <button
+              className={sendPress.keyboardDismiss ? 'primary keyboard-dismiss' : 'primary'}
+              type="submit"
+              disabled={sendPress.disabled}
+              {...sendPress.handlers}
+            >
+              {shell ? 'Run' : 'Send'}
+            </button>
+          </div>
+          {/* Queue parks the draft for the session's next idle point */}
           <button
+            className="composer-queue"
             type="button"
-            disabled={disabled || uploading}
-            onClick={() => fileRef.current?.click()}
-            aria-label="Attach files"
-            title="Attach images or text files"
-          >
-            {uploading ? '…' : '📎'}
-          </button>
-          {/* stop rides beside Send, ahead of it in the touch order */}
-          {stop && (
-            <button type="button" onClick={stop.onClick} disabled={stop.busy}>
-              {stop.busy ? 'Stopping…' : 'Stop'}
-            </button>
-          )}
-          <button
-            className={sendPress.keyboardDismiss ? 'primary keyboard-dismiss' : 'primary'}
-            type="submit"
             disabled={sendPress.disabled}
-            {...sendPress.handlers}
+            onClick={() => void queue(value)}
+            aria-label="Queue prompt for the next idle point"
+            title="Send once this session has been idle for 1 minute"
           >
-            {shell ? 'Run' : 'Send'}
+            Queue
           </button>
         </div>
       </div>

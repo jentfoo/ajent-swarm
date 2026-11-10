@@ -198,6 +198,9 @@ export interface SessionStatus {
   running: boolean
   idle: boolean
   queued: number // prompts waiting in the session's queue
+  parked?: number // prompts parked in swarm for the session's next idle point
+  parkedPrompt?: string // oldest parked prompt, one line
+  parkedAt?: number // unix ms the oldest parked
   openInteractions: number
   lastTurnEnd?: number // unix milliseconds
   lastStop?: string // stop reason of the last finished turn
@@ -232,6 +235,9 @@ export interface AttentionRow {
   lastStop?: string // stop reason of the last turn
   lastStopErr?: string
   activity?: string // top activity row, one line
+  parked?: number // prompts parked in swarm for the session's next idle point
+  parkedPrompt?: string // oldest parked prompt, one line
+  parkedAt?: number // unix ms the oldest parked
   ackedDialog?: boolean // the oldest open dialog is settled already
   ackedTurn?: number // the session's acknowledged turn end, unix milliseconds
   kind: AttentionKind
@@ -294,6 +300,14 @@ export interface ResolveReply {
 export interface RecallRow {
   id?: string
   text?: string
+}
+
+// QueueRecallRow names the parked prompt that left for edit-and-resubmit,
+// queued is false when nothing was parked.
+export interface QueueRecallRow {
+  queued?: boolean
+  line?: string
+  pendingId?: string
 }
 
 export type RewindKind = 'user' | 'assistant' | 'compaction'

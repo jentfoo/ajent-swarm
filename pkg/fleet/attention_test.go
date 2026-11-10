@@ -165,6 +165,46 @@ func TestDeriveAttention(t *testing.T) {
 				want: Attention{Kind: AttentionWorking},
 			},
 			{
+				name: "parked prompt outranks review and waits as working",
+				st: row(func(st *Status) {
+					st.LastTurnEnd = 900 // unreviewed, still outranked by the park
+					st.LastStop = "end_turn"
+					st.Parked = 1
+					st.ParkedPrompt = "run the tests"
+					st.ParkedAt = 1_200
+				}),
+				want: Attention{Kind: AttentionWorking, Reason: "queued: run the tests", Since: 1_200},
+			},
+			{
+				name: "open dialog still outranks a parked prompt",
+				st: row(func(st *Status) {
+					st.OpenInteractions = 1
+					st.DialogID = 7
+					st.DialogPrompt = "allow write?"
+					st.DialogAt = 1_000
+					st.Parked = 2
+				}),
+				want: Attention{Kind: AttentionNeedsInput, Reason: "allow write?", Since: 1_000},
+			},
+			{
+				name: "several parked prompts count in the reason",
+				st: row(func(st *Status) {
+					st.Parked = 3
+					st.ParkedPrompt = "run the tests"
+				}),
+				want: Attention{Kind: AttentionWorking, Reason: "3 prompts queued for idle"},
+			},
+			{
+				name: "busy parked session keeps its activity reason",
+				st: row(func(st *Status) {
+					st.Running = true
+					st.Activity = "reading main.go"
+					st.Parked = 1
+					st.ParkedPrompt = "run the tests"
+				}),
+				want: Attention{Kind: AttentionWorking, Reason: "reading main.go"},
+			},
+			{
 				name: "awaiting falls back to activity text",
 				st:   row(func(st *Status) { st.Activity = " tests green " }),
 				want: Attention{Kind: AttentionAwaiting, Reason: "tests green"},

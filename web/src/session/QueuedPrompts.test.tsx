@@ -23,11 +23,13 @@ function renderChips({
   pendings = [],
   droppedRows = [],
   onEdit = () => {},
+  onEditParked = () => {},
 }: {
   queuedRows?: QueueRow[]
   pendings?: PendingSubmit[]
   droppedRows?: DroppedQueueRow[]
   onEdit?: () => void
+  onEditParked?: () => void
 } = {}) {
   return render(
     <QueuedPrompts
@@ -35,6 +37,7 @@ function renderChips({
       pendings={pendings}
       droppedRows={droppedRows}
       onEdit={onEdit}
+      onEditParked={onEditParked}
     />,
   )
 }
@@ -94,6 +97,27 @@ describe('QueuedPrompts', () => {
     const dropped = screen.getByText('dropped new').closest('.queue-chip')!
     const live = screen.getByText('live one').closest('.queue-chip')!
     expect(dropped.compareDocumentPosition(live) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('badges parked rows and offers recall on the newest only', async () => {
+    const onEditParked = vi.fn()
+    renderChips({
+      pendings: [
+        { id: 'q1', text: 'first parked', state: 'parked' },
+        { id: 'q2', text: 'newest parked', state: 'parked' },
+      ],
+      onEditParked,
+    })
+
+    expect(screen.getByText('first parked')).toBeInTheDocument()
+    expect(screen.getByText('newest parked')).toBeInTheDocument()
+    expect(screen.getAllByText('waiting for idle')).toHaveLength(2)
+
+    const edits = screen.getAllByRole('button', { name: /edit/ })
+    expect(edits).toHaveLength(1)
+    expect(edits[0]!.closest('.queue-chip')!.textContent).toContain('newest parked')
+    await userEvent.setup().click(edits[0]!)
+    expect(onEditParked).toHaveBeenCalledTimes(1)
   })
 
   it('keeps secret rows id only', () => {

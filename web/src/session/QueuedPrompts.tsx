@@ -16,10 +16,11 @@ const refusedTtlMs = 8_000
 // client's optimistic ones, secret rows redacted to their id, and recently
 // dropped rows badged with why they left (interrupt, rewind or recalled). The
 // rows form one chronological list capped at maxChips keeping the newest end,
-// where the recall affordance and live submit feedback sit, older rows
-// collapsing into one "+N more" line. Editing goes through recall in the
-// composer, since the wire's recall always pops the newest row, only that chip
-// offers it. Refused submits expire refusedTtlMs after their refusal.
+// where the recall affordances and live submit feedback sit, older rows
+// collapsing into one "+N more" line. The wire's recall pops its newest row
+// into the composer, so only that chip offers it, and the newest prompt
+// parked for the next idle point offers the same through swarm's own recall.
+// Refused submits expire refusedTtlMs after their refusal.
 // Fresh refusals also announce through one sr-only polite region, so a failed
 // submit is heard without every queue chip being read aloud.
 export function QueuedPrompts({
@@ -27,11 +28,13 @@ export function QueuedPrompts({
   pendings,
   droppedRows,
   onEdit,
+  onEditParked,
 }: {
   queuedRows: QueueRow[]
   pendings: PendingSubmit[]
   droppedRows: DroppedQueueRow[]
   onEdit: () => void
+  onEditParked: () => void
 }) {
   const [now, setNow] = useState(() => Date.now())
   // tick only while a refused chip is fresh: expired rows stay in store state
@@ -62,12 +65,23 @@ export function QueuedPrompts({
       />
     )),
     // optimistic rows the wire has not named yet stay visible, failed ones
-    // only while fresh
+    // only while fresh, parked ones until their idle point submits them
     ...pendings.flatMap((p) => {
-      if (p.state !== 'pending' && p.state !== 'failed') return []
-      if (p.state === 'pending' && named.has(p.id)) return []
-      if (p.state === 'failed' && !refusedVisible(p, now)) return []
-      return [<QueueChip key={p.id} id={p.id} text={p.text} state={p.state} />]
+      if (p.state === 'pending' || p.state === 'failed' || p.state === 'parked') {
+        if (p.state === 'pending' && named.has(p.id)) return []
+        if (p.state === 'failed' && !refusedVisible(p, now)) return []
+        return [
+          <QueueChip
+            key={p.id}
+            id={p.id}
+            text={p.text}
+            state={p.state}
+            editable={p.state === 'parked' && newestParkedId(pendings) === p.id}
+            onEdit={onEditParked}
+          />,
+        ]
+      }
+      return []
     }),
   ]
   if (chips.length === 0) return null
@@ -102,6 +116,14 @@ function refusalAnnouncement(pendings: PendingSubmit[], now: number): string {
   return `Prompt refused: ${row.text === '' ? `secret prompt ${shortID(row.id)}` : row.text}`
 }
 
+// newestParkedId names the newest prompt still parked for the idle point.
+function newestParkedId(pendings: PendingSubmit[]): string {
+  for (let i = pendings.length - 1; i >= 0; i--) {
+    if (pendings[i]!.state === 'parked') return pendings[i]!.id
+  }
+  return ''
+}
+
 function QueueChip({
   id,
   text,
@@ -112,7 +134,7 @@ function QueueChip({
 }: {
   id: string
   text: string
-  state?: 'pending' | 'failed'
+  state?: 'pending' | 'parked' | 'failed'
   cause?: string
   editable?: boolean
   onEdit?: () => void
@@ -124,6 +146,7 @@ function QueueChip({
     <span className={classes.join(' ')}>
       {text === '' ? `secret prompt ${shortID(id)}` : text}
       {state === 'pending' && <span className="badge accent">sending…</span>}
+      {state === 'parked' && <span className="badge">waiting for idle</span>}
       {state === 'failed' && <span className="badge danger">refused</span>}
       {cause !== undefined && <span className="badge warn">{cause}</span>}
       {editable && (

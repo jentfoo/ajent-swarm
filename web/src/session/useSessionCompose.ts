@@ -27,6 +27,10 @@ interface SessionCompose {
   // recallToEdit pops the newest queued prompt back into the composer, secret
   // rows refuse upstream and their toast says so.
   recallToEdit: () => Promise<void>
+  // recallParked pops the newest prompt parked for the next idle point back
+  // into the composer and retires its optimistic row, quietly when nothing is
+  // parked.
+  recallParked: () => Promise<void>
   // dialogs is the open-dialog set, while it holds input the composer disables.
   dialogs: InteractionPending[]
   composerDisabled: boolean
@@ -40,7 +44,7 @@ interface SessionCompose {
 // placement notices, the toast stack those surface through, and the disabled
 // state a holding dialog or unreachable session forces onto the composer.
 export function useSessionCompose(sessionId: string): SessionCompose {
-  const { state, phase } = useSessionChannel(sessionId)
+  const { state, phase, dispatch } = useSessionChannel(sessionId)
   const { draft, setDraft, prefill } = useComposerDraft(sessionId)
   const { toasts, pushToast } = useToasts()
 
@@ -115,6 +119,17 @@ export function useSessionCompose(sessionId: string): SessionCompose {
     }
   }, [sessionId, placedAbove, pushToast])
 
+  const recallParked = useCallback(async () => {
+    try {
+      const row = await sessionAPI.queueRecall(sessionId)
+      if (row.queued && row.line) placedAbove(row.line)
+      // the popped row never flushes, so nothing else resolves its chip
+      if (row.pendingId) dispatch({ type: 'pendingRecalled', pendingId: row.pendingId })
+    } catch (err) {
+      pushToast(describeError(err, 'Recall failed.'), 'error')
+    }
+  }, [sessionId, dispatch, placedAbove, pushToast])
+
   // A dialog holding input disables the composer ahead of any wire refusal.
   // Connecting and resyncing borrow the shared banner copy (phases.tsx) so the
   // placeholder matches it, a lost or ended session keeps today's short line.
@@ -133,6 +148,7 @@ export function useSessionCompose(sessionId: string): SessionCompose {
     placedAbove,
     recall,
     recallToEdit,
+    recallParked,
     dialogs,
     composerDisabled,
     disabledReason,

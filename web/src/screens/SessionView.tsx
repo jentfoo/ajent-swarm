@@ -59,6 +59,7 @@ function SessionSurface({ sessionId, focused }: { sessionId: string; focused: bo
     placedAbove,
     recall,
     recallToEdit,
+    recallParked,
     dialogs,
     composerDisabled,
     disabledReason,
@@ -145,6 +146,7 @@ function SessionSurface({ sessionId, focused }: { sessionId: string; focused: bo
         pendings={state.pendings}
         droppedRows={state.droppedRows}
         onEdit={() => void recallToEdit()}
+        onEditParked={() => void recallParked()}
       />
       {showRewind && (
         <RewindDialog
@@ -167,6 +169,10 @@ function SessionSurface({ sessionId, focused }: { sessionId: string; focused: bo
           acknowledgeTurn(sessionId, Date.now())
         }}
         onSubmitFailed={(pendingId) => dispatch({ type: 'pendingFailed', pendingId })}
+        onQueue={(line, pendingId) =>
+          dispatch({ type: 'pendingSubmitted', pendingId, text: line, parked: true })
+        }
+        onQueueFailed={(pendingId) => dispatch({ type: 'pendingFailed', pendingId })}
         recall={recall}
         stop={working ? { onClick: interrupt, busy: stopBusy } : undefined}
       />

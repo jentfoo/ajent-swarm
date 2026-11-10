@@ -92,10 +92,11 @@ interface PrintCard {
   markdown: string
 }
 
-type PendingState = 'pending' | 'queued' | 'committed' | 'failed' | 'dropped'
+type PendingState = 'pending' | 'parked' | 'queued' | 'committed' | 'failed' | 'dropped'
 
 // PendingSubmit is one optimistic prompt row, resolved by queue events or the
-// committed entry's queueIds, never by text.
+// committed entry's queueIds, never by text. A parked row waits in swarm for
+// the session's next idle point before it ever reaches the wire queue.
 export interface PendingSubmit {
   id: string
   text: string
@@ -165,8 +166,9 @@ export type ApplierAction =
   | { type: 'event'; event: WireEvent }
   | { type: 'snapshot'; state: CtlState }
   | { type: 'backfill'; entries: Entry[] }
-  | { type: 'pendingSubmitted'; pendingId: string; text: string }
+  | { type: 'pendingSubmitted'; pendingId: string; text: string; parked?: boolean }
   | { type: 'pendingFailed'; pendingId: string }
+  | { type: 'pendingRecalled'; pendingId: string }
   | { type: 'liveThinkingToggled'; open: boolean }
   | { type: 'dialogAnswered'; dialogId: number }
   | { type: 'outcomeDismissed'; dialogId: number }
@@ -274,7 +276,11 @@ export function applierReducer(
     }
     case 'pendingSubmitted': {
       const next = cloneShallow(state)
-      const row: PendingSubmit = { id: action.pendingId, text: action.text, state: 'pending' }
+      const row: PendingSubmit = {
+        id: action.pendingId,
+        text: action.text,
+        state: action.parked === true ? 'parked' : 'pending',
+      }
       next.pendings = [...state.pendings, row].slice(-maxPendings)
       return next
     }
@@ -286,6 +292,14 @@ export function applierReducer(
       // Stamps the wall clock the render expires against.
       next.pendings = state.pendings.map((p) =>
         p.id === action.pendingId ? { ...p, state: 'failed' as const, failedAt: Date.now() } : p,
+      )
+      return next
+    }
+    case 'pendingRecalled': {
+      // A recalled park returns to the composer, its chip retires quietly.
+      const next = cloneShallow(state)
+      next.pendings = state.pendings.map((p) =>
+        p.id === action.pendingId && p.state === 'parked' ? { ...p, state: 'dropped' as const } : p,
       )
       return next
     }
@@ -613,10 +627,14 @@ function applyEvent(state: AppliedSessionState, ev: WireEvent): AppliedSessionSt
     case 'session.exit': {
       // Exit can land mid-turn: an unsettled teardown never sends turn.end
       // and the poll backstop skips ended sessions, so the turn closes here.
-      // Every step is idempotent under an earlier turn.end.
+      // Every step is idempotent under an earlier turn.end. Parked prompts
+      // die with the run too, swarm drops them at exit.
       const reason = decode<{ reason?: string }>(ev.data)?.reason
       next.exitReason = reason ?? ''
       closeTurn(next)
+      next.pendings = next.pendings.map((p) =>
+        p.state === 'parked' ? { ...p, state: 'dropped' as const } : p,
+      )
       // the spinner rides turn boundaries upstream, so it dies with the run
       next.snapshot = { ...next.snapshot, spinning: false }
       return next

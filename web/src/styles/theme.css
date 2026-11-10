@@ -678,7 +678,8 @@ label {
   padding: calc(var(--unit) * 2);
 }
 
-/* composer: prompt line with the attach and send buttons beside it */
+/* composer: prompt line with the attach and send buttons beside it, Queue
+   parking a draft below the toolbar */
 .composer {
   border-top: 1px solid var(--border);
   padding-top: calc(var(--unit) * 3);
@@ -689,14 +690,23 @@ label {
   display: block;
   min-width: 0;
 }
-.composer-actions {
+.composer-side {
   display: flex;
+  flex-direction: column;
   gap: calc(var(--unit) * 2);
   flex-shrink: 0;
 }
+.composer-actions {
+  display: flex;
+  gap: calc(var(--unit) * 2);
+}
+/* spans the toolbar row above: attach through Send */
+.composer-queue {
+  width: 100%;
+}
 @media (max-width: 48rem) {
   /* phones meet the theme's touch floor while desktop keeps its density */
-  .composer-actions button {
+  .composer-side button {
     min-height: 44px;
     min-width: 44px;
   }

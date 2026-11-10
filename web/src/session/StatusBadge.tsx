@@ -7,6 +7,7 @@ import type { SessionBadge } from '../workspace/attention'
 const badgeClasses: Record<SessionBadge | 'ended', string> = {
   input: 'danger',
   running: 'accent',
+  queued: 'warn',
   waiting: '',
   idle: '',
   ended: 'danger',
@@ -15,6 +16,7 @@ const badgeClasses: Record<SessionBadge | 'ended', string> = {
 const badgeLabels: Record<SessionBadge | 'ended', string> = {
   input: 'needs input',
   running: 'running',
+  queued: 'queued',
   waiting: 'waiting',
   idle: 'idle',
   ended: 'ended',

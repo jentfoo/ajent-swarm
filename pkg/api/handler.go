@@ -82,6 +82,8 @@ func Handler(cfg Config) http.Handler {
 		{http.MethodPost, "/api/sessions/{id}/stop", srv.handleStop},
 		{http.MethodPost, "/api/sessions/{id}/take-control", srv.handleTakeControl},
 		{http.MethodPost, "/api/sessions/{id}/submit", srv.handleSessionSubmit},
+		{http.MethodPost, "/api/sessions/{id}/queue", srv.handleSessionQueue},
+		{http.MethodPost, "/api/sessions/{id}/queue/recall", srv.handleSessionQueueRecall},
 		{http.MethodPost, "/api/sessions/{id}/interrupt", srv.handleSessionInterrupt},
 		{http.MethodPost, "/api/sessions/{id}/mode", srv.handleSessionMode},
 		{http.MethodPost, "/api/sessions/{id}/rewind", srv.handleSessionRewind},

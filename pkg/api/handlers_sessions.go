@@ -26,6 +26,14 @@ type submitReply struct {
 	PendingID string `json:"pendingId"`
 }
 
+// queueRecallReply names the parked prompt that left for edit-and-resubmit,
+// queued is false when nothing was parked.
+type queueRecallReply struct {
+	Queued    bool   `json:"queued"`
+	Line      string `json:"line,omitempty"`
+	PendingID string `json:"pendingId,omitempty"`
+}
+
 // interruptReply names what an interrupt stopped, empty when nothing ran.
 type interruptReply struct {
 	Stopped string `json:"stopped,omitempty"`
@@ -78,6 +86,16 @@ func writeCommandFailure(w http.ResponseWriter, err error) {
 	writeError(w, http.StatusInternalServerError, codeInternalError, "")
 }
 
+// mintPendingID answers a caller's correlation id or mints one.
+func mintPendingID(client string) string {
+	if client != "" {
+		return client
+	}
+	var b [8]byte
+	rand.Read(b[:]) // crypto/rand never fails, nothing sensible to answer anyway
+	return hex.EncodeToString(b[:])
+}
+
 // handleSessionSubmit routes one prompt line exactly as typed in the session's
 // editor, answering 202 with the pendingId echoed so optimistic rows resolve.
 func (s *apiServer) handleSessionSubmit(w http.ResponseWriter, r *http.Request) {
@@ -93,12 +111,7 @@ func (s *apiServer) handleSessionSubmit(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, codeInvalidRequest, "pendingId is too long")
 		return
 	}
-	pendingID := req.PendingID
-	if pendingID == "" {
-		var b [8]byte
-		rand.Read(b[:]) // crypto/rand never fails, nothing sensible to answer anyway
-		pendingID = hex.EncodeToString(b[:])
-	}
+	pendingID := mintPendingID(req.PendingID)
 	err := s.fleet.SubmitTracked(r.Context(), r.PathValue("id"),
 		ctl.SubmitParams{Line: req.Line, PendingID: pendingID})
 	if err != nil {
@@ -106,6 +119,43 @@ func (s *apiServer) handleSessionSubmit(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	writeJSON(w, http.StatusAccepted, submitReply{PendingID: pendingID})
+}
+
+// handleSessionQueue parks one prompt line until the session has been idle
+// for the queue window, answering 202 like submit so the same optimistic row
+// resolves when the line lands.
+func (s *apiServer) handleSessionQueue(w http.ResponseWriter, r *http.Request) {
+	var req submitRequest
+	if !readRequest(w, r, &req) {
+		return
+	}
+	if strings.TrimSpace(req.Line) == "" {
+		writeError(w, http.StatusBadRequest, codeInvalidRequest, "line must not be empty")
+		return
+	}
+	if len(req.PendingID) > maxPendingID {
+		writeError(w, http.StatusBadRequest, codeInvalidRequest, "pendingId is too long")
+		return
+	}
+	pendingID := mintPendingID(req.PendingID)
+	err := s.fleet.QueueSubmit(r.Context(), r.PathValue("id"),
+		ctl.SubmitParams{Line: req.Line, PendingID: pendingID})
+	if err != nil {
+		writeCommandFailure(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, submitReply{PendingID: pendingID})
+}
+
+// handleSessionQueueRecall pops the newest parked prompt for edit-and-
+// resubmit, an empty result means nothing was parked.
+func (s *apiServer) handleSessionQueueRecall(w http.ResponseWriter, r *http.Request) {
+	params, ok, err := s.fleet.QueueRecall(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeCommandFailure(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, queueRecallReply{Queued: ok, Line: params.Line, PendingID: params.PendingID})
 }
 
 // handleSessionInterrupt runs the session's Esc body remotely.

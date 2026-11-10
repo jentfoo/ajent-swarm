@@ -71,6 +71,63 @@ func TestSessionHandlers(t *testing.T) {
 		})
 	})
 
+	t.Run("queue_handler", func(t *testing.T) {
+		h := newSessionAPI(t)
+		f := h.addSession("01QUEUE00000000000", fleettest.Options{})
+		// a live turn holds every parked line, so the handler answers while the
+		// prompts sit in swarm's park list instead of the stub's queue
+		f.Broadcast(ctl.EventTurnStart, nil)
+		require.Eventually(t, func() bool {
+			for _, st := range h.mgr.Sessions() {
+				if st.SessionID == f.SessionID() {
+					return st.Running
+				}
+			}
+			return false
+		}, 2*time.Second, 5*time.Millisecond)
+		base := "/api/sessions/" + f.SessionID() + "/queue"
+
+		t.Run("echoes_pending_row_id", func(t *testing.T) {
+			code, res := post[submitReply](h, base,
+				submitRequest{Line: "queue this for later", PendingID: "q1"})
+			require.Equal(t, http.StatusAccepted, code)
+			assert.Equal(t, "q1", res.PendingID)
+			assert.Empty(t, receivedParams[ctl.SubmitParams](h, f, ctl.MethodSubmit)) // held
+		})
+
+		t.Run("mints_pending_id_when_absent", func(t *testing.T) {
+			code, res := post[submitReply](h, base, submitRequest{Line: "again"})
+			require.Equal(t, http.StatusAccepted, code)
+			assert.NotEmpty(t, res.PendingID)
+		})
+
+		t.Run("empty_line_is_refused", func(t *testing.T) {
+			code, body := post[errorBody](h, base, submitRequest{Line: "   "})
+			requireCoded(h, http.StatusBadRequest, codeInvalidRequest, code, body)
+		})
+
+		t.Run("recall_pops_the_newest_parked", func(t *testing.T) {
+			code, res := post[queueRecallReply](h, base+"/recall", nil)
+			require.Equal(t, http.StatusOK, code)
+			assert.True(t, res.Queued)
+			assert.Equal(t, "again", res.Line) // newest of the two parked above
+
+			code, res = post[queueRecallReply](h, base+"/recall", nil)
+			require.Equal(t, http.StatusOK, code)
+			assert.True(t, res.Queued)
+
+			code, res = post[queueRecallReply](h, base+"/recall", nil)
+			require.Equal(t, http.StatusOK, code)
+			assert.False(t, res.Queued) // drained
+		})
+
+		t.Run("unknown_session_404_first", func(t *testing.T) {
+			code, body := post[errorBody](h, "/api/sessions/01NOBODY00000000/queue",
+				submitRequest{Line: "hi"})
+			requireCoded(h, http.StatusNotFound, "session_not_found", code, body)
+		})
+	})
+
 	t.Run("recall_lines_handler", func(t *testing.T) {
 		// every case gets its own harness and store, so recorded rows never leak
 		// between them

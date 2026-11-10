@@ -79,6 +79,8 @@ function ControlledHarness({ component: Component = Composer, ...overrides }: Ha
     disabledReason: '',
     onSubmit: () => {},
     onSubmitFailed: () => {},
+    onQueue: () => {},
+    onQueueFailed: () => {},
     ...overrides,
     recall: {
       items: recall.items,
@@ -1192,6 +1194,54 @@ describe('Composer submit flow', () => {
     await waitFor(() => expect(screen.getByLabelText('Prompt')).toHaveValue(''))
   })
 
+  it('queues the draft beside Send and clears once parked', async () => {
+    const user = userEvent.setup()
+    const bodies: Record<string, unknown>[] = []
+    const urls: string[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string | URL, init?: RequestInit) => {
+        if (init?.body && !(init.body instanceof FormData)) {
+          urls.push(String(url))
+          bodies.push(JSON.parse(String(init.body)))
+          return Response.json({ pendingId: 'q1' }, { status: 202 })
+        }
+        return Response.json({})
+      }),
+    )
+    const onQueue = vi.fn()
+    render(Harness({ onQueue }))
+
+    await user.type(screen.getByLabelText('Prompt'), 'run the tests')
+    await user.click(screen.getByRole('button', { name: 'Queue prompt for the next idle point' }))
+    expect(onQueue).toHaveBeenCalledOnce()
+    expect(onQueue.mock.calls[0]![0]).toBe('run the tests')
+    expect(urls[0]).toContain('/api/sessions/01S/queue')
+    expect(bodies[0]).toMatchObject({ line: 'run the tests' })
+    await waitFor(() => expect(screen.getByLabelText('Prompt')).toHaveValue(''))
+  })
+
+  it('keeps the draft when parking is refused', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string | URL, init?: RequestInit) => {
+        if (init?.body && !(init.body instanceof FormData)) {
+          return Response.json({ error: 'busy', message: 'too many prompts' }, { status: 409 })
+        }
+        return Response.json({})
+      }),
+    )
+    const onQueue = vi.fn()
+    const onQueueFailed = vi.fn()
+    render(Harness({ onQueue, onQueueFailed }))
+
+    await user.type(screen.getByLabelText('Prompt'), 'still here')
+    await user.click(screen.getByRole('button', { name: 'Queue prompt for the next idle point' }))
+    expect(onQueueFailed).toHaveBeenCalledOnce()
+    expect(screen.getByLabelText('Prompt')).toHaveValue('still here')
+  })
+
   it('mints ids where crypto.randomUUID is missing', async () => {
     const user = userEvent.setup()
     vi.stubGlobal('fetch', okSubmit())
@@ -1713,6 +1763,8 @@ function MirrorHarness() {
       disabledReason=""
       onSubmit={() => {}}
       onSubmitFailed={() => {}}
+      onQueue={() => {}}
+      onQueueFailed={() => {}}
       recall={recall}
     />
   )

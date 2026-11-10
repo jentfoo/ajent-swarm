@@ -44,6 +44,9 @@ type Options struct {
 	PollInterval time.Duration // registry watch cadence, about once a second
 	BackoffBase  time.Duration // actor redial base
 	BackoffMax   time.Duration // actor redial cap
+	// ParkIdleWindow is how long a session must be quiet before its parked
+	// prompts flush, zero takes the 1-minute default.
+	ParkIdleWindow time.Duration
 
 	// Owned names sessions swarm spawned, they force-claim the seat as holder
 	// swarm at attach. External sessions observe until a write or an explicit
@@ -94,6 +97,7 @@ type Manager struct {
 	pollInterval    time.Duration
 	dialBackoffBase time.Duration
 	dialBackoffMax  time.Duration
+	parkWindow      time.Duration
 	optsOwned       func(ctl.Instance) bool
 	discover        func() ([]ctl.Instance, error)
 
@@ -143,6 +147,7 @@ func New(opts Options) *Manager {
 		pollInterval:    cmpOr(opts.PollInterval, pollEvery),
 		dialBackoffBase: cmpOr(opts.BackoffBase, dialBackoffBase),
 		dialBackoffMax:  cmpOr(opts.BackoffMax, dialBackoffMax),
+		parkWindow:      cmpOr(opts.ParkIdleWindow, parkIdleWindow),
 		optsOwned:       opts.Owned,
 		discover:        opts.Discover,
 		bin:             opts.AjentBin,
@@ -776,18 +781,13 @@ func (m *Manager) Attention() []Attention {
 
 // LastBusyAt reports the newest agent activity across tracked sessions: now
 // for one still working, otherwise its most recent turn end. The zero time
-// means nothing is known to have worked, so run-when-idle jobs may fire.
+// means nothing is known to have worked. Both idle gates ride it: parked
+// prompts and run-when-idle jobs wait out their own quiet window past it.
 func (m *Manager) LastBusyAt() time.Time {
 	var last time.Time
-	now := time.Now()
 	for _, st := range m.servingStatuses() {
-		if st.Running || st.Spinning || st.OpenInteractions > 0 {
-			return now // a turn is live or parked at a dialog right now
-		}
-		if st.LastTurnEnd > 0 {
-			if e := time.UnixMilli(st.LastTurnEnd); e.After(last) {
-				last = e
-			}
+		if at := st.busyAt(); at.After(last) {
+			last = at
 		}
 	}
 	return last

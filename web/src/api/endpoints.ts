@@ -17,6 +17,7 @@ import type {
   ModeReply,
   ModelState,
   QueueRequest,
+  QueueRecallRow,
   RecallLinesReply,
   RecallRow,
   ResolveAnswer,
@@ -95,6 +96,10 @@ export const sessions = {
   takeControl: (id: string) => post<void>(withID(id, '/take-control')),
   submit: (id: string, line: string, pendingId?: string) =>
     post<SubmitReply>(withID(id, '/submit'), { line, pendingId }),
+  // queue parks the line until the session has been idle for the park window
+  queue: (id: string, line: string, pendingId?: string) =>
+    post<SubmitReply>(withID(id, '/queue'), { line, pendingId }),
+  queueRecall: (id: string) => post<QueueRecallRow>(withID(id, '/queue/recall')),
   interrupt: (id: string) => post<{ stopped?: string }>(withID(id, '/interrupt')),
   // mode jumps straight to a named level, upstream's cycle stays server-side
   setMode: (id: string, mode: string) => post<ModeReply>(withID(id, '/mode'), { mode }),

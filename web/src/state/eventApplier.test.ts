@@ -275,6 +275,31 @@ describe('applierReducer queue rows', () => {
     expect(s.pendings[0].state).toBe('dropped')
   })
 
+  it('parks optimistic rows until the idle point names them queued', () => {
+    let s = apply(initialSessionState(), {
+      type: 'pendingSubmitted',
+      pendingId: 'q1',
+      text: 'run the tests',
+      parked: true,
+    })
+    expect(s.pendings).toEqual([{ id: 'q1', text: 'run the tests', state: 'parked' }])
+
+    // the flush lands the line on the wire queue under the same correlation
+    s = apply(s, ev('queued', 1, { rows: [{ id: 'q1', text: 'run the tests' }] }))
+    expect(s.pendings[0].state).toBe('queued')
+  })
+
+  it('drops parked rows when the session exits', () => {
+    let s = apply(initialSessionState(), {
+      type: 'pendingSubmitted',
+      pendingId: 'q1',
+      text: 'never lands',
+      parked: true,
+    })
+    s = apply(s, ev('session.exit', 2, { reason: 'done' }))
+    expect(s.pendings[0].state).toBe('dropped')
+  })
+
   it('reconciles optimistic rows against a fresh init only when named', () => {
     const queuedInit = snap({ queuedRows: [{ id: 'p1', text: 'kept' }] })
     let s = apply(

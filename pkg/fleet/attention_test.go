@@ -75,7 +75,7 @@ func TestDeriveAttention(t *testing.T) {
 
 	// row builds one serving status with the digest facts a case needs.
 	row := func(over func(*Status)) *Status {
-		st := &Status{SessionID: "01A", State: ChildOnline, served: true}
+		st := &Status{digestFacts: digestFacts{SessionID: "01A"}, State: ChildOnline, served: true}
 		over(st)
 		return st
 	}
@@ -260,8 +260,8 @@ func TestManagerAcks(t *testing.T) {
 		m2 := New(Options{Log: testLogger(), AckStore: store})
 		m2.Start(t.Context())
 		t.Cleanup(m2.Stop)
-		st := &Status{SessionID: "01A", PID: 7, OpenInteractions: 1,
-			DialogID: 42, LastTurnEnd: 900, served: true}
+		st := &Status{digestFacts: digestFacts{SessionID: "01A", PID: 7, OpenInteractions: 1,
+			DialogID: 42, LastTurnEnd: 900}, served: true}
 		assert.Equal(t, AttentionAwaiting, deriveAttention(st, m2.ackFactsFor([]*Status{st})[0]).Kind)
 	})
 

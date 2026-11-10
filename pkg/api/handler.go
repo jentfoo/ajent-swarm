@@ -147,7 +147,7 @@ func Handler(cfg Config) http.Handler {
 	root.Handle("/api/", cfg.Auth.Middleware(exemptFromAuth)(apiMux))
 	root.Handle("/", web.Handler())
 
-	return logRequests(cfg.Log)(recoverPanics(cfg.Log)(securityHeaders(root)))
+	return guard(cfg.Log)(securityHeaders(root))
 }
 
 // securityHeaders sets the baseline protection headers on every response.
@@ -178,8 +178,9 @@ func exemptFromAuth(r *http.Request) bool {
 	}
 }
 
-// recoverPanics turns handler panics into clean 500s with the stack logged.
-func recoverPanics(log *slog.Logger) func(http.Handler) http.Handler {
+// guard wraps every request with one recording writer that turns handler
+// panics into clean 500s and logs one line per response.
+func guard(log *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ww := &responseWriter{ResponseWriter: w}
@@ -190,29 +191,19 @@ func recoverPanics(log *slog.Logger) func(http.Handler) http.Handler {
 						writeError(ww, http.StatusInternalServerError, codeInternalError, "")
 					}
 				}
+				log.Info("request",
+					"method", r.Method,
+					"path", r.URL.Path,
+					"status", ww.status,
+					"remote", r.RemoteAddr)
 			}()
 			next.ServeHTTP(ww, r)
 		})
 	}
 }
 
-// logRequests records one line per request with its final status.
-func logRequests(log *slog.Logger) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ww := &responseWriter{ResponseWriter: w}
-			next.ServeHTTP(ww, r)
-			log.Info("request",
-				"method", r.Method,
-				"path", r.URL.Path,
-				"status", ww.status,
-				"remote", r.RemoteAddr)
-		})
-	}
-}
-
-// responseWriter tracks whether headers went out and passes websocket
-// hijack requests through.
+// responseWriter tracks whether headers went out and the final status, and
+// passes websocket hijack requests through.
 type responseWriter struct {
 	http.ResponseWriter
 	wrote  bool

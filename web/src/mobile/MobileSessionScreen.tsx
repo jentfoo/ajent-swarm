@@ -10,7 +10,7 @@ import { Notices } from '../session/Notices'
 import { StatusBadge } from '../session/StatusBadge'
 import { endedBanner, isTransientPhase, PhaseBanner } from '../session/phases'
 import { QueuedPrompts } from '../session/QueuedPrompts'
-import { ModeMenu } from '../session/StatusHeader'
+import { ModeMenu } from '../ui/ModeMenu'
 import { StatusBar } from '../session/StatusBar'
 import { TranscriptView } from '../session/TranscriptView'
 import { useAgentJobs } from '../session/useAgentJobs'
@@ -25,7 +25,7 @@ import { useWorkspace } from '../providers/workspace'
 import { RewindSheet } from './RewindSheet'
 import { SettingsScreen } from './SettingsScreen'
 import { ToolsScreen } from './ToolsScreen'
-import { TouchDialogDock } from './TouchDialogDock'
+import { DialogDock } from '../session/DialogDock'
 
 // MobileSessionScreen drives one session on a phone. The component tree stays
 // shared with desktop (TranscriptView, notices, dialogs, queue chips, Composer,
@@ -124,7 +124,8 @@ function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElemen
       />
 
       <Notices notices={state.notices} />
-      <TouchDialogDock
+      <DialogDock
+        touch
         sessionId={sessionId}
         dialogs={dialogs}
         outcomes={state.resolvedElsewhere}

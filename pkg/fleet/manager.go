@@ -596,7 +596,8 @@ func (m *Manager) TakeControl(ctx context.Context, sessionID string) error {
 	if a == nil {
 		return ErrUnknownSession
 	}
-	return a.takeControl(ctx)
+	err, _ := mailboxCall(ctx, a, func(reply chan error) actorMsg { return msgTakeControl{reply: reply} })
+	return err
 }
 
 // Entries pages through one session's retained committed entries. An empty
@@ -606,8 +607,13 @@ func (m *Manager) Entries(ctx context.Context, sessionID, before string, limit i
 	if a == nil {
 		return nil, "", ErrUnknownSession
 	}
-	entries, cursor := a.entries(ctx, before, limit)
-	return entries, cursor, nil
+	page, err := mailboxCall(ctx, a, func(reply chan entriesPage) actorMsg {
+		return msgEntries{before: before, limit: limit, reply: reply}
+	})
+	if err != nil { // a shutdown or timeout serves an empty page
+		return nil, "", nil
+	}
+	return page.entries, page.cursor, nil
 }
 
 // route finds the actor serving a session under the manager lock.
@@ -676,7 +682,7 @@ func (m *Manager) Sessions() []Status {
 	for _, st := range rows {
 		// titleFor takes the manager lock, so labels fold in here
 		st.Title = m.titleFor(st.SessionID)
-		if st.State == ChildExited || st.State == ChildGone {
+		if st.State == ChildExited {
 			ended = append(ended, *st)
 		} else {
 			alive = append(alive, *st)
@@ -723,21 +729,7 @@ func digestText(s string) string {
 
 // Attention is one live session's row of the cheap focus feed.
 type Attention struct {
-	SessionID        string `json:"sessionId"`
-	PID              int    `json:"pid,omitempty"`
-	OpenInteractions int    `json:"openInteractions"`
-	Running          bool   `json:"running"`
-	Spinning         bool   `json:"spinning,omitempty"`
-	Idle             bool   `json:"idle"`
-	LastTurnEnd      int64  `json:"lastTurnEnd,omitempty"` // unix milliseconds
-
-	// Digest facts behind the focus rail's reasons and waits.
-	DialogID     uint64 `json:"dialogId,omitempty"`
-	DialogPrompt string `json:"dialogPrompt,omitempty"`
-	DialogAt     int64  `json:"dialogAt,omitempty"` // unix milliseconds
-	LastStop     string `json:"lastStop,omitempty"`
-	LastStopErr  string `json:"lastStopErr,omitempty"`
-	Activity     string `json:"activity,omitempty"`
+	digestFacts
 
 	// Acknowledgment facts from the server-side ledger: whether this row's
 	// oldest open dialog is settled, and the session's acknowledged turn end.
@@ -818,12 +810,11 @@ func decorateChild(st *Status, rec ChildRecord) {
 // their discovery facts, so an ended one reads as it served.
 func childStatus(rec ChildRecord) Status {
 	st := Status{
-		SessionID: rec.SessionID,
-		Name:      rec.SessionName,
-		Workspace: rec.Workspace,
-		PID:       rec.PID,
-		State:     ChildReconnecting,
-		Detail:    "waiting for its control socket",
+		digestFacts: digestFacts{SessionID: rec.SessionID, PID: rec.PID},
+		Name:        rec.SessionName,
+		Workspace:   rec.Workspace,
+		State:       ChildReconnecting,
+		Detail:      "waiting for its control socket",
 	}
 	decorateChild(&st, rec)
 	if !rec.ExitedAt.IsZero() {

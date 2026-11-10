@@ -12,11 +12,17 @@ import (
 func TestTokenHandlers(t *testing.T) {
 	t.Parallel()
 
-	server, client := newTestAPI(t)
-	base := server.URL
-	bootstrapAndLogin(t, client, base)
+	// each case runs against its own server so ordering cannot matter
+	newAuthed := func(t *testing.T) (string, *http.Client) {
+		t.Helper()
+		server, client := newTestAPI(t)
+		bootstrapAndLogin(t, client, server.URL)
+		return server.URL, client
+	}
 
 	t.Run("create_returns_the_secret_once", func(t *testing.T) {
+		base, client := newAuthed(t)
+
 		code, body := callJSON[map[string]string](t, client, base,
 			http.MethodPost, "/api/tokens", map[string]string{"name": "ci"})
 		require.Equal(t, http.StatusCreated, code)
@@ -29,6 +35,11 @@ func TestTokenHandlers(t *testing.T) {
 	})
 
 	t.Run("list_omits_secrets", func(t *testing.T) {
+		base, client := newAuthed(t)
+		code, _ := callJSON[map[string]string](t, client, base,
+			http.MethodPost, "/api/tokens", map[string]string{"name": "ci"})
+		require.Equal(t, http.StatusCreated, code)
+
 		code, body := callJSON[[]map[string]any](t, client, base, http.MethodGet, "/api/tokens", nil)
 		require.Equal(t, http.StatusOK, code)
 		require.Len(t, body, 1)
@@ -37,13 +48,20 @@ func TestTokenHandlers(t *testing.T) {
 	})
 
 	t.Run("invalid_names_rejected", func(t *testing.T) {
+		base, client := newAuthed(t)
+
 		code, _ := callJSON[struct{}](t, client, base,
 			http.MethodPost, "/api/tokens", map[string]string{"name": "has space"})
 		assert.Equal(t, http.StatusBadRequest, code)
 	})
 
 	t.Run("delete_revokes", func(t *testing.T) {
-		code, _ := callJSON[struct{}](t, client, base, http.MethodDelete, "/api/tokens/ci", nil)
+		base, client := newAuthed(t)
+		code, _ := callJSON[map[string]string](t, client, base,
+			http.MethodPost, "/api/tokens", map[string]string{"name": "ci"})
+		require.Equal(t, http.StatusCreated, code)
+
+		code, _ = callJSON[struct{}](t, client, base, http.MethodDelete, "/api/tokens/ci", nil)
 		require.Equal(t, http.StatusNoContent, code)
 
 		code, _ = callJSON[struct{}](t, client, base, http.MethodDelete, "/api/tokens/ci", nil)

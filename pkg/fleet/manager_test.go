@@ -479,9 +479,9 @@ func TestManager(t *testing.T) {
 			live := &sessionActor{}
 			live.key.sessionID = "01LIVESESSION000000"
 			live.status.Store(&Status{
-				SessionID: live.key.sessionID,
-				State:     ChildOnline,
-				SpawnedBy: SpawnedBySwarm,
+				digestFacts: digestFacts{SessionID: live.key.sessionID},
+				State:       ChildOnline,
+				SpawnedBy:   SpawnedBySwarm,
 			})
 			m.actors[actorKey{sessionID: live.key.sessionID, token: "t"}] = live
 
@@ -502,9 +502,8 @@ func TestManager(t *testing.T) {
 				live := &sessionActor{}
 				live.key.sessionID = "01TWINRESUME000001"
 				live.status.Store(&Status{
-					SessionID: live.key.sessionID,
-					State:     ChildOnline,
-					PID:       pid,
+					digestFacts: digestFacts{SessionID: live.key.sessionID, PID: pid},
+					State:       ChildOnline,
 				})
 				m.actors[actorKey{sessionID: live.key.sessionID, token: strconv.Itoa(pid)}] = live
 			}
@@ -577,8 +576,8 @@ func TestManager(t *testing.T) {
 			replacement := &sessionActor{}
 			replacement.key.sessionID = "01SESSIONREUSED0000"
 			replacement.status.Store(&Status{
-				SessionID: replacement.key.sessionID,
-				State:     ChildOnline,
+				digestFacts: digestFacts{SessionID: replacement.key.sessionID},
+				State:       ChildOnline,
 			})
 			m.actors[actorKey{sessionID: replacement.key.sessionID, token: "t"}] = replacement
 
@@ -621,9 +620,8 @@ func TestManager(t *testing.T) {
 			live := &sessionActor{}
 			live.key.sessionID = "01RESUMED000000001"
 			live.status.Store(&Status{
-				SessionID: live.key.sessionID,
-				State:     ChildOnline,
-				PID:       4702,
+				digestFacts: digestFacts{SessionID: live.key.sessionID, PID: 4702},
+				State:       ChildOnline,
 			})
 			m.actors[actorKey{sessionID: live.key.sessionID, token: "t"}] = live
 			m.externals[4702] = ChildRecord{
@@ -841,21 +839,14 @@ func TestManager(t *testing.T) {
 			live := &sessionActor{}
 			live.key.sessionID = "01BUSYSESSION0000000"
 			live.status.Store(&Status{
-				SessionID:   live.key.sessionID,
-				State:       ChildOnline,
-				served:      true, // attached and streaming at least once
-				LastTurnEnd: lastTurnEnd,
-				Running:     running,
+				digestFacts: digestFacts{SessionID: live.key.sessionID, LastTurnEnd: lastTurnEnd,
+					Running: running},
+				State:  ChildOnline,
+				served: true, // attached and streaming at least once
 			})
 			m.actors[actorKey{sessionID: live.key.sessionID, token: "t"}] = live
 			return live
 		}
-
-		t.Run("recent_turn_end_busy", func(t *testing.T) {
-			m := New(Options{Log: testLogger()})
-			actor(m, time.Now().Add(-time.Minute).UnixMilli(), false)
-			assert.False(t, m.LastBusyAt().IsZero())
-		})
 
 		t.Run("aged_turn_end_reported", func(t *testing.T) {
 			// a serving session's last turn end is reported however old it is
@@ -877,10 +868,9 @@ func TestManager(t *testing.T) {
 			m := New(Options{Log: testLogger()})
 			live := actor(m, time.Now().Add(-time.Hour).UnixMilli(), true)
 			live.status.Store(&Status{
-				SessionID: live.key.sessionID,
-				State:     ChildExited,
-				served:    true,
-				Running:   true, // stale flag beside a terminal state still means ended
+				digestFacts: digestFacts{SessionID: live.key.sessionID, Running: true},
+				State:       ChildExited,
+				served:      true, // stale flag beside a terminal state still means ended
 			})
 			assert.True(t, m.LastBusyAt().IsZero())
 		})

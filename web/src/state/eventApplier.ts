@@ -522,21 +522,13 @@ function applyEvent(state: AppliedSessionState, ev: WireEvent): AppliedSessionSt
       if (label !== undefined && attachPermitVerdict(next, label)) return next
       const level: NoticeView['level'] =
         d.level === 'warn' || d.level === 'error' ? d.level : 'info'
-      if (d.key) {
-        // Keyed notices replace in place instead of stacking.
-        const kept = next.notices.filter((n) => n.key !== d.key)
-        next.notices = boundedAppend(
-          kept,
-          { key: d.key, text: d.text, level, at: Date.now() },
-          maxNotices,
-        )
-      } else {
-        next.notices = boundedAppend(
-          next.notices,
-          { key: '', text: d.text, level, at: Date.now() },
-          maxNotices,
-        )
-      }
+      // Keyed notices replace in place instead of stacking.
+      const kept = d.key ? next.notices.filter((n) => n.key !== d.key) : next.notices
+      next.notices = boundedAppend(
+        kept,
+        { key: d.key ?? '', text: d.text, level, at: Date.now() },
+        maxNotices,
+      )
       return next
     }
 
@@ -657,8 +649,10 @@ function attachPermitVerdict(state: AppliedSessionState, label: string): boolean
   if (!tools) return false
   const idx = tools.findLastIndex((t) => t.result === undefined)
   if (idx < 0) return false
-  state.permitVerdicts = [...state.permitVerdicts, { id: tools[idx].id, text: label }].slice(
-    -maxPermitVerdicts,
+  state.permitVerdicts = boundedAppend(
+    state.permitVerdicts,
+    { id: tools[idx].id, text: label },
+    maxPermitVerdicts,
   )
   state.live = {
     ...state.live!,
@@ -805,14 +799,13 @@ function applyToolEvent(next: AppliedSessionState, ev: WireEvent): AppliedSessio
 }
 
 // applyResnapshot merges one REST snapshot. Poll-only facts (workspace, cwd,
-// usage totals, seat) merge unconditionally, since no change event can regress
-// under them: releases and swarm's own claims spend no event number, so a
-// resnapshot is where SeatBadge learns either. The reply's stamp names the
-// watermark the actor had applied when it read: at or above ours, its
-// event-covered fields land wholesale since they fold every event this client
-// has seen, below, events already moved past the read and only those facts
-// merge, so a late response can never empty a dialog, drop the live turn's
-// buffer, or queue rows the stream just announced.
+// usage totals, seat) merge unconditionally: releases and swarm's own claims
+// spend no event number, so a resnapshot is where SeatBadge learns either.
+// A stamp at or above our watermark means the read folded every event this
+// client has seen, so the dialog set and name/spinner/queue families merge
+// too: a late response can never empty a dialog, drop the live turn's
+// buffer, or queue rows the stream just announced. Event-covered fields like
+// model or permission never merge here.
 function applyResnapshot(state: AppliedSessionState, snap: CtlState): AppliedSessionState {
   const fresh = snap.seq === undefined || snap.seq >= state.seq
   const next = cloneShallow(state)
@@ -1132,12 +1125,6 @@ function upsertTool(
   return [...tools, update({ id, name: '', outputs: [] })]
 }
 
-function upsertByKey<T extends { key: string }>(rows: T[], key: string, build: () => T): T[] {
-  const idx = rows.findIndex((row) => row.key === key)
-  if (idx < 0) return [...rows, build()]
-  return rows.map((row, i) => (i === idx ? build() : row))
-}
-
 // keyedFamily applies the keyed family contract: a row adds or replaces by
 // key, null removes.
 function keyedFamily<T extends { key: string }>(
@@ -1145,8 +1132,11 @@ function keyedFamily<T extends { key: string }>(
   key: string,
   row: T | null,
 ): T[] {
-  if (row === null) return (rows ?? []).filter((r) => r.key !== key)
-  return upsertByKey(rows ?? [], key, () => row)
+  const list = rows ?? []
+  if (row === null) return list.filter((r) => r.key !== key)
+  const idx = list.findIndex((r) => r.key === key)
+  if (idx < 0) return [...list, row]
+  return list.map((r, i) => (i === idx ? row : r))
 }
 
 function boundedAppend<T>(list: T[], item: T, max: number): T[] {

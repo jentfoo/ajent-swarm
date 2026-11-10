@@ -376,7 +376,7 @@ func (m *Manager) StopSession(ctx context.Context, sessionID string) error {
 
 	exited := false
 	if a != nil {
-		err := a.stopExit(ctx)
+		err, _ := mailboxCall(ctx, a, func(reply chan error) actorMsg { return msgStop{reply: reply} })
 		var ce *ctl.Error
 		if errors.As(err, &ce) {
 			return err // a coded refusal reaches the caller: a held seat is never displaced

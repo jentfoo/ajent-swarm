@@ -1,9 +1,8 @@
-// The switcher's pure model: launcher rows derived from the fleet listing plus
-// the shared attention digest. Alive rows
-// rank like the desktop rail and carry the queue they render under, with a
-// trailing Recent section of ended runs so a fresh exit stays one tap from
-// resume: at least minEndedRows always, plus every exit inside the recent
-// window however many ran.
+// The switcher's pure model: launcher rows derived from the fleet listing
+// plus the shared attention digest. Alive rows rank like the desktop rail and
+// carry the queue they render under, with a trailing Recent section of ended
+// runs so a fresh exit stays one tap from resume: at least minEndedRows
+// always, plus every exit inside the recent window however many ran.
 import { childEnded, type SessionStatus } from '../api/types'
 import {
   attentionQueue,

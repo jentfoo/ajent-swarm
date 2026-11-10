@@ -43,36 +43,43 @@ type actorKey struct {
 	token     string
 }
 
-// Status is one row of the fleet listing: what the manager knows about an
-// instance's session without subscribing to its stream.
-type Status struct {
+// digestFacts carries one live session's progress and dialog facts shared by
+// the listing row and the attention row: what holds input and how the last
+// turn ended, one line each so a focus queue renders reasons without
+// subscribing to the stream.
+type digestFacts struct {
 	SessionID        string `json:"sessionId"`
-	Name             string `json:"name,omitempty"`
-	Title            string `json:"title,omitempty"` // stored display title, preferred for labels
-	Workspace        string `json:"workspace,omitempty"`
-	Model            string `json:"model,omitempty"`
 	PID              int    `json:"pid,omitempty"`
-	State            string `json:"state"` // one of the Child* constants
-	Detail           string `json:"detail,omitempty"`
-	SeatHeld         bool   `json:"seatHeld"`
-	SeatHolder       string `json:"seatHolder,omitempty"`
-	SeatOurs         bool   `json:"seatOurs"`
-	Running          bool   `json:"running"`
-	Idle             bool   `json:"idle"`
-	Spinning         bool   `json:"spinning,omitempty"`
-	Queued           int    `json:"queued"` // prompts waiting in the session's queue
 	OpenInteractions int    `json:"openInteractions"`
+	Running          bool   `json:"running"`
+	Spinning         bool   `json:"spinning,omitempty"`
+	Idle             bool   `json:"idle"`
 	LastTurnEnd      int64  `json:"lastTurnEnd,omitempty"` // unix milliseconds
-	ExitedAt         int64  `json:"exitedAt,omitempty"`    // unix ms, ended sessions
 
-	// Attention digest facts: what holds input and how the last turn ended,
-	// one line each so the desktop focus queue renders reasons without subscribing.
 	DialogID     uint64 `json:"dialogId,omitempty"`     // oldest open dialog
 	DialogPrompt string `json:"dialogPrompt,omitempty"` // its prompt, one line
 	DialogAt     int64  `json:"dialogAt,omitempty"`     // when swarm first saw it, unix ms
 	LastStop     string `json:"lastStop,omitempty"`     // stop reason of the last turn
 	LastStopErr  string `json:"lastStopErr,omitempty"`  // transport or context failure
 	Activity     string `json:"activity,omitempty"`     // top activity row, one line
+}
+
+// Status is one row of the fleet listing: what the manager knows about an
+// instance's session without subscribing to its stream.
+type Status struct {
+	digestFacts
+
+	Name       string `json:"name,omitempty"`
+	Title      string `json:"title,omitempty"` // stored display title, preferred for labels
+	Workspace  string `json:"workspace,omitempty"`
+	Model      string `json:"model,omitempty"`
+	State      string `json:"state"` // one of the Child* constants
+	Detail     string `json:"detail,omitempty"`
+	SeatHeld   bool   `json:"seatHeld"`
+	SeatHolder string `json:"seatHolder,omitempty"`
+	SeatOurs   bool   `json:"seatOurs"`
+	Queued     int    `json:"queued"`             // prompts waiting in the session's queue
+	ExitedAt   int64  `json:"exitedAt,omitempty"` // unix ms, ended sessions
 
 	// Spawn facts for children swarm launched: empty fields mean external or
 	// unknown. ExitCode appears once reaped, negative when a signal ended it,
@@ -608,10 +615,9 @@ func (a *sessionActor) closeConn() {
 // refreshStatus republishes the listing row from current state.
 func (a *sessionActor) refreshStatus() {
 	st := &Status{
-		SessionID: a.key.sessionID,
-		State:     a.state,
-		Detail:    a.detail,
-		PID:       a.inst.PID,
+		digestFacts: digestFacts{SessionID: a.key.sessionID, PID: a.inst.PID},
+		State:       a.state,
+		Detail:      a.detail,
 	}
 	if a.view != nil {
 		st.served = true // the listing and attention feeds only trust a seeded view
@@ -684,27 +690,4 @@ func mailboxCall[T any](ctx context.Context, a *sessionActor, build func(chan T)
 		var zero T
 		return zero, errShuttingDown
 	}
-}
-
-// takeControl routes one force-claim request through the mailbox.
-func (a *sessionActor) takeControl(ctx context.Context) error {
-	err, _ := mailboxCall(ctx, a, func(reply chan error) actorMsg { return msgTakeControl{reply: reply} })
-	return err
-}
-
-// stopExit routes one stop request through the mailbox.
-func (a *sessionActor) stopExit(ctx context.Context) error {
-	err, _ := mailboxCall(ctx, a, func(reply chan error) actorMsg { return msgStop{reply: reply} })
-	return err
-}
-
-// entries routes one paging request through the mailbox.
-func (a *sessionActor) entries(ctx context.Context, before string, limit int) ([]ctl.Entry, string) {
-	page, err := mailboxCall(ctx, a, func(reply chan entriesPage) actorMsg {
-		return msgEntries{before: before, limit: limit, reply: reply}
-	})
-	if err != nil {
-		return nil, ""
-	}
-	return page.entries, page.cursor
 }

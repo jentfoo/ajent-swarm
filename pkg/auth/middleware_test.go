@@ -110,35 +110,6 @@ func TestMiddleware(t *testing.T) {
 		})
 	})
 
-	t.Run("cross_site_write_blocked", func(t *testing.T) {
-		for _, tc := range []struct {
-			name    string
-			method  string
-			site    string // Sec-Fetch-Site value, empty when the header is absent
-			blocked bool
-		}{
-			{"post_absent_allowed", http.MethodPost, "", false},
-			{"post_same_origin_allowed", http.MethodPost, "same-origin", false},
-			{"post_none_allowed", http.MethodPost, "none", false},
-			{"post_cross_site_blocked", http.MethodPost, "cross-site", true},
-			{"post_same_site_blocked", http.MethodPost, "same-site", true},
-			{"put_cross_site_blocked", http.MethodPut, "cross-site", true},
-			{"delete_cross_site_blocked", http.MethodDelete, "cross-site", true},
-			{"patch_cross_site_blocked", http.MethodPatch, "cross-site", true},
-			{"get_cross_site_allowed", http.MethodGet, "cross-site", false},
-			{"head_cross_site_allowed", http.MethodHead, "cross-site", false},
-			{"options_cross_site_allowed", http.MethodOptions, "cross-site", false},
-		} {
-			t.Run(tc.name, func(t *testing.T) {
-				req := httptest.NewRequestWithContext(t.Context(), tc.method, "/api/jobs", nil)
-				if tc.site != "" {
-					req.Header.Set("Sec-Fetch-Site", tc.site)
-				}
-				assert.Equal(t, tc.blocked, crossSiteWriteBlocked(req))
-			})
-		}
-	})
-
 	t.Run("middleware_cross_site", func(t *testing.T) {
 		svc, handler := newGate(t)
 		ctx := t.Context()
@@ -202,4 +173,35 @@ func TestMiddleware(t *testing.T) {
 			assert.Equal(t, http.StatusNoContent, rec.Code)
 		})
 	})
+}
+
+func TestCrossSiteWriteBlocked(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name    string
+		method  string
+		site    string // Sec-Fetch-Site value, empty when the header is absent
+		blocked bool
+	}{
+		{"post_absent_allowed", http.MethodPost, "", false},
+		{"post_same_origin_allowed", http.MethodPost, "same-origin", false},
+		{"post_none_allowed", http.MethodPost, "none", false},
+		{"post_cross_site_blocked", http.MethodPost, "cross-site", true},
+		{"post_same_site_blocked", http.MethodPost, "same-site", true},
+		{"put_cross_site_blocked", http.MethodPut, "cross-site", true},
+		{"delete_cross_site_blocked", http.MethodDelete, "cross-site", true},
+		{"patch_cross_site_blocked", http.MethodPatch, "cross-site", true},
+		{"get_cross_site_allowed", http.MethodGet, "cross-site", false},
+		{"head_cross_site_allowed", http.MethodHead, "cross-site", false},
+		{"options_cross_site_allowed", http.MethodOptions, "cross-site", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequestWithContext(t.Context(), tc.method, "/api/jobs", nil)
+			if tc.site != "" {
+				req.Header.Set("Sec-Fetch-Site", tc.site)
+			}
+			assert.Equal(t, tc.blocked, crossSiteWriteBlocked(req))
+		})
+	}
 }

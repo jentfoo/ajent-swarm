@@ -101,9 +101,6 @@ func buildView(snap ctl.State, branch []session.Entry, watermark uint64) *view {
 		v.segments[seg.Key] = seg
 	}
 	v.interactions = slices.Clone(snap.Interactions)
-	if v.interactions == nil {
-		v.interactions = []ctl.InteractionPendingData{}
-	}
 	v.dialogSeen = make(map[uint64]int64, len(v.interactions))
 	for _, dlg := range v.interactions { // reattach: now is the best swarm knows
 		v.dialogSeen[dlg.ID] = time.Now().UnixMilli()
@@ -328,26 +325,30 @@ func firstUserPrompt(e ctl.Entry) string {
 // snapshot rebuilds the state.get shape from what events have kept current.
 func (v *view) snapshot() ctl.State {
 	st := ctl.State{
-		Session:      v.session,
-		Workspace:    v.workspace,
-		Cwd:          v.cwd,
-		Head:         v.head,
-		Model:        v.model,
-		Permission:   v.permission,
-		Usage:        v.usage,
-		Context:      v.context,
-		Running:      v.running,
-		Idle:         v.idle,
-		Spinning:     v.spinning,
-		Queued:       len(v.queuedRows),
-		Seat:         v.seat,
-		Interactions: slices.Clone(v.interactions),
+		Session:    v.session,
+		Workspace:  v.workspace,
+		Cwd:        v.cwd,
+		Head:       v.head,
+		Model:      v.model,
+		Permission: v.permission,
+		Usage:      v.usage,
+		Context:    v.context,
+		Running:    v.running,
+		Idle:       v.idle,
+		Spinning:   v.spinning,
+		Queued:     len(v.queuedRows),
+		Seat:       v.seat,
 	}
+	// every list encodes [] not null, never a bare nil
 	st.Tools = cloneTools(v.tools)
 	if v.queuedRows != nil {
 		st.QueuedRows = slices.Clone(v.queuedRows)
 	} else {
 		st.QueuedRows = []ctl.QueueRow{}
+	}
+	st.Interactions = slices.Clone(v.interactions)
+	if st.Interactions == nil {
+		st.Interactions = []ctl.InteractionPendingData{}
 	}
 	st.Activity = sortedActivity(v.activity)
 	st.Status.Segments = sortedSegments(v.segments)
@@ -447,11 +448,17 @@ func tailEntries[T any](items []T, end, limit int, size func(T) int, shape func(
 }
 
 // initTail returns the newest committed entries for an init, bounded by count
-// and bytes, with base64 image bodies deferred to lazy loads.
+// and bytes. Base64 image bodies defer to lazy loads, so a subscribe never
+// carries megabytes of pixels.
 func (v *view) initTail() ([]ctl.Entry, string) {
 	return tailEntries(v.entries, len(v.entries), initMaxEntries,
 		func(r entryRecord) int { return r.size },
-		func(r entryRecord) ctl.Entry { return deferImageBodies(r.e) })
+		func(r entryRecord) ctl.Entry {
+			if stripped, changed := stripImages(r.e.Data); changed {
+				r.e.Data = stripped
+			}
+			return r.e
+		})
 }
 
 // pageEntries returns up to limit full-fidelity entries older than before,
@@ -469,17 +476,6 @@ func (v *view) pageEntries(before string, limit int) ([]ctl.Entry, string) {
 	return tailEntries(v.entries, end, min(max(limit, 1), pageMaxEntries),
 		func(r entryRecord) int { return r.size },
 		func(r entryRecord) ctl.Entry { return r.e })
-}
-
-// deferImageBodies replaces base64 image payloads with their media type so an
-// init never carries megabytes of pixels, /entries returns the full bodies.
-func deferImageBodies(e ctl.Entry) ctl.Entry {
-	stripped, changed := stripImages(e.Data)
-	if !changed {
-		return e
-	}
-	e.Data = stripped
-	return e
 }
 
 // stripImages walks one JSON value replacing every image block body

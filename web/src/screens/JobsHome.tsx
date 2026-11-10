@@ -92,7 +92,7 @@ export default function JobsHome() {
     const token = ++loadToken.current
     try {
       // The newest-first history page doubles as every job's last-run status.
-      const [rows, history] = await Promise.all([
+      const [jobRows, history] = await Promise.all([
         jobsApi.list(),
         runsApi.list(undefined, lastRunPage),
       ])
@@ -103,8 +103,8 @@ export default function JobsHome() {
             .filter((j) => (pendingToggles.current.get(j.id) ?? 0) > 0)
             .map((j) => [j.id, j]),
         )
-        if (held.size === 0) return rows
-        return rows.map((j) => held.get(j.id) ?? j)
+        if (held.size === 0) return jobRows
+        return jobRows.map((j) => held.get(j.id) ?? j)
       })
       setLastRuns(latestRunByJob(history))
       setError('')

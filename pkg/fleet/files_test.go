@@ -67,7 +67,7 @@ func TestFiles(t *testing.T) {
 			assert.Equal(t, "src/inner/", inner[0].Path)
 		})
 
-		t.Run("unreadable_directory_answers_empty", func(t *testing.T) {
+		t.Run("missing_directory_answers_empty", func(t *testing.T) {
 			items, err := m.Files(t.Context(), f.SessionID(), "nowhere/")
 			require.NoError(t, err)
 			assert.Empty(t, items)

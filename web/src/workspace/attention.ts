@@ -225,8 +225,8 @@ export function rankAttention(items: readonly AttentionItem[]): {
 }
 
 // attentionKindLabels is the human vocabulary for one attention kind: the
-// phrase badges announce for assistive tech, never the wire token. Every
-// spoken surface reads from here so copy cannot drift.
+// phrase tile tab badges announce for assistive tech, never the wire token.
+// The rail renders terser badge copy of its own.
 export const attentionKindLabels: Record<AttentionKind, string> = {
   'needs-input': 'needs input',
   'needs-review': 'needs review',

@@ -59,7 +59,7 @@ type Runner interface {
 	LastBusyAt() time.Time
 }
 
-// ensure the manager keeps satisfying the runner surface.
+// The manager satisfies the runner surface.
 var _ Runner = (*fleet.Manager)(nil)
 
 // execute drives one claimed run to its terminal row, tearing the session
@@ -286,10 +286,9 @@ func (w *watchState) apply(raw []byte, persist func(status string)) outcome {
 		var f fleet.InitFrame
 		if err := json.Unmarshal(raw, &f); err == nil {
 			w.dialogs = len(f.State.Interactions)
-			for _, e := range f.Entries { // fold first: a late subscriber's landing
-				if landsEntry(e, w.pid) { // lives only in the entry tail
-					w.landed = true
-				}
+			// fold first: a late subscriber's landing lives only in the entry tail
+			if slices.ContainsFunc(f.Entries, func(e ctl.Entry) bool { return landsEntry(e, w.pid) }) {
+				w.landed = true
 			}
 			// folded first, so an init with landing plus idle still concludes
 			if w.landed && f.State.Idle {
@@ -465,7 +464,7 @@ func (s *Scheduler) finish(run store.Run, j store.Job, status string, note strin
 	fin := time.Now()
 	run.Status = status
 	run.FinishedAt = &fin
-	run.Error = note[:min(len(note), maxRunError)]
+	run.Error = clipRunes(note, maxRunError)
 	if err := s.store.UpdateRun(s.ctx, run); err != nil {
 		s.log.Warn("run outcome not persisted", "run", run.ID, "err", err)
 	}

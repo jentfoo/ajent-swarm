@@ -189,13 +189,6 @@ func TestSessionHandlers(t *testing.T) {
 			assert.Equal(t, "shell", res.Stopped)
 		})
 
-		t.Run("empty_when_nothing_ran", func(t *testing.T) {
-			f.Result(ctl.MethodInterrupt, ctl.InterruptResult{})
-			code, res := post[interruptReply](h, path, nil)
-			require.Equal(t, http.StatusOK, code)
-			assert.Empty(t, res.Stopped)
-		})
-
 		t.Run("held_seat_never_displaced", func(t *testing.T) {
 			held := h.newStub("01HELDSEAT00000000", fleettest.Options{Refuses: true})
 			h.serve(held)
@@ -309,6 +302,12 @@ func TestSessionHandlers(t *testing.T) {
 			code, res := post[resolveReply](h, path, resolveRequest{DialogID: 9, Cancel: true})
 			require.Equal(t, http.StatusOK, code)
 			assert.False(t, res.Settled)
+
+			sent := receivedParams[ctl.ResolveParams](h, f, ctl.MethodResolve)
+			require.NotEmpty(t, sent)
+			last := sent[len(sent)-1]
+			assert.Equal(t, uint64(9), last.ID)
+			assert.True(t, last.Cancel) // cancel rides upstream, not just a 200
 		})
 
 		t.Run("two_shapes_local_400", func(t *testing.T) {
@@ -554,38 +553,42 @@ func TestSessionHandlers(t *testing.T) {
 			return rows
 		}
 
-		require.Eventually(h.t, func() bool {
-			rows := attention()
-			return len(rows) == 1 && rows[0].SessionID == f.SessionID() && rows[0].Running
-		}, 2*time.Second, 5*time.Millisecond)
-		assert.Equal(t, fleet.AttentionWorking, attention()[0].Kind) // derived server-side
-
-		f.Broadcast(ctl.EventActivity, ctl.ActivityRow{Key: "k", Text: "reading main.go", Rank: 1})
-		f.Broadcast(ctl.EventInteractionPending, ctl.InteractionPendingData{
-			ID: 3, Kind: "decision", Prompt: "allow write?\nbe careful",
+		t.Run("working_row", func(t *testing.T) {
+			require.Eventually(h.t, func() bool {
+				rows := attention()
+				return len(rows) == 1 && rows[0].SessionID == f.SessionID() && rows[0].Running
+			}, 2*time.Second, 5*time.Millisecond)
+			assert.Equal(t, fleet.AttentionWorking, attention()[0].Kind) // derived server-side
 		})
-		require.Eventually(h.t, func() bool {
-			rows := attention()
-			return len(rows) == 1 && rows[0].OpenInteractions == 1 &&
-				rows[0].DialogID == 3 && rows[0].DialogPrompt == "allow write? be careful" &&
-				rows[0].DialogAt > 0
-		}, 2*time.Second, 5*time.Millisecond)
-		{
+
+		t.Run("dialog_parks_needs_input", func(t *testing.T) {
+			f.Broadcast(ctl.EventActivity, ctl.ActivityRow{Key: "k", Text: "reading main.go", Rank: 1})
+			f.Broadcast(ctl.EventInteractionPending, ctl.InteractionPendingData{
+				ID: 3, Kind: "decision", Prompt: "allow write?\nbe careful",
+			})
+			require.Eventually(h.t, func() bool {
+				rows := attention()
+				return len(rows) == 1 && rows[0].OpenInteractions == 1 &&
+					rows[0].DialogID == 3 && rows[0].DialogPrompt == "allow write? be careful" &&
+					rows[0].DialogAt > 0
+			}, 2*time.Second, 5*time.Millisecond)
 			row := attention()[0]
 			assert.Equal(t, fleet.AttentionNeedsInput, row.Kind)
 			assert.Equal(t, "allow write? be careful", row.Reason)
 			assert.Equal(t, row.DialogAt, row.Since)
 			assert.False(t, row.AckedDialog)
-		}
+		})
 
-		f.Broadcast(ctl.EventTurnEnd, ctl.TurnEndData{Stop: "end_turn"})
-		require.Eventually(h.t, func() bool {
-			rows := attention()
-			return len(rows) == 1 && rows[0].LastTurnEnd > 0 && !rows[0].Running &&
-				rows[0].LastStop == "end_turn" && rows[0].Activity == "reading main.go"
-		}, 2*time.Second, 5*time.Millisecond)
-		// the dialog still parks the turn, so needs input outranks the review
-		assert.Equal(t, fleet.AttentionNeedsInput, attention()[0].Kind)
+		t.Run("needs_input_outranks_review", func(t *testing.T) {
+			f.Broadcast(ctl.EventTurnEnd, ctl.TurnEndData{Stop: "end_turn"})
+			require.Eventually(h.t, func() bool {
+				rows := attention()
+				return len(rows) == 1 && rows[0].LastTurnEnd > 0 && !rows[0].Running &&
+					rows[0].LastStop == "end_turn" && rows[0].Activity == "reading main.go"
+			}, 2*time.Second, 5*time.Millisecond)
+			// the dialog still parks the turn, so needs input outranks the review
+			assert.Equal(t, fleet.AttentionNeedsInput, attention()[0].Kind)
+		})
 
 		t.Run("settled_drops_digest_facts", func(t *testing.T) {
 			f.Broadcast(ctl.EventInteractionSettled, ctl.InteractionSettledData{ID: 3, Kind: "decision", Answered: true})

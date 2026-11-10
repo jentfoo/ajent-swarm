@@ -527,8 +527,9 @@ func TestLauncher(t *testing.T) {
 		}, 3*time.Second, testPoll)
 
 		// the stop reaches /exit instead of answering the stale row's silence,
-		// the resume is not a swarm child, so no signal may fly. The session
-		// ends after ajent answers, like the real /exit round trip.
+		// the resume is not a swarm child, so no signal may fly. The hook fires
+		// once the stub answered, and the session ends on the exit event alone:
+		// dropping connections here would race the reply already in flight.
 		runStop := make(chan struct{})
 		stub.OnSubmit(func(p ctl.SubmitParams) {
 			if p.Line == stopLine {
@@ -544,7 +545,7 @@ func TestLauncher(t *testing.T) {
 			require.NoError(t, err)
 			t.Fatal("stop finished without /exit")
 		}
-		stub.Exit("stopped")
+		stub.Broadcast(ctl.EventSessionExit, ctl.SessionExitData{Reason: "stopped"})
 
 		select {
 		case err := <-errCh:
@@ -1172,8 +1173,9 @@ func TestEmptyRunProof(t *testing.T) {
 		for _, tc := range cases {
 			t.Run(tc.name, func(t *testing.T) {
 				a.status.Store(&Status{
-					SessionID: rec.SessionID, PID: tc.pid, State: ChildOnline,
-					served: tc.served, hadActivity: tc.hadActivity,
+					digestFacts: digestFacts{SessionID: rec.SessionID, PID: tc.pid},
+					State:       ChildOnline,
+					served:      tc.served, hadActivity: tc.hadActivity,
 				})
 				assert.Equal(t, tc.want, m.emptyRun(cp))
 			})

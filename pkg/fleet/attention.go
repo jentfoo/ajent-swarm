@@ -156,21 +156,11 @@ func (m *Manager) ackFactsFor(statuses []*Status) []ackFacts {
 // further dialogs wait.
 func deriveAttention(st *Status, acks ackFacts) Attention {
 	row := Attention{
-		SessionID:        st.SessionID,
-		PID:              st.PID,
-		OpenInteractions: st.OpenInteractions,
-		Running:          st.Running,
-		Spinning:         st.Spinning,
-		Idle:             st.Idle,
-		LastTurnEnd:      st.LastTurnEnd,
-		DialogID:         st.DialogID,
-		DialogPrompt:     st.DialogPrompt,
-		DialogAt:         st.DialogAt,
-		LastStop:         st.LastStop,
-		LastStopErr:      st.LastStopErr,
-		Activity:         st.Activity,
-		AckedDialog:      acks.dialog,
-		AckedTurn:        acks.turn,
+		digestFacts: st.digestFacts,
+		// Acknowledgment facts from the server-side ledger: whether this row's
+		// oldest open dialog is settled, and the session's acknowledged turn end.
+		AckedDialog: acks.dialog,
+		AckedTurn:   acks.turn,
 	}
 
 	if st.OpenInteractions > 0 {

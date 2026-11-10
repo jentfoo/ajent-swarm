@@ -245,7 +245,8 @@ func (f *Stub) Result(method string, result any) {
 }
 
 // OnSubmit registers fn to run whenever the stub serves a submit request,
-// the params are already recorded when it fires. Safe to call mid-flight.
+// fired from the connection's serve loop once that request's reply is on the
+// wire, so a hook reacting with Exit still lets the round trip complete.
 func (f *Stub) OnSubmit(fn func(ctl.SubmitParams)) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -321,8 +322,19 @@ func (f *Stub) serveConn(conn net.Conn) {
 	}
 }
 
-// handle answers one request, false closes the connection.
+// handle answers one request, false closes the connection. Submit hooks fire
+// after the reply is encoded: a real ajent answers /exit before ending.
 func (c *stubConn) handle(req ctl.Request) bool {
+	if req.Method != ctl.MethodSubmit {
+		return c.dispatch(req)
+	}
+	sent := c.dispatch(req)
+	c.s.fireSubmit(req.Params)
+	return sent
+}
+
+// dispatch answers one request per the stub's rules, false closes the conn.
+func (c *stubConn) dispatch(req ctl.Request) bool {
 	if rp, ok := c.s.scripted(req); ok {
 		return c.reply(rp)
 	}
@@ -411,31 +423,33 @@ func (c *stubConn) requireSeat(req ctl.Request) bool {
 
 // scripted answers a request whose reply the test fixed, recording it first.
 func (f *Stub) scripted(req ctl.Request) (ctl.Reply, bool) {
-	var hookSubmit ctl.SubmitParams
+	var reply ctl.Reply
 	f.mu.Lock()
 	f.requests = append(f.requests, RecordedRequest{Method: req.Method, Params: req.Params})
-	hook := f.onSubmit
-	if hook != nil && req.Method == ctl.MethodSubmit {
-		_ = json.Unmarshal(req.Params, &hookSubmit)
-	}
-	var reply ctl.Reply
 	if err, ok := f.refuseScript[req.Method]; ok {
 		reply.Error = err
 	} else if res, ok := f.resultScript[req.Method]; ok {
 		reply.Result = ctl.EncodeData(res)
 	} else {
 		f.mu.Unlock()
-		if hook != nil && req.Method == ctl.MethodSubmit {
-			hook(hookSubmit)
-		}
 		return ctl.Reply{}, false
 	}
 	reply.ID, reply.Seq = req.ID, f.seq
 	f.mu.Unlock()
-	if hook != nil && req.Method == ctl.MethodSubmit {
-		hook(hookSubmit)
-	}
 	return reply, true
+}
+
+// fireSubmit runs the submit hook once the request's answer hit the wire.
+func (f *Stub) fireSubmit(params json.RawMessage) {
+	f.mu.Lock()
+	hook := f.onSubmit
+	f.mu.Unlock()
+	if hook == nil {
+		return
+	}
+	var p ctl.SubmitParams
+	_ = json.Unmarshal(params, &p)
+	hook(p)
 }
 
 // attach applies the seat rules, false refuses with seat-held.

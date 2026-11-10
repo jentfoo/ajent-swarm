@@ -74,7 +74,3 @@ export function ev(name: string, seq: number, data?: unknown): WireEvent {
   if (data !== undefined) event.data = data
   return event
 }
-
-export function entryAppend(seq: number, e: Entry): WireEvent {
-  return ev('entry.append', seq, { entry: e })
-}

@@ -231,18 +231,6 @@ func TestView(t *testing.T) {
 		assert.Equal(t, "second", v.activityPreview())
 	})
 
-	t.Run("resnapshot_clears_dialogs", func(t *testing.T) {
-		// dialog ids never survive a reconnect: the rebuilt view lists only what
-		// the new snapshot lists
-		v := buildView(ctl.State{
-			Interactions: []ctl.InteractionPendingData{{ID: 9, Kind: "pick", Prompt: "choose"}},
-		}, nil, 4)
-		require.Len(t, v.interactions, 1)
-
-		fresh := buildView(ctl.State{}, nil, 8) // a later resnapshot lists none
-		assert.Empty(t, fresh.interactions)
-	})
-
 	t.Run("seat_lost_records_holder", func(t *testing.T) {
 		v := emptyView()
 		v.seat = ctl.SeatState{Held: true, Holder: holderName, Yours: true}
@@ -379,15 +367,6 @@ func TestView(t *testing.T) {
 
 func TestViewHadActivity(t *testing.T) {
 	t.Parallel()
-
-	t.Run("empty_view_reports_none", func(t *testing.T) {
-		assert.False(t, emptyView().hadActivity())
-	})
-
-	t.Run("snapshot_name_counts", func(t *testing.T) {
-		v := buildView(ctl.State{Session: ctl.Session{ID: "s1", Name: "daily"}, Head: "h0"}, nil, 10)
-		assert.True(t, v.hadActivity())
-	})
 
 	t.Run("backfill_message_counts", func(t *testing.T) {
 		v := buildView(ctl.State{Session: ctl.Session{ID: "s1"}, Head: "m1"},

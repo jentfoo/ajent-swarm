@@ -21,7 +21,11 @@ func pruneChildLogs(dir string, cutoff time.Time, log *slog.Logger) {
 		return // no children captured yet
 	}
 	stale := bulk.SliceFilter(func(e os.DirEntry) bool {
-		return !e.IsDir() && isChildLog(e.Name()) && fileOlder(e, cutoff)
+		if e.IsDir() || !isChildLog(e.Name()) {
+			return false
+		}
+		info, err := e.Info()
+		return err == nil && info.ModTime().Before(cutoff)
 	}, entries)
 	for _, e := range stale {
 		path := filepath.Join(dir, e.Name())
@@ -29,12 +33,6 @@ func pruneChildLogs(dir string, cutoff time.Time, log *slog.Logger) {
 			log.Warn("child log not pruned", "path", path, "err", err)
 		}
 	}
-}
-
-// fileOlder reports whether the entry's mod time sits before cutoff.
-func fileOlder(e os.DirEntry, cutoff time.Time) bool {
-	info, err := e.Info()
-	return err == nil && info.ModTime().Before(cutoff)
 }
 
 // isChildLog reports whether name is a captured child log or one of its

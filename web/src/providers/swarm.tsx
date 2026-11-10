@@ -107,7 +107,9 @@ export function SwarmProvider({ children }: { children: ReactNode }) {
     }
   }, [store, refreshAttention])
 
-  // theme degrades to the preferred scheme when storage is unreadable
+  // theme degrades to the preferred scheme when storage is unreadable. The
+  // key predates the versioned naming and stays unversioned: index.html's
+  // pre-paint script reads it too, a rename must change both.
   const [theme, setThemeState] = useState<Theme>(() => {
     try {
       const raw = localStorage.getItem('swarm.theme')

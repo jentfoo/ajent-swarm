@@ -85,7 +85,7 @@ export function QueuedPrompts({
   )
 }
 
-// refusedVisible reports whether a failed row still shows its refusal chip
+// refusedVisible reports whether a failed row still shows its refusal chip:
 // an absent stamp reads as expired.
 function refusedVisible(p: PendingSubmit, now: number): boolean {
   return p.state === 'failed' && now - (p.failedAt ?? 0) < refusedTtlMs

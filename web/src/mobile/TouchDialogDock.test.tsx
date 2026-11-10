@@ -2,7 +2,7 @@ import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { TouchDialogDock } from './TouchDialogDock'
+import { DialogDock } from '../session/DialogDock'
 import { coarseImport } from '../test/matchMedia'
 import type { DialogOutcome } from '../state/eventApplier'
 import type { InteractionPending } from '../api/types'
@@ -28,7 +28,8 @@ describe('TouchDialogDock', () => {
     const answered = vi.fn()
 
     render(
-      <TouchDialogDock
+      <DialogDock
+        touch
         sessionId="01S"
         dialogs={[approve]}
         outcomes={[]}
@@ -57,7 +58,8 @@ describe('TouchDialogDock', () => {
     )
 
     render(
-      <TouchDialogDock
+      <DialogDock
+        touch
         sessionId="01S"
         dialogs={[{ id: 7, kind: 'secret', prompt: 'API key?', text: true, secret: true }]}
         outcomes={[]}
@@ -88,7 +90,8 @@ describe('TouchDialogDock', () => {
       } satisfies DialogOutcome
       const onOutcomeDismissed = vi.fn()
       render(
-        <TouchDialogDock
+        <DialogDock
+          touch
           sessionId="01S"
           dialogs={[]}
           outcomes={[outcome]}
@@ -113,7 +116,8 @@ describe('TouchDialogDock', () => {
     const user = userEvent.setup()
     const onOutcomeDismissed = vi.fn()
     render(
-      <TouchDialogDock
+      <DialogDock
+        touch
         sessionId="01S"
         dialogs={[]}
         outcomes={[{ id: 9, answered: false, cancelled: true }]}
@@ -129,8 +133,8 @@ describe('TouchDialogDock', () => {
 
 // coarseDock re-imports the dock under the coarse-pointer stub, since the
 // touch gate reads once at module scope.
-async function coarseDock(): Promise<typeof TouchDialogDock> {
-  return (await coarseImport(() => import('./TouchDialogDock'))).TouchDialogDock
+async function coarseDock(): Promise<typeof DialogDock> {
+  return (await coarseImport(() => import('../session/DialogDock'))).DialogDock
 }
 
 describe('TouchDialogDock secret press', () => {
@@ -232,7 +236,8 @@ describe('TouchDialogDock permit note flow', () => {
     vi.stubGlobal('fetch', fetchSpy)
     const answered = vi.fn()
     const view = render(
-      <TouchDialogDock
+      <DialogDock
+        touch
         sessionId="01S"
         dialogs={dialogs}
         outcomes={[]}
@@ -242,7 +247,8 @@ describe('TouchDialogDock permit note flow', () => {
     )
     const rerenderWith = (next: InteractionPending[]) =>
       view.rerender(
-        <TouchDialogDock
+        <DialogDock
+          touch
           sessionId="01S"
           dialogs={next}
           outcomes={[]}

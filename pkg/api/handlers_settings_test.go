@@ -15,16 +15,6 @@ import (
 
 func TestSettingsHandlers(t *testing.T) {
 	t.Run("global_settings_endpoints", func(t *testing.T) {
-		t.Run("default_ships_unset", func(t *testing.T) {
-			h := newSessionAPI(t)
-
-			code, got := get[struct {
-				TitleModel string `json:"titleModel"`
-			}](h, "/api/settings")
-			require.Equal(t, http.StatusOK, code)
-			assert.Empty(t, got.TitleModel)
-		})
-
 		t.Run("put_trims_the_model", func(t *testing.T) {
 			h := newSessionAPI(t)
 

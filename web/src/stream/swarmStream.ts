@@ -375,7 +375,7 @@ export class SwarmStream {
         return
       }
       default:
-        this.dispatch((frame as { sessionId: string }).sessionId, frame)
+        return // a malformed or unknown frame, nothing to route
     }
   }
 

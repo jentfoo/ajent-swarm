@@ -61,7 +61,8 @@ function SheetLayer({
 }): ReactElement {
   const [dragY, setDragY] = useState(0)
   const sheetRef = useRef<HTMLElement>(null)
-  const start = useRef<{ x: number; y: number } | null>(null)
+  // one pointer owns a drag, later fingers can neither steer nor release it
+  const start = useRef<{ pointerId: number; x: number; y: number } | null>(null)
 
   useOverlayDismiss(sheetRef, onClose)
   useOverlayBack(onClose)
@@ -104,20 +105,25 @@ function SheetLayer({
   }, [])
 
   const onPointerDown = (ev: ReactPointerEvent<HTMLDivElement>) => {
-    start.current = { x: ev.clientX, y: ev.clientY }
+    // a drag in flight never adopts the newcomer, that would hand it over
+    if (start.current !== null) return
+    start.current = { pointerId: ev.pointerId, x: ev.clientX, y: ev.clientY }
     ev.currentTarget.setPointerCapture(ev.pointerId)
   }
   const onPointerMove = (ev: ReactPointerEvent<HTMLDivElement>) => {
-    if (start.current === null) return // gestures not started on the handle scroll
-    setDragY(Math.max(0, ev.clientY - start.current.y))
+    const began = start.current
+    // gestures not started on the handle scroll, other pointers are noise
+    if (began === null || began.pointerId !== ev.pointerId) return
+    setDragY(Math.max(0, ev.clientY - began.y))
   }
 
   // the release decision reads the last committed offset, updaters stay pure,
-  // so StrictMode's double render cannot close the sheet twice
+  // so StrictMode's double render cannot close the sheet twice. A foreign
+  // pointer lifting is not a release and leaves the drag running
   const onPointerUp = (ev: ReactPointerEvent<HTMLDivElement>) => {
     const began = start.current
+    if (began === null || began.pointerId !== ev.pointerId) return
     start.current = null
-    if (began === null) return
     const wandered =
       Math.abs(ev.clientX - began.x) < tapSlop && Math.abs(ev.clientY - began.y) < tapSlop
     if (dragY >= dismissThreshold || wandered) onClose()
@@ -125,8 +131,10 @@ function SheetLayer({
   }
 
   // a pointer the system took back (an incoming call, a notification shade)
-  // never reads as a release: the sheet springs back open
-  const onPointerCancel = () => {
+  // never reads as a release: the sheet springs back open. Only the owning
+  // pointer cancels, a second finger losing to a gesture keeps its drag alive
+  const onPointerCancel = (ev: ReactPointerEvent<HTMLDivElement>) => {
+    if (start.current?.pointerId !== ev.pointerId) return
     start.current = null
     setDragY(0)
   }

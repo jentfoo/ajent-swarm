@@ -104,6 +104,42 @@ describe('BottomSheet', () => {
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
+  it('ignores a second pointer pressing the handle mid-drag', () => {
+    const { onClose, handle } = renderSheet()
+    fireEvent.pointerDown(handle, { pointerId: 1, clientX: 20, clientY: 300 })
+    fireEvent.pointerMove(handle, { pointerId: 1, clientX: 20, clientY: 400 })
+
+    // finger two lands on the handle and slides: it neither steers the sheet…
+    fireEvent.pointerDown(handle, { pointerId: 2, clientX: 100, clientY: 350 })
+    fireEvent.pointerMove(handle, { pointerId: 2, clientX: 100, clientY: 620 })
+    const sheet = document.querySelector('.bottom-sheet') as HTMLElement
+    expect(sheet.style.transform).toBe('translateY(100px)')
+
+    // …nor dismisses it, its near-stationary release would read as a tap
+    fireEvent.pointerUp(handle, { pointerId: 2, clientX: 102, clientY: 352 })
+    expect(onClose).not.toHaveBeenCalled()
+
+    // finger one still owns the drag and its past-threshold release closes it
+    fireEvent.pointerMove(handle, { pointerId: 1, clientX: 20, clientY: 500 })
+    fireEvent.pointerUp(handle, { pointerId: 1, clientX: 20, clientY: 500 })
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps the drag when only the second finger is cancelled', () => {
+    const { onClose, handle } = renderSheet()
+    fireEvent.pointerDown(handle, { pointerId: 1, clientX: 20, clientY: 300 })
+    fireEvent.pointerDown(handle, { pointerId: 2, clientX: 100, clientY: 310 })
+
+    // the system reclaims finger two only: finger one keeps dragging
+    fireEvent.pointerCancel(handle, { pointerId: 2 })
+    fireEvent.pointerMove(handle, { pointerId: 1, clientX: 20, clientY: 420 })
+    const sheet = document.querySelector('.bottom-sheet') as HTMLElement
+    expect(sheet.style.transform).toBe('translateY(120px)')
+
+    fireEvent.pointerUp(handle, { pointerId: 1, clientX: 20, clientY: 420 })
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
   it('springs back without closing when the system takes the pointer', () => {
     const { onClose, handle } = renderSheet()
     fireEvent.pointerDown(handle, { pointerId: 1, clientX: 20, clientY: 300 })

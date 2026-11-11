@@ -142,7 +142,11 @@ export default function RunsHistory() {
         </p>
       )}
 
-      {runs !== null && runs.length === 0 ? (
+      {/* gated on no error so a failed first load keeps its alert alone,
+          never a loading line under it */}
+      {runs === null && error === '' ? (
+        <p className="muted">Loading run history…</p>
+      ) : runs !== null && runs.length === 0 ? (
         <p className="muted">No runs yet. Fire a job or wait for its schedule.</p>
       ) : rows.length === 0 && runs !== null && runs.length > 0 ? (
         <p className="muted">No runs match these filters.</p>

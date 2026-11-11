@@ -13,10 +13,11 @@ import type { Job, Run } from '../api/types'
 
 // Run history renders over the real provider stack: rows join job names,
 // filters narrow through the backend's ?job= and client-side status, a
-// run's detail routes to its session view when live or its recorded
-// transcript when not, an open detail tracks each poll instead of a frozen
-// snapshot, only the newest load may commit over an in-flight one, and
-// platform back peels the detail as its own history layer.
+// first load paints a loading line instead of a blank panel, a run's detail
+// routes to its session view when live or its recorded transcript when not,
+// an open detail tracks each poll instead of a frozen snapshot, only the
+// newest load may commit over an in-flight one, and platform back peels the
+// detail as its own history layer.
 function jobRow(id: number, name: string): Job {
   return {
     id,
@@ -276,6 +277,41 @@ describe('RunsHistory', () => {
     expect(await screen.findByRole('dialog', { name: 'Run 12' })).toBeInTheDocument()
   })
 
+  it('shows a loading line before rows land', async () => {
+    const parked: Array<{ resolve: (r: Response) => void }> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string | URL | Request, init?: RequestInit) => {
+        const path = String(url).replace(/^https?:\/\/[^/]+/, '')
+        const base = path.split('?')[0]
+        if (base === '/api/me')
+          return Promise.resolve(Response.json({ username: 'you', via: 'cookie' }))
+        if (
+          base === '/api/sessions' ||
+          base === '/api/attention' ||
+          base === '/api/models/options'
+        ) {
+          return Promise.resolve(Response.json([]))
+        }
+        if (base === '/api/jobs') return Promise.resolve(Response.json(jobs))
+        if (base === '/api/runs') {
+          // parked like a real fetch, so the first paint stays on its load
+          return new Promise<Response>((resolve) => {
+            parked.push({ resolve })
+          })
+        }
+        throw new Error(`unexpected fetch ${init?.method ?? 'GET'} ${base}`)
+      }),
+    )
+
+    renderRuns()
+    expect(screen.getByText('Loading run history…')).toBeInTheDocument()
+
+    parked[0].resolve(Response.json(runs))
+    await screen.findByTestId('run-11')
+    expect(screen.queryByText('Loading run history…')).not.toBeInTheDocument()
+  })
+
   it('surfaces load failures', async () => {
     vi.stubGlobal(
       'fetch',
@@ -284,6 +320,8 @@ describe('RunsHistory', () => {
     renderRuns()
 
     expect(await screen.findByRole('alert')).toHaveTextContent('The service hit an internal error.')
+    // the failed first load keeps its alert, never a loading line beneath it
+    expect(screen.queryByText('Loading run history…')).not.toBeInTheDocument()
   })
 
   it('filters by status client-side and by job through the backend', async () => {

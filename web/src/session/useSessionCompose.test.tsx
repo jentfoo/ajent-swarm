@@ -171,6 +171,50 @@ describe('useSessionCompose', () => {
     expect(result.current.disabledReason).toBe('A dialog needs an answer before prompts can send.')
   })
 
+  it('names the ended reason over a dialog the run left behind', async () => {
+    const { result } = renderCompose(VIEW)
+    const ws = await openSocket()
+    act(() => {
+      ws.message({
+        type: 'init',
+        sessionId: VIEW,
+        state: snapshotFor(VIEW, {
+          interactions: [
+            { id: 42, kind: 'pick', prompt: 'Allow write access?', options: ['allow', 'deny'] },
+          ],
+        }),
+        entries: [],
+      })
+    })
+    await waitFor(() => expect(result.current.dialogs).toHaveLength(1))
+
+    // the run dies mid-dialog: the placeholder follows the ended banner
+    // instead of claiming an answer that can never arrive
+    act(() => {
+      ws.message({
+        type: 'event',
+        sessionId: VIEW,
+        event: { event: 'session.exit', seq: 1, data: { reason: 'sigterm' } },
+      })
+    })
+    expect(result.current.composerDisabled).toBe(true)
+    expect(result.current.disabledReason).toBe('Session ended: sigterm.')
+    // the dialog set stays visible as the dock's read-only context
+    expect(result.current.dialogs).toHaveLength(1)
+  })
+
+  it('names an ended run without a reason or dialogs', async () => {
+    const { result } = renderCompose(VIEW)
+    const ws = await openSocket()
+    act(() => {
+      ws.message({ type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
+      ws.message({ type: 'child', sessionId: VIEW, state: 'exited' })
+    })
+
+    await waitFor(() => expect(result.current.composerDisabled).toBe(true))
+    expect(result.current.disabledReason).toBe('Session ended.')
+  })
+
   it('recalls a queued prompt above an existing draft with a notice', async () => {
     fetcher.on(`/api/sessions/${VIEW}/recall`, () =>
       Response.json({ id: 'q1', text: 'recalled prompt' }),

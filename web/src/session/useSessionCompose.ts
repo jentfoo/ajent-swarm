@@ -10,7 +10,7 @@ import { mergeRecallSources, maxRecallPrompts, recallPrompts } from '../state/de
 import type { RecallPrompt } from '../state/derive'
 import type { ComposerRecall } from './Composer'
 import { prependDraft } from './draftStore'
-import { phaseText } from './phases'
+import { endedBanner, phaseText } from './phases'
 import { placedAboveNotice, useComposerDraft } from './useComposerDraft'
 
 interface SessionCompose {
@@ -131,12 +131,17 @@ export function useSessionCompose(sessionId: string): SessionCompose {
   }, [sessionId, dispatch, placedAbove, pushToast])
 
   // A dialog holding input disables the composer ahead of any wire refusal.
-  // Connecting and resyncing borrow the shared banner copy (phases.tsx) so the
-  // placeholder matches it, a lost or ended session keeps today's short line.
+  // An ended run outranks it: nothing can answer anymore, so the placeholder
+  // names how the run stopped (the same sentence the ended banner renders)
+  // instead of claiming a dialog needs an answer. Connecting and resyncing
+  // borrow the shared banner copy (phases.tsx) so the placeholder matches it,
+  // a lost session keeps today's short line.
   const dialogs = state.snapshot.interactions ?? []
-  const composerDisabled = phase !== 'live' || dialogs.length > 0
-  const disabledReason =
-    dialogs.length > 0
+  const ended = endedBanner(phase, state.exitReason)
+  const composerDisabled = ended.show || phase !== 'live' || dialogs.length > 0
+  const disabledReason = ended.show
+    ? ended.text
+    : dialogs.length > 0
       ? 'A dialog needs an answer before prompts can send.'
       : phase === 'connecting' || phase === 'resyncing'
         ? phaseText(phase)

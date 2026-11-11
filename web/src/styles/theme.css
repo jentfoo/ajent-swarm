@@ -642,6 +642,12 @@ label {
   width: 100%;
   margin: calc(var(--unit) * 1) 0 calc(var(--unit) * 2);
 }
+/* ended-run context: the offered choices read as plain labels, no controls */
+.dialog-options-ended {
+  margin: calc(var(--unit) * 1) 0;
+  padding-left: calc(var(--unit) * 4);
+  color: var(--muted);
+}
 .multipick {
   display: flex;
   flex-direction: column;

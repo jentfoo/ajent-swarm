@@ -434,6 +434,36 @@ describe('SessionView', () => {
     await waitFor(() => expect(screen.queryByText('Pick one')).not.toBeInTheDocument())
   })
 
+  it('renders dialogs left by an ended run as read-only context', async () => {
+    renderView()
+    const ws = await openSocket()
+
+    frame(ws, {
+      type: 'init',
+      sessionId: VIEW,
+      state: snapshotFor(VIEW, {
+        interactions: [
+          { id: 42, kind: 'pick', prompt: 'Allow write access?', options: ['allow', 'deny'] },
+        ],
+      }),
+      entries: [],
+    })
+    expect(await screen.findByRole('button', { name: 'allow' })).toBeInTheDocument()
+
+    // the run dies mid-dialog: the ask stays as context, the controls go
+    frame(ws, wireEvent('session.exit', 1, { reason: 'sigterm' }))
+    expect(await screen.findByText('Session ended: sigterm.')).toBeInTheDocument()
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'allow' })).not.toBeInTheDocument(),
+    )
+    expect(screen.getByText('Allow write access?')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument()
+    // the composer names the ended reason, never a dialog awaiting an answer
+    const prompt = screen.getByLabelText('Prompt')
+    expect(prompt).toBeDisabled()
+    expect(prompt).toHaveAttribute('placeholder', 'Session ended: sigterm.')
+  })
+
   it('paints optimistic rows and resolves them by queueIds, joined entries included', async () => {
     fetcher.on(`/api/sessions/${VIEW}/submit`, () =>
       Response.json({ pendingId: 'p-client' }, { status: 202 }),

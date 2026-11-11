@@ -184,6 +184,55 @@ describe('DialogCardBody permit note ride', () => {
   })
 })
 
+// Read-only mode: an ended run leaves its ask behind with no way to answer,
+// so the card keeps the prompt and the offered choices as context and renders
+// no control in either arrangement.
+describe('DialogCardBody read-only', () => {
+  function renderEnded(dialog: InteractionPending, layout: 'compact' | 'touch') {
+    return render(
+      <DialogCardBody
+        dialog={dialog}
+        sessionId="01S"
+        layout={layout}
+        readOnly
+        onAnsweredLocally={vi.fn()}
+        onNoteIntent={vi.fn()}
+      />,
+    )
+  }
+
+  it('lists the offered choices as plain labels', () => {
+    renderEnded(base({ options: ['allow', 'deny'], subject: 'write access' }), 'compact')
+
+    const card = screen.getByText('Proceed?').closest('.dialog-card')!
+    expect(card).toHaveClass('ended')
+    expect(screen.getByText('write access')).toBeInTheDocument()
+    for (const label of ['allow', 'deny']) {
+      expect(screen.getByText(label).closest('li')).not.toBeNull()
+    }
+    expect(screen.getByText('Unanswered when the session ended.')).toBeInTheDocument()
+    expect(screen.queryAllByRole('button')).toHaveLength(0)
+    expect(screen.queryAllByRole('textbox')).toHaveLength(0)
+  })
+
+  it('renders the same inert card on touch, secrets included', () => {
+    renderEnded(base({ kind: 'secret', prompt: 'API key?', text: true, secret: true }), 'touch')
+
+    expect(screen.getByText('API key?')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Secret answer')).not.toBeInTheDocument()
+    expect(screen.queryAllByRole('button')).toHaveLength(0)
+    expect(document.activeElement).toBe(document.body) // no control steals the caret
+  })
+
+  it('renders a bare ask without options as prompt alone', () => {
+    renderEnded(base({ kind: 'input', prompt: 'name?', text: true }), 'compact')
+
+    expect(screen.getByText('name?')).toBeInTheDocument()
+    expect(document.querySelector('.dialog-options-ended')).toBeNull()
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+  })
+})
+
 // Secrets never echo: compact cards mask an inline answer, touch takes over a
 // dedicated screen with show and hide.
 describe('DialogCardBody secrets', () => {

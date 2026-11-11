@@ -8,6 +8,8 @@
 //     above the applied watermark, poll-only facts always merge
 //   - keyed families replace wholesale, empty text removes a row
 //   - dialogs are state: rebuilt from snapshots, cleared when absent
+//   - dialogs pending at an exit stay put as read-only context: nothing can
+//     settle them anymore, the surfaces render them inert
 //   - a mid-turn session.exit closes the turn itself: no turn.end follows an
 //     unsettled exit, and ended sessions never resnapshot
 //   - queue rows resolve by id, secret redaction respected
@@ -634,7 +636,9 @@ function applyEvent(state: AppliedSessionState, ev: WireEvent): AppliedSessionSt
       // Exit can land mid-turn: an unsettled teardown never sends turn.end
       // and the poll backstop skips ended sessions, so the turn closes here.
       // Every step is idempotent under an earlier turn.end. Parked prompts
-      // die with the run too, swarm drops them at exit.
+      // die with the run too, swarm drops them at exit. Pending dialogs stay
+      // in place instead: no settle can follow the exit, so they read as
+      // context and the dock renders them without answer controls.
       const reason = decode<{ reason?: string }>(ev.data)?.reason
       next.exitReason = reason ?? ''
       closeTurn(next)
@@ -846,7 +850,8 @@ function applyResnapshot(state: AppliedSessionState, snap: CtlState): AppliedSes
   if (!fresh) return next
   // An exit is final for turn state: a read that raced it can still carry the
   // pre-exit running/spinner facts, and no later poll exists to correct them.
-  // Only the poll-only facts above keep merging.
+  // Only the poll-only facts above keep merging, so dialogs pending at the
+  // exit survive as read-only context instead of clearing or resurrecting.
   if (state.exitReason !== undefined) return next
 
   next.snapshot = {

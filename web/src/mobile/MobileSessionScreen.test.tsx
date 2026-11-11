@@ -647,6 +647,38 @@ describe('MobileSessionScreen', () => {
     expect(screen.getByRole('link', { name: 'Read the transcript' })).toBeInTheDocument()
   })
 
+  it('renders dialogs left by an ended run as read-only context', async () => {
+    renderScreen()
+    const ws = await openSocket()
+    act(() => {
+      ws.message({
+        type: 'init',
+        sessionId: VIEW,
+        state: snapshotFor(VIEW, {
+          interactions: [
+            { id: 42, kind: 'pick', prompt: 'Allow write access?', options: ['allow', 'deny'] },
+          ],
+        }),
+        entries: [],
+      })
+    })
+    expect(await screen.findByRole('button', { name: 'allow' })).toBeInTheDocument()
+
+    // the run dies mid-dialog: the ask stays as context, the controls go
+    act(() => {
+      ws.message(wireEvent('session.exit', 1, { reason: 'sigterm' }))
+    })
+    expect(await screen.findByText(/Session ended: sigterm\./)).toBeInTheDocument()
+    await vi.waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'allow' })).not.toBeInTheDocument(),
+    )
+    expect(screen.getByText('Allow write access?')).toBeInTheDocument()
+    // the composer names the ended reason, never a dialog awaiting an answer
+    const prompt = screen.getByLabelText('Prompt')
+    expect(prompt).toBeDisabled()
+    expect(prompt).toHaveAttribute('placeholder', 'Session ended: sigterm.')
+  })
+
   it('keeps the transcript link on a settled end', async () => {
     renderScreen()
     const ws = await openSocket()

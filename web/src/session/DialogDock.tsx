@@ -24,6 +24,11 @@ import { usePermitNoteAutoAnswer } from './decisionNote'
 // Answered-elsewhere chips read their detail inline and leave on their own
 // or on tap. No head autofocus: focus belongs to the whole-screen composer.
 //
+// An ended run owes no answer: its pending dialogs render through the same
+// body's read-only mode as inert context, the arrival region goes quiet (the
+// ended banner speaks for the run) and outcome chips keep their resolved
+// rendering. Live sessions render exactly as before.
+//
 // The first arrival announces through one sr-only polite region kept mounted
 // for the surface's whole life (dialogAnnouncement below), so assistive tech
 // hears what took the composer away exactly when input is lost.
@@ -33,6 +38,7 @@ export function DialogDock({
   outcomes,
   touch = false,
   autoFocusDialogs = true,
+  ended = false,
   onAnsweredLocally,
   onOutcomeDismissed,
 }: {
@@ -41,6 +47,7 @@ export function DialogDock({
   outcomes: DialogOutcome[]
   touch?: boolean // full-width cards, inline chip detail, no head autofocus
   autoFocusDialogs?: boolean
+  ended?: boolean // the run has ended: dialogs render as read-only context
   onAnsweredLocally: (dialogId: number) => void
   onOutcomeDismissed: (dialogId: number) => void
 }): ReactElement {
@@ -49,13 +56,14 @@ export function DialogDock({
     dialogs,
     onAnsweredLocally,
   )
-  const visible = dialogs.filter((dlg) => !suppressed.has(dlg.id))
+  // an ended run settles nothing, so no dialog stays suppressed either
+  const visible = ended ? dialogs : dialogs.filter((dlg) => !suppressed.has(dlg.id))
 
   return (
     <>
       {/* mounted empty like Notices, so an arrival mutates live-region content */}
       <span className="sr-only" aria-live="polite">
-        {dialogAnnouncement(visible)}
+        {dialogAnnouncement(visible, ended)}
       </span>
       {(visible.length > 0 || outcomes.length > 0) && (
         <section className={`dialog-dock ${touch ? 'touch' : ''}`.trim()} aria-label="Open dialogs">
@@ -66,6 +74,7 @@ export function DialogDock({
               sessionId={sessionId}
               layout={touch ? 'touch' : 'compact'}
               head={!touch && autoFocusDialogs && i === 0}
+              readOnly={ended}
               onAnsweredLocally={onAnsweredLocally}
               onNoteIntent={recordIntent}
             />
@@ -87,8 +96,11 @@ export function DialogDock({
 // dialogAnnouncement names the oldest open dialog as one polite line, empty
 // while nothing blocks so any later arrival always changes the region's text.
 // The head staying put keeps stacked arrivals and outcome chips quiet: the
-// line moves only when the set empties or the head itself is replaced.
-function dialogAnnouncement(visible: InteractionPending[]): string {
+// line moves only when the set empties or the head itself is replaced. An
+// ended run answers nothing, so it keeps the region empty rather than claiming
+// an answer that can never arrive.
+function dialogAnnouncement(visible: InteractionPending[], ended: boolean): string {
+  if (ended) return ''
   const head = visible[0]
   if (head === undefined) return ''
   // an empty prompt reads by its kind, matching the card's own fallback

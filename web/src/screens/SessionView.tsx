@@ -134,6 +134,7 @@ function SessionSurface({ sessionId, focused }: { sessionId: string; focused: bo
         sessionId={sessionId}
         dialogs={dialogs}
         outcomes={state.resolvedElsewhere}
+        ended={ended.show}
         autoFocusDialogs={focused}
         onAnsweredLocally={(dialogId) => {
           dispatch({ type: 'dialogAnswered', dialogId })

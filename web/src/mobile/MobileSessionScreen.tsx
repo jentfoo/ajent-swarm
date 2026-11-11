@@ -130,6 +130,7 @@ function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElemen
         sessionId={sessionId}
         dialogs={dialogs}
         outcomes={state.resolvedElsewhere}
+        ended={ended.show}
         onAnsweredLocally={(dialogId) => {
           dispatch({ type: 'dialogAnswered', dialogId })
           acknowledgeDialog(sessionId, dialogId)

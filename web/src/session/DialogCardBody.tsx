@@ -17,6 +17,9 @@ interface DialogCardBodyProps {
   sessionId: string
   layout: DialogCardLayout
   head?: boolean
+  // an ended run leaves its ask behind with no way to answer: the card
+  // renders as inert context, every control is gone
+  readOnly?: boolean
   onAnsweredLocally: (dialogId: number) => void
   onNoteIntent: (answeredId: number, text: string, deny: boolean) => void
 }
@@ -33,15 +36,18 @@ interface DialogCardBodyProps {
 // alone may take the caret on mount, later arrivals and background panes never
 // steal it, and while it shows a plain option list its digits answer by
 // position (dialogKeys.ts). Touch surfaces grant no head, keeping taps free of
-// a stolen caret.
+// a stolen caret. readOnly swaps the whole body for the inert context card an
+// ended run leaves behind.
 export function DialogCardBody({
   dialog,
   sessionId,
   layout,
   head = false,
+  readOnly = false,
   onAnsweredLocally,
   onNoteIntent,
 }: DialogCardBodyProps): ReactElement {
+  if (readOnly) return <EndedDialogBody dialog={dialog} />
   // touch secrets take over a dedicated screen with show and hide, every
   // other shape renders the standard card. The split holds no hooks, so one
   // dialog's flags flipping swaps the child instead of reordering hook calls.
@@ -63,6 +69,27 @@ export function DialogCardBody({
       onAnsweredLocally={onAnsweredLocally}
       onNoteIntent={onNoteIntent}
     />
+  )
+}
+
+// EndedDialogBody renders one dialog an ended run left pending: the ask and
+// the choices it offered stay visible as context, no answer control exists
+// because no resolve can land on a dead run. Layout collapses: with nothing to
+// tap, touch and compact read the same.
+function EndedDialogBody({ dialog }: { dialog: InteractionPending }): ReactElement {
+  return (
+    <div className="card dialog-card ended" data-dialog-id={dialog.id}>
+      {dialog.subject && <p className="muted mono">{dialog.subject}</p>}
+      <p className="dialog-prompt">{dialog.prompt || `[${dialog.kind}]`}</p>
+      {dialog.options !== undefined && (
+        <ul className="dialog-options-ended">
+          {dialog.options.map((label, i) => (
+            <li key={i}>{label}</li>
+          ))}
+        </ul>
+      )}
+      <p className="muted">Unanswered when the session ended.</p>
+    </div>
   )
 }
 

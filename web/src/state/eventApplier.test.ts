@@ -173,6 +173,20 @@ describe('applierReducer dialogs', () => {
     expect(s.snapshot.interactions).toEqual([reshaped])
   })
 
+  it('keeps dialogs pending at an exit as read-only context', () => {
+    let s = apply(
+      initialSessionState(),
+      ev('interaction.pending', 1, dialog(7)),
+      ev('session.exit', 2, { reason: 'sigterm' }),
+    )
+    // no settle can follow the exit, the ask stays put for inert rendering
+    expect(s.snapshot.interactions).toEqual([dialog(7)])
+
+    // a read that raced the exit must not clear it either
+    s = apply(s, { type: 'snapshot', state: snap({ seq: 2, interactions: [] }) })
+    expect(s.snapshot.interactions).toEqual([dialog(7)])
+  })
+
   it('records the real outcome when a dialog settles elsewhere', () => {
     let s = apply(initialSessionState(), ev('interaction.pending', 1, dialog(7)))
     s = apply(s, ev('interaction.settled', 2, { id: 7, kind: 'confirm', answered: true, index: 1 }))

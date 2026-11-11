@@ -20,6 +20,11 @@ const base = (overrides: Partial<InteractionPending>): InteractionPending => ({
 
 const noop = () => {}
 
+// the announcement region exists with or without the dock's section, so it
+// comes off the container rather than a label query
+const region = (container: HTMLElement) =>
+  container.querySelector<HTMLElement>('[aria-live="polite"]')!
+
 // renderDock mounts one dock shape, autoFocusDialogs false stands in for a
 // background pane. Returns the view so a case can rerender the stack.
 function renderDock(dialogs: InteractionPending[], autoFocusDialogs?: boolean) {
@@ -693,11 +698,6 @@ describe('DialogDock focus policy', () => {
 // mounted empty like Notices so an arriving dialog mutates existing live-
 // region content instead of inserting a region already carrying text.
 describe('DialogDock arrival announcements', () => {
-  // the region exists with or without the dock's section, so it comes off
-  // the container rather than a label query
-  const region = (container: HTMLElement) =>
-    container.querySelector<HTMLElement>('[aria-live="polite"]')!
-
   function arrivalDock(dialogs: InteractionPending[]) {
     return render(
       <DialogDock
@@ -783,6 +783,77 @@ describe('DialogDock arrival announcements', () => {
 
     // chips announce through their own role=status, never the arrival region
     expect(region(view.container)).toBeEmptyDOMElement()
+  })
+})
+
+// Ended sessions keep their pending dialogs as inert context: no resolve can
+// land anymore, so the cards render without answer controls, outcome chips
+// keep their resolved rendering and the arrival region stays quiet.
+describe('DialogDock ended sessions', () => {
+  function endedDock(dialogs: InteractionPending[], outcomes: DialogOutcome[] = []) {
+    return render(
+      <DialogDock
+        sessionId="01S"
+        dialogs={dialogs}
+        outcomes={outcomes}
+        ended
+        onAnsweredLocally={noop}
+        onOutcomeDismissed={noop}
+      />,
+    )
+  }
+
+  it('renders pending dialogs without any answer control', () => {
+    endedDock([base({ options: ['allow', 'deny'] }), base({ id: 43, prompt: 'name?', text: true })])
+
+    expect(screen.getByText('Proceed?')).toBeInTheDocument()
+    expect(screen.getByText('name?')).toBeInTheDocument()
+    expect(screen.getAllByText('Unanswered when the session ended.')).toHaveLength(2)
+    expect(screen.queryAllByRole('button')).toHaveLength(0)
+    expect(screen.queryAllByRole('textbox')).toHaveLength(0)
+    expect(screen.queryAllByRole('checkbox')).toHaveLength(0)
+  })
+
+  it('never takes the caret from the composer', () => {
+    endedDock([base({ text: true })])
+    expect(document.activeElement).toBe(document.body)
+  })
+
+  it('keeps answered-elsewhere outcomes as resolved chips', () => {
+    endedDock([], [{ id: 9, answered: true, cancelled: false, index: 1 }])
+    expect(screen.getByText('Dialog answered')).toBeInTheDocument()
+  })
+
+  it('stays quiet in the arrival region', () => {
+    const view = endedDock([base({ prompt: 'Allow write access?' })])
+    // the ended banner speaks for the run, no answer is claimed
+    expect(region(view.container)).toBeEmptyDOMElement()
+  })
+
+  it('flips a live stack to read-only when the run ends', () => {
+    const view = render(
+      <DialogDock
+        sessionId="01S"
+        dialogs={[base({ options: ['allow', 'deny'] })]}
+        outcomes={[]}
+        onAnsweredLocally={noop}
+        onOutcomeDismissed={noop}
+      />,
+    )
+    expect(screen.getByRole('button', { name: 'allow' })).toBeInTheDocument()
+
+    view.rerender(
+      <DialogDock
+        sessionId="01S"
+        dialogs={[base({ options: ['allow', 'deny'] })]}
+        outcomes={[]}
+        ended
+        onAnsweredLocally={noop}
+        onOutcomeDismissed={noop}
+      />,
+    )
+    expect(screen.queryByRole('button', { name: 'allow' })).not.toBeInTheDocument()
+    expect(screen.getByText('Proceed?')).toBeInTheDocument()
   })
 })
 

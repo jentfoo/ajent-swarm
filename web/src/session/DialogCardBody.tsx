@@ -253,7 +253,8 @@ function SecretAnswer({
   const press = useSubmitPress(inputRef, empty, busy)
   const submit = (ev: FormEvent) => {
     ev.preventDefault()
-    if (empty) return
+    // the disabled button blocks clicks, Enter still submits while busy
+    if (busy || empty) return
     onSend(text)
     setText('')
   }
@@ -299,7 +300,7 @@ function SecretDialogScreen({
 
   const submit = (ev: FormEvent) => {
     ev.preventDefault()
-    if (empty) return
+    if (busy || empty) return
     // the answer's text never echoes anywhere, clearing at once keeps a wrong
     // tap from resubmitting a stale value
     const answer = text

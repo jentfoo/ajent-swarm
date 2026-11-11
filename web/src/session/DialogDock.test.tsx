@@ -344,6 +344,35 @@ describe('DialogDock permit note flow', () => {
     expect(bodies).toHaveLength(0)
   })
 
+  it('marks the auto-answer owned before its post lands', async () => {
+    let release!: () => void
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const bodies: Record<string, unknown>[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string | URL, init?: RequestInit) => {
+        if (init?.body) bodies.push(JSON.parse(String(init.body)))
+        if (bodies.length === 1) return Response.json({ settled: false })
+        await held
+        return Response.json({ settled: false })
+      }),
+    )
+    const { onAnsweredLocally, rerenderWith } = permitDock([permitDialog(7)])
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Deny' }))
+    rerenderWith([followUpAsk(8, 'reason for denying')])
+
+    // ownership leads the response, so the ask's settled frame arriving over
+    // the stream first still reads as this surface's own answer
+    await vi.waitFor(() => expect(bodies[1]).toEqual({ dialogId: 8, cancel: true }))
+    expect(onAnsweredLocally).toHaveBeenCalledWith(8)
+    expect(screen.queryByText('reason for denying')).not.toBeInTheDocument()
+
+    await act(async () => release())
+  })
+
   it('failed auto-answer falls back to hand answering', async () => {
     const user = userEvent.setup()
     const bodies: Record<string, unknown>[] = []

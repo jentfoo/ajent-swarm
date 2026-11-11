@@ -18,8 +18,10 @@ interface DialogResolve {
 
 // useDialogResolve is one dialog card's answer state, shared by every dock:
 // busy while a resolve is in flight, the refusal message on failure, and the
-// settled-tolerant post itself. A landed answer reports through
-// onAnsweredLocally so the caller clears its card.
+// settled-tolerant post itself. onAnsweredLocally fires at submission, ahead
+// of the post's response and the stream's settled frame, so an own answer
+// never reads as answered elsewhere; a failed resolve leaves the card
+// standing for another try.
 export function useDialogResolve(
   sessionId: string,
   dialogId: number,
@@ -33,18 +35,19 @@ export function useDialogResolve(
       if (busy) return
       setBusy(true)
       setError('')
+      // ownership rides the submit, not the response: the settled frame takes
+      // the stream and can land first
+      onAnsweredLocally(dialogId)
       try {
         await sessions.resolve(sessionId, { ...body, dialogId })
       } catch (err) {
         // settled is benign: another surface's answer already won
         if (!(err instanceof ApiError && err.code === 'settled')) {
           setError(describeError(err, 'Resolve failed.'))
-          return
         }
       } finally {
         setBusy(false)
       }
-      onAnsweredLocally(dialogId)
     },
     [busy, sessionId, dialogId, onAnsweredLocally],
   )

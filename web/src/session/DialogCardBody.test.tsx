@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -198,6 +198,37 @@ describe('DialogCardBody secrets', () => {
     await userEvent.type(input, 's3cret')
     await userEvent.click(screen.getByRole('button', { name: 'Answer' }))
     expect(bodies.at(-1)).toEqual({ dialogId: 42, text: 's3cret' })
+  })
+
+  it.each(layouts)('keeps a %s secret retyping while an answer is in flight', async (layout) => {
+    let release!: () => void
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const bodies: Record<string, unknown>[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string | URL, init?: RequestInit) => {
+        if (init?.body) bodies.push(JSON.parse(String(init.body)))
+        await held
+        return Response.json({ settled: false })
+      }),
+    )
+    renderBody(secret, layout)
+    const input = screen.getByLabelText('Secret answer')
+
+    const user = userEvent.setup()
+    await user.type(input, 'first')
+    await user.click(screen.getByRole('button', { name: 'Answer' }))
+    expect(bodies).toEqual([{ dialogId: 42, text: 'first' }])
+
+    await user.type(input, 'second')
+    // Enter repeats submit past the disabled answer button
+    fireEvent.submit(input.closest('form')!)
+    expect(bodies).toEqual([{ dialogId: 42, text: 'first' }])
+    expect(input).toHaveValue('second')
+
+    await act(async () => release())
   })
 
   it('takes over a dedicated screen on touch with show and hide', async () => {

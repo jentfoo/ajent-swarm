@@ -73,7 +73,8 @@ export function TextAnswer({
   const press = useSubmitPress(inputRef, empty, busy)
   const submit = (ev: FormEvent) => {
     ev.preventDefault()
-    if (empty) return
+    // the disabled button blocks clicks, Enter still submits while busy
+    if (busy || empty) return
     onSend(text)
     setText('')
   }

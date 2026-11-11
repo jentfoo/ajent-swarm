@@ -1,4 +1,4 @@
-import { act, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -56,6 +56,18 @@ describe('TextAnswer', () => {
     rerender(<TextAnswer busy chat={false} onSend={onSend} />)
     expect(screen.getByRole('button', { name: 'Answer' })).toBeDisabled()
     expect(onSend).not.toHaveBeenCalled()
+  })
+
+  it('keeps typed text through a submit while busy', () => {
+    const onSend = vi.fn()
+    render(<TextAnswer busy chat={false} onSend={onSend} />)
+    const input = screen.getByRole('textbox')
+    fireEvent.change(input, { target: { value: 'my answer' } })
+
+    // Enter repeats submit past the disabled answer button
+    fireEvent.submit(input.closest('form')!)
+    expect(onSend).not.toHaveBeenCalled()
+    expect(input).toHaveValue('my answer')
   })
 
   it('marks a chat answer when the toggle is on', async () => {

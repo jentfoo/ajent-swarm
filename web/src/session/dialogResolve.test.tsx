@@ -39,6 +39,20 @@ function stubFetch(respond: () => Response) {
   return { spy, bodies }
 }
 
+// holdFetch stubs a post that hangs until released, pinning in-flight timing.
+function holdFetch() {
+  let release!: () => void
+  const held = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const spy = vi.fn(async () => {
+    await held
+    return Response.json({ settled: false })
+  })
+  vi.stubGlobal('fetch', spy)
+  return { release, spy }
+}
+
 describe('useDialogResolve', () => {
   it('posts the answer with the dialog id injected', async () => {
     const user = userEvent.setup()
@@ -74,19 +88,28 @@ describe('useDialogResolve', () => {
 
     await user.click(screen.getByRole('button', { name: 'answer' }))
     expect(screen.getByTestId('error')).toHaveTextContent('turn owns the loop')
-    expect(onAnsweredLocally).not.toHaveBeenCalled()
+    // ownership still lands: the dialog stays answerable, another surface's
+    // settle may close it meanwhile
+    expect(onAnsweredLocally).toHaveBeenCalledWith(7)
+  })
+
+  it('marks ownership at submission, ahead of the response', async () => {
+    const { release } = holdFetch()
+    const onAnsweredLocally = vi.fn()
+    render(<ResolveProbe sessionId="01S" dialogId={7} onAnsweredLocally={onAnsweredLocally} />)
+
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'answer' }))
+    // the settled frame can land while the post is still in flight, so the
+    // ownership mark leads the response
+    expect(onAnsweredLocally).toHaveBeenCalledWith(7)
+
+    await act(async () => release())
+    expect(onAnsweredLocally).toHaveBeenCalledTimes(1)
   })
 
   it('ignores a second answer while one is in flight', async () => {
-    let release!: () => void
-    const held = new Promise<void>((resolve) => {
-      release = resolve
-    })
-    const spy = vi.fn(async () => {
-      await held
-      return Response.json({ settled: false })
-    })
-    vi.stubGlobal('fetch', spy)
+    const { release, spy } = holdFetch()
     const onAnsweredLocally = vi.fn()
     render(<ResolveProbe sessionId="01S" dialogId={7} onAnsweredLocally={onAnsweredLocally} />)
 

@@ -217,18 +217,16 @@ export function usePermitNoteAutoAnswer(
       // empty text cancels, letting the barrier skip the note entirely
       const body: ResolveAnswer =
         text === '' ? { dialogId: id, cancel: true } : { dialogId: id, text }
+      // ownership rides the submit, not the response: the ask's settled frame
+      // takes the stream and can land first
+      answeredRef.current(id)
       sessions
         .resolve(sessionId, body)
-        .then(() => answeredRef.current(id)) // our answer: no answered-elsewhere chip
         .catch((err: unknown) => {
           // settled keeps its benign meaning everywhere, matching the card, the
           // lost race still reads as this surface's answer. Any other failure
           // re-renders the ask for hand answering with the intent spent.
-          if (err instanceof ApiError && err.code === 'settled') {
-            answeredRef.current(id)
-            return
-          }
-          inFlightRef.current.delete(id)
+          if (err instanceof ApiError && err.code === 'settled') return
           applySuppression({ type: 'reveal', id })
         })
         .finally(() => {

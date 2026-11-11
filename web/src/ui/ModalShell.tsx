@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { createContext, useCallback, useEffect, useContext, useRef, useState } from 'react'
 import type { ReactElement, ReactNode } from 'react'
 
 import { cycleFocus } from './focusTrap'
@@ -12,6 +12,10 @@ function HistoryShield({ onClose }: { onClose: () => void }) {
   useOverlayBack(onClose)
   return null
 }
+
+// RequestCloseContext carries a shell's guarded close to its content: an
+// in-form dismiss button rides the same discard confirm as Escape and ×.
+const RequestCloseContext = createContext<(() => void) | null>(null)
 
 // ModalShell is the one dialog chrome every centered modal shares: children
 // render in a `card modal` over a fixed backdrop. A backdrop click or plain
@@ -28,7 +32,8 @@ function HistoryShield({ onClose }: { onClose: () => void }) {
 // unsaved input: Escape, the backdrop, the × and browser back confirm before
 // closing while dirty holds. It also mounts a history entry for the dialog's
 // lifetime, so platform back reaches that same guard instead of unmounting the
-// form behind it. Omit it to close on every affordance directly.
+// form behind it. Content Cancel buttons ride that guard through
+// ModalCancelButton. Omit `dirty` to close on every affordance directly.
 export function ModalShell({
   label,
   className,
@@ -58,22 +63,23 @@ export function ModalShell({
   // later backs keep hitting the guard instead of leaving the page behind it
   const [shieldEpoch, setShieldEpoch] = useState(0)
 
-  // latest onClose, onKey and guarded closer, so the window listener never
-  // resubscribes while the guard reads current state through the refs
+  // latest onClose and onKey, so the window listener never resubscribes while
+  // the guard reads current state through the refs
   const closeRef = useRef(onClose)
   const keyRef = useRef(onKey)
   const dirtyRef = useRef(dirty === true)
-  const requestRef = useRef(() => {})
 
   // requestClose is every exit affordance's single entry point: while dirty
-  // holds it asks first instead of discarding typed content silently.
-  const requestClose = () => {
+  // holds it asks first instead of discarding typed content silently. It only
+  // reads the refs, so one stable identity serves the window listener and the
+  // content context alike.
+  const requestClose = useCallback(() => {
     if (!dirtyRef.current) {
       closeRef.current()
       return
     }
     setConfirming(true)
-  }
+  }, [])
 
   // backRequested answers platform back, which has already stepped off the
   // dialog's own entry. Only it re-anchors the shield: affordances that did
@@ -98,7 +104,6 @@ export function ModalShell({
     closeRef.current = onClose
     keyRef.current = onKey
     dirtyRef.current = dirty === true
-    requestRef.current = requestClose
   })
 
   useEffect(() => {
@@ -118,7 +123,7 @@ export function ModalShell({
       // chords like Ctrl+Escape belong to the platform, never to a layer
       // Shift stays free because keys like ? arrive shifted
       if (ev.ctrlKey || ev.metaKey || ev.altKey) return
-      if (ev.key === 'Escape') requestRef.current()
+      if (ev.key === 'Escape') requestClose()
       else if (ev.key === 'Tab') cycleFocus(card, ev)
       else keyRef.current?.(ev)
     }
@@ -142,7 +147,7 @@ export function ModalShell({
       document.removeEventListener('focusin', onFocusIn)
       if (restoreTarget !== null && restoreTarget.isConnected) restoreTarget.focus()
     }
-  }, [restoreTarget])
+  }, [restoreTarget, requestClose])
 
   return (
     <>
@@ -162,7 +167,9 @@ export function ModalShell({
               ×
             </button>
           )}
-          {children}
+          <RequestCloseContext.Provider value={requestClose}>
+            {children}
+          </RequestCloseContext.Provider>
         </div>
       </div>
       {confirming && (
@@ -184,5 +191,18 @@ export function ModalShell({
         </>
       )}
     </>
+  )
+}
+
+// ModalCancelButton is a form dialog's standard Cancel button: it rides its
+// shell's guarded close, so dirty drafts ask before dropping exactly like the
+// chrome does.
+export function ModalCancelButton({ disabled = false }: { disabled?: boolean }): ReactElement {
+  const requestClose = useContext(RequestCloseContext)
+  if (requestClose === null) throw new Error('ModalCancelButton outside ModalShell')
+  return (
+    <button type="button" onClick={requestClose} disabled={disabled}>
+      Cancel
+    </button>
   )
 }

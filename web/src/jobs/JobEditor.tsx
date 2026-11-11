@@ -23,7 +23,7 @@ import {
   weekdayTokens,
   weekdayShort,
 } from './schedule'
-import { ModalShell } from '../ui/ModalShell'
+import { ModalCancelButton, ModalShell } from '../ui/ModalShell'
 
 // Timezone candidates for the daily picker, free text always works. The IANA
 // list never changes within a page load, so it memoizes at module scope rather
@@ -455,9 +455,7 @@ export function JobEditor({
             </button>
           )}
           <span className="spacer" style={{ flex: 1 }} />
-          <button type="button" onClick={onCancel} disabled={saving}>
-            Cancel
-          </button>
+          <ModalCancelButton disabled={saving} />
           <button
             className="primary"
             type="submit"

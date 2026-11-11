@@ -8,7 +8,7 @@ import { defaultDraft, draftsEqual, validateDraft } from './jobDraft'
 import type { DraftErrors, JobDraft } from './jobDraft'
 import { TriggerCommandFields } from './TriggerCommandFields'
 import { FieldError, JobFactsFields } from './JobFactsFields'
-import { ModalShell } from '../ui/ModalShell'
+import { ModalCancelButton, ModalShell } from '../ui/ModalShell'
 
 // QueueComposer is the short form behind the Queue action: one prompt parked
 // until no session has been active for ten minutes, then run once in a fresh
@@ -116,9 +116,7 @@ export function QueueComposer({
 
         <div className="editor-actions">
           <span className="spacer" style={{ flex: 1 }} />
-          <button type="button" onClick={onCancel} disabled={saving}>
-            Cancel
-          </button>
+          <ModalCancelButton disabled={saving} />
           <button
             className="primary"
             type="submit"

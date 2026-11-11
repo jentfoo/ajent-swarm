@@ -59,7 +59,7 @@ describe('QueueComposer', () => {
     vi.unstubAllGlobals()
   })
 
-  function renderComposer() {
+  function renderComposer(props: Partial<Parameters<typeof QueueComposer>[0]> = {}) {
     return render(
       <QueueComposer
         workspaces={['/repo', '/other']}
@@ -70,6 +70,7 @@ describe('QueueComposer', () => {
         ]}
         onQueued={() => {}}
         onCancel={() => {}}
+        {...props}
       />,
     )
   }
@@ -221,6 +222,36 @@ describe('QueueComposer', () => {
     )
 
     await user.keyboard('{Escape}')
+    expect(onCancel).toHaveBeenCalledTimes(1)
+  })
+
+  it('guards the cancel button and discards only on confirm', async () => {
+    const user = userEvent.setup()
+    const onCancel = vi.fn()
+    renderComposer({ onCancel })
+
+    await user.type(screen.getByRole('textbox', { name: /^Prompt/ }), 'review the diff')
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(onCancel).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog', { name: 'Discard changes?' })).toBeInTheDocument()
+
+    // keeping the text leaves the composer mounted and still guarded
+    await user.click(screen.getByRole('button', { name: 'Keep editing' }))
+    expect(screen.queryByRole('dialog', { name: 'Discard changes?' })).not.toBeInTheDocument()
+    expect(onCancel).not.toHaveBeenCalled()
+
+    // the same button then settles into the real close
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    await user.click(screen.getByRole('button', { name: 'Discard' }))
+    expect(onCancel).toHaveBeenCalledTimes(1)
+  })
+
+  it('closes an untouched composer directly on cancel', async () => {
+    const user = userEvent.setup()
+    const onCancel = vi.fn()
+    renderComposer({ onCancel })
+
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
     expect(onCancel).toHaveBeenCalledTimes(1)
   })
 })

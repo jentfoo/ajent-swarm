@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 
-import { ModalShell } from './ModalShell'
+import { ModalCancelButton, ModalShell } from './ModalShell'
 
 // One shell for every centered modal: a labelled aria-modal card over a
 // backdrop where Escape and a backdrop click close but inner clicks stay,
@@ -123,6 +123,15 @@ function GuardedHarness({ dirty, onClose }: { dirty?: boolean; onClose: () => vo
   return (
     <ModalShell label="Test dialog" showClose dirty={dirty} onClose={onClose}>
       <button type="button">first</button>
+    </ModalShell>
+  )
+}
+
+// CancelHarness mounts the shared in-form cancel button inside a guarded shell.
+function CancelHarness({ dirty, onClose }: { dirty?: boolean; onClose: () => void }) {
+  return (
+    <ModalShell label="Test dialog" dirty={dirty} onClose={onClose}>
+      <ModalCancelButton />
     </ModalShell>
   )
 }
@@ -363,5 +372,32 @@ describe('ModalShell', () => {
     await user.keyboard('{Escape}')
     expect(onClose).toHaveBeenCalledTimes(1)
     expect(screen.queryByRole('dialog', { name: 'Discard changes?' })).not.toBeInTheDocument()
+  })
+
+  it('routes the cancel button through the guard', async () => {
+    const user = userEvent.setup()
+    const onClose = vi.fn()
+    render(<CancelHarness dirty onClose={onClose} />)
+
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(onClose).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog', { name: 'Discard changes?' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Keep editing' }))
+    expect(onClose).not.toHaveBeenCalled()
+
+    // the confirmed cancel finally lands
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    await user.click(screen.getByRole('button', { name: 'Discard' }))
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('closes directly through cancel while clean', async () => {
+    const user = userEvent.setup()
+    const onClose = vi.fn()
+    render(<CancelHarness dirty={false} onClose={onClose} />)
+
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(onClose).toHaveBeenCalledTimes(1)
   })
 })

@@ -242,6 +242,20 @@ export function toPayload(draft: JobDraft, id?: number): Partial<Job> {
   return payload
 }
 
+// scheduleValid reports whether the draft's own schedule fields pass local
+// validation, the editor's preview waits on it so half-typed fields keep
+// their hint instead of racing the backend's raw refusal.
+export function scheduleValid(draft: JobDraft): boolean {
+  switch (draft.scheduleKind) {
+    case 'once':
+      return localInputToDate(draft.onceAt) !== undefined
+    case 'interval':
+      return intervalError(draft) === undefined
+    case 'daily':
+      return validDailyTime(draft.dailyTime)
+  }
+}
+
 // validateDraft returns one message per offending field, mirroring the
 // backend's rules, an empty result means the save may proceed.
 export function validateDraft(draft: JobDraft): DraftErrors {
@@ -274,9 +288,8 @@ export function validateDraft(draft: JobDraft): DraftErrors {
       if (localInputToDate(draft.onceAt) === undefined) errors.onceAt = 'Pick the fire time.'
       break
     case 'interval': {
-      const secs = intervalToSeconds(draft.intervalValue, draft.intervalUnit)
-      if (!Number.isFinite(secs) || secs <= 0) errors.interval = 'Interval must be positive.'
-      else if (secs > maxIntervalSeconds) errors.interval = 'Interval is too large.'
+      const message = intervalError(draft)
+      if (message !== undefined) errors.interval = message
       break
     }
     case 'daily':
@@ -294,6 +307,15 @@ export function validateDraft(draft: JobDraft): DraftErrors {
   if (draft.customTools && byteLength(draft.tools.join(',')) > maxToolsLen)
     errors.tools = `Tool list must be at most ${maxToolsLen} characters.`
   return errors
+}
+
+// intervalError names the draft's interval problem, undefined when the value
+// and unit land inside the server's bounds.
+function intervalError(draft: JobDraft): string | undefined {
+  const secs = intervalToSeconds(draft.intervalValue, draft.intervalUnit)
+  if (!Number.isFinite(secs) || secs <= 0) return 'Interval must be positive.'
+  if (secs > maxIntervalSeconds) return 'Interval is too large.'
+  return undefined
 }
 
 // validSessionName mirrors ajent's session.ValidateName charset: letters,

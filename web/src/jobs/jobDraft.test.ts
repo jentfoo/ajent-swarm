@@ -10,6 +10,7 @@ import {
   maxSessionNameLen,
   maxToolsLen,
   maxTriggerLen,
+  scheduleValid,
   toPayload,
   validateDraft,
   validDailyTime,
@@ -169,6 +170,42 @@ describe('validateDraft', () => {
     expect(validSessionName('')).toBe(false)
     expect(validSessionName('x'.repeat(maxSessionNameLen))).toBe(true)
     expect(validSessionName('x'.repeat(maxSessionNameLen + 1))).toBe(false)
+  })
+})
+
+describe('scheduleValid', () => {
+  it('gates each kind on its own fields', () => {
+    const cases: Array<{
+      name: string
+      mutate: (d: ReturnType<typeof defaultDraft>) => void
+      want: boolean
+    }> = [
+      // the untouched draft is interval-shaped and valid, proving non-schedule
+      // errors like a missing name never gate the predicate
+      { name: 'interval_default', mutate: () => {}, want: true },
+      { name: 'interval_zero', mutate: (d) => void (d.intervalValue = 0), want: false },
+      {
+        name: 'interval_oversize',
+        mutate: (d) => void ((d.intervalValue = 400), (d.intervalUnit = 'days')),
+        want: false,
+      },
+      { name: 'once_unpicked', mutate: (d) => void (d.scheduleKind = 'once'), want: false },
+      {
+        name: 'once_picked',
+        mutate: (d) => void ((d.scheduleKind = 'once'), (d.onceAt = '2026-11-12T09:00')),
+        want: true,
+      },
+      {
+        name: 'daily_half_typed',
+        mutate: (d) => void ((d.scheduleKind = 'daily'), (d.dailyTime = '9:')),
+        want: false,
+      },
+    ]
+    for (const tt of cases) {
+      const draft = defaultDraft()
+      tt.mutate(draft)
+      expect(scheduleValid(draft)).toBe(tt.want)
+    }
   })
 })
 

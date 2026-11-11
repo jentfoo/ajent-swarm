@@ -10,6 +10,7 @@ import {
   draftsEqual,
   draftFromJob,
   idleDelayOptions,
+  scheduleValid,
   toPayload,
   validateDraft,
 } from './jobDraft'
@@ -38,15 +39,6 @@ function timezoneCandidates(): string[] {
     // Engines without the API answer nothing, typing a zone still works.
   }
   return (timezoneMemo = [])
-}
-
-// validateDraft's schedule error key for each kind: the preview waits until
-// the current kind's key clears, so half-typed fields keep their own hint
-// instead of racing the backend's raw refusal.
-const scheduleErrorKeys: Record<JobDraft['scheduleKind'], string> = {
-  once: 'onceAt',
-  interval: 'interval',
-  daily: 'dailyTime',
 }
 
 // JobEditor is the one form for creating and editing jobs: launch facts
@@ -85,17 +77,19 @@ export function JobEditor({
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
   // the schedule's own fields must pass local validation before a preview may ask
-  const scheduleValid = errors[scheduleErrorKeys[draft.scheduleKind]] === undefined
-  // stale results stop rendering while the schedule is invalid, and a draft
-  // that passes again refetches at once, so nothing lingers past the debounce
-  const shownTimes = scheduleValid ? previewTimes : []
-  const shownWorkspaceError = scheduleValid ? workspaceError : ''
-  const shownPreviewError = scheduleValid ? previewError : ''
+  const scheduleOk = scheduleValid(draft)
 
   // Debounced draft preview: the backend owns scheduling semantics and checks
   // the workspace against its own filesystem, further edits abort in flight.
+  // A draft that turns invalid drops its results at once, so stale slots and
+  // errors never outlive the fields they describe.
   useEffect(() => {
-    if (!scheduleValid) return
+    if (!scheduleOk) {
+      setPreviewTimes([])
+      setWorkspaceError('')
+      setPreviewError('')
+      return
+    }
     const controller = new AbortController()
     const timer = setTimeout(async () => {
       try {
@@ -116,7 +110,7 @@ export function JobEditor({
       controller.abort()
       clearTimeout(timer)
     }
-  }, [draft, job?.createdAt, scheduleValid])
+  }, [draft, job?.createdAt, scheduleOk])
 
   const patch = (fields: Partial<JobDraft>) => setDraft((d) => ({ ...d, ...fields }))
 

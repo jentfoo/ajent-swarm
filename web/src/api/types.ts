@@ -103,6 +103,7 @@ export interface CtlState {
   spinning: boolean
   queued: number
   queuedRows?: QueueRow[]
+  parkedRows?: QueueRow[] // prompts parked in swarm for the next idle point, oldest first; secrets redact to empty text
   activity?: ActivityRow[]
   status?: { segments?: Segment[] }
   seat: SeatState

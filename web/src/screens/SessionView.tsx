@@ -143,6 +143,7 @@ function SessionSurface({ sessionId, focused }: { sessionId: string; focused: bo
       />
       <QueuedPrompts
         queuedRows={queuedRows}
+        parkedRows={snap.parkedRows}
         pendings={state.pendings}
         droppedRows={state.droppedRows}
         onEdit={() => void recallToEdit()}

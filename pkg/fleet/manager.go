@@ -82,7 +82,8 @@ type Options struct {
 	SettingStore SettingsStore
 
 	// RecallStore persists the workspace-wide recall mirror of typed submits,
-	// nil disables recording and every recall-lines listing reads empty.
+	// nil disables recording, and listings then serve ajent's own recall
+	// sources alone.
 	RecallStore RecallStore
 
 	// AckStore persists attention acknowledgments, so one device's check-off

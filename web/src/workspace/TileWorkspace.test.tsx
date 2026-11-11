@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter, Route, Routes, useNavigate } from 'react-router'
+import { useEffect } from 'react'
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import TileWorkspace from './TileWorkspace'
@@ -44,6 +45,18 @@ function TileAgain({ open }: { open: string }) {
       tile again
     </button>
   )
+}
+
+// SearchProbe records the router's query string so tests can assert deep-link
+// cleanup; MemoryRouter never touches window.location.
+let currentSearch = ''
+
+function SearchProbe() {
+  const { search } = useLocation()
+  useEffect(() => {
+    currentSearch = search
+  }, [search])
+  return null
 }
 
 function attentionRows(): AttentionRow[] {
@@ -103,6 +116,7 @@ describe('TileWorkspace', () => {
 
   beforeEach(() => {
     localStorage.clear()
+    currentSearch = ''
     attention = attentionRows()
     localStorage.setItem(
       'swarm.workspace.v1',
@@ -161,6 +175,7 @@ describe('TileWorkspace', () => {
           <SwarmProvider>
             <WorkspaceProvider>
               {retileOpen !== undefined && <TileAgain open={retileOpen} />}
+              <SearchProbe />
               <Routes>
                 <Route path="/tile" element={<TileWorkspace />} />
                 {/* last-pane close lands here instead of an empty tile screen */}
@@ -373,6 +388,62 @@ describe('TileWorkspace', () => {
     await user.click(screen.getByTestId('tile-again'))
     await waitFor(() => expect(domPaneIds()).not.toEqual(first))
     expect(domPaneIds()).toHaveLength(2)
+  })
+
+  it('drops a fully stale open list', async () => {
+    localStorage.setItem(
+      'swarm.workspace.v1',
+      JSON.stringify({ mode: 'tile', focused: {}, tile: { tree: null } }),
+    )
+    renderTile('/tile?open=01STALESESSION000001')
+
+    // once the roster loads and nothing resolves, the request gives up: the
+    // URL cleans up and the normal empty state auto-tiles what is live now
+    await waitFor(() => expect(document.querySelectorAll('[data-pane-id]')).toHaveLength(2))
+    const stored = JSON.parse(localStorage.getItem('swarm.workspace.v1') ?? '{}')
+    expect(stored.tile.tree.kind).toBe('split')
+    expect(currentSearch).toBe('')
+  })
+
+  it('stale open list with nothing live', async () => {
+    localStorage.setItem(
+      'swarm.workspace.v1',
+      JSON.stringify({ mode: 'tile', focused: {}, tile: { tree: null } }),
+    )
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string | URL | Request) => {
+        const path = String(url)
+          .replace(/^https?:\/\/[^/]+/, '')
+          .split('?')[0]
+        if (path === '/api/me') {
+          return Promise.resolve(Response.json({ username: 'you', via: 'cookie' }))
+        }
+        if (path === '/api/sessions' || path === '/api/attention') {
+          return Promise.resolve(Response.json([]))
+        }
+        return Promise.resolve(Response.json({}))
+      }),
+    )
+    renderTile('/tile?open=01STALESESSION000001')
+
+    // the screen at rest matches a plain empty visit, only the URL differs
+    expect(await screen.findByText('No panes open.')).toBeInTheDocument()
+    expect(screen.getByText('No live sessions to open.')).toBeInTheDocument()
+    await waitFor(() => expect(currentSearch).toBe(''))
+  })
+
+  it('applies partial stale open lists', async () => {
+    localStorage.setItem(
+      'swarm.workspace.v1',
+      JSON.stringify({ mode: 'tile', focused: {}, tile: { tree: null } }),
+    )
+    renderTile('/tile?open=' + LEFT + ',01STALESESSION000001')
+
+    // the request applies exactly what resolved, never waiting on the rest
+    await waitFor(() => expect(document.querySelectorAll('[data-pane-id]')).toHaveLength(1))
+    const names = [...document.querySelectorAll('.tab-name')].map((el) => el.textContent)
+    expect(names).toEqual(['left'])
   })
 
   it('leaves tile mode for sessions when the last pane closes', async () => {

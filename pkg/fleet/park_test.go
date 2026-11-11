@@ -151,6 +151,35 @@ func TestPark(t *testing.T) {
 		assert.Equal(t, "queued: queued prompt", digest[0].Reason)
 	})
 
+	t.Run("parked_rows_reach_snapshot_and_init", func(t *testing.T) {
+		m, f := newParkFleet(t, time.Hour) // hold the flush, read the payloads
+		require.NoError(t, m.QueueSubmit(t.Context(), f.SessionID(),
+			ctl.SubmitParams{Line: "queued prompt", PendingID: "p1"}))
+		require.NoError(t, m.QueueSubmit(t.Context(), f.SessionID(),
+			ctl.SubmitParams{Line: "secret: hunter2", PendingID: "p2"}))
+
+		st, err := m.Snapshot(t.Context(), f.SessionID())
+		require.NoError(t, err)
+		assert.Equal(t, []ctl.QueueRow{
+			{ID: "p1", Text: "queued prompt"},
+			{ID: "p2"}, // secrets redact to their id
+		}, st.ParkedRows)
+
+		// a freshly subscribing client learns the same list through its init
+		frames := make(chan []byte, 4)
+		sub, err := m.Subscribe(f.SessionID(), func(b []byte) { frames <- b }, func() {})
+		require.NoError(t, err)
+		t.Cleanup(func() { m.Unsubscribe(sub) })
+		select {
+		case raw := <-frames:
+			var frame InitFrame
+			require.NoError(t, json.Unmarshal(raw, &frame))
+			assert.Equal(t, st.ParkedRows, frame.State.ParkedRows)
+		case <-time.After(2 * time.Second):
+			t.Fatal("no init frame arrived")
+		}
+	})
+
 	t.Run("recall_pops_the_newest", func(t *testing.T) {
 		m, f := newParkFleet(t, time.Hour)
 		f.Broadcast(ctl.EventTurnStart, nil) // hold the flush behind a live turn

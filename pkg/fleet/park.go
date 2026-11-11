@@ -55,6 +55,13 @@ func (a *sessionActor) handleParkSubmit(msg msgParkSubmit) {
 	a.parked = append(a.parked, parkedSubmit{params: msg.params, queuedAt: time.Now()})
 	a.refreshStatus()
 	a.schedulePark()
+	// a session's first prompt can sit parked for its idle point: name from it
+	// now instead of waiting for the run that may be minutes away
+	if a.view.firstPrompt == "" {
+		if line := command.ParseLine(msg.params.Line); line.Kind == command.KindPrompt {
+			a.mgr.maybeNameSessionFrom(a, line.Rest)
+		}
+	}
 }
 
 // handleParkRecall pops the newest parked prompt for edit-and-resubmit.
@@ -162,6 +169,38 @@ func parkPreview(rows []parkedSubmit) string {
 		return "secret prompt"
 	}
 	return digestText(line.Rest)
+}
+
+// parkRows names every parked prompt for the snapshot payload, oldest first.
+// Only plain prompts travel: shell and slash lines queued without a pendingId
+// have no optimistic row to resolve, and secrets redact to empty text.
+func parkRows(rows []parkedSubmit) []ctl.QueueRow {
+	out := make([]ctl.QueueRow, 0, len(rows))
+	for _, row := range rows {
+		if row.params.PendingID == "" {
+			continue
+		}
+		line := command.ParseLine(row.params.Line)
+		if line.Kind != command.KindPrompt {
+			continue
+		}
+		text := ""
+		if !session.HasSecretPrefix(recallSecretPrefix, line.Rest) {
+			text = digestText(line.Rest)
+		}
+		out = append(out, ctl.QueueRow{ID: row.params.PendingID, Text: text})
+	}
+	return out
+}
+
+// serveState pairs the reconciled view with swarm's own park facts, the shape
+// init frames and snapshot polls both carry.
+func (a *sessionActor) serveState() SessionState {
+	st := SessionState{State: a.view.snapshot()}
+	if len(a.parked) > 0 {
+		st.ParkedRows = parkRows(a.parked)
+	}
+	return st
 }
 
 // QueueSubmit parks one prompt line on the session until the whole fleet has

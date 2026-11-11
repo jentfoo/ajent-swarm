@@ -32,6 +32,13 @@ type ClientFrame struct {
 	SessionID string `json:"sessionId,omitempty"`
 }
 
+// SessionState is one session's reconciled control state beside swarm-owned
+// facts ajent never announces: the prompts parked for the next idle point.
+type SessionState struct {
+	ctl.State
+	ParkedRows []ctl.QueueRow `json:"parkedRows,omitempty"` // oldest first, secrets redact to empty text
+}
+
 // InitFrame answers a subscribe or sync: the reconciled snapshot plus a
 // bounded tail of committed entries, oldest first. Cursor is the id of the
 // oldest entry included, empty when the retained history starts there.
@@ -39,11 +46,11 @@ type ClientFrame struct {
 // resets its watermark: ajent renumbers seq from zero on each instance, so an
 // init never merges into prior state.
 type InitFrame struct {
-	Type      string      `json:"type"`
-	SessionID string      `json:"sessionId"`
-	State     ctl.State   `json:"state"`
-	Entries   []ctl.Entry `json:"entries"`
-	Cursor    string      `json:"cursor,omitempty"`
+	Type      string       `json:"type"`
+	SessionID string       `json:"sessionId"`
+	State     SessionState `json:"state"`
+	Entries   []ctl.Entry  `json:"entries"`
+	Cursor    string       `json:"cursor,omitempty"`
 }
 
 // EventFrame forwards one upstream event verbatim beside the session it

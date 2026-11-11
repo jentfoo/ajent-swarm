@@ -25,6 +25,9 @@ interface SwarmContextValue {
   stream: SwarmStream
   store: SessionStore
   sessions: SessionStatus[]
+  // True once one discovery reply committed, so an empty roster can be told
+  // apart from one still loading.
+  sessionsLoaded: boolean
   attention: AttentionRow[]
   connection: SocketState
   theme: Theme
@@ -68,6 +71,9 @@ export function SwarmProvider({ children }: { children: ReactNode }) {
   useEffect(() => () => store.dispose(), [store])
 
   const [sessions, setSessions] = useState<SessionStatus[]>([])
+  // Latches on the first committed roster and never clears: later failed polls
+  // keep serving the last known rows.
+  const [sessionsLoaded, setSessionsLoaded] = useState(false)
   const [attention, setAttention] = useState<AttentionRow[]>([])
   const [connection, setConnection] = useState<SocketState>('closed')
 
@@ -79,7 +85,11 @@ export function SwarmProvider({ children }: { children: ReactNode }) {
   // subscribes, runs after the listener above to catch its transitions.
   useEffect(() => stream.connect(), [stream])
 
-  const refreshSessions = useNewestPoll(fleet.sessions, setSessions)
+  const onSessions = useCallback((rows: SessionStatus[]) => {
+    setSessions(rows)
+    setSessionsLoaded(true)
+  }, [])
+  const refreshSessions = useNewestPoll(fleet.sessions, onSessions)
   const refreshAttention = useNewestPoll(fleet.attention, setAttention)
 
   usePoll(() => void refreshSessions(), pollSessionsMs)
@@ -140,6 +150,7 @@ export function SwarmProvider({ children }: { children: ReactNode }) {
       stream,
       store,
       sessions,
+      sessionsLoaded,
       attention,
       connection,
       theme,
@@ -147,7 +158,17 @@ export function SwarmProvider({ children }: { children: ReactNode }) {
       refreshSessions,
       refreshAttention,
     }),
-    [stream, store, sessions, attention, connection, theme, refreshSessions, refreshAttention],
+    [
+      stream,
+      store,
+      sessions,
+      sessionsLoaded,
+      attention,
+      connection,
+      theme,
+      refreshSessions,
+      refreshAttention,
+    ],
   )
 
   return <SwarmContext.Provider value={value}>{children}</SwarmContext.Provider>

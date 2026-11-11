@@ -58,7 +58,7 @@ func exitFrame(reason string) []byte {
 // initFrame is the subscribe greeting beside its committed entry tail.
 func initFrame(entries ...ctl.Entry) []byte {
 	f := fleet.InitFrame{Type: fleet.FrameInit, SessionID: "01RUNFAKESESSION00",
-		State: ctl.State{}, Entries: entries}
+		State: fleet.SessionState{}, Entries: entries}
 	return mustJSON(f)
 }
 
@@ -185,7 +185,7 @@ func TestRunner(t *testing.T) {
 		// landing and idle were applied to the view before any subscriber sat
 		// down arrives as one init carrying them together, with no event after
 		f := fleet.InitFrame{Type: fleet.FrameInit, SessionID: "01RUNFAKESESSION00",
-			State: ctl.State{Idle: true},
+			State: fleet.SessionState{State: ctl.State{Idle: true}},
 			Entries: []ctl.Entry{{ID: "e1", Type: "message",
 				Data: json.RawMessage(`{"queueIds":["` + pendingID(run) + `"]}`)}}}
 		status, note := h.scriptWatcher(run, j, mustJSON(f))

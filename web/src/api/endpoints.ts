@@ -113,8 +113,9 @@ export const sessions = {
     get<AgentsListResult>(withID(id, '/agents'), { signal }),
   stopAgents: (id: string, target: { id?: string; all?: boolean }) =>
     post<AgentsStopResult>(withID(id, '/agents/stop'), target),
-  // The workspace-wide recall mirror behind Ctrl+R: typed prompts submitted
-  // through swarm in this session's workspace, ?query narrows server-side.
+  // The workspace recall listing behind Ctrl+R: what ajent recalls for this
+  // session's workspace merged with swarm's typed submits, ?query narrows
+  // server-side.
   recallLines: (id: string, query = '', limit = 500, signal?: AbortSignal) => {
     const params = new URLSearchParams({ limit: String(limit) })
     if (query !== '') params.set('query', query)

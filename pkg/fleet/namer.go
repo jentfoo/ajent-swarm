@@ -34,16 +34,21 @@ const (
 // that just committed its first typed prompt. Terminal-started sessions name
 // too: the label lives in swarm's own store, so ajent itself stays untouched.
 func (m *Manager) maybeNameSession(a *sessionActor) {
-	if m.bin == "" || m.noNaming {
+	if a.view == nil {
+		return
+	}
+	m.maybeNameSessionFrom(a, a.view.firstPrompt)
+}
+
+// maybeNameSessionFrom titles from an explicit start prompt, the path a queued
+// first prompt takes before its run starts. One attempt per session: an
+// existing stored title wins and a rename is never overwritten.
+func (m *Manager) maybeNameSessionFrom(a *sessionActor, prompt string) {
+	if m.bin == "" || m.noNaming || prompt == "" {
 		return
 	}
 	m.mu.Lock()
 	if _, tried := m.named[a.key.sessionID]; tried {
-		m.mu.Unlock()
-		return
-	}
-	v := a.view
-	if v == nil || v.firstPrompt == "" {
 		m.mu.Unlock()
 		return
 	}
@@ -54,7 +59,6 @@ func (m *Manager) maybeNameSession(a *sessionActor) {
 		return
 	}
 	m.named[a.key.sessionID] = struct{}{}
-	prompt := v.firstPrompt
 	sessionID := a.key.sessionID
 	m.mu.Unlock()
 

@@ -48,9 +48,9 @@ export function useSessionCompose(sessionId: string): SessionCompose {
   const { draft, setDraft, prefill } = useComposerDraft(sessionId)
   const { toasts, pushToast } = useToasts()
 
-  // The workspace-wide recall mirror, best effort: a failed read just leaves
+  // The workspace recall listing, best effort: a failed read just leaves
   // the session-local source serving, and a session swap remounts this hook's
-  // host so the mirror starts empty again. One fetch in flight, so a refresh
+  // host so the listing starts empty again. One fetch in flight, so a refresh
   // landing late cannot be overwritten by the older reply it superseded.
   const [workspaceLines, setWorkspaceLines] = useState<RecallPrompt[]>([])
   const recallReq = useRef<AbortController | null>(null)

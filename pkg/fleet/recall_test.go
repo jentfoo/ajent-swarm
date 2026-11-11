@@ -340,3 +340,134 @@ func TestRecallLinesListing(t *testing.T) {
 		assert.Empty(t, rows)
 	})
 }
+
+// appendTypedLine records one CLI-typed line in workspace's editor history,
+// where an interactive ajent run persists its recall source.
+func appendTypedLine(t *testing.T, ws, text string) {
+	t.Helper()
+	store, err := session.NewStore()
+	require.NoError(t, err)
+	hist, err := session.NewEditorHistory(store, ws, recallSecretPrefix)
+	require.NoError(t, err)
+	hist.Append(text)
+}
+
+// recordPromptTranscript saves one user prompt in workspace's session store,
+// the transcript source an interactive CLI's Ctrl+R backfills from.
+func recordPromptTranscript(t *testing.T, ws, text string) {
+	t.Helper()
+	store, err := session.NewStore()
+	require.NoError(t, err)
+	w, err := store.Create(ws, session.SessionData{Version: session.Version(), Workspace: ws})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = w.Close() })
+	_, err = w.Append(session.TypeMessage, session.MessageData{
+		Message: llm.Text(llm.RoleUser, text)})
+	require.NoError(t, err)
+}
+
+func recallTexts(rows []RecallLine) []string {
+	out := make([]string, len(rows))
+	for i, r := range rows {
+		out[i] = r.Text
+	}
+	return out
+}
+
+// The listing merges ajent's own recall store with the mirror. IsolateHome
+// pins AJENT_HOME, so helpers writing through session.NewStore land where the
+// manager reads.
+func TestRecallLinesAjentSources(t *testing.T) {
+	t.Run("serves_cli_typed_lines", func(t *testing.T) {
+		m, f := recallFleet(t, newFakeRecallStore())
+		appendTypedLine(t, "/repo", "typed in the cli")
+		appendTypedLine(t, "/repo", "secret:hunter2")
+
+		rows, err := m.RecallLines(t.Context(), f.SessionID(), "", 10)
+		require.NoError(t, err)
+		texts := recallTexts(rows)
+		assert.Contains(t, texts, "typed in the cli")
+		assert.NotContains(t, texts, "secret:hunter2") // upstream's own rule hides it
+	})
+
+	t.Run("backfills_recorded_prompts", func(t *testing.T) {
+		m, f := recallFleet(t, newFakeRecallStore())
+		recordPromptTranscript(t, "/repo", "prompt from an older transcript")
+
+		rows, err := m.RecallLines(t.Context(), f.SessionID(), "", 10)
+		require.NoError(t, err)
+		require.Len(t, rows, 1)
+		assert.Equal(t, "prompt from an older transcript", rows[0].Text)
+		// the committed entry's stamp rides through as the record time
+		assert.WithinDuration(t, time.Now().UTC(), rows[0].CreatedAt, time.Minute)
+	})
+
+	t.Run("typed_line_joins_recorded_time", func(t *testing.T) {
+		m, f := recallFleet(t, newFakeRecallStore())
+		recordPromptTranscript(t, "/repo", "shared text")
+		appendTypedLine(t, "/repo", "shared text")
+
+		rows, err := m.RecallLines(t.Context(), f.SessionID(), "", 10)
+		require.NoError(t, err)
+		require.Len(t, rows, 1)
+		assert.False(t, rows[0].CreatedAt.IsZero()) // the transcript's stamp wins over zero
+	})
+
+	t.Run("mirror_row_dedupes", func(t *testing.T) {
+		rs := newFakeRecallStore()
+		m, f := recallFleet(t, rs)
+		require.NoError(t, m.SubmitTracked(t.Context(), f.SessionID(),
+			ctl.SubmitParams{Line: "from the web", PendingID: "c1"}))
+		appendTypedLine(t, "/repo", "from the web") // upstream's serve driver records it too
+
+		rows, err := m.RecallLines(t.Context(), f.SessionID(), "", 10)
+		require.NoError(t, err)
+		require.Len(t, rows, 1)
+		assert.Equal(t, "from the web", rows[0].Text)
+		assert.False(t, rows[0].CreatedAt.IsZero()) // the mirror's record time outranks zero
+		assert.NotZero(t, rows[0].ID)               // and the mirror id survives the merge
+	})
+
+	t.Run("query_narrows_all_sources", func(t *testing.T) {
+		m, f := recallFleet(t, newFakeRecallStore())
+		require.NoError(t, m.SubmitTracked(t.Context(), f.SessionID(),
+			ctl.SubmitParams{Line: "web filler prompt", PendingID: "c1"}))
+		appendTypedLine(t, "/repo", "cli SEARCH target")
+
+		rows, err := m.RecallLines(t.Context(), f.SessionID(), "search", 10)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"cli SEARCH target"}, recallTexts(rows))
+	})
+}
+
+func TestMergeRecallLines(t *testing.T) {
+	early := time.UnixMilli(1000).UTC()
+	late := time.UnixMilli(2000).UTC()
+
+	t.Run("keeps_newest_per_text", func(t *testing.T) {
+		mirror := []RecallLine{{ID: 7, Text: "dup", CreatedAt: early}}
+		ajent := []RecallLine{{Text: "dup", CreatedAt: late}, {Text: "only ajent"}}
+
+		out := mergeRecallLines(mirror, ajent)
+		require.Len(t, out, 2)
+		assert.Contains(t, out, RecallLine{Text: "dup", CreatedAt: late})
+		assert.Contains(t, out, RecallLine{Text: "only ajent"})
+	})
+
+	t.Run("mirror_wins_ties", func(t *testing.T) {
+		mirror := []RecallLine{{ID: 7, Text: "same", CreatedAt: early}}
+		ajent := []RecallLine{{Text: "same", CreatedAt: early}}
+
+		out := mergeRecallLines(mirror, ajent)
+		require.Len(t, out, 1)
+		assert.Equal(t, int64(7), out[0].ID)
+	})
+
+	t.Run("drops_empty_texts", func(t *testing.T) {
+		mirror := []RecallLine{{ID: 9}} // a withheld row
+		ajent := []RecallLine{{Text: ""}, {Text: "kept", CreatedAt: early}}
+
+		out := mergeRecallLines(mirror, ajent)
+		assert.Equal(t, []RecallLine{{Text: "kept", CreatedAt: early}}, out)
+	})
+}

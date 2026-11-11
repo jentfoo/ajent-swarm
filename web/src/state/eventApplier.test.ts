@@ -311,6 +311,39 @@ describe('applierReducer queue rows', () => {
     expect(s.pendings).toEqual([{ id: 'p1', text: 'kept', state: 'queued' }])
   })
 
+  it('keeps parked pendings the fresh init still names server-side', () => {
+    const parkedInit = snap({ parkedRows: [{ id: 'q1', text: 'run the tests' }] })
+    let s = apply(
+      initialSessionState(),
+      { type: 'pendingSubmitted', pendingId: 'q1', text: 'run the tests', parked: true },
+      { type: 'pendingSubmitted', pendingId: 'p9', text: 'recalled elsewhere', parked: true },
+    )
+    s = apply(s, { type: 'init', frame: initFrame(parkedInit, []) })
+    // the row swarm no longer holds left through a recall on another device
+    expect(s.pendings).toEqual([{ id: 'q1', text: 'run the tests', state: 'parked' }])
+  })
+
+  it('merges the poll-only park list and clears it when absent', () => {
+    let s = apply(initialSessionState(), {
+      type: 'snapshot',
+      state: snap({ parkedRows: [{ id: 'q9', text: 'from another device' }] }),
+    })
+    expect(s.snapshot.parkedRows).toEqual([{ id: 'q9', text: 'from another device' }])
+
+    // parks change without spending an event number, so absent reads as none
+    s = apply(s, { type: 'snapshot', state: snap() })
+    expect(s.snapshot.parkedRows).toEqual([])
+  })
+
+  it('clears the park list when the session exits', () => {
+    const s = apply(
+      initialSessionState(),
+      { type: 'snapshot', state: snap({ parkedRows: [{ id: 'q1', text: 'never lands' }] }) },
+      ev('session.exit', 1, { reason: 'done' }),
+    )
+    expect(s.snapshot.parkedRows).toEqual([])
+  })
+
   it('marks refused submits failed without touching queued rows', () => {
     let s = apply(
       initialSessionState(),
@@ -829,11 +862,11 @@ describe('applierReducer mid-turn exit', () => {
     )
     const ended = apply(initialSessionState(), ...midTurn, ev('turn.end', 6, { stop: 'end_turn' }))
 
-    // identical turn state plus the reason, only the spinner also dies
+    // identical turn state plus the reason, only the spinner and parks die
     expect(exited.exitReason).toBe('unsettled')
     expect(ended.exitReason).toBeUndefined()
     expect(exited.live).toEqual(ended.live)
-    expect(exited.snapshot).toEqual({ ...ended.snapshot, spinning: false })
+    expect(exited.snapshot).toEqual({ ...ended.snapshot, spinning: false, parkedRows: [] })
     expect(exited.lastTurnEndAt).toBeGreaterThan(0)
     // painted content stays and the stranded call never shows running again
     expect(exited.live?.tools[0]).toMatchObject({ id: 'c1', closed: true })

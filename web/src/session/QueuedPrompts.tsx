@@ -13,24 +13,30 @@ const maxChips = 4
 const refusedTtlMs = 8_000
 
 // QueuedPrompts renders queue management as chips: the wire's rows beside this
-// client's optimistic ones, secret rows redacted to their id, and recently
-// dropped rows badged with why they left (interrupt, rewind or recalled). The
-// rows form one chronological list capped at maxChips keeping the newest end,
-// where the recall affordances and live submit feedback sit, older rows
-// collapsing into one "+N more" line. The wire's recall pops its newest row
-// into the composer, so only that chip offers it, and the newest prompt
-// parked for the next idle point offers the same through swarm's own recall.
+// client's optimistic ones, swarm's own park list reading ahead of them (those
+// flush into the wire in order), secret rows redacted to their id, and
+// recently dropped rows badged with why they left (interrupt, rewind or
+// recalled). The rows form one chronological list capped at maxChips keeping
+// the newest end, where the recall affordances and live submit feedback sit,
+// older rows collapsing into one "+N more" line. The wire's recall pops its
+// newest row into the composer, so only that chip offers it, and the newest
+// prompt parked for the next idle point offers the same through swarm's own
+// recall — a park this client does not hold optimistically counts too.
 // Refused submits expire refusedTtlMs after their refusal.
 // Fresh refusals also announce through one sr-only polite region, so a failed
 // submit is heard without every queue chip being read aloud.
 export function QueuedPrompts({
   queuedRows,
+  parkedRows = [],
   pendings,
   droppedRows,
   onEdit,
   onEditParked,
 }: {
   queuedRows: QueueRow[]
+  // swarm's park list beside this client's optimistic rows, oldest first; a
+  // row a local pending holds or the wire queue already took would double up
+  parkedRows?: QueueRow[]
   pendings: PendingSubmit[]
   droppedRows: DroppedQueueRow[]
   onEdit: () => void
@@ -46,13 +52,28 @@ export function QueuedPrompts({
     return () => clearInterval(timer)
   }, [freshRefused])
 
-  // dropped rows are former queue contents, then the wire queue oldest first,
-  // then this client's in-flight submits, one order so the cap keeps the
-  // newest end
+  // dropped rows are former queue contents, then swarm's parks oldest first,
+  // then the wire queue, then this client's in-flight submits, one order so
+  // the cap keeps the newest end
   const named = new Set(queuedRows.map((row) => row.id))
+  const pendingIds = new Set(pendings.map((p) => p.id))
+  const foreignParks = parkedRows.filter((row) => !pendingIds.has(row.id) && !named.has(row.id))
+  // the park recall sits on the newest park: a local optimistic row is newer
+  // than anything the server has named, so it owns the affordance when present
+  const ownParkedNewest = newestParkedId(pendings)
   const chips = [
     ...droppedRows.map((row) => (
       <QueueChip key={`dropped-${row.id}`} id={row.id} text={row.text} cause={row.cause} />
+    )),
+    ...foreignParks.map((row, i) => (
+      <QueueChip
+        key={`park-${row.id}`}
+        id={row.id}
+        text={row.text}
+        state="parked"
+        editable={ownParkedNewest === '' && i === foreignParks.length - 1}
+        onEdit={onEditParked}
+      />
     )),
     ...queuedRows.map((row, i) => (
       <QueueChip

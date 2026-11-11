@@ -138,6 +138,7 @@ function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElemen
       />
       <QueuedPrompts
         queuedRows={snap.queuedRows ?? []}
+        parkedRows={snap.parkedRows}
         pendings={state.pendings}
         droppedRows={state.droppedRows}
         onEdit={() => void recallToEdit()}

@@ -3,6 +3,8 @@ package fleet
 import (
 	"context"
 	"encoding/json"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/go-analyze/bulk"
@@ -11,10 +13,12 @@ import (
 	"github.com/jentfoo/ajent/pkg/session"
 )
 
-// Workspace-wide recall: swarm mirrors every typed prompt its own send path
-// submitted into a per-workspace store, so the web composer recalls across
-// sessions the way ajent's Ctrl+R does. Scheduler launches never record here,
-// since their runs already persist prompts in the runs table.
+// Workspace-wide recall: the composer's Ctrl+R serves what an interactive CLI
+// in that workspace recalls, read from ajent's own store through its exported
+// session package (editor history plus recorded transcript prompts), merged
+// with swarm's mirror of every typed prompt its own send path submitted.
+// Scheduler launches never record to the mirror, since their runs already
+// persist prompts in the runs table.
 
 // recallSecretPrefix is upstream's pasted-secret marker (pkg/app/driver's
 // secretPrefix, unexported there). Testing through upstream's HasSecretPrefix
@@ -25,39 +29,124 @@ const recallSecretPrefix = "secret:"
 // evicted submit simply keeps its recorded text.
 const maxRecallPending = 256
 
-// RecallLine is one row of the workspace recall mirror served to clients: a
-// submitted typed prompt with its record time, newest first. Withheld rows
-// (an empty text) never surface through a listing.
+// RecallLine is one row of the workspace recall listing served to clients: a
+// submitted typed prompt with its record time, newest first. Mirror rows carry
+// their store id, ajent-store rows read zero. Withheld rows (an empty text)
+// never surface through a listing.
 type RecallLine struct {
 	ID        int64     `json:"id"`
 	Text      string    `json:"text"`
 	CreatedAt time.Time `json:"createdAt"`
 }
 
-// RecallStore persists the workspace recall mirror. A nil store disables
-// recording and every listing reads empty.
+// RecallStore persists the workspace recall mirror of typed submits. A nil
+// store disables recording, and listings then serve ajent's own sources alone.
 type RecallStore interface {
 	RecordRecallLine(ctx context.Context, workspace, text string, at time.Time) (int64, error)
 	ScrubRecallLine(ctx context.Context, id int64) error
 	RecallLines(ctx context.Context, workspace, query string, limit int) ([]RecallLine, error)
 }
 
-// RecallLines serves a session's workspace recall mirror: the typed prompts
-// submitted through swarm there, newest first, query narrowing by
-// case-insensitive substring. No store configured reads empty, an unknown
-// session refuses.
+// recallMirrorPage bounds one mirror read: the table keeps at most this many
+// rows per workspace, so a full page cannot truncate a candidate the merged
+// listing would still rank.
+const recallMirrorPage = 1000
+
+// RecallLines serves a session workspace's recall listing: what an interactive
+// CLI recalls there (ajent's editor history merged with its recorded transcript
+// prompts) beside swarm's own tracked submits, one row per distinct text at its
+// newest record time, newest first. Query narrows by case-insensitive
+// substring. Both the ajent read and a failed mirror read are best effort:
+// whatever was readable is what serves. An unknown session refuses.
 func (m *Manager) RecallLines(ctx context.Context, sessionID, query string, limit int) ([]RecallLine, error) {
 	a := m.route(sessionID)
 	if a == nil {
 		return nil, ErrUnknownSession
 	}
 	ws := a.status.Load().Workspace
-	if m.recallStore == nil || ws == "" {
+	if ws == "" {
 		return []RecallLine{}, nil
+	}
+
+	out := mergeRecallLines(m.mirrorRecallLines(ctx, ws), m.ajentRecallLines(ws))
+	q := strings.ToLower(query)
+	out = bulk.SliceFilterInPlace(func(r RecallLine) bool {
+		return r.Text != "" && strings.Contains(strings.ToLower(r.Text), q)
+	}, out)
+	slices.SortStableFunc(out, func(a, b RecallLine) int { return b.CreatedAt.Compare(a.CreatedAt) })
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
+// mirrorRecallLines reads the recall mirror's page for workspace. A read
+// failure logs and serves nothing, recall staying best effort everywhere.
+func (m *Manager) mirrorRecallLines(ctx context.Context, ws string) []RecallLine {
+	if m.recallStore == nil {
+		return nil
 	}
 	wctx, cancel := context.WithTimeout(ctx, storeWriteWait)
 	defer cancel()
-	return m.recallStore.RecallLines(wctx, ws, query, limit)
+	rows, err := m.recallStore.RecallLines(wctx, ws, "", recallMirrorPage)
+	if err != nil {
+		m.log.Warn("recall mirror not read", "workspace", ws, "err", err)
+		return nil
+	}
+	return rows
+}
+
+// ajentRecallLines reads the workspace's recall candidates from ajent's own
+// store: typed editor-history lines first with their recorded prompt times,
+// transcript prompts backfilling what never reached the line file, exactly
+// what an interactive CLI recalls there. Secret discipline and slash-command
+// hiding are upstream's own rules. A text found only in editor history keeps
+// a zero time.
+func (m *Manager) ajentRecallLines(ws string) []RecallLine {
+	store, err := session.NewStore()
+	if err != nil {
+		m.log.Warn("ajent session store not opened", "workspace", ws, "err", err)
+		return nil
+	}
+	hist, err := session.NewEditorHistory(store, ws, recallSecretPrefix)
+	if err != nil {
+		m.log.Warn("editor history not read", "workspace", ws, "err", err)
+		return nil
+	}
+	lines := session.NewRecallIndex(store, ws, recallSecretPrefix, hist).Lines()
+	out := make([]RecallLine, len(lines))
+	for i, p := range lines {
+		out[i] = RecallLine{Text: p.Text, CreatedAt: p.At}
+	}
+	return out
+}
+
+// mergeRecallLines folds both sources into one row per text at its newest
+// record time. Earlier entries keep their slot, so a mirror id survives a tie
+// and the order stays deterministic ahead of the listing's sort.
+func mergeRecallLines(mirror, ajent []RecallLine) []RecallLine {
+	out := make([]RecallLine, 0, len(mirror)+len(ajent))
+	seen := make(map[string]int, cap(out)) // text → slot in out
+	add := func(r RecallLine) {
+		if r.Text == "" {
+			return
+		}
+		if i, ok := seen[r.Text]; ok {
+			if r.CreatedAt.After(out[i].CreatedAt) {
+				out[i] = r
+			}
+			return
+		}
+		seen[r.Text] = len(out)
+		out = append(out, r)
+	}
+	for _, r := range mirror {
+		add(r)
+	}
+	for _, r := range ajent {
+		add(r)
+	}
+	return out
 }
 
 // recordRecallSubmit mirrors one accepted submit into the workspace recall

@@ -78,7 +78,7 @@ type msgSnapshot struct{ reply chan snapshotReply }
 // read under: every event at or below Seq had applied when these fields were
 // taken, so a client compares stamps to judge which side is fresher.
 type StampedState struct {
-	ctl.State
+	SessionState
 	Seq uint64 `json:"seq"`
 }
 
@@ -308,7 +308,7 @@ func (a *sessionActor) handleSnapshot(msg msgSnapshot) {
 		msg.reply <- snapshotReply{err: notReady()}
 		return
 	}
-	msg.reply <- snapshotReply{state: StampedState{State: a.view.snapshot(), Seq: a.view.seq}}
+	msg.reply <- snapshotReply{state: StampedState{SessionState: a.serveState(), Seq: a.view.seq}}
 }
 
 // handleModels lists the session's model registry, answers any seat.

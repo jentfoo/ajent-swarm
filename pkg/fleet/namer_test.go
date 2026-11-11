@@ -86,6 +86,59 @@ func TestNamer(t *testing.T) {
 		}
 	})
 
+	t.Run("queued_first_prompt_names", func(t *testing.T) {
+		store := newTitleMemStore()
+		bin, runs := fakeNamerBin(t)
+		home := testutil.IsolateHome(t)
+		m := New(Options{
+			Log:            testLogger(),
+			PollInterval:   testPoll,
+			BackoffBase:    testBackoff,
+			BackoffMax:     testBackoffHi,
+			AjentBin:       bin,
+			TitleStore:     store,
+			ParkIdleWindow: time.Hour, // hold the flush: naming must not wait for the run
+		})
+		m.Start(t.Context())
+		t.Cleanup(m.Stop)
+
+		f := fleettest.New(t, home, fleettest.Options{SessionID: "01QUEUENAME00000000"})
+		f.WriteRegistry(t, os.Getpid(), time.Now())
+		waitForState(t, m, f.SessionID(), ChildOnline)
+
+		require.NoError(t, m.QueueSubmit(t.Context(), f.SessionID(),
+			ctl.SubmitParams{Line: "fix the login flow", PendingID: "p1"}))
+
+		// the labeler runs once over the queued prompt before its run starts
+		require.Eventually(t, func() bool {
+			return store.snapshot()[f.SessionID()] == "Fix login flow"
+		}, 2*time.Second, testPoll)
+		assert.Equal(t, 1, runs())
+
+		for _, req := range f.Received() {
+			if req.Method == ctl.MethodSubmit {
+				t.Fatalf("namer submitted %q upstream; titles must never touch ajent names",
+					string(req.Params))
+			}
+		}
+	})
+
+	t.Run("queued_shell_line_never_names", func(t *testing.T) {
+		store := newTitleMemStore()
+		bin, runs := fakeNamerBin(t)
+		m, home := newTestFleetWithTitlesAndBin(t, store, bin, nil)
+
+		f := fleettest.New(t, home, fleettest.Options{SessionID: "01QUEUESHELL0000000"})
+		f.WriteRegistry(t, os.Getpid(), time.Now())
+		waitForState(t, m, f.SessionID(), ChildOnline)
+
+		require.NoError(t, m.QueueSubmit(t.Context(), f.SessionID(),
+			ctl.SubmitParams{Line: "!ls -la", PendingID: "p1"}))
+
+		// only prompts are start prompts: a queued shell run names nothing
+		require.Never(t, func() bool { return runs() > 0 }, 120*time.Millisecond, testPoll)
+	})
+
 	t.Run("adopted_session_auto_titles", func(t *testing.T) {
 		t.Run("names_from_backfill", func(t *testing.T) {
 			store := newTitleMemStore()

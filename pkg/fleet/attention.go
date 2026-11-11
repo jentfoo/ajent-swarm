@@ -150,11 +150,11 @@ func (m *Manager) ackFactsFor(statuses []*Status) []ackFacts {
 }
 
 // deriveAttention folds one serving row and its ack facts into a digest row.
-// Needs input beats a parked prompt (the dialog blocks the flush), a parked
-// session works while it waits out its quiet window, then an idle agent
-// awaits its next prompt, and only busy sessions work. The digest names only
-// the oldest open dialog, so a session with that one acknowledged still shows
-// a generic count while further dialogs wait.
+// Needs input beats a parked prompt, a parked session works while it waits out
+// its quiet window, then an idle agent awaits its next prompt, and only busy
+// sessions work. The digest names only the oldest open dialog, so a session
+// with that one acknowledged still shows a generic count while further dialogs
+// wait.
 func deriveAttention(st *Status, acks ackFacts) Attention {
 	row := Attention{
 		digestFacts: st.digestFacts,

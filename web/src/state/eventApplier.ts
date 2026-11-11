@@ -345,14 +345,20 @@ function applyInit(prev: AppliedSessionState, frame: InitFrame): AppliedSessionS
   recomputeChain(next)
 
   // Optimistic rows survive only where the fresh authoritative state names
-  // them: queued by id in the snapshot, committed via an entry's queueIds.
+  // them: queued or parked server-side by id, committed via an entry's
+  // queueIds. A park the server no longer knows left through recall elsewhere.
   const queued = new Set((frame.state.queuedRows ?? []).map((row) => row.id))
+  const parked = new Set((frame.state.parkedRows ?? []).map((row) => row.id))
   const committed = resolveCommittedPendingIds(frame.entries)
   next.pendings = prev.pendings
-    .filter((p) => queued.has(p.id) || committed.has(p.id))
-    .map((p): PendingSubmit =>
-      queued.has(p.id) ? { ...p, state: 'queued' } : { ...p, state: 'committed' },
+    .filter(
+      (p) => queued.has(p.id) || committed.has(p.id) || (parked.has(p.id) && p.state === 'parked'),
     )
+    .map((p): PendingSubmit => {
+      if (queued.has(p.id)) return { ...p, state: 'queued' }
+      if (parked.has(p.id)) return p // still waiting in swarm for its idle point
+      return { ...p, state: 'committed' }
+    })
   return next
 }
 
@@ -636,7 +642,7 @@ function applyEvent(state: AppliedSessionState, ev: WireEvent): AppliedSessionSt
         p.state === 'parked' ? { ...p, state: 'dropped' as const } : p,
       )
       // the spinner rides turn boundaries upstream, so it dies with the run
-      next.snapshot = { ...next.snapshot, spinning: false }
+      next.snapshot = { ...next.snapshot, spinning: false, parkedRows: [] }
       return next
     }
 
@@ -833,6 +839,9 @@ function applyResnapshot(state: AppliedSessionState, snap: CtlState): AppliedSes
     cwd: snap.cwd,
     usage: snap.usage,
     seat: snap.seat,
+    // Parks change without spending an event number, so the park list is
+    // poll-only too; absent means the server holds none.
+    parkedRows: snap.parkedRows ?? [],
   }
   if (!fresh) return next
   // An exit is final for turn state: a read that raced it can still carry the

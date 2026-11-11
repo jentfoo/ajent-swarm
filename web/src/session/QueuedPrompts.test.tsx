@@ -20,12 +20,14 @@ function refused(text: string, ageMs = 0): PendingSubmit {
 
 function renderChips({
   queuedRows = [],
+  parkedRows,
   pendings = [],
   droppedRows = [],
   onEdit = () => {},
   onEditParked = () => {},
 }: {
   queuedRows?: QueueRow[]
+  parkedRows?: QueueRow[]
   pendings?: PendingSubmit[]
   droppedRows?: DroppedQueueRow[]
   onEdit?: () => void
@@ -34,6 +36,7 @@ function renderChips({
   return render(
     <QueuedPrompts
       queuedRows={queuedRows}
+      parkedRows={parkedRows}
       pendings={pendings}
       droppedRows={droppedRows}
       onEdit={onEdit}
@@ -133,6 +136,74 @@ describe('QueuedPrompts', () => {
     })
 
     expect(screen.getAllByText('named row')).toHaveLength(1)
+  })
+
+  it('renders server-parked rows beside optimistic ones', () => {
+    renderChips({
+      parkedRows: [{ id: 's1', text: 'queued elsewhere' }],
+      pendings: [{ id: 'p0', text: 'just parked', state: 'parked' }],
+    })
+
+    expect(screen.getByText('queued elsewhere')).toBeInTheDocument()
+    expect(screen.getByText('just parked')).toBeInTheDocument()
+    expect(screen.getAllByText('waiting for idle')).toHaveLength(2)
+  })
+
+  it('skips server-parked rows a local pending or the wire queue names', () => {
+    renderChips({
+      queuedRows: [{ id: 's1', text: 'flushed' }],
+      parkedRows: [
+        { id: 's1', text: 'flushed' }, // the flush moved it upstream
+        { id: 's2', text: 'still parked' },
+      ],
+      pendings: [{ id: 'p0', text: 'just parked', state: 'parked' }],
+    })
+
+    expect(screen.getAllByText('flushed')).toHaveLength(1)
+  })
+
+  it('reads server parks ahead of wire rows', () => {
+    renderChips({
+      queuedRows: rows('wire row'),
+      parkedRows: [{ id: 's1', text: 'parked row' }],
+    })
+
+    // parks flush into the wire queue in order, so they read before it
+    const parked = screen.getByText('parked row').closest('.queue-chip')!
+    const wire = screen.getByText('wire row').closest('.queue-chip')!
+    expect(parked.compareDocumentPosition(wire) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('offers park recall on the newest server park only', async () => {
+    const onEditParked = vi.fn()
+    renderChips({
+      parkedRows: [
+        { id: 's0', text: 'older foreign' },
+        { id: 's1', text: 'newest foreign' },
+      ],
+      pendings: [refused('was refused')], // a refusal never owns the recall
+      onEditParked,
+    })
+
+    const edits = screen.getAllByRole('button', { name: /edit/ })
+    expect(edits).toHaveLength(1)
+    expect(edits[0]!.closest('.queue-chip')!.textContent).toContain('newest foreign')
+    await userEvent.setup().click(edits[0]!)
+    expect(onEditParked).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps park recall on a local optimistic row over server parks', async () => {
+    const onEditParked = vi.fn()
+    renderChips({
+      parkedRows: [{ id: 's1', text: 'server park' }],
+      pendings: [{ id: 'p0', text: 'local park', state: 'parked' }],
+      onEditParked,
+    })
+
+    // a row the server has not named yet is newer than everything it has
+    const edits = screen.getAllByRole('button', { name: /edit/ })
+    expect(edits).toHaveLength(1)
+    expect(edits[0]!.closest('.queue-chip')!.textContent).toContain('local park')
   })
 
   it('expires a refused chip after its ttl', () => {

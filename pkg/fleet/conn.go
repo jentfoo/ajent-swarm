@@ -68,11 +68,12 @@ type digestFacts struct {
 	ParkedAt     int64  `json:"parkedAt,omitempty"`     // when the oldest parked, unix ms
 }
 
-// busyAt reports the session's newest busy moment: now while a turn runs or
-// a dialog waits, otherwise the last turn end. Zero means no known activity,
-// the one rule every idle gate shares.
+// busyAt reports the session's newest busy moment: now while a turn runs
+// without an open dialog, otherwise the last turn end. A dialog waits on its
+// user instead of working, so it never holds the idle gates. Zero means no
+// known activity.
 func (f digestFacts) busyAt() time.Time {
-	if f.Running || f.Spinning || f.OpenInteractions > 0 {
+	if (f.Running || f.Spinning) && f.OpenInteractions == 0 {
 		return time.Now()
 	}
 	if f.LastTurnEnd > 0 {
@@ -553,7 +554,7 @@ func (a *sessionActor) buildInit() []byte {
 	return mustJSON(InitFrame{
 		Type:      FrameInit,
 		SessionID: a.key.sessionID,
-		State:     a.view.snapshot(),
+		State:     a.serveState(),
 		Entries:   entries,
 		Cursor:    cursor,
 	})

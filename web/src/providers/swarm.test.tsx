@@ -308,4 +308,19 @@ describe('SwarmProvider stale poll guards', () => {
     })
     expect(latestCtx.attention).toEqual(fresh)
   })
+
+  it('latches loaded on first roster', async () => {
+    render(
+      <SwarmProvider>
+        <PollProbe />
+      </SwarmProvider>,
+    )
+    // an unpolled roster and a committed empty one must stay tellable apart
+    expect(latestCtx.sessionsLoaded).toBe(false)
+
+    await act(async () => {
+      parkedSessions[0]([])
+    })
+    expect(latestCtx.sessionsLoaded).toBe(true)
+  })
 })

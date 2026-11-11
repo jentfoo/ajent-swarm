@@ -864,6 +864,21 @@ func TestManager(t *testing.T) {
 			assert.WithinDuration(t, time.Now(), m.LastBusyAt(), time.Second)
 		})
 
+		t.Run("needs_input_actor_not_busy", func(t *testing.T) {
+			// a dialog waits on its user, so the aged turn end still bounds idle
+			m := New(Options{Log: testLogger()})
+			live := actor(m, time.Now().Add(-time.Hour).UnixMilli(), true)
+			live.status.Store(&Status{
+				digestFacts: digestFacts{SessionID: live.key.sessionID, Running: true, OpenInteractions: 1,
+					LastTurnEnd: time.Now().Add(-time.Hour).UnixMilli()},
+				State:  ChildOnline,
+				served: true,
+			})
+			busy := m.LastBusyAt()
+			assert.False(t, busy.IsZero())
+			assert.LessOrEqual(t, busy.UnixMilli(), time.Now().Add(-time.Hour).UnixMilli())
+		})
+
 		t.Run("exited_actor_never_busy", func(t *testing.T) {
 			m := New(Options{Log: testLogger()})
 			live := actor(m, time.Now().Add(-time.Hour).UnixMilli(), true)

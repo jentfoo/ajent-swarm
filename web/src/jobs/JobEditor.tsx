@@ -81,31 +81,34 @@ export function JobEditor({
 
   // Debounced draft preview: the backend owns scheduling semantics and checks
   // the workspace against its own filesystem, further edits abort in flight.
-  // A draft that turns invalid drops its results at once, so stale slots and
-  // errors never outlive the fields they describe.
+  // A draft that turns invalid drops its results on the same tick instead of a
+  // synchronous effect-body clear, so stale slots never outlive their fields.
   useEffect(() => {
-    if (!scheduleOk) {
-      setPreviewTimes([])
-      setWorkspaceError('')
-      setPreviewError('')
-      return
-    }
     const controller = new AbortController()
-    const timer = setTimeout(async () => {
-      try {
-        const res = await jobsApi.preview(
-          { ...toPayload(draft), createdAt: job?.createdAt },
-          3,
-          controller.signal,
-        )
-        setPreviewTimes(res.times)
-        setWorkspaceError(res.workspaceError ?? '')
-        setPreviewError('')
-      } catch (err) {
-        if ((err as Error | undefined)?.name === 'AbortError') return
-        setPreviewError(describeError(err, 'Preview failed.'))
-      }
-    }, 350)
+    const timer = setTimeout(
+      async () => {
+        if (!scheduleOk) {
+          setPreviewTimes([])
+          setWorkspaceError('')
+          setPreviewError('')
+          return
+        }
+        try {
+          const res = await jobsApi.preview(
+            { ...toPayload(draft), createdAt: job?.createdAt },
+            3,
+            controller.signal,
+          )
+          setPreviewTimes(res.times)
+          setWorkspaceError(res.workspaceError ?? '')
+          setPreviewError('')
+        } catch (err) {
+          if ((err as Error | undefined)?.name === 'AbortError') return
+          setPreviewError(describeError(err, 'Preview failed.'))
+        }
+      },
+      scheduleOk ? 350 : 0,
+    )
     return () => {
       controller.abort()
       clearTimeout(timer)
@@ -168,7 +171,7 @@ export function JobEditor({
             workspaces={workspaces}
             models={models}
             toolOptions={toolOptions}
-            workspaceError={shownWorkspaceError}
+            workspaceError={workspaceError}
           />
 
           <label>
@@ -351,14 +354,14 @@ export function JobEditor({
           </p>
         )}
 
-        {shownPreviewError !== '' ? (
-          <p className="error-text">{shownPreviewError}</p>
+        {previewError !== '' ? (
+          <p className="error-text">{previewError}</p>
         ) : (
-          shownTimes.length > 0 && (
+          previewTimes.length > 0 && (
             <div className="schedule-preview" data-testid="schedule-preview">
               <span className="muted">Next runs</span>
               <ol>
-                {shownTimes.map((t, i) => (
+                {previewTimes.map((t, i) => (
                   <li key={i}>
                     {formatSlot(t, draft.scheduleKind === 'daily' ? draft.tz : undefined)}
                   </li>

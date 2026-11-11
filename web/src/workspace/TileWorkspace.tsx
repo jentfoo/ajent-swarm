@@ -51,7 +51,7 @@ export function reachableSession(s: SessionStatus): boolean {
 // to Sessions, where the next session is picked.
 
 export default function TileWorkspace() {
-  const { sessions } = useSwarm()
+  const { sessions, sessionsLoaded } = useSwarm()
   const { profile, setTileLayout, itemFor } = useWorkspace()
   const [searchParams, setSearchParams] = useSearchParams()
   const navigate = useNavigate()
@@ -91,9 +91,12 @@ export default function TileWorkspace() {
 
   // Tiling from a request: an explicit ?open= list replaces the whole tree so
   // the Tile button and sessions-grid selections tile exactly what was asked,
-  // even over a persisted arrangement. Without one, an empty layout seeds
-  // every reachable session once per mount, and a mount that had panes never
-  // re-seeds once they close, so emptying the workspace stays possible.
+  // even over a persisted arrangement. A request nothing resolves once the
+  // roster has loaded is stale (an old bookmark, a restarted machine): it
+  // drops instead of wedging the screen behind its param, and tile mode goes
+  // through its normal empty state from there. Without one, an empty layout
+  // seeds every reachable session once per mount, and a mount that had panes
+  // never re-seeds once they close, so emptying the workspace stays possible.
   useEffect(() => {
     const open = searchParams.get('open')
     if (open !== null) {
@@ -102,11 +105,17 @@ export default function TileWorkspace() {
         .split(',')
         .map((id) => decodeURIComponent(id.trim()))
         .filter((id) => sessions.some((s) => s.sessionId === id))
-      if (ids.length === 0) return // wait for the sessions list to catch up
-      openedRef.current = open
-      setSearchParams({}, { replace: true }) // deep links clean up after tiling
-      const next = tileFor(ids)
-      setTileLayout({ tree: next, focusedPaneId: paneIds(next)[0] })
+      if (ids.length > 0) {
+        openedRef.current = open
+        setSearchParams({}, { replace: true }) // deep links clean up after tiling
+        const next = tileFor(ids)
+        setTileLayout({ tree: next, focusedPaneId: paneIds(next)[0] })
+        return
+      }
+      if (!sessionsLoaded) return // wait for the sessions list to catch up
+      setSearchParams({}, { replace: true }) // all stale: give up on the request
+      // openedRef stays unset, so a re-navigation of this same stale list
+      // retries the lookup instead of reading as an already-served request
       return
     }
     // no ?open= means no request is pending: re-arm the once guard so a
@@ -125,7 +134,7 @@ export default function TileWorkspace() {
     // persisted layout profile, not a session id
     setTileLayout({ tree: next, focusedPaneId: paneIds(next)[0] })
     // seeding runs once per mount, guards above keep later dep changes quiet
-  }, [tree, sessions, setTileLayout, setSearchParams, searchParams])
+  }, [tree, sessions, sessionsLoaded, setTileLayout, setSearchParams, searchParams])
 
   const focusPane = useCallback((paneId: string) => commit(tree, paneId), [commit, tree])
 

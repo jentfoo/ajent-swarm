@@ -316,15 +316,15 @@ func (s *apiServer) handleSessionAgentsStop(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, http.StatusOK, res)
 }
 
-// recallLinesReply answers one recall-lines query: the workspace mirror's
-// rows, newest first.
+// recallLinesReply answers one recall-lines query: the workspace's merged
+// listing, newest first.
 type recallLinesReply struct {
 	Items []fleet.RecallLine `json:"items"`
 }
 
-// handleSessionRecallLines serves the session workspace's recall mirror: the
-// typed prompts submitted through swarm there, newest first, so the composer
-// search recalls across sessions. ?query narrows by case-insensitive
+// handleSessionRecallLines serves the session workspace's recall listing:
+// what ajent recalls for that directory beside swarm's own tracked submits,
+// one row per distinct text, newest first. ?query narrows by case-insensitive
 // substring and ?limit caps the page.
 func (s *apiServer) handleSessionRecallLines(w http.ResponseWriter, r *http.Request) {
 	limit, ok := parseLimit(w, r)

@@ -104,10 +104,39 @@ function domPaneIds(): (string | null)[] {
   )
 }
 
+// storedProfile reads the persisted profile, settling the debounced write
+// first through the pagehide flush path the app itself uses.
+function storedProfile() {
+  act(() => {
+    window.dispatchEvent(new Event('pagehide'))
+  })
+  return JSON.parse(localStorage.getItem('swarm.workspace.v1') ?? '{}')
+}
+
 // storedRatio reads the persisted ratio a divider drag commits.
 function storedRatio(): number {
-  const stored = JSON.parse(localStorage.getItem('swarm.workspace.v1') ?? '{}')
-  return stored.tile.tree.ratio
+  return storedProfile().tile.tree.ratio
+}
+
+// firstCellFlex reads the split's leading cell width: the rendered share of
+// the tree's first child, i.e. what a ratio commit paints.
+function firstCellFlex(): string {
+  return document.querySelector<HTMLElement>('.tile-cell')!.style.flex
+}
+
+// jsdom's frame clock runs on real time, so divider batches are queued and
+// flushed by hand: one flush stands in for one paint.
+const rafCallbacks = new Map<number, FrameRequestCallback>()
+let rafSeq = 0
+const realRaf = window.requestAnimationFrame
+const realCancelRaf = window.cancelAnimationFrame
+
+function flushFrame() {
+  const cbs = [...rafCallbacks.values()]
+  rafCallbacks.clear()
+  act(() => {
+    cbs.forEach((cb) => cb(0))
+  })
 }
 
 describe('TileWorkspace', () => {
@@ -124,6 +153,14 @@ describe('TileWorkspace', () => {
     )
     // jsdom ships no pointer capture, divider drags only need the events
     Element.prototype.setPointerCapture = () => {}
+    window.requestAnimationFrame = (cb: FrameRequestCallback) => {
+      rafSeq += 1
+      rafCallbacks.set(rafSeq, cb)
+      return rafSeq
+    }
+    window.cancelAnimationFrame = (id: number) => {
+      rafCallbacks.delete(id)
+    }
     vi.stubGlobal(
       'WebSocket',
       class extends MockWebSocket {
@@ -165,6 +202,9 @@ describe('TileWorkspace', () => {
   afterEach(() => {
     sockets = []
     Reflect.deleteProperty(Element.prototype, 'setPointerCapture')
+    window.requestAnimationFrame = realRaf
+    window.cancelAnimationFrame = realCancelRaf
+    rafCallbacks.clear()
     vi.unstubAllGlobals()
   })
 
@@ -191,10 +231,14 @@ describe('TileWorkspace', () => {
     )
   }
 
-  // pinnedDivider mounts the persisted split with its divider, pinning the
-  // split's box (jsdom has no layout) so a drag's clientX maps to a clean
-  // ratio: x within 0..1000.
-  async function pinnedDivider(): Promise<HTMLElement> {
+  // pinnedDivider mounts a split with its divider, pinning the split's box
+  // (jsdom has no layout) so a drag's clientX maps to a clean ratio: x within
+  // 0..1000.
+  async function pinnedDivider(fixture = tree): Promise<HTMLElement> {
+    localStorage.setItem(
+      'swarm.workspace.v1',
+      JSON.stringify({ mode: 'tile', focused: {}, tile: { tree: fixture, focusedPaneId: 'p1' } }),
+    )
     renderTile()
     await screen.findAllByText('right') // the persisted split rendered its divider
     const split = document.querySelector('.tile-split')
@@ -294,7 +338,7 @@ describe('TileWorkspace', () => {
     // the pane emptied away, the left pane remains as the whole tree
     await waitFor(() => expect(document.querySelectorAll('[data-pane-id]')).toHaveLength(1))
     expect(document.querySelector('[data-pane-id="p1"]')).not.toBeNull()
-    const stored = JSON.parse(localStorage.getItem('swarm.workspace.v1') ?? '{}')
+    const stored = storedProfile()
     expect(stored.tile.tree.kind).toBe('pane') // the split rebalanced away
   })
 
@@ -307,8 +351,7 @@ describe('TileWorkspace', () => {
 
     // both live sessions split into their own panes without any clicks
     await waitFor(() => expect(document.querySelectorAll('[data-pane-id]')).toHaveLength(2))
-    const stored = JSON.parse(localStorage.getItem('swarm.workspace.v1') ?? '{}')
-    expect(stored.tile.tree.kind).toBe('split')
+    expect(storedProfile().tile.tree.kind).toBe('split')
   })
 
   it('retiles exactly the requested open list over a persisted tree', async () => {
@@ -324,8 +367,7 @@ describe('TileWorkspace', () => {
     renderTile('/tile?open=' + LEFT + ',' + RIGHT)
 
     await waitFor(() => expect(document.querySelectorAll('[data-pane-id]')).toHaveLength(2))
-    const stored = JSON.parse(localStorage.getItem('swarm.workspace.v1') ?? '{}')
-    expect(stored.tile.tree.kind).toBe('split')
+    expect(storedProfile().tile.tree.kind).toBe('split')
   })
 
   it('tiles three requested sessions into three panes', async () => {
@@ -400,8 +442,7 @@ describe('TileWorkspace', () => {
     // once the roster loads and nothing resolves, the request gives up: the
     // URL cleans up and the normal empty state auto-tiles what is live now
     await waitFor(() => expect(document.querySelectorAll('[data-pane-id]')).toHaveLength(2))
-    const stored = JSON.parse(localStorage.getItem('swarm.workspace.v1') ?? '{}')
-    expect(stored.tile.tree.kind).toBe('split')
+    expect(storedProfile().tile.tree.kind).toBe('split')
     expect(currentSearch).toBe('')
   })
 
@@ -465,8 +506,7 @@ describe('TileWorkspace', () => {
     expect(screen.queryByText('No panes open.')).not.toBeInTheDocument()
 
     // the emptied arrangement is what persists for a later plain visit
-    const stored = JSON.parse(localStorage.getItem('swarm.workspace.v1') ?? '{}')
-    expect(stored.tile.tree).toBeNull()
+    expect(storedProfile().tile.tree).toBeNull()
   })
 
   it('opens the + picker into a body-level menu past pane clipping', async () => {
@@ -525,7 +565,7 @@ describe('TileWorkspace', () => {
     })
 
     // the swap persists with focus kept on the pane
-    const stored = JSON.parse(localStorage.getItem('swarm.workspace.v1') ?? '{}')
+    const stored = storedProfile()
     expect(stored.tile.tree.active).toBe(LEFT)
     expect(stored.tile.focusedPaneId).toBe('p1')
   })
@@ -565,7 +605,7 @@ describe('TileWorkspace', () => {
     expect(activeName()).toBe('right')
 
     // the keyboard swap persists with focus kept on the pane, like a click
-    const stored = JSON.parse(localStorage.getItem('swarm.workspace.v1') ?? '{}')
+    const stored = storedProfile()
     expect(stored.tile.tree.active).toBe(RIGHT)
     expect(stored.tile.focusedPaneId).toBe('p1')
   })
@@ -668,11 +708,40 @@ describe('TileWorkspace', () => {
     expect(screen.getByText('No live sessions to open.')).toBeInTheDocument()
   })
 
+  it('batches divider moves into one commit per frame', async () => {
+    const divider = await pinnedDivider()
+
+    fireEvent.pointerDown(divider, { pointerId: 1, clientX: 500, clientY: 300 })
+    fireEvent.pointerMove(divider, { pointerId: 1, clientX: 600, clientY: 300 })
+    fireEvent.pointerMove(divider, { pointerId: 1, clientX: 800, clientY: 300 })
+
+    // moves within a frame commit nothing per event, the tree holds its share
+    expect(firstCellFlex()).toBe('0 0 calc(50% - 3px)')
+
+    // one paint lands the latest position in a single commit
+    flushFrame()
+    expect(firstCellFlex()).toBe('0 0 calc(80% - 3px)')
+    expect(storedRatio()).toBeCloseTo(0.8)
+  })
+
+  it('commits the pending move when the drag ends within a frame', async () => {
+    const divider = await pinnedDivider()
+
+    fireEvent.pointerDown(divider, { pointerId: 1, clientX: 500, clientY: 300 })
+    fireEvent.pointerMove(divider, { pointerId: 1, clientX: 800, clientY: 300 })
+    fireEvent.pointerUp(divider, { pointerId: 1, clientX: 800, clientY: 300 })
+
+    // the release lands the final ratio now, without waiting for a paint
+    expect(firstCellFlex()).toBe('0 0 calc(80% - 3px)')
+    expect(storedRatio()).toBeCloseTo(0.8)
+  })
+
   it('resizes the split through a divider drag', async () => {
     const divider = await pinnedDivider()
 
     fireEvent.pointerDown(divider, { pointerId: 1, clientX: 500, clientY: 300 })
     fireEvent.pointerMove(divider, { pointerId: 1, clientX: 800, clientY: 300 })
+    flushFrame()
     fireEvent.pointerUp(divider, { pointerId: 1, clientX: 800, clientY: 300 })
 
     expect(storedRatio()).toBeCloseTo(0.8)
@@ -683,6 +752,7 @@ describe('TileWorkspace', () => {
 
     fireEvent.pointerDown(divider, { pointerId: 1, clientX: 500, clientY: 300 })
     fireEvent.pointerMove(divider, { pointerId: 1, clientX: 800, clientY: 300 })
+    flushFrame()
     // the system takes the pointer back: the drag ends where it last applied
     fireEvent.pointerCancel(divider, { pointerId: 1 })
     expect(storedRatio()).toBeCloseTo(0.8)
@@ -697,10 +767,12 @@ describe('TileWorkspace', () => {
 
     fireEvent.pointerDown(divider, { pointerId: 1, clientX: 500, clientY: 300 })
     fireEvent.pointerMove(divider, { pointerId: 1, clientX: 800, clientY: 300 })
-    // capture stolen or dropped mid-gesture is an ending like any other
+    // capture stolen or dropped mid-gesture is an ending like any other: the
+    // pending move lands, then nothing feeds the split anymore
     fireEvent(divider, new PointerEvent('lostpointercapture', { pointerId: 1, bubbles: true }))
-    fireEvent.pointerMove(divider, { pointerId: 1, clientX: 100, clientY: 300 })
+    expect(storedRatio()).toBeCloseTo(0.8)
 
+    fireEvent.pointerMove(divider, { pointerId: 1, clientX: 100, clientY: 300 })
     expect(storedRatio()).toBeCloseTo(0.8)
   })
 
@@ -710,10 +782,49 @@ describe('TileWorkspace', () => {
     fireEvent.pointerDown(divider, { pointerId: 1, clientX: 500, clientY: 300 })
     // a second finger wandering over the divider must not move the split
     fireEvent.pointerMove(divider, { pointerId: 2, clientX: 100, clientY: 300 })
-    expect(storedRatio()).toBeCloseTo(0.5)
+    expect(firstCellFlex()).toBe('0 0 calc(50% - 3px)')
 
     fireEvent.pointerMove(divider, { pointerId: 1, clientX: 800, clientY: 300 })
+    flushFrame()
     fireEvent.pointerUp(divider, { pointerId: 1, clientX: 800, clientY: 300 })
     expect(storedRatio()).toBeCloseTo(0.8)
+  })
+
+  it('commits a pending frame against the freshest tree', async () => {
+    // pane p1 holds a background tab, so a strip click reshapes the tree
+    // without touching the split
+    const stacked = {
+      ...tree,
+      a: { kind: 'pane', id: 'p1', tabs: [LEFT, RIGHT], active: LEFT },
+    }
+    const divider = await pinnedDivider(stacked)
+
+    fireEvent.pointerDown(divider, { pointerId: 1, clientX: 500, clientY: 300 })
+    fireEvent.pointerMove(divider, { pointerId: 1, clientX: 800, clientY: 300 })
+
+    const pane = within(document.querySelector('[data-pane-id="p1"]') as HTMLElement)
+    await userEvent.click(pane.getByText('right', { selector: '.tab-name' }))
+
+    // the frame lands the drag's ratio on the new tree, the activation made
+    // while it was pending survives instead of being reverted
+    flushFrame()
+    const stored = storedProfile()
+    expect(stored.tile.tree.ratio).toBeCloseTo(0.8)
+    expect(stored.tile.tree.a.active).toBe(RIGHT)
+  })
+
+  it('drops a pending frame when its divider unmounts', async () => {
+    const divider = await pinnedDivider()
+
+    fireEvent.pointerDown(divider, { pointerId: 1, clientX: 500, clientY: 300 })
+    fireEvent.pointerMove(divider, { pointerId: 1, clientX: 800, clientY: 300 })
+
+    // a plain click closes the tab with no pointerdown render first, so the
+    // split collapses while the frame is pending: it must never resurrect it
+    fireEvent.click(screen.getByLabelText('Close right'))
+    flushFrame()
+
+    expect(document.querySelectorAll('[data-pane-id]')).toHaveLength(1)
+    expect(storedProfile().tile.tree.kind).toBe('pane')
   })
 })

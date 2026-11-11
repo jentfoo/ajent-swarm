@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type {
   DragEvent,
   KeyboardEvent as ReactKeyboardEvent,
@@ -394,6 +394,8 @@ function NodeView(props: NodeProps) {
 // itself instead of window listeners, so a release, a pointercancel (a browser
 // or system gesture stealing the pointer) or this node unmounting mid-drag
 // can never leave a resize behind that later pointer movement keeps feeding.
+// Moves coalesce into one commit per animation frame, so a drag re-renders
+// the tile tree at display rate instead of once per pointermove.
 function Divider({
   dir,
   splitId,
@@ -403,34 +405,70 @@ function Divider({
   splitId: string
   onResize: (splitId: string, ratio: number) => void
 }) {
-  // null while idle, the box is fixed at drag start, resizing only reshuffles
-  // the split's children inside it
-  const dragRef = useRef<{ pointerId: number; rect: DOMRect } | null>(null)
+  // null while idle, the box is fixed at drag start and the latest pointer
+  // position rides along, one frame per paint commits it
+  const dragRef = useRef<{ pointerId: number; rect: DOMRect; x: number; y: number } | null>(null)
+  // the frame carrying the pending commit, null when nothing is pending
+  const frameRef = useRef<number | null>(null)
+
+  const commitRatio = () => {
+    frameRef.current = null
+    const drag = dragRef.current
+    if (!drag) return
+    const ratio =
+      dir === 'row'
+        ? (drag.x - drag.rect.left) / drag.rect.width
+        : (drag.y - drag.rect.top) / drag.rect.height
+    onResize(splitId, ratio)
+  }
 
   const onPointerDown = (ev: ReactPointerEvent<HTMLDivElement>) => {
     const box = ev.currentTarget.parentElement
     if (!box) return
     ev.preventDefault()
     ev.currentTarget.setPointerCapture(ev.pointerId)
-    dragRef.current = { pointerId: ev.pointerId, rect: box.getBoundingClientRect() }
+    dragRef.current = {
+      pointerId: ev.pointerId,
+      rect: box.getBoundingClientRect(),
+      x: ev.clientX,
+      y: ev.clientY,
+    }
   }
 
   const onPointerMove = (ev: ReactPointerEvent<HTMLDivElement>) => {
     const drag = dragRef.current
     if (!drag || drag.pointerId !== ev.pointerId) return // another pointer's noise
-    const ratio =
-      dir === 'row'
-        ? (ev.clientX - drag.rect.left) / drag.rect.width
-        : (ev.clientY - drag.rect.top) / drag.rect.height
-    onResize(splitId, ratio)
+    drag.x = ev.clientX
+    drag.y = ev.clientY
+    if (frameRef.current === null) frameRef.current = requestAnimationFrame(commitRatio)
   }
 
   // a release, a cancel and a lost capture all end the drag exactly alike:
   // the ratio stays wherever the last applied move put it
   const endDrag = (ev: ReactPointerEvent<HTMLDivElement>) => {
-    if (dragRef.current?.pointerId !== ev.pointerId) return
+    const drag = dragRef.current
+    if (!drag || drag.pointerId !== ev.pointerId) return
+    if (frameRef.current === null) {
+      dragRef.current = null // no move pending: the last frame landed
+      return
+    }
+    cancelAnimationFrame(frameRef.current)
+    commitRatio() // the ending lands the final ratio now, not a frame later
     dragRef.current = null
   }
+
+  // a pending frame re-arms on every render, so it always commits against the
+  // freshest tree; the always-registered cleanup keeps one from ever firing
+  // after this divider unmounts mid-gesture
+  useLayoutEffect(() => {
+    if (frameRef.current !== null) {
+      cancelAnimationFrame(frameRef.current)
+      frameRef.current = requestAnimationFrame(commitRatio)
+    }
+    return () => {
+      if (frameRef.current !== null) cancelAnimationFrame(frameRef.current)
+    }
+  })
 
   return (
     <div

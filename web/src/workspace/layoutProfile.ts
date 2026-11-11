@@ -1,7 +1,7 @@
 // The layout profile: which workspace mode the browser is in plus each mode's
 // own state, persisted per browser in localStorage. Switching modes preserves
 // each one's layout independently, corrupt storage reads as the default.
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { parseTree } from './tileTree'
 import type { TileNode } from './tileTree'
@@ -24,6 +24,10 @@ export interface LayoutProfile {
 }
 
 const storageKey = 'swarm.workspace.v1'
+
+// persistence settles this long after the last change, so bursts of commits
+// (divider drags, focus following pointerdown) write once instead of per event
+export const saveSettleMs = 250
 
 const defaultProfile: LayoutProfile = {
   mode: 'focused',
@@ -64,8 +68,10 @@ function saveProfile(profile: LayoutProfile): void {
   }
 }
 
-// useLayoutProfile holds the profile in state, writing through on every
-// change so reloads restore exactly what the user arranged.
+// useLayoutProfile holds the profile in state, so renders follow every change
+// immediately, while storage writes settle on a debounce once changes stop.
+// Leaving or hiding the page flushes a still-pending save, so a reload never
+// loses the arrangement.
 export function useLayoutProfile(): {
   profile: LayoutProfile
   setMode: (mode: WorkspaceMode) => void
@@ -73,14 +79,41 @@ export function useLayoutProfile(): {
   setTileLayout: (tile: TileLayout) => void
 } {
   const [profile, setProfile] = useState<LayoutProfile>(loadProfile)
+  // mirrors the state for synchronous updates and is the value a pending save
+  // writes; a live timer means a save is still pending
+  const latestRef = useRef(profile)
+  const timerRef = useRef<number | null>(null)
 
-  const update = useCallback((patch: (prev: LayoutProfile) => LayoutProfile) => {
-    setProfile((prev) => {
-      const next = patch(prev)
-      saveProfile(next)
-      return next
-    })
+  const flush = useCallback(() => {
+    if (timerRef.current === null) return // clean: storage already holds it
+    window.clearTimeout(timerRef.current)
+    timerRef.current = null
+    saveProfile(latestRef.current)
   }, [])
+
+  useEffect(() => {
+    const onHidden = () => {
+      if (document.visibilityState === 'hidden') flush()
+    }
+    window.addEventListener('pagehide', flush)
+    document.addEventListener('visibilitychange', onHidden)
+    return () => {
+      window.removeEventListener('pagehide', flush)
+      document.removeEventListener('visibilitychange', onHidden)
+      flush() // unmounting settles too
+    }
+  }, [flush])
+
+  const update = useCallback(
+    (patch: (prev: LayoutProfile) => LayoutProfile) => {
+      const next = patch(latestRef.current)
+      latestRef.current = next
+      setProfile(next)
+      if (timerRef.current !== null) window.clearTimeout(timerRef.current)
+      timerRef.current = window.setTimeout(flush, saveSettleMs)
+    },
+    [flush],
+  )
 
   const setMode = useCallback(
     (mode: WorkspaceMode) => update((prev) => ({ ...prev, mode })),

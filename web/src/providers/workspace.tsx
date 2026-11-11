@@ -75,8 +75,11 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   const acknowledgeDialog = useCallback(
     (sessionId: string, dialogId: number) => {
-      // twin instances share a session id, the digest row names the pid
-      const pid = attention.find((row) => row.sessionId === sessionId)?.pid
+      // twin instances share a session id and each holds its own dialogs, so
+      // the digest row carrying this one names the pid; while the digest lags
+      // behind the answer the session's first row stands in
+      const rows = attention.filter((row) => row.sessionId === sessionId)
+      const pid = (rows.find((row) => row.dialogId === dialogId) ?? rows[0])?.pid
       acknowledge({ sessionId, pid, dialogId })
     },
     [attention, acknowledge],

@@ -179,7 +179,8 @@ export function draftsEqual(a: JobDraft, b: JobDraft): boolean {
     if (Array.isArray(x) && Array.isArray(y)) {
       const left = [...x].sort()
       const right = [...y].sort()
-      if (!left.every((v, i) => v === right[i])) return false
+      // length first: .every walks vacuously true when one side emptied out
+      if (left.length !== right.length || !left.every((v, i) => v === right[i])) return false
       continue
     }
     if (x !== y) return false
@@ -283,7 +284,8 @@ export function validateDraft(draft: JobDraft): DraftErrors {
       break
   }
 
-  if (draft.timeoutMinutes < 0) errors.timeoutMinutes = 'Timeout cannot be negative.'
+  if (!Number.isFinite(draft.timeoutMinutes)) errors.timeoutMinutes = 'Timeout must be a number.'
+  else if (draft.timeoutMinutes < 0) errors.timeoutMinutes = 'Timeout cannot be negative.'
   if (draft.idleMaxDelaySeconds < 0) errors.idle = 'Idle delay cannot be negative.'
   // the server trims before checking, so the bound applies to the trimmed value
   if (byteLength(draft.triggerCommand.trim()) > maxTriggerLen)

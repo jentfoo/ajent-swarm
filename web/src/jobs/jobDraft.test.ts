@@ -100,6 +100,13 @@ describe('validateDraft', () => {
     }
   })
 
+  it('rejects a non-finite timeout', () => {
+    const draft = { ...defaultDraft(), name: 'j', workspace: '/w' }
+    // non-finite reads must fail validation, not coerce to an unlimited save
+    expect(validateDraft({ ...draft, timeoutMinutes: Number.NaN })).toHaveProperty('timeoutMinutes')
+    expect(validateDraft({ ...draft, timeoutMinutes: Infinity })).toHaveProperty('timeoutMinutes')
+  })
+
   it('splits the session target bound from the job name bound', () => {
     // one draft holding both edges: a 200-character job name passes while a
     // 65-character session target fails ajent's tighter cap
@@ -373,6 +380,22 @@ describe('draftsEqual', () => {
       tt.edit(draft)
       expect(draftsEqual(draft, defaultDraft())).toBe(false)
     }
+  })
+
+  it('flags removing every pick', () => {
+    const source = {
+      ...defaultDraft(),
+      weekdays: ['mon', 'wed'] as WeekdayToken[],
+      customTools: true,
+      tools: ['builtin:read'],
+    }
+    // dropping the last pick must read as dirty, not vacuously equal
+    expect(draftsEqual({ ...source, weekdays: [] }, source)).toBe(false)
+    expect(draftsEqual(source, { ...source, weekdays: [] })).toBe(false)
+    expect(draftsEqual({ ...source, tools: [] }, source)).toBe(false)
+    expect(draftsEqual(source, { ...source, tools: [] })).toBe(false)
+    // shrinking short of empty differs too
+    expect(draftsEqual({ ...source, weekdays: ['mon'] }, source)).toBe(false)
   })
 
   it('reads reordered picks as the same choice', () => {

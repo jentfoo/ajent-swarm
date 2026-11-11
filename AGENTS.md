@@ -72,9 +72,9 @@ wiring layer, and the frontend starts at `web/src/main.tsx` → `App.tsx` → pr
   process it did not spawn. Also owns launch/stop, swarm-side titles, settings and the
   one-shot auto-namer (never touches ajent's own session names), the server-side attention
   ledger and digest kinds (any device's check-off settles every device), parked prompts (the
-  composer's Queue action holds them until the whole fleet has been quiet for 1 minute
-  through the same gate as jobs' run-when-idle 10-minute hold, releasing one line per
-  idle point; a reconnect re-arms it), saved-transcript
+  composer's Queue action holds them until the session model's provider has been quiet for 1
+  minute through the same per-provider gate as jobs' run-when-idle 10-minute hold, releasing one
+  line per idle point; a reconnect re-arms it), saved-transcript
   browsing, the rewind picker, model/tool unions, and composer `@`-file completion.
   `fleettest/` provides a stub control-socket server for tests.
 - `pkg/sched`: one trigger goroutine claims due jobs, applies an optional shell trigger

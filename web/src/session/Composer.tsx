@@ -92,8 +92,9 @@ export interface ComposerProps {
 // swarm's state directory dropping an @<abs path> reference, since submits
 // are text-only. A draft opening with `!` or `!!` shows shell-mode
 // affordances (marker, staging hint, Run label) mirroring ajent's dispatch.
-// Queue parks the draft beside Send, holding it in swarm until the session
-// has been idle for the park window before the same submit runs.
+// Queue parks the draft beside Send, holding it in swarm until the
+// session's provider has been idle for the park window before the same
+// submit runs.
 export function Composer({
   sessionId,
   value,
@@ -927,7 +928,7 @@ export function Composer({
             disabled={sendPress.disabled}
             onClick={() => void queue(value)}
             aria-label="Queue prompt for the next idle point"
-            title="Send once this session has been idle for 1 minute"
+            title="Send once this session's provider has been idle for 1 minute"
           >
             Queue
           </button>

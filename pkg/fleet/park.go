@@ -9,15 +9,16 @@ import (
 	"github.com/jentfoo/ajent/pkg/session"
 )
 
-// Park bounds: both idle gates share one fleet-busy rule, the park window is
-// just shorter than the scheduler's job hold, and the cap bounds a burst of
-// queue presses.
+// Park bounds: both idle gates share one busy rule, the park window is just
+// shorter than the scheduler's job hold, and the cap bounds a burst of queue
+// presses.
 const (
 	parkIdleWindow = time.Minute
 	maxParked      = 32
 )
 
-// parkedSubmit is one prompt line parked until the fleet quiets down.
+// parkedSubmit is one prompt line parked until its session's provider quiets
+// down.
 type parkedSubmit struct {
 	params   ctl.SubmitParams
 	queuedAt time.Time
@@ -41,7 +42,8 @@ type cmdParkRecall struct {
 // msgParkDue is the park timer's tick.
 type msgParkDue struct{}
 
-// handleParkSubmit parks one prompt line for the fleet's next quiet point.
+// handleParkSubmit parks one prompt line for its provider's next quiet
+// point.
 func (a *sessionActor) handleParkSubmit(msg msgParkSubmit) {
 	if !a.ready() {
 		msg.reply <- notReady()
@@ -81,8 +83,17 @@ func (a *sessionActor) handleParkRecall(msg msgParkRecall) {
 	a.schedulePark()
 }
 
+// modelProvider names the provider this session's flushes gate on, from its
+// current model key. An unknown key gates on the whole fleet.
+func (a *sessionActor) modelProvider() string {
+	if a.view == nil {
+		return ""
+	}
+	return ProviderOf(a.view.model.Key)
+}
+
 // schedulePark arms the flush timer off the parked lines' quiet target: the
-// oldest park, the fleet's busy moment or a release or reconnect floor,
+// oldest park, the provider's busy moment or a release or reconnect floor,
 // whichever is latest, plus the window. Only the actor goroutine calls this.
 func (a *sessionActor) schedulePark() {
 	if a.parkTimer != nil {
@@ -96,12 +107,12 @@ func (a *sessionActor) schedulePark() {
 }
 
 // parkQuietAt is the earliest moment a flush may run: every busy moment must
-// age past the park window first, whether observed across the fleet, hidden by
-// a reconnect or caused by an earlier release here. The shared rule behind
-// LastBusyAt covers this session too.
+// age past the park window first, whether observed on this session's
+// provider, hidden by a reconnect or caused by an earlier release here. The
+// shared rule behind ProviderBusyAt covers this session too.
 func (a *sessionActor) parkQuietAt() time.Time {
 	target := a.parked[0].queuedAt
-	if at := a.mgr.LastBusyAt(); at.After(target) {
+	if at := a.mgr.ProviderBusyAt(a.modelProvider()); at.After(target) {
 		target = at
 	}
 	if a.busyFloor.After(target) {
@@ -118,12 +129,12 @@ func (a *sessionActor) parkWake() {
 	}
 }
 
-// handleParkDue releases the oldest parked line once the whole fleet has been
-// quiet for the park window and this actor wins the fleet's one idle point.
-// Everything behind it waits out a fresh idle point, so released turns never
-// pile onto one quiet moment. A still-busy fleet re-arms, an unreachable one
-// waits for the reconnect (which raises the busy floor), and a refused line
-// retries after its own fresh window.
+// handleParkDue releases the oldest parked line once this session's provider
+// has been quiet for the park window and this actor wins that provider's one
+// idle point. Everything behind it waits out a fresh idle point, so released
+// turns never pile onto one quiet moment. A still-busy provider re-arms, a
+// dropped connection waits out the reconnect (which raises the busy floor),
+// and a refused line retries after its own fresh window.
 func (a *sessionActor) handleParkDue() {
 	a.parkTimer = nil
 	if len(a.parked) == 0 || !a.ready() {
@@ -135,7 +146,7 @@ func (a *sessionActor) handleParkDue() {
 	}
 	// one idle point serves one release: losing the claim re-arms behind the
 	// winner, a won claim spends it even on a refusal
-	if !a.mgr.ClaimRelease(a.mgr.parkWindow) {
+	if !a.mgr.ClaimRelease(a.modelProvider(), a.mgr.parkWindow) {
 		a.schedulePark()
 		return
 	}
@@ -210,9 +221,9 @@ func (a *sessionActor) serveState() SessionState {
 	return st
 }
 
-// QueueSubmit parks one prompt line on the session until the whole fleet has
-// been quiet for the park window, then submits it as typed. Lines record into
-// the workspace recall mirror once they land.
+// QueueSubmit parks one prompt line on the session until its model's provider
+// has been quiet for the park window, then submits it as typed. Lines record
+// into the workspace recall mirror once they land.
 func (m *Manager) QueueSubmit(ctx context.Context, sessionID string, params ctl.SubmitParams) error {
 	a := m.route(sessionID)
 	if a == nil {

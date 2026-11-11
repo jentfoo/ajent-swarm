@@ -44,8 +44,8 @@ type Options struct {
 	PollInterval time.Duration // registry watch cadence, about once a second
 	BackoffBase  time.Duration // actor redial base
 	BackoffMax   time.Duration // actor redial cap
-	// ParkIdleWindow is how long a session must be quiet before its parked
-	// prompts flush, zero takes the 1-minute default.
+	// ParkIdleWindow is how long a session's provider must be quiet before
+	// its parked prompts flush, zero takes the 1-minute default.
 	ParkIdleWindow time.Duration
 
 	// Owned names sessions swarm spawned, they force-claim the seat as holder
@@ -136,7 +136,7 @@ type Manager struct {
 	titleModel     string                    // cached titling model, mirrored from SettingStore
 	dialogAcks     map[dialogAckKey]struct{} // cached settled dialogs, mirrored from AckStore
 	turnAcks       map[string]int64          // cached acknowledged turn ends, mirrored from AckStore
-	releaseFloor   time.Time                 // when swarm last released work into the fleet
+	releaseFloors  map[string]time.Time      // provider -> newest release instant, "" unattributed
 }
 
 // New builds a manager, Start begins the registry watch.
@@ -176,6 +176,7 @@ func New(opts Options) *Manager {
 		titles:          make(map[string]string),
 		dialogAcks:      make(map[dialogAckKey]struct{}),
 		turnAcks:        make(map[string]int64),
+		releaseFloors:   make(map[string]time.Time),
 	}
 	if m.optsOwned == nil {
 		m.optsOwned = func(ctl.Instance) bool { return false }
@@ -775,49 +776,71 @@ func (m *Manager) Attention() []Attention {
 	return out
 }
 
-// LastBusyAt reports the newest agent activity across tracked sessions: now
-// for one still working, otherwise its most recent turn end. Releases swarm
-// made itself count as busy moments too (see ClaimRelease). The zero time
-// means nothing is known to have worked.
-func (m *Manager) LastBusyAt() time.Time {
+// ProviderOf splits a model key into its provider half: "anthropic/claude-x"
+// reports anthropic. A key without the prefix reports the empty string.
+func ProviderOf(model string) string {
+	provider, _, ok := strings.Cut(model, "/")
+	if !ok || provider == "" {
+		return ""
+	}
+	return provider
+}
+
+// providerTouches reports whether a fact keyed by one provider applies to
+// another's gate.
+func providerTouches(key, provider string) bool {
+	return key == "" || provider == "" || key == provider
+}
+
+// ProviderBusyAt reports the newest agent activity among sessions sharing one
+// provider: now while a turn runs, otherwise its most recent turn end. The
+// zero time means nothing is known to have worked.
+func (m *Manager) ProviderBusyAt(provider string) time.Time {
 	var last time.Time
 	for _, st := range m.servingStatuses() {
+		if !providerTouches(ProviderOf(st.Model), provider) {
+			continue // another provider's session, its facts stay on that gate
+		}
 		if at := st.busyAt(); at.After(last) {
 			last = at
 		}
 	}
 	m.mu.Lock()
-	if m.releaseFloor.After(last) {
-		last = m.releaseFloor
+	defer m.mu.Unlock()
+	for p, floor := range m.releaseFloors {
+		if providerTouches(p, provider) && floor.After(last) {
+			last = floor
+		}
 	}
-	m.mu.Unlock()
 	return last
 }
 
-// ClaimRelease reports whether one of the fleet's idle points is free to
-// take once window has passed since the last release. A true answer marks
-// this instant as busy for every gate, so callers must release work only
-// after claiming.
-func (m *Manager) ClaimRelease(window time.Duration) bool {
+// ClaimRelease reports whether one of a provider's idle points is free to
+// take once window has passed since the last release into it. A true answer
+// marks this instant as busy for the provider, so callers must release work
+// only after claiming.
+func (m *Manager) ClaimRelease(provider string, window time.Duration) bool {
 	now := time.Now()
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if now.Sub(m.releaseFloor) < window {
-		return false
+	for p, floor := range m.releaseFloors {
+		if providerTouches(p, provider) && now.Sub(floor) < window {
+			return false
+		}
 	}
-	m.releaseFloor = now
+	m.releaseFloors[provider] = now
 	return true
 }
 
-// NoteRelease records a release into the fleet that did not gate on
-// idleness, so every idle gate treats it as busy until the released turn
-// reports facts of its own.
-func (m *Manager) NoteRelease() {
+// NoteRelease records a release that did not gate on idleness, so the
+// provider's idle gates treat it as busy until the released turn reports
+// facts of its own.
+func (m *Manager) NoteRelease(provider string) {
 	now := time.Now()
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if now.After(m.releaseFloor) {
-		m.releaseFloor = now
+	if now.After(m.releaseFloors[provider]) {
+		m.releaseFloors[provider] = now
 	}
 }
 

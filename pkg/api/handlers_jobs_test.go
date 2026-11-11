@@ -53,12 +53,13 @@ func (r *scriptRunner) Launch(ctx context.Context, _ fleet.LaunchRequest) (fleet
 	return fleet.LaunchResult{SessionID: r.session}, nil
 }
 
-// LastBusyAt reports a quiet fleet, no job in these tests waits for idle.
-func (r *scriptRunner) LastBusyAt() time.Time { return time.Time{} }
+// ProviderBusyAt reports a quiet provider, no job in these tests waits for
+// idle.
+func (r *scriptRunner) ProviderBusyAt(string) time.Time { return time.Time{} }
 
-// ClaimRelease always grants the lone idle point, NoteRelease is a no-op.
-func (r *scriptRunner) ClaimRelease(time.Duration) bool { return true }
-func (r *scriptRunner) NoteRelease()                    {}
+// ClaimRelease always grants the idle point, NoteRelease is a no-op.
+func (r *scriptRunner) ClaimRelease(string, time.Duration) bool { return true }
+func (r *scriptRunner) NoteRelease(string)                      {}
 
 func (r *scriptRunner) Submit(_ context.Context, _ string, params ctl.SubmitParams) error {
 	r.mu.Lock()

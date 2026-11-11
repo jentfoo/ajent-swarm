@@ -62,6 +62,45 @@ func waitForRunning(t *testing.T, m *Manager, f *fleettest.Stub, running bool) {
 	}, 2*time.Second, testPoll)
 }
 
+// newProviderFleet pins AJENT_HOME, starts a manager and binds one serving
+// stub reporting the given model key, ready for provider-scoped gate tests.
+func newProviderFleet(t *testing.T, window time.Duration,
+	sessionID, token, model string) (*Manager, string, *fleettest.Stub) {
+	t.Helper()
+	home := testutil.IsolateHome(t)
+	m := New(Options{
+		Log:            testLogger(),
+		PollInterval:   testPoll,
+		BackoffBase:    testBackoff,
+		BackoffMax:     testBackoffHi,
+		ParkIdleWindow: window,
+	})
+	m.Start(t.Context())
+	t.Cleanup(m.Stop)
+
+	f := fleettest.New(t, home, fleettest.Options{SessionID: sessionID, Token: token})
+	f.SetSnapshot(ctl.State{
+		Session: ctl.Session{ID: f.SessionID()},
+		Model:   ctl.ModelState{Key: model},
+	})
+	f.WriteRegistry(t, os.Getpid(), time.Now())
+	waitForState(t, m, f.SessionID(), ChildOnline)
+	return m, home, f
+}
+
+// bindProviderStub adds a second serving stub to an existing fleet's home.
+func bindProviderStub(t *testing.T, m *Manager, home, sessionID, token, model string) *fleettest.Stub {
+	t.Helper()
+	f := fleettest.New(t, home, fleettest.Options{SessionID: sessionID, Token: token})
+	f.SetSnapshot(ctl.State{
+		Session: ctl.Session{ID: f.SessionID()},
+		Model:   ctl.ModelState{Key: model},
+	})
+	f.WriteRegistry(t, os.Getpid(), time.Now())
+	waitForState(t, m, f.SessionID(), ChildOnline)
+	return f
+}
+
 func TestPark(t *testing.T) {
 	t.Run("idle_session_waits_out_one_window", func(t *testing.T) {
 		m, f := newParkFleet(t, 50*time.Millisecond)
@@ -194,6 +233,37 @@ func TestPark(t *testing.T) {
 			}
 		}
 		assert.Empty(t, submittedLines(f))
+	})
+
+	t.Run("other_provider_busy_does_not_hold", func(t *testing.T) {
+		m, home, f := newProviderFleet(t, 50*time.Millisecond,
+			"01PARKANTHROPIC00000", "tokenA", "anthropic/claude-test")
+		g := bindProviderStub(t, m, home, "01PARKOPENAI0000000", "tokenB", "openai/gpt-test")
+
+		// openai works forever while anthropic sits quiet: the parked line may not
+		// wait out another provider's turn
+		g.Broadcast(ctl.EventTurnStart, nil)
+		waitForRunning(t, m, g, true)
+		require.NoError(t, m.QueueSubmit(t.Context(), f.SessionID(), ctl.SubmitParams{Line: "unblocked"}))
+		require.Eventually(t, func() bool { return len(submittedLines(f)) == 1 },
+			2*time.Second, testPoll)
+	})
+
+	t.Run("same_provider_busy_still_holds", func(t *testing.T) {
+		m, home, f := newProviderFleet(t, 50*time.Millisecond,
+			"01PARKANTHROPIC00000", "tokenA", "anthropic/claude-test")
+		g := bindProviderStub(t, m, home, "01PARKANTHROPICB0000", "tokenC", "anthropic/claude-b")
+
+		// a peer on the same provider holds the gate until its turn ends
+		g.Broadcast(ctl.EventTurnStart, nil)
+		waitForRunning(t, m, g, true)
+		require.NoError(t, m.QueueSubmit(t.Context(), f.SessionID(), ctl.SubmitParams{Line: "held"}))
+		require.Never(t, func() bool { return len(submittedLines(f)) > 0 },
+			150*time.Millisecond, testPoll)
+
+		g.Broadcast(ctl.EventTurnEnd, ctl.TurnEndData{Stop: "end_turn"})
+		require.Eventually(t, func() bool { return len(submittedLines(f)) == 1 },
+			2*time.Second, testPoll)
 	})
 
 	t.Run("unknown_session_refused", func(t *testing.T) {

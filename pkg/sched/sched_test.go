@@ -33,46 +33,80 @@ type fakeRunner struct {
 	titles    map[string]string // last title written per session id
 	subscribe int               // subscribe calls the runner served
 
-	launchErr    error         // Launch fails with this when set
-	sessionID    string        // session id Launch returns
-	submitFailN  int           // the first N submits fail as unavailable
-	toolsSetErr  error         // ToolsSet fails with this when set
-	titleErr     error         // SetTitle fails with this when set
-	blockLaunch  chan struct{} // set: Launch blocks until closed, per call
-	deliver      func([]byte)  // deliverer of the latest subscription
-	onDrop       func()
-	busyAt       time.Time // what LastBusyAt reports, zero means quiet
-	releaseFloor time.Time // newest scripted release, folded into LastBusyAt
+	launchErr   error         // Launch fails with this when set
+	sessionID   string        // session id Launch returns
+	submitFailN int           // the first N submits fail as unavailable
+	toolsSetErr error         // ToolsSet fails with this when set
+	titleErr    error         // SetTitle fails with this when set
+	blockLaunch chan struct{} // set: Launch blocks until closed, per call
+	deliver     func([]byte)  // deliverer of the latest subscription
+	onDrop      func()
+	busyAt      map[string]time.Time // provider -> scripted activity moment
+	floors      map[string]time.Time // release floors, folded into busy at
 }
 
-// LastBusyAt answers with the scripted activity moment, releases included.
-func (f *fakeRunner) LastBusyAt() time.Time {
+// sharesGate reports whether a fact keyed by one provider applies to
+// another's gate.
+func sharesGate(key, provider string) bool {
+	return key == "" || provider == "" || key == provider
+}
+
+// setBusy scripts one provider's activity moment for the idle gates. The
+// empty provider scripts an unattributed fleet-wide fact.
+func (f *fakeRunner) setBusy(provider string, at time.Time) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.releaseFloor.After(f.busyAt) {
-		return f.releaseFloor
+	if f.busyAt == nil {
+		f.busyAt = make(map[string]time.Time)
 	}
-	return f.busyAt
+	f.busyAt[provider] = at
+}
+
+// ProviderBusyAt answers with the scripted activity moment for one provider,
+// releases included. An unscripted provider reads quiet.
+func (f *fakeRunner) ProviderBusyAt(provider string) time.Time {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var last time.Time
+	for p, at := range f.busyAt {
+		if sharesGate(p, provider) && at.After(last) {
+			last = at
+		}
+	}
+	for p, floor := range f.floors {
+		if sharesGate(p, provider) && floor.After(last) {
+			last = floor
+		}
+	}
+	return last
 }
 
 // ClaimRelease mirrors the manager's one-release-per-idle-point gate.
-func (f *fakeRunner) ClaimRelease(window time.Duration) bool {
+func (f *fakeRunner) ClaimRelease(provider string, window time.Duration) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	now := time.Now()
-	if now.Sub(f.releaseFloor) < window {
-		return false
+	for p, floor := range f.floors {
+		if sharesGate(p, provider) && now.Sub(floor) < window {
+			return false
+		}
 	}
-	f.releaseFloor = now
+	if f.floors == nil {
+		f.floors = make(map[string]time.Time)
+	}
+	f.floors[provider] = now
 	return true
 }
 
 // NoteRelease records a release that did not gate on idleness.
-func (f *fakeRunner) NoteRelease() {
+func (f *fakeRunner) NoteRelease(provider string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if now := time.Now(); now.After(f.releaseFloor) {
-		f.releaseFloor = now
+	if f.floors == nil {
+		f.floors = make(map[string]time.Time)
+	}
+	if now := time.Now(); now.After(f.floors[provider]) {
+		f.floors[provider] = now
 	}
 }
 
@@ -568,9 +602,7 @@ func TestScheduler(t *testing.T) {
 	t.Run("run_when_idle_waits_quiet", func(t *testing.T) {
 		h := newHarness(t, nil)
 		// the fleet is busy right now: nothing may fire while the window holds
-		h.runner.mu.Lock()
-		h.runner.busyAt = time.Now()
-		h.runner.mu.Unlock()
+		h.runner.setBusy("", time.Now())
 
 		slot := time.Now().Add(10 * time.Millisecond)
 		id := h.addJob("idle-wait", func(j *store.Job) {
@@ -584,9 +616,7 @@ func TestScheduler(t *testing.T) {
 			noRefireWindow, 20*time.Millisecond) // stays due without a run row
 
 		// once ten quiet minutes pass, the held fire lands with no reason recorded
-		h.runner.mu.Lock()
-		h.runner.busyAt = time.Now().Add(-11 * time.Minute)
-		h.runner.mu.Unlock()
+		h.runner.setBusy("", time.Now().Add(-11*time.Minute))
 		run := h.waitForRun(id, store.RunOK)
 		assert.Empty(t, run.Error)
 
@@ -596,9 +626,7 @@ func TestScheduler(t *testing.T) {
 
 	t.Run("idle_past_delay_cap_skips", func(t *testing.T) {
 		h := newHarness(t, nil)
-		h.runner.mu.Lock()
-		h.runner.busyAt = time.Now() // busy for the whole test
-		h.runner.mu.Unlock()
+		h.runner.setBusy("", time.Now()) // busy for the whole test
 
 		slot := time.Now().Add(-2 * time.Hour) // held far past a 1h cap already
 		id := h.addJob("idle-cap", func(j *store.Job) {
@@ -619,9 +647,7 @@ func TestScheduler(t *testing.T) {
 
 	t.Run("idle_without_cap_never_skips", func(t *testing.T) {
 		h := newHarness(t, nil)
-		h.runner.mu.Lock()
-		h.runner.busyAt = time.Now().Add(-2 * time.Hour) // idle already: fires at once
-		h.runner.mu.Unlock()
+		h.runner.setBusy("", time.Now().Add(-2*time.Hour)) // idle already: fires at once
 
 		slot := time.Now().Add(10 * time.Millisecond)
 		id := h.addJob("idle-forever", func(j *store.Job) {
@@ -642,23 +668,65 @@ func TestScheduler(t *testing.T) {
 			j.NextRunAt = &slot
 			j.RunWhenIdle = true
 		})
-		h.runner.mu.Lock()
-		h.runner.busyAt = time.Now()
-		h.runner.mu.Unlock()
+		h.runner.setBusy("", time.Now())
 
 		// without the hold floor the past slot collapses the wait to zero and the
 		// loop spins two queries per round for the whole idle window
-		assert.Positive(t, h.sched.nextWait(true))
-		assert.LessOrEqual(t, h.sched.nextWait(true), 50*time.Millisecond)
+		held := map[string]struct{}{"": {}}
+		assert.Positive(t, h.sched.nextWait(held))
+		assert.LessOrEqual(t, h.sched.nextWait(held), 50*time.Millisecond)
 
 		// no held job: a past slot still means due now, exactly as before
-		assert.Zero(t, h.sched.nextWait(false))
+		assert.Zero(t, h.sched.nextWait(map[string]struct{}{}))
 
 		// and once the fleet quiets the wait runs out and the fire lands
-		h.runner.mu.Lock()
-		h.runner.busyAt = time.Now().Add(-11 * time.Minute)
-		h.runner.mu.Unlock()
+		h.runner.setBusy("", time.Now().Add(-11*time.Minute))
 		h.start(t.Context())
+		h.waitForRun(id, store.RunOK)
+	})
+
+	t.Run("idle_gate_scopes_to_provider", func(t *testing.T) {
+		h := newHarness(t, nil)
+		// openai is busy right now; the job runs on anthropic and must not care
+		h.runner.setBusy("openai", time.Now())
+
+		slot := time.Now().Add(10 * time.Millisecond)
+		id := h.addJob("other-provider", func(j *store.Job) {
+			j.IntervalSeconds = 3600
+			j.NextRunAt = &slot
+			j.RunWhenIdle = true
+			j.Model = "anthropic/claude-test"
+		})
+		h.start(t.Context())
+		run := h.waitForRun(id, store.RunOK)
+		assert.Empty(t, run.Error)
+
+		// the launch recorded its release under the job's provider, so parked
+		// prompts there hold while openai's facts stay on their own gate
+		h.runner.mu.Lock()
+		released := !h.runner.floors["anthropic"].IsZero()
+		h.runner.mu.Unlock()
+		assert.True(t, released)
+	})
+
+	t.Run("idle_gate_holds_own_provider", func(t *testing.T) {
+		h := newHarness(t, nil)
+		h.runner.setBusy("anthropic", time.Now()) // the job's own provider is busy
+
+		slot := time.Now().Add(10 * time.Millisecond)
+		id := h.addJob("own-provider", func(j *store.Job) {
+			j.IntervalSeconds = 3600
+			j.NextRunAt = &slot
+			j.RunWhenIdle = true
+			j.Model = "anthropic/claude-test"
+		})
+		h.start(t.Context())
+
+		require.Never(h.t, func() bool { return len(h.runRows(id)) > 0 },
+			noRefireWindow, 20*time.Millisecond) // stays due without a run row
+
+		// quiet past the window clears the hold and the fire lands
+		h.runner.setBusy("anthropic", time.Now().Add(-11*time.Minute))
 		h.waitForRun(id, store.RunOK)
 	})
 

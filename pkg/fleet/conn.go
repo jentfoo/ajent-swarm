@@ -192,9 +192,9 @@ type sessionActor struct {
 	recallIDs   map[string]int64
 	recallOrder []string
 
-	// prompts parked until the fleet quiets down, plus the flush timer; a
-	// release or reconnect raises the busy floor: the turn a release starts is
-	// not observable yet and a drop may hide one entirely
+	// prompts parked until the session's provider quiets down, plus the flush
+	// timer; a release or reconnect raises the busy floor: the turn a release
+	// starts is not observable yet and a drop may hide one entirely
 	parked    []parkedSubmit
 	parkTimer *time.Timer
 	busyFloor time.Time

@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jentfoo/ajent-swarm/pkg/fleet"
 	"github.com/jentfoo/ajent-swarm/pkg/store"
 )
 
@@ -135,16 +136,16 @@ func (s *Scheduler) Nudge() {
 func (s *Scheduler) loop() {
 	// one retention pass at startup keeps long-gone installs bounded
 	nextSweep := s.sweep()
-	// idleHeld tracks whether the last pass left a due job waiting for a quiet
-	// fleet: such a job keeps its past slot, so the earliest-slot hint would
-	// collapse every later wait to zero and spin the loop for the whole hold
-	var idleHeld bool
+	// held tracks the providers with jobs still waiting for a quiet fleet:
+	// such a job keeps its past slot, so the earliest-slot hint would collapse
+	// every later wait to zero and spin the loop for the whole hold
+	held := make(map[string]struct{})
 	for s.baseCtx.Err() == nil {
 		select {
 		case <-s.baseCtx.Done():
 			return
 		case <-s.nudge:
-		case <-time.After(s.nextWait(idleHeld)):
+		case <-time.After(s.nextWait(held)):
 		}
 
 		now := time.Now()
@@ -153,10 +154,10 @@ func (s *Scheduler) loop() {
 			s.log.Warn("reading due jobs failed", "err", err)
 			continue
 		}
-		idleHeld = false
+		clear(held)
 		for _, j := range due {
 			if s.fireDue(j, now) {
-				idleHeld = true
+				held[jobProvider(j)] = struct{}{}
 			}
 		}
 
@@ -167,13 +168,17 @@ func (s *Scheduler) loop() {
 }
 
 // nextWait picks the loop's next sleep: the earliest scheduled fire wins,
-// clamped to the tick. A pass that held jobs for a quiet fleet leaves their
-// slots in the past, so the fleet's quiet moment bounds the wait instead and
-// the loop never spins on a slot it already declined to fire.
-func (s *Scheduler) nextWait(idleHeld bool) time.Duration {
-	if idleHeld {
-		quiet := time.Until(s.runner.LastBusyAt().Add(idleWindow))
-		return max(min(s.opts.Tick, quiet), 0)
+// clamped to the tick. A pass that held jobs for a quiet fleet bounds the
+// wait by those providers' quiet moments instead, so slots left in the past
+// never spin the loop while they wait.
+func (s *Scheduler) nextWait(held map[string]struct{}) time.Duration {
+	if len(held) > 0 {
+		wait := s.opts.Tick
+		for provider := range held {
+			quiet := max(time.Until(s.runner.ProviderBusyAt(provider).Add(idleWindow)), 0)
+			wait = min(wait, quiet)
+		}
+		return wait
 	}
 	wait := s.opts.Tick
 	if earliest, err := s.store.EarliestNextRun(s.ctx); err != nil {
@@ -186,20 +191,25 @@ func (s *Scheduler) nextWait(idleHeld bool) time.Duration {
 	return wait
 }
 
-// fireDue claims one due slot: run-when-idle jobs wait for a quiet fleet
+// jobProvider names the provider a job's launch runs on, from its model key.
+// An unset model leaves the provider unknown, which gates on the whole fleet.
+func jobProvider(j store.Job) string { return fleet.ProviderOf(j.Model) }
+
+// fireDue claims one due slot: run-when-idle jobs wait for a quiet provider
 // (skipping once their delay cap passes), missed jobs follow their on_missed
 // policy, and the schedule always advances before any launch. A claimed run
 // then executes asynchronously, a skipped or refused slot only records its
 // row. It reports whether the job stayed due waiting for an idle fleet.
 func (s *Scheduler) fireDue(j store.Job, now time.Time) bool {
 	slot := *j.NextRunAt
+	provider := jobProvider(j)
 
-	lastBusy := s.runner.LastBusyAt()
+	lastBusy := s.runner.ProviderBusyAt(provider)
 	if j.RunWhenIdle && !lastBusy.IsZero() && now.Sub(lastBusy) < idleWindow {
 		maxDelay := time.Duration(j.IdleMaxDelaySeconds) * time.Second
 		waited := now.Sub(slot)
 		if maxDelay <= 0 || waited < maxDelay {
-			return true // stay due: a later tick fires it once the fleet quiets down
+			return true // stay due: a later tick fires it once the provider quiets down
 		}
 		s.skipDue(j, slot, "skipped: still busy after waiting "+
 			formatDelay(waited)+" for an idle fleet")
@@ -207,8 +217,8 @@ func (s *Scheduler) fireDue(j store.Job, now time.Time) bool {
 	}
 	// one quiet moment serves one release: a lost claim re-arms behind the
 	// winner instead of firing into the same idle point
-	if j.RunWhenIdle && !s.runner.ClaimRelease(idleWindow) {
-		return true // stay due, the winner's release holds the fleet for us too
+	if j.RunWhenIdle && !s.runner.ClaimRelease(provider, idleWindow) {
+		return true // stay due, the winner's release holds the provider for us too
 	}
 
 	run := s.baseRun(j, store.TriggerSchedule, now)

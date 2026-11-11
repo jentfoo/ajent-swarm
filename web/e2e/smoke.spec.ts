@@ -42,8 +42,9 @@ test('launch a session and drive one turn', async ({ page }) => {
   const sessionId = page.url().split('/s/')[1]!
   expect(sessionId).not.toBe('')
 
-  // the fleet attaches and the composer goes live
-  const prompt = page.getByLabel('Prompt')
+  // the fleet attaches and the composer goes live; anchor on role so the
+  // Queue button's aria-label cannot collide with substring matching
+  const prompt = page.getByRole('textbox', { name: 'Prompt' })
   await expect(prompt).toBeEnabled({ timeout: 30_000 })
 
   await prompt.fill('Say the smoke test phrase.')

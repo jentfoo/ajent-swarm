@@ -57,22 +57,18 @@ export function TranscriptView({
 
   // Calls still painting live hide their committed twins until a carrier's
   // results fold and the buffer retires them: one card per call, not two.
-  const hideLiveToolIds = useMemo(
-    () => new Set(state.live?.tools.map((t) => t.id)),
-    [state.live?.tools],
-  )
+  // Identity rides membership, not the tools array the applier swaps per event.
+  const hideLiveToolIds = useHiddenToolIds(state.live)
 
   // Permit verdicts keyed by call id keep approval chips on committed cards
-  // after the live buffer retires them.
-  const verdicts = useMemo(
-    () => new Map(state.permitVerdicts.map((v) => [v.id, v.text])),
-    [state.permitVerdicts],
-  )
+  // after the live buffer retires them. A verdict always attaches to a call
+  // still painting live, so it joins only when that card retires.
+  const verdicts = useVerdictChips(state.permitVerdicts, hideLiveToolIds)
 
-  // Derivation re-runs only when the chain object or the live tool set
-  // changes, streaming deltas touch neither, so settled history renders once.
-  // The entries map mutates in place with a stable identity, which is why the
-  // chain is the trigger.
+  // Derivation re-runs only when the chain object, the hidden call membership
+  // or a readable verdict moves: streamed tool deltas change none, so settled
+  // history renders once through a whole chatty turn. The entries map mutates
+  // in place with a stable identity, which is why the chain is the trigger.
   const blocks = useMemo(
     () => deriveBlocks(state.chain.ids, state.entries, hideLiveToolIds, verdicts),
     [state.chain, state.entries, hideLiveToolIds, verdicts],
@@ -302,4 +298,58 @@ export function TranscriptView({
       )}
     </div>
   )
+}
+
+// useHiddenToolIds keys the hidden-call set on membership rather than array
+// identity: the applier replaces live.tools on every streamed tool event, but
+// output, progress and verdict deltas never open or retire a call. Holding one
+// Set per membership keeps those deltas from re-deriving committed blocks and
+// re-rendering their memoized rows.
+function useHiddenToolIds(live: AppliedSessionState['live']): ReadonlySet<string> {
+  const ids = live?.tools.map((t) => t.id) ?? []
+  const [set, setSet] = useState<ReadonlySet<string>>(() => new Set(ids))
+  if (!sameMembers(set, ids)) {
+    const next = new Set(ids)
+    setSet(next)
+    return next
+  }
+  return set
+}
+
+// useVerdictChips keys the chip map on the pairs committed rendering can read:
+// a hidden call never paints its chip, and a verdict attaches while its call is
+// still hidden, so the attach itself joins nothing. The map rebuilds exactly
+// when a verdict turns readable, the same change that re-derives blocks.
+function useVerdictChips(
+  verdicts: AppliedSessionState['permitVerdicts'],
+  hidden: ReadonlySet<string>,
+): ReadonlyMap<string, string> {
+  const next = new Map<string, string>()
+  for (const v of verdicts) {
+    if (!hidden.has(v.id)) next.set(v.id, v.text)
+  }
+  const [map, setMap] = useState<ReadonlyMap<string, string>>(next)
+  if (!sameEntries(map, next)) {
+    setMap(next)
+    return next
+  }
+  return map
+}
+
+// sameMembers fences the set rebuild: equal size plus every id present means
+// the same membership even when the source array identity moved.
+function sameMembers(set: ReadonlySet<string>, ids: readonly string[]): boolean {
+  if (set.size !== ids.length) return false
+  for (const id of ids) {
+    if (!set.has(id)) return false
+  }
+  return true
+}
+
+function sameEntries(map: ReadonlyMap<string, string>, next: ReadonlyMap<string, string>): boolean {
+  if (map.size !== next.size) return false
+  for (const [id, text] of next) {
+    if (map.get(id) !== text) return false
+  }
+  return true
 }

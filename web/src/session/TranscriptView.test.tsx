@@ -1,9 +1,11 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { applierReducer, initialSessionState } from '../state/eventApplier'
 import type { AppliedSessionState } from '../state/eventApplier'
-import { initFrame, messageEntry, testState } from '../state/testFixtures'
+import * as derive from '../state/derive'
+import { entry, ev, initFrame, messageEntry, testState } from '../state/testFixtures'
+import type { WireEvent } from '../api/types'
 import type { LoadOlderResult } from '../stream/sessionStore'
 import { TranscriptView } from './TranscriptView'
 
@@ -197,5 +199,126 @@ describe('TranscriptView keyboard shrink', () => {
     } finally {
       globalThis.ResizeObserver = real
     }
+  })
+})
+
+// The streaming-burst fence: the applier swaps live.tools on every tool event,
+// but committed blocks may re-derive only when the hidden call membership or a
+// readable verdict moves. A burst of output chunks through one chatty call must
+// leave settled history derived exactly as it was. rAF runs synchronously so
+// each rerender commits its throttled live value at once.
+describe('TranscriptView streaming burst', () => {
+  beforeEach(() => {
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+      cb(0)
+      return 0
+    })
+    vi.stubGlobal('cancelAnimationFrame', () => {})
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  // Committed history: a user prompt, its assistant turn opening one Bash
+  // call. The live card for that same call id hides the committed twin until a
+  // carrier folds the result and retires the buffer.
+  function burstState(): AppliedSessionState {
+    const e1 = messageEntry('e1', undefined, 'user', 'run the tests')
+    const e2 = entry('e2', 'e1', 'message', {
+      message: {
+        role: 'assistant',
+        content: [
+          { type: 'tool_call', data: { id: 'call_1', name: 'Bash', input: { cmd: 'go test' } } },
+        ],
+      },
+    })
+    return applierReducer(initialSessionState(), {
+      type: 'init',
+      frame: initFrame(testState({ head: 'e2' }), [e1, e2]),
+    })
+  }
+
+  function mountBurst(state: AppliedSessionState) {
+    const spy = vi.spyOn(derive, 'deriveBlocks')
+    let current = state
+    const view = render(
+      <TranscriptView
+        sessionId="01TESTSESSION0000"
+        state={current}
+        loadOlder={async () => ({ kind: 'dry' })}
+        onThinkingToggle={() => {}}
+      />,
+    )
+    const apply = (...events: WireEvent[]) => {
+      for (const event of events) {
+        current = applierReducer(current, { type: 'event', event })
+        view.rerender(
+          <TranscriptView
+            sessionId="01TESTSESSION0000"
+            state={current}
+            loadOlder={async () => ({ kind: 'dry' })}
+            onThinkingToggle={() => {}}
+          />,
+        )
+      }
+    }
+    return { apply, count: () => spy.mock.calls.length }
+  }
+
+  const cards = () => document.querySelectorAll('[data-tool-id="call_1"]')
+
+  it('derives once across output burst', () => {
+    const { apply, count } = mountBurst(burstState())
+    expect(count()).toBe(1)
+    expect(cards()).toHaveLength(1) // the committed twin paints before any live card
+
+    apply(ev('turn.start', 1, { model: 'sonnet' }))
+    expect(count()).toBe(1) // an empty buffer hides nothing new
+
+    apply(ev('tool.start', 2, { id: 'call_1', name: 'Bash', input: { cmd: 'go test' } }))
+    expect(count()).toBe(2) // the live card now hides its committed twin
+    expect(cards()).toHaveLength(1)
+
+    const burst = 50
+    for (let i = 0; i < burst; i++) {
+      apply(ev('tool.output', 3 + i, { id: 'call_1', delta: `line ${i}\n` }))
+    }
+    apply(ev('tool.progress', 3 + burst, { id: 'call_1', bytes: 4096, lines: burst }))
+    apply(ev('notice', 4 + burst, { text: 'Tool auto allowed' }))
+    apply(ev('tool.result', 5 + burst, { id: 'call_1', name: 'Bash', output: 'ok' }))
+    expect(count()).toBe(2) // the whole burst moved no membership
+  })
+
+  it('rederives when card retires', () => {
+    const { apply, count } = mountBurst(burstState())
+    apply(
+      ev('turn.start', 1, { model: 'sonnet' }),
+      ev('tool.start', 2, { id: 'call_1', name: 'Bash', input: { cmd: 'go test' } }),
+      ev('notice', 3, { text: 'Tool auto allowed' }),
+      ev('tool.output', 4, { id: 'call_1', delta: 'streaming\n' }),
+    )
+    const before = count()
+
+    const carrier = entry('e3', 'e2', 'message', {
+      message: {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            data: { callId: 'call_1', content: [{ type: 'text', data: { text: 'ok' } }] },
+          },
+        ],
+      },
+    })
+    apply(ev('entry.append', 5, { entry: carrier }))
+
+    // the buffer drained, one derivation swaps the hidden twin back in with
+    // its folded result and the permit chip the verdict ledger held
+    expect(count()).toBe(before + 1)
+    expect(cards()).toHaveLength(1)
+    expect(screen.getByText('auto allowed')).toBeInTheDocument()
+    expect(screen.getByText('done')).toBeInTheDocument()
+    expect(screen.queryByText('live')).not.toBeInTheDocument()
   })
 })

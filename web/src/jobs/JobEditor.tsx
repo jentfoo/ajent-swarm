@@ -40,11 +40,20 @@ function timezoneCandidates(): string[] {
   return (timezoneMemo = [])
 }
 
+// validateDraft's schedule error key for each kind: the preview waits until
+// the current kind's key clears, so half-typed fields keep their own hint
+// instead of racing the backend's raw refusal.
+const scheduleErrorKeys: Record<JobDraft['scheduleKind'], string> = {
+  once: 'onceAt',
+  interval: 'interval',
+  daily: 'dailyTime',
+}
+
 // JobEditor is the one form for creating and editing jobs: launch facts
 // mirroring the launcher, then trigger (schedule plus its optional pre-run
 // command), prompt, missed-run policy, timeout and keep-alive. The next three
-// fire times preview live through POST /api/jobs/preview, which also checks the
-// workspace path.
+// fire times preview live through POST /api/jobs/preview once the draft's
+// schedule fields pass local validation, and that call checks the workspace.
 export function JobEditor({
   job,
   seed,
@@ -75,10 +84,18 @@ export function JobEditor({
   const [previewError, setPreviewError] = useState('')
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
+  // the schedule's own fields must pass local validation before a preview may ask
+  const scheduleValid = errors[scheduleErrorKeys[draft.scheduleKind]] === undefined
+  // stale results stop rendering while the schedule is invalid, and a draft
+  // that passes again refetches at once, so nothing lingers past the debounce
+  const shownTimes = scheduleValid ? previewTimes : []
+  const shownWorkspaceError = scheduleValid ? workspaceError : ''
+  const shownPreviewError = scheduleValid ? previewError : ''
 
   // Debounced draft preview: the backend owns scheduling semantics and checks
   // the workspace against its own filesystem, further edits abort in flight.
   useEffect(() => {
+    if (!scheduleValid) return
     const controller = new AbortController()
     const timer = setTimeout(async () => {
       try {
@@ -99,7 +116,7 @@ export function JobEditor({
       controller.abort()
       clearTimeout(timer)
     }
-  }, [draft, job?.createdAt])
+  }, [draft, job?.createdAt, scheduleValid])
 
   const patch = (fields: Partial<JobDraft>) => setDraft((d) => ({ ...d, ...fields }))
 
@@ -157,7 +174,7 @@ export function JobEditor({
             workspaces={workspaces}
             models={models}
             toolOptions={toolOptions}
-            workspaceError={workspaceError}
+            workspaceError={shownWorkspaceError}
           />
 
           <label>
@@ -340,14 +357,14 @@ export function JobEditor({
           </p>
         )}
 
-        {previewError !== '' ? (
-          <p className="error-text">{previewError}</p>
+        {shownPreviewError !== '' ? (
+          <p className="error-text">{shownPreviewError}</p>
         ) : (
-          previewTimes.length > 0 && (
+          shownTimes.length > 0 && (
             <div className="schedule-preview" data-testid="schedule-preview">
               <span className="muted">Next runs</span>
               <ol>
-                {previewTimes.map((t, i) => (
+                {shownTimes.map((t, i) => (
                   <li key={i}>
                     {formatSlot(t, draft.scheduleKind === 'daily' ? draft.tz : undefined)}
                   </li>

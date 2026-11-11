@@ -157,6 +157,51 @@ describe('JobEditor', () => {
     expect(screen.getByText('daily time must be HH:MM')).toBeInTheDocument()
   })
 
+  it('withholds previews while schedule invalid', async () => {
+    vi.useFakeTimers()
+    previewReply = { times: ['2026-11-07T09:00:00Z'] }
+    renderEditor({ job: storedJob })
+    await settlePreview()
+    expect(screen.getByTestId('schedule-preview')).toBeInTheDocument()
+
+    // a half-typed daily time posts nothing and drops the stale slots
+    fireEvent.change(screen.getByLabelText(/At \(HH:MM\)/), { target: { value: '9' } })
+    await settlePreview()
+    expect(previewBodies).toHaveLength(1)
+    expect(screen.queryByTestId('schedule-preview')).not.toBeInTheDocument()
+
+    // finishing the field resumes previewing
+    fireEvent.change(screen.getByLabelText(/At \(HH:MM\)/), { target: { value: '10:30' } })
+    await settlePreview()
+    expect(previewBodies).toHaveLength(2)
+    expect(screen.getByTestId('schedule-preview')).toBeInTheDocument()
+  })
+
+  it('drops a raw refusal once schedule invalid', async () => {
+    vi.useFakeTimers()
+    previewReply = { code: 400 }
+    renderEditor({ job: storedJob })
+    await settlePreview()
+    expect(screen.getByText('daily time must be HH:MM')).toBeInTheDocument()
+
+    // switching to one-shot with no slot picked is locally invalid, the field's
+    // hint replaces the stale refusal and nothing else posts
+    fireEvent.change(screen.getByLabelText('Mode'), { target: { value: 'once' } })
+    await settlePreview()
+    expect(previewBodies).toHaveLength(1)
+    expect(screen.queryByText('daily time must be HH:MM')).not.toBeInTheDocument()
+    expect(screen.getByText('Pick the fire time.')).toBeInTheDocument()
+
+    // picking a slot resumes previewing at that moment, and the label query
+    // stays role-free since the field's own hint renders inside it
+    fireEvent.change(screen.getByLabelText(/^Fire at/), {
+      target: { value: '2026-11-12T09:00' },
+    })
+    await settlePreview()
+    expect(previewBodies).toHaveLength(2)
+    expect(previewBodies[1]).toMatchObject({ scheduleKind: 'once', nextRunAt: expect.any(String) })
+  })
+
   it('blocks saving until client-side validation passes, then saves', async () => {
     const user = userEvent.setup()
     const onSaved = vi.fn()

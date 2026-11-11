@@ -3,8 +3,15 @@
   <head>
     <meta charset="UTF-8" />
     <!-- viewport-fit covers notched phones; the theme-color swaps with the
-         app's own dark or light setting so installed chrome matches -->
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+         app's own dark or light setting so installed chrome matches.
+         interactive-widget makes keyboards resize the layout viewport instead
+         of overlaying it where an engine honors the key (Chrome and Firefox
+         Android already default there, Safari 27.3+), so dvh layouts fit above
+         the keyboard without a reveal pan -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content"
+    />
     <meta name="color-scheme" content="dark light" />
     <meta name="theme-color" content="#101216" data-theme-color />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />

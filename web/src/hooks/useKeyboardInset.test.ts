@@ -1,5 +1,5 @@
 import { act, renderHook } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { useKeyboardInset } from './useKeyboardInset'
 
@@ -31,7 +31,9 @@ describe('useKeyboardInset', () => {
 
   afterEach(() => {
     Reflect.deleteProperty(window, 'visualViewport')
+    Reflect.deleteProperty(window, 'scrollY')
     document.body.innerHTML = '' // drops the seeded editable
+    vi.restoreAllMocks()
   })
 
   function fire() {
@@ -98,6 +100,48 @@ describe('useKeyboardInset', () => {
       input.blur() // the keyboard is on its way down
     })
     expect(result.current).toBe(0)
+  })
+
+  function panTo(y: number) {
+    Object.defineProperty(window, 'scrollY', { configurable: true, value: y })
+    return vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
+  }
+
+  // WebKit's keyboard reveal pans the document itself when no inner scroller
+  // can absorb it (bug 191204): the hook must keep the window pinned at
+  // scrollTop zero while text entry holds the caret. jsdom leaves scrollY
+  // undefined, so each case stubs it to a panned position.
+  describe('document pan pinning', () => {
+    it('resets a reveal pan while the caret holds', () => {
+      focusEditable()
+      renderHook(() => useKeyboardInset())
+
+      const scrollTo = panTo(336)
+      act(() => {
+        window.dispatchEvent(new Event('scroll'))
+      })
+      expect(scrollTo).toHaveBeenCalledWith(0, 0)
+    })
+
+    it('un-pans a stuck view when the caret lands', () => {
+      const scrollTo = panTo(336) // panned by an earlier keyboard session
+      renderHook(() => useKeyboardInset())
+
+      act(() => {
+        focusEditable()
+      })
+      expect(scrollTo).toHaveBeenCalledWith(0, 0)
+    })
+
+    it('leaves the pan alone without a caret', () => {
+      renderHook(() => useKeyboardInset())
+
+      const scrollTo = panTo(336) // zoom pans and rubber bands stay untouched
+      act(() => {
+        window.dispatchEvent(new Event('scroll'))
+      })
+      expect(scrollTo).not.toHaveBeenCalled()
+    })
   })
 
   it('suppresses the inset during a pinch zoom', () => {

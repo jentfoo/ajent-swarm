@@ -34,17 +34,35 @@ export function useKeyboardInset(): number {
     const vv = window.visualViewport
     if (!vv) return
     const update = () => setInset(currentInset())
+    // WebKit's keyboard reveal pans the document itself when no inner scroller
+    // can absorb the shift (bug 191204): with a keyboard open the layout
+    // viewport scrolls by up to the keyboard height even though nothing
+    // overflows, dragging the shell and its sticky header along. The composer
+    // already rides --keyboard-inset, so while text entry holds the caret the
+    // window pins at scrollTop zero and the inset stays the one positioning
+    // force. Pinning on focusin also un-pans a view stuck from an earlier pass.
+    const pinPan = () => {
+      if (!holdsCaret(document.activeElement)) return
+      // only a downward reveal pan counts; the upward rubber band stays free
+      if (window.scrollY > 0) window.scrollTo(0, 0)
+    }
+    const onViewportEvent = () => {
+      update()
+      pinPan()
+    }
     // focus moves gate which resizes mean a keyboard: the caret only exists
     // for text entry, so a blur drops the inset before the next resize lands
-    window.addEventListener('focusin', update)
+    window.addEventListener('focusin', onViewportEvent)
     window.addEventListener('focusout', update)
-    vv.addEventListener('resize', update)
-    vv.addEventListener('scroll', update)
+    window.addEventListener('scroll', pinPan)
+    vv.addEventListener('resize', onViewportEvent)
+    vv.addEventListener('scroll', onViewportEvent)
     return () => {
-      window.removeEventListener('focusin', update)
+      window.removeEventListener('focusin', onViewportEvent)
       window.removeEventListener('focusout', update)
-      vv.removeEventListener('resize', update)
-      vv.removeEventListener('scroll', update)
+      window.removeEventListener('scroll', pinPan)
+      vv.removeEventListener('resize', onViewportEvent)
+      vv.removeEventListener('scroll', onViewportEvent)
     }
   }, [])
 

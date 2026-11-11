@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent, ReactElement } from 'react'
 
-import { cycleFocus } from '../ui/focusTrap'
-import { overlayTopmost, useOverlayDismiss } from '../ui/overlayStack'
+import { useFocusTrap } from '../ui/useFocusTrap'
 import { useOverlayBack } from '../ui/useOverlayBack'
+import { useOverlayDismiss } from '../ui/overlayStack'
 
 // dismissThreshold is how far the sheet must be dragged down before release
 // closes it, below that it springs back open.
@@ -25,9 +25,9 @@ const tapSlop = 8
 // panels (tools, settings), and desktop-style centered modals for tiny forms
 // shared with desktop.
 //
-// The sheet joins ModalShell's focus contract: opening takes focus into the
-// panel, Tab cycles inside it, and every dismissal path hands focus back to
-// what opened the sheet.
+// The sheet rides the shared layer contract with ModalShell and the pushed
+// screens: useOverlayDismiss owns Escape and the focus restore, useFocusTrap
+// owns Tab containment and focus recapture.
 export function BottomSheet({
   open,
   onClose,
@@ -65,44 +65,8 @@ function SheetLayer({
   const start = useRef<{ pointerId: number; x: number; y: number } | null>(null)
 
   useOverlayDismiss(sheetRef, onClose)
+  useFocusTrap(sheetRef)
   useOverlayBack(onClose)
-
-  // ModalShell's focus contract minus Escape and restore, which
-  // useOverlayDismiss owns above: take focus on open, cycle Tab inside the
-  // panel and recapture focus escapes while topmost
-  useEffect(() => {
-    const sheet = sheetRef.current
-    if (sheet === null) return
-
-    // content carrying autoFocus keeps its caret, otherwise the panel takes
-    // it, so Tab starts at the handle, never behind the backdrop
-    if (!sheet.contains(document.activeElement)) sheet.focus()
-
-    const topmost = () => overlayTopmost(sheet)
-
-    const onWindowKey = (ev: KeyboardEvent) => {
-      // only the topmost layer answers, and never a press claimed elsewhere
-      if (!topmost() || ev.defaultPrevented) return
-      // chords like Ctrl+Tab belong to the platform, never to a layer
-      if (ev.ctrlKey || ev.metaKey || ev.altKey) return
-      if (ev.key === 'Tab') cycleFocus(sheet, ev)
-    }
-
-    // focusin recaptures caret escapes the Tab trap cannot see: autofocus
-    // mounting behind this backdrop, or a programmatic move elsewhere
-    const onFocusIn = (ev: FocusEvent) => {
-      if (!topmost()) return
-      if (ev.target instanceof Node && sheet.contains(ev.target)) return
-      sheet.focus()
-    }
-
-    window.addEventListener('keydown', onWindowKey)
-    document.addEventListener('focusin', onFocusIn)
-    return () => {
-      window.removeEventListener('keydown', onWindowKey)
-      document.removeEventListener('focusin', onFocusIn)
-    }
-  }, [])
 
   const onPointerDown = (ev: ReactPointerEvent<HTMLDivElement>) => {
     // a drag in flight never adopts the newcomer, that would hand it over

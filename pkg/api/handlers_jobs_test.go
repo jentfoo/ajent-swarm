@@ -56,6 +56,10 @@ func (r *scriptRunner) Launch(ctx context.Context, _ fleet.LaunchRequest) (fleet
 // LastBusyAt reports a quiet fleet, no job in these tests waits for idle.
 func (r *scriptRunner) LastBusyAt() time.Time { return time.Time{} }
 
+// ClaimRelease always grants the lone idle point, NoteRelease is a no-op.
+func (r *scriptRunner) ClaimRelease(time.Duration) bool { return true }
+func (r *scriptRunner) NoteRelease()                    {}
+
 func (r *scriptRunner) Submit(_ context.Context, _ string, params ctl.SubmitParams) error {
 	r.mu.Lock()
 	r.pendingID = params.PendingID // remembered for a later subscription's replay

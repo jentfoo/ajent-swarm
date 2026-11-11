@@ -42,12 +42,15 @@ var (
 )
 
 // idleWindow is how long the fleet must have seen no agent activity before a
-// run-when-idle job may fire.
-const idleWindow = 10 * time.Minute
+// run-when-idle job may fire. A var so tests can shrink it.
+var idleWindow = 10 * time.Minute
 
 // Runner is the fleet surface every run goes through: spawn (or resume) a
 // serve session, drive it over the control socket and watch its stream. A
-// zero LastBusyAt reports a fleet with no known agent activity.
+// zero LastBusyAt reports a fleet with no known agent activity. ClaimRelease
+// hands out the fleet's idle points one release at a time, NoteRelease marks
+// releases that did not gate on idleness, and both surface through
+// LastBusyAt until the released turn reports facts of its own.
 type Runner interface {
 	Launch(ctx context.Context, req fleet.LaunchRequest) (fleet.LaunchResult, error)
 	Submit(ctx context.Context, sessionID string, params ctl.SubmitParams) error
@@ -57,6 +60,8 @@ type Runner interface {
 	Subscribe(sessionID string, deliver func([]byte), onDrop func()) (*fleet.Subscription, error)
 	Unsubscribe(sub *fleet.Subscription)
 	LastBusyAt() time.Time
+	ClaimRelease(window time.Duration) bool
+	NoteRelease()
 }
 
 // The manager satisfies the runner surface.
@@ -96,6 +101,7 @@ func (s *Scheduler) execute(run store.Run, j store.Job) {
 		s.finish(run, j, store.RunFailed, err.Error())
 		return
 	}
+	s.runner.NoteRelease() // the launched turn is fleet activity until facts land
 	run.SessionID = res.SessionID
 	run.Prompt = prompt // the gate's output rides the stored row too
 	if err := s.store.UpdateRun(s.ctx, run); err != nil {

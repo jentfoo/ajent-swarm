@@ -205,6 +205,11 @@ func (s *Scheduler) fireDue(j store.Job, now time.Time) bool {
 			formatDelay(waited)+" for an idle fleet")
 		return false
 	}
+	// one quiet moment serves one release: a lost claim re-arms behind the
+	// winner instead of firing into the same idle point
+	if j.RunWhenIdle && !s.runner.ClaimRelease(idleWindow) {
+		return true // stay due, the winner's release holds the fleet for us too
+	}
 
 	run := s.baseRun(j, store.TriggerSchedule, now)
 	late := !j.RunWhenIdle && // an idle wait delays by design, never late

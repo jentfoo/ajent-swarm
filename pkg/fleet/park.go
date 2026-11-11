@@ -119,16 +119,23 @@ func (a *sessionActor) parkWake() {
 }
 
 // handleParkDue releases the oldest parked line once the whole fleet has been
-// quiet for the park window; everything behind it waits out a fresh idle
-// point, so released turns never pile onto one quiet moment. A still-busy
-// fleet re-arms, an unreachable one waits for the reconnect (which raises the
-// busy floor), and a refused line retries after its own fresh window.
+// quiet for the park window and this actor wins the fleet's one idle point.
+// Everything behind it waits out a fresh idle point, so released turns never
+// pile onto one quiet moment. A still-busy fleet re-arms, an unreachable one
+// waits for the reconnect (which raises the busy floor), and a refused line
+// retries after its own fresh window.
 func (a *sessionActor) handleParkDue() {
 	a.parkTimer = nil
 	if len(a.parked) == 0 || !a.ready() {
 		return
 	}
 	if time.Now().Before(a.parkQuietAt()) {
+		a.schedulePark()
+		return
+	}
+	// one idle point serves one release: losing the claim re-arms behind the
+	// winner, a won claim spends it even on a refusal
+	if !a.mgr.ClaimRelease(a.mgr.parkWindow) {
 		a.schedulePark()
 		return
 	}

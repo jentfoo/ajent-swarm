@@ -2,6 +2,7 @@ package fleet
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -121,6 +122,54 @@ func TestPark(t *testing.T) {
 		// and after it ends the next line still waits one full quiet window
 		require.Never(t, func() bool { return len(submittedLines(f)) > 1 }, 75*time.Millisecond, testPoll)
 		require.Eventually(t, func() bool { return len(submittedLines(f)) == 2 }, 2*time.Second, testPoll)
+	})
+
+	t.Run("one_idle_point_across_sessions", func(t *testing.T) {
+		home := testutil.IsolateHome(t)
+		m := New(Options{
+			Log:            testLogger(),
+			PollInterval:   testPoll,
+			BackoffBase:    testBackoff,
+			BackoffMax:     testBackoffHi,
+			ParkIdleWindow: 120 * time.Millisecond,
+		})
+		m.Start(t.Context())
+		t.Cleanup(m.Stop)
+
+		stubs := make([]*fleettest.Stub, 0, 2)
+		for i, sid := range []string{"01PARKSESSION000000", "01PARKSESSION000001"} {
+			f := fleettest.New(t, home, fleettest.Options{SessionID: sid,
+				Token: fmt.Sprintf("token%d", i)})
+			f.SetSnapshot(ctl.State{Session: ctl.Session{ID: f.SessionID()}})
+			f.WriteRegistry(t, os.Getpid(), time.Now())
+			waitForState(t, m, f.SessionID(), ChildOnline)
+			stubs = append(stubs, f)
+		}
+
+		for i, f := range stubs {
+			require.NoError(t, m.QueueSubmit(t.Context(), f.SessionID(),
+				ctl.SubmitParams{Line: fmt.Sprintf("line %d", i)}))
+			f.Broadcast(ctl.EventTurnStart, nil) // hold both behind the live turns
+		}
+		for _, f := range stubs {
+			waitForRunning(t, m, f, true)
+		}
+		for _, f := range stubs { // both end together: one shared quiet point
+			f.Broadcast(ctl.EventTurnEnd, ctl.TurnEndData{Stop: "end_turn"})
+		}
+
+		flushed := func() int {
+			n := 0
+			for _, f := range stubs {
+				n += len(submittedLines(f))
+			}
+			return n
+		}
+		require.Eventually(t, func() bool { return flushed() == 1 }, 2*time.Second, testPoll)
+		// the loser re-arms behind the winner instead of riding its idle point
+		require.Never(t, func() bool { return flushed() > 1 },
+			60*time.Millisecond, testPoll)
+		require.Eventually(t, func() bool { return flushed() == 2 }, 2*time.Second, testPoll)
 	})
 
 	t.Run("parked_facts_reach_the_digest", func(t *testing.T) {

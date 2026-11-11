@@ -136,6 +136,7 @@ type Manager struct {
 	titleModel     string                    // cached titling model, mirrored from SettingStore
 	dialogAcks     map[dialogAckKey]struct{} // cached settled dialogs, mirrored from AckStore
 	turnAcks       map[string]int64          // cached acknowledged turn ends, mirrored from AckStore
+	releaseFloor   time.Time                 // when swarm last released work into the fleet
 }
 
 // New builds a manager, Start begins the registry watch.
@@ -781,9 +782,9 @@ func (m *Manager) Attention() []Attention {
 }
 
 // LastBusyAt reports the newest agent activity across tracked sessions: now
-// for one still working, otherwise its most recent turn end. The zero time
-// means nothing is known to have worked. Both idle gates ride it: parked
-// prompts and run-when-idle jobs wait out their own quiet window past it.
+// for one still working, otherwise its most recent turn end. Releases swarm
+// made itself count as busy moments too (see ClaimRelease). The zero time
+// means nothing is known to have worked.
 func (m *Manager) LastBusyAt() time.Time {
 	var last time.Time
 	for _, st := range m.servingStatuses() {
@@ -791,7 +792,39 @@ func (m *Manager) LastBusyAt() time.Time {
 			last = at
 		}
 	}
+	m.mu.Lock()
+	if m.releaseFloor.After(last) {
+		last = m.releaseFloor
+	}
+	m.mu.Unlock()
 	return last
+}
+
+// ClaimRelease reports whether one of the fleet's idle points is free to
+// take once window has passed since the last release. A true answer marks
+// this instant as busy for every gate, so callers must release work only
+// after claiming.
+func (m *Manager) ClaimRelease(window time.Duration) bool {
+	now := time.Now()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if now.Sub(m.releaseFloor) < window {
+		return false
+	}
+	m.releaseFloor = now
+	return true
+}
+
+// NoteRelease records a release into the fleet that did not gate on
+// idleness, so every idle gate treats it as busy until the released turn
+// reports facts of its own.
+func (m *Manager) NoteRelease() {
+	now := time.Now()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if now.After(m.releaseFloor) {
+		m.releaseFloor = now
+	}
 }
 
 // decorateChild folds a child record's spawn facts into a listing row.

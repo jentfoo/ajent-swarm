@@ -33,22 +33,47 @@ type fakeRunner struct {
 	titles    map[string]string // last title written per session id
 	subscribe int               // subscribe calls the runner served
 
-	launchErr   error         // Launch fails with this when set
-	sessionID   string        // session id Launch returns
-	submitFailN int           // the first N submits fail as unavailable
-	toolsSetErr error         // ToolsSet fails with this when set
-	titleErr    error         // SetTitle fails with this when set
-	blockLaunch chan struct{} // set: Launch blocks until closed, per call
-	deliver     func([]byte)  // deliverer of the latest subscription
-	onDrop      func()
-	busyAt      time.Time // what LastBusyAt reports, zero means quiet
+	launchErr    error         // Launch fails with this when set
+	sessionID    string        // session id Launch returns
+	submitFailN  int           // the first N submits fail as unavailable
+	toolsSetErr  error         // ToolsSet fails with this when set
+	titleErr     error         // SetTitle fails with this when set
+	blockLaunch  chan struct{} // set: Launch blocks until closed, per call
+	deliver      func([]byte)  // deliverer of the latest subscription
+	onDrop       func()
+	busyAt       time.Time // what LastBusyAt reports, zero means quiet
+	releaseFloor time.Time // newest scripted release, folded into LastBusyAt
 }
 
-// LastBusyAt answers with the scripted activity moment.
+// LastBusyAt answers with the scripted activity moment, releases included.
 func (f *fakeRunner) LastBusyAt() time.Time {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.releaseFloor.After(f.busyAt) {
+		return f.releaseFloor
+	}
 	return f.busyAt
+}
+
+// ClaimRelease mirrors the manager's one-release-per-idle-point gate.
+func (f *fakeRunner) ClaimRelease(window time.Duration) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	now := time.Now()
+	if now.Sub(f.releaseFloor) < window {
+		return false
+	}
+	f.releaseFloor = now
+	return true
+}
+
+// NoteRelease records a release that did not gate on idleness.
+func (f *fakeRunner) NoteRelease() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if now := time.Now(); now.After(f.releaseFloor) {
+		f.releaseFloor = now
+	}
 }
 
 func newFakeRunner() *fakeRunner {
@@ -635,6 +660,40 @@ func TestScheduler(t *testing.T) {
 		h.runner.mu.Unlock()
 		h.start(t.Context())
 		h.waitForRun(id, store.RunOK)
+	})
+
+	t.Run("queued_jobs_drip_one_per_window", func(t *testing.T) {
+		prevIdle := idleWindow // shrink so the held job's retry stays in test time
+		idleWindow = 40 * time.Millisecond
+		t.Cleanup(func() { idleWindow = prevIdle })
+
+		h := newHarness(t, nil)
+		h.addQueuedJob("first", "first prompt")   // oldest slot wins the idle point
+		h.addQueuedJob("second", "second prompt") // due at the same moment
+		h.start(t.Context())
+
+		// finished runs unlink from their deleted queued rows, so read history
+		prompts := func() []string {
+			rows, err := h.store.Runs(h.t.Context(), 0, 100)
+			require.NoError(h.t, err)
+			out := make([]string, 0, len(rows))
+			for _, r := range rows {
+				if r.Status == store.RunOK {
+					out = append(out, r.Prompt)
+				}
+			}
+			return out
+		}
+
+		require.Eventually(h.t, func() bool { return len(prompts()) == 1 },
+			settleWindow, 10*time.Millisecond)
+		assert.Equal(h.t, []string{"first prompt"}, prompts())
+
+		// the loser waits out its own window instead of riding the same one
+		require.Never(h.t, func() bool { return len(prompts()) > 1 },
+			idleWindow/2, 5*time.Millisecond)
+		require.Eventually(h.t, func() bool { return slices.Contains(prompts(), "second prompt") },
+			settleWindow, 10*time.Millisecond)
 	})
 
 	t.Run("startup_sweeps_abandoned_queued", func(t *testing.T) {

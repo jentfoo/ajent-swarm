@@ -1,8 +1,8 @@
 import { createContext, useCallback, useEffect, useContext, useRef, useState } from 'react'
 import type { ReactElement, ReactNode } from 'react'
 
-import { cycleFocus } from './focusTrap'
-import { overlayEnter, overlayLeave, overlayTopmost } from './overlayStack'
+import { overlayTopmost, useOverlayDismiss } from './overlayStack'
+import { useFocusTrap } from './useFocusTrap'
 import { useOverlayBack } from './useOverlayBack'
 
 // HistoryShield ties one dialog to browser history for as long as it mounts:
@@ -53,9 +53,6 @@ export function ModalShell({
   children: ReactNode
 }): ReactElement {
   const cardRef = useRef<HTMLDivElement>(null)
-  // captured once at first render on purpose: content-level autoFocus only
-  // fires later, at commit, so this is still the element focus returns to
-  const [restoreTarget] = useState(() => document.activeElement as HTMLElement | null)
 
   const [confirming, setConfirming] = useState(false)
   // remount key for the shield: a back-initiated request lands off the dialog's
@@ -106,48 +103,31 @@ export function ModalShell({
     dirtyRef.current = dirty === true
   })
 
+  // the shared layer contract: useOverlayDismiss owns stack order, Escape
+  // and the focus restore on close, useFocusTrap owns Tab containment and
+  // focus recapture while this shell is the topmost layer
+  useOverlayDismiss(cardRef, requestClose)
+  useFocusTrap(cardRef)
+
+  // onKey receives the plain keydowns neither the dismiss nor the trap
+  // listener owns, only while this shell is the topmost layer
   useEffect(() => {
     const card = cardRef.current
     if (card === null) return
 
-    overlayEnter(card)
-    // content carrying autoFocus keeps its caret, otherwise the card takes it,
-    // so typing starts inside the dialog, never behind the backdrop
-    if (!card.contains(document.activeElement)) card.focus()
-
-    const topmost = () => overlayTopmost(card)
-
     const onWindowKey = (ev: KeyboardEvent) => {
       // only the topmost layer answers, and never a press claimed elsewhere
-      if (!topmost() || ev.defaultPrevented) return
-      // chords like Ctrl+Escape belong to the platform, never to a layer
+      if (!overlayTopmost(card) || ev.defaultPrevented) return
+      // chords like Ctrl+X belong to the platform, never to a layer
       // Shift stays free because keys like ? arrive shifted
       if (ev.ctrlKey || ev.metaKey || ev.altKey) return
-      if (ev.key === 'Escape') requestClose()
-      else if (ev.key === 'Tab') cycleFocus(card, ev)
-      else keyRef.current?.(ev)
-    }
-
-    // focusin recaptures caret escapes the Tab trap cannot see: autofocus
-    // mounting behind this backdrop, or a programmatic move elsewhere
-    const onFocusIn = (ev: FocusEvent) => {
-      if (!topmost()) return
-      if (ev.target instanceof Node && card.contains(ev.target)) return
-      card.focus()
+      if (ev.key === 'Escape' || ev.key === 'Tab') return
+      keyRef.current?.(ev)
     }
 
     window.addEventListener('keydown', onWindowKey)
-    document.addEventListener('focusin', onFocusIn)
-
-    return () => {
-      // leave the stack before restoring focus, so a shell still open beneath
-      // never recaptures the caret this close is handing back
-      overlayLeave(card)
-      window.removeEventListener('keydown', onWindowKey)
-      document.removeEventListener('focusin', onFocusIn)
-      if (restoreTarget !== null && restoreTarget.isConnected) restoreTarget.focus()
-    }
-  }, [restoreTarget, requestClose])
+    return () => window.removeEventListener('keydown', onWindowKey)
+  }, [])
 
   return (
     <>

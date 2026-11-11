@@ -23,6 +23,21 @@ function rectFor(el: Element): Record<string, number> {
   return { top: 0, bottom: 0, left: 0, right: 0 }
 }
 
+// jsdom's frame clock runs on real time, so the anchor sampler's ticks are
+// queued and flushed by hand, one flush standing in for one paint
+const rafCallbacks = new Map<number, FrameRequestCallback>()
+let rafSeq = 0
+const realRaf = window.requestAnimationFrame
+const realCancelRaf = window.cancelAnimationFrame
+
+function flushFrame() {
+  const cbs = [...rafCallbacks.values()]
+  rafCallbacks.clear()
+  act(() => {
+    cbs.forEach((cb) => cb(0))
+  })
+}
+
 beforeEach(() => {
   anchorBox = baseAnchor
   vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
@@ -39,6 +54,14 @@ beforeEach(() => {
       toJSON: () => '',
     } as DOMRect
   })
+  window.requestAnimationFrame = (cb: FrameRequestCallback) => {
+    rafSeq += 1
+    rafCallbacks.set(rafSeq, cb)
+    return rafSeq
+  }
+  window.cancelAnimationFrame = (id: number) => {
+    rafCallbacks.delete(id)
+  }
 })
 
 // the resize case pins innerHeight, restore the jsdom default between tests
@@ -46,6 +69,9 @@ const innerHeightDesc = Object.getOwnPropertyDescriptor(window, 'innerHeight')!
 
 afterEach(() => {
   vi.restoreAllMocks()
+  window.requestAnimationFrame = realRaf
+  window.cancelAnimationFrame = realCancelRaf
+  rafCallbacks.clear()
   Object.defineProperty(window, 'innerHeight', innerHeightDesc)
 })
 
@@ -255,6 +281,27 @@ describe('MenuPopover', () => {
       window.dispatchEvent(new Event('resize'))
     })
     expect(screen.getByRole('menu').style.top).toBe(`${baseAnchor.top - 4 - menuSize.height}px`)
+  })
+
+  it('follows a trigger that moves without resizing', () => {
+    render(<Harness />)
+    expect(screen.getByRole('menu').style.left).toBe(`${baseAnchor.left}px`)
+
+    // a pane divider drag shifts the whole trigger box, no scroll or resize
+    anchorBox = { ...baseAnchor, left: 200, right: 260 }
+    flushFrame()
+    expect(screen.getByRole('menu').style.left).toBe(`${anchorBox.left}px`)
+  })
+
+  it('follows a trigger that resizes while open', () => {
+    render(<Harness matchWidth />)
+    expect(screen.getByRole('menu').style.minWidth).toBe(`${baseAnchor.right - baseAnchor.left}px`)
+
+    // header chips wrap: the trigger box narrows with its pane
+    anchorBox = { ...baseAnchor, left: 320, right: 350 }
+    flushFrame()
+    expect(screen.getByRole('menu').style.left).toBe(`${anchorBox.left}px`)
+    expect(screen.getByRole('menu').style.minWidth).toBe(`${anchorBox.right - anchorBox.left}px`)
   })
 
   it('toggles from its own trigger without a close-reopen race', async () => {

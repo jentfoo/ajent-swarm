@@ -68,8 +68,9 @@ type MenuPopoverProps = {
 
 // MenuPopover portals children into document.body as a fixed layer anchored to
 // the trigger in `anchorRef`, so no ancestor's overflow clipping can cut it
-// off. It flips above or clamps to stay in the viewport, repositions on scroll
-// and resize while open, registers with ui/overlayStack for its lifetime, and
+// off. It flips above or clamps to stay in the viewport, follows the trigger
+// on scroll, resize and any layout shift while open, registers with
+// ui/overlayStack for its lifetime, and
 // closes on a plain Escape or an outside pointerdown: only the topmost of
 // stacked popovers answers Escape, presses another listener already claimed
 // are left alone. Children keep their own menu markup, only placement lives
@@ -126,6 +127,29 @@ export function MenuPopover({
       window.removeEventListener('scroll', measure, true)
     }
   }, [measure])
+
+  useEffect(() => {
+    const anchor = anchorRef.current
+    if (!anchor) return
+    // pane drags and layout shifts move the anchor with no scroll or resize
+    // event at all: sample its box every frame while open
+    let last = anchor.getBoundingClientRect()
+    const tick = () => {
+      const box = anchor.getBoundingClientRect()
+      if (
+        box.top !== last.top ||
+        box.left !== last.left ||
+        box.bottom !== last.bottom ||
+        box.right !== last.right
+      ) {
+        last = box
+        measure()
+      }
+      frame = requestAnimationFrame(tick)
+    }
+    let frame = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(frame)
+  }, [anchorRef, measure])
 
   useEffect(() => {
     const menu = menuRef.current

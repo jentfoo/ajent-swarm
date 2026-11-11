@@ -97,7 +97,7 @@ export function QueuedPrompts({
             id={p.id}
             text={p.text}
             state={p.state}
-            editable={p.state === 'parked' && newestParkedId(pendings) === p.id}
+            editable={p.state === 'parked' && ownParkedNewest === p.id}
             onEdit={onEditParked}
           />,
         ]

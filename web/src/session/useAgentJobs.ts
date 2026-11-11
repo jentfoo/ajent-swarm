@@ -34,7 +34,7 @@ export function useAgentJobs(
   sessionId: string,
   activity: ActivityRow[] | undefined,
   segments: Segment[] | undefined,
-  onToast?: (text: string, level?: 'info' | 'error') => void,
+  onToast: (text: string, level?: 'info' | 'error') => void,
 ): AgentJobs {
   const [byId, setById] = useState<Map<string, AgentJob>>(() => new Map())
   const [available, setAvailable] = useState(true)
@@ -91,7 +91,7 @@ export function useAgentJobs(
         .stopAgents(sessionId, id === undefined ? { all: true } : { id })
         .then(() => list()) // fresh records right after a stop
         .catch((err: unknown) => {
-          onToast?.(describeError(err, 'Stop failed.'), 'error')
+          onToast(describeError(err, 'Stop failed.'), 'error')
         })
         .finally(() => setStopping(false))
     },

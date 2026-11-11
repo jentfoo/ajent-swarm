@@ -127,7 +127,7 @@ export function SwarmProvider({ children }: { children: ReactNode }) {
     } catch {
       // Storage may be unavailable, the default applies.
     }
-    return preferredTheme()
+    return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'
   })
 
   // index.html's head script applied this value before first paint, the
@@ -172,10 +172,6 @@ export function SwarmProvider({ children }: { children: ReactNode }) {
   )
 
   return <SwarmContext.Provider value={value}>{children}</SwarmContext.Provider>
-}
-
-function preferredTheme(): Theme {
-  return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'
 }
 
 export function useSwarm(): SwarmContextValue {

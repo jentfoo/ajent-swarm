@@ -52,7 +52,7 @@ const sessionId = '01AGENTS00000000000'
 
 function mount(props: HarnessProps = {}) {
   return renderHook(
-    (p: HarnessProps) => useAgentJobs(sessionId, p.activity, p.segments, p.onToast),
+    (p: HarnessProps) => useAgentJobs(sessionId, p.activity, p.segments, p.onToast ?? (() => {})),
     { initialProps: props },
   )
 }

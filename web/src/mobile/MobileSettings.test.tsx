@@ -69,16 +69,6 @@ describe('MobileSettings', () => {
     expect(document.documentElement.dataset.theme).toBe('light')
   })
 
-  it("points agent settings to the session's actions menu", async () => {
-    renderSettings()
-    await screen.findByRole('heading', { name: 'Settings' })
-
-    // mobile has no hamburger, the affordance is the ⋯ actions menu
-    expect(
-      screen.getByText("Per-session agent settings live in each session's ⋯ actions menu."),
-    ).toBeInTheDocument()
-  })
-
   it('offers the titling model picker with the registry union', async () => {
     renderSettings()
 

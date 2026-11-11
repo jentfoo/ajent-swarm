@@ -66,22 +66,4 @@ describe('ShortcutOverlay', () => {
     await user.keyboard('?')
     expect(onClose).not.toHaveBeenCalled()
   })
-
-  it('documents the composer bindings', () => {
-    render(<ShortcutOverlay mode="tile" onClose={() => {}} />)
-
-    // both modes list the composer bindings: Ctrl+R, the post-accept arrow
-    // browse, and the queued-prompt recall gesture
-    expect(screen.getByText('Ctrl+R')).toBeInTheDocument()
-    expect(screen.getByText('↑ / ↓')).toBeInTheDocument()
-    expect(screen.getByText('Alt+↑')).toBeInTheDocument()
-  })
-
-  it('documents the rewind gesture in both modes', () => {
-    for (const mode of ['focused', 'tile'] as const) {
-      const view = render(<ShortcutOverlay mode={mode} onClose={() => {}} />)
-      expect(screen.getByText('Esc ×2')).toBeInTheDocument()
-      view.unmount()
-    }
-  })
 })

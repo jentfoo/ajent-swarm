@@ -89,7 +89,7 @@ func (a *sessionActor) schedulePark() {
 		a.parkTimer.Stop()
 		a.parkTimer = nil
 	}
-	if len(a.parked) == 0 || a.view == nil {
+	if len(a.parked) == 0 {
 		return
 	}
 	a.parkTimer = time.AfterFunc(time.Until(a.parkQuietAt()), a.parkWake)
@@ -191,7 +191,7 @@ func parkRows(rows []parkedSubmit) []ctl.QueueRow {
 		if line.Kind != command.KindPrompt {
 			continue
 		}
-		text := ""
+		var text string
 		if !session.HasSecretPrefix(recallSecretPrefix, line.Rest) {
 			text = digestText(line.Rest)
 		}

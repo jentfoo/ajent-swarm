@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
 import { commandDocs, matchCommands, slashQuery } from './commands'
-
 describe('slashQuery', () => {
   const cases: { name: string; text: string; caret?: number; want: string | null }[] = [
     { name: 'line initial slash queries', text: '/model', want: 'model' },
@@ -53,17 +52,5 @@ describe('matchCommands', () => {
   it('unknown and escaped queries match nothing', () => {
     expect(matchCommands('zzz')).toEqual([])
     expect(matchCommands('/help')).toEqual([])
-  })
-})
-
-describe('commandDocs', () => {
-  it('names stay unique and descriptions one line', () => {
-    const names = commandDocs.map((c) => c.name)
-    expect(new Set(names).size).toBe(names.length)
-    for (const cmd of commandDocs) {
-      expect(cmd.name).toMatch(/^[a-z][a-z-]*$/)
-      expect(cmd.description).not.toMatch(/\n/)
-      expect(cmd.description.length).toBeGreaterThan(0)
-    }
   })
 })

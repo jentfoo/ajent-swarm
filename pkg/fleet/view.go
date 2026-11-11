@@ -440,7 +440,7 @@ func tailEntries[T any](items []T, end, limit int, size func(T) int, shape func(
 		used += size(items[i])
 	}
 	slices.Reverse(out)
-	cursor := ""
+	var cursor string
 	if i >= 0 && len(out) > 0 {
 		cursor = out[0].ID
 	}
@@ -492,7 +492,7 @@ func stripImages(raw json.RawMessage) (json.RawMessage, bool) {
 		if json.Unmarshal(trimmed, &obj) != nil {
 			return raw, false
 		}
-		changed := false
+		var changed bool
 		for k, val := range obj {
 			nv, c := stripImages(val)
 			if c {
@@ -523,7 +523,7 @@ func stripImages(raw json.RawMessage) (json.RawMessage, bool) {
 		if json.Unmarshal(trimmed, &items) != nil {
 			return raw, false
 		}
-		changed := false
+		var changed bool
 		for i, val := range items {
 			nv, c := stripImages(val)
 			if c {

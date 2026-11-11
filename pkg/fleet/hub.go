@@ -208,7 +208,7 @@ func (s *subscription) publishFrameLocked(frame []byte) bool {
 // flushTick bounds staged-delta latency when the stream goes quiet.
 func (s *subscription) flushTick() {
 	s.mu.Lock()
-	fire := false
+	var fire bool
 	if !s.dropped && s.pending != nil {
 		fire = s.flushLocked()
 	}
@@ -275,8 +275,6 @@ type hub struct {
 	mu   sync.Mutex
 	subs map[int64]*subscription
 }
-
-func newHub() *hub { return &hub{subs: make(map[int64]*subscription)} }
 
 // attach registers a subscriber under the id its manager already assigned,
 // one id namespace keeps detach and rebind lookups stable.

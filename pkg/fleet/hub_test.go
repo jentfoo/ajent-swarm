@@ -32,7 +32,7 @@ func newTestSub(t *testing.T, sessionID string) (*subscription, <-chan []byte, *
 func BenchmarkHubFanout(b *testing.B) {
 	for _, viewers := range []int{1, 16, 64} {
 		b.Run(fmt.Sprintf("viewers-%d", viewers), func(b *testing.B) {
-			h := newHub()
+			h := &hub{subs: make(map[int64]*subscription)}
 			for i := range viewers {
 				sub := &subscription{
 					id:        int64(i + 1),

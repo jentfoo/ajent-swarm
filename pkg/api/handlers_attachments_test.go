@@ -153,8 +153,6 @@ func TestSanitizeAttachmentName(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
 			assert.Equal(t, tc.want, sanitizeAttachmentName(tc.in))
 		})
 	}
@@ -174,8 +172,6 @@ func TestSanitizeAttachmentExt(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
 			assert.Equal(t, tc.want, sanitizeAttachmentExt(tc.in))
 		})
 	}

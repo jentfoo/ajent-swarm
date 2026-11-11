@@ -112,7 +112,8 @@ func writePidfile(path string) error {
 	if err != nil {
 		return fmt.Errorf("write pid file %s: %w", path, err)
 	}
-	ok := false
+	var ok bool
+
 	defer func() { // the rename consumes tmp, a failed write never leaves it behind
 		if !ok {
 			_ = os.Remove(tmp.Name())

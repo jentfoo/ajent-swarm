@@ -35,7 +35,7 @@ function notifyUnauthorized(err: ApiError) {
   }
 }
 
-export interface RequestOptions {
+interface RequestOptions {
   method?: string
   body?: unknown
   signal?: AbortSignal

@@ -71,7 +71,7 @@ func (m *Manager) RecallLines(ctx context.Context, sessionID, query string, limi
 	out := mergeRecallLines(m.mirrorRecallLines(ctx, ws), m.ajentRecallLines(ws))
 	q := strings.ToLower(query)
 	out = bulk.SliceFilterInPlace(func(r RecallLine) bool {
-		return r.Text != "" && strings.Contains(strings.ToLower(r.Text), q)
+		return strings.Contains(strings.ToLower(r.Text), q)
 	}, out)
 	slices.SortStableFunc(out, func(a, b RecallLine) int { return b.CreatedAt.Compare(a.CreatedAt) })
 	if limit > 0 && len(out) > limit {

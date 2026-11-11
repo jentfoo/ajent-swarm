@@ -90,7 +90,7 @@ export function sessionBadgeOf(busy: boolean, item: AttentionItem | undefined): 
 
 // HeaderBadge is the session headers' badge state: working, resting, queued
 // for the next idle point, or blocked on a human.
-export type HeaderBadge = 'input' | 'running' | 'queued' | 'idle'
+type HeaderBadge = 'input' | 'running' | 'queued' | 'idle'
 
 // headerBadgeOf is the headers' coarsening of sessionBadgeOf: waiting folds
 // into idle, since the header answers working-versus-resting while the status
@@ -127,7 +127,7 @@ export const attentionSectionTitles: Record<AttentionQueue, string> = {
 }
 
 // Queue ranks in rail order: needs, waiting, working.
-export const attentionRanks = {
+const attentionRanks = {
   needs: 0,
   waiting: 1,
   working: 2,
@@ -136,7 +136,7 @@ export const attentionRanks = {
 // attentionRank classifies one row into its queue rank: dialogs and
 // completions collapse into needs, idle agents wait, and rows without a
 // digest share working so they never outrank actionable ones.
-export function attentionRank(entry: AttentionSort): number {
+function attentionRank(entry: AttentionSort): number {
   switch (entry.kind) {
     case 'needs-input':
     case 'needs-review':

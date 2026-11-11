@@ -171,7 +171,9 @@ type sessionActor struct {
 
 	mailbox chan actorMsg
 	hub     *hub
-	status  atomicStatus
+	// status is read off the actor goroutine; every actor stores a status
+	// before it becomes reachable through the manager.
+	status atomic.Pointer[Status]
 
 	done chan struct{}
 
@@ -198,16 +200,6 @@ type sessionActor struct {
 	busyFloor time.Time
 }
 
-// atomicStatus keeps the listing row readable off the actor goroutine. Every
-// actor stores a status before it becomes reachable through the manager.
-type atomicStatus struct {
-	p atomic.Pointer[Status]
-}
-
-func (s *atomicStatus) Store(st *Status) { s.p.Store(st) }
-
-func (s *atomicStatus) Load() *Status { return s.p.Load() }
-
 func newSessionActor(mgr *Manager, inst ctl.Instance) *sessionActor {
 	a := &sessionActor{
 		mgr:       mgr,
@@ -215,7 +207,7 @@ func newSessionActor(mgr *Manager, inst ctl.Instance) *sessionActor {
 		inst:      inst,
 		log:       mgr.log.With("session", inst.Label(), "pid", inst.PID),
 		mailbox:   make(chan actorMsg, mailboxDepth),
-		hub:       newHub(),
+		hub:       &hub{subs: make(map[int64]*subscription)},
 		pending:   make(map[*subscription]struct{}),
 		recallIDs: make(map[string]int64),
 		done:      make(chan struct{}),
@@ -327,7 +319,9 @@ func (a *sessionActor) follow() (ctl.Instance, bool) {
 func (a *sessionActor) prepare(conn *client.Conn, hello ctl.Hello) error {
 	a.inst.PID = hello.PID
 	a.transcript = hello.TranscriptPath
-	if a.mgr.ownedInstance(a.inst) { // spawned by swarm: force-claim as holder swarm
+	// spawned by swarm: force-claim as holder swarm
+	owned := a.mgr.ownedInstance(a.inst)
+	if owned {
 		cctx, cancel := a.callWait()
 		defer cancel()
 		if _, err := conn.ClaimSeat(cctx, holderName, true); err != nil {
@@ -344,7 +338,7 @@ func (a *sessionActor) prepare(conn *client.Conn, hello ctl.Hello) error {
 	}
 
 	a.view = buildView(snap, branch, watermark)
-	if a.mgr.ownedInstance(a.inst) {
+	if owned {
 		a.view.seat = ctl.SeatState{Held: true, Holder: holderName, Yours: true}
 	}
 	// resumed first prompts predate the stream, only backfill ever sees them

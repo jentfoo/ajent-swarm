@@ -59,7 +59,7 @@ function isTextFile(file: File): boolean {
 export interface ComposerRecall {
   items: readonly string[]
   accept: (text: string, current: string) => string
-  refresh?: () => void
+  refresh: () => void
 }
 
 // ComposerProps keeps the submit flow beside SessionView: it mints the
@@ -260,12 +260,18 @@ export function Composer({
     }
   }, [sessionId, query])
 
-  // send submits one draft line: prompts mint the client pendingId that
-  // paints an optimistic row, slash and shell lines submit as-is. The draft
-  // stays put until the reply: a refusal keeps its text, acceptance clears it
-  // solely when typing has not already reshaped it.
-  const send = useCallback(
-    async (draft: string) => {
+  // submitLine lands one draft line through land: prompts mint the client
+  // pendingId that paints an optimistic row, slash and shell lines commit
+  // as-is. The draft stays put until the reply: a refusal keeps its text,
+  // acceptance clears it solely when typing has not already reshaped it.
+  const submitLine = useCallback(
+    async (
+      draft: string,
+      land: (sessionId: string, line: string, pendingId?: string) => Promise<unknown>,
+      optimistic: (line: string, pendingId: string) => void,
+      onFailed: (pendingId: string) => void,
+      failureText: string,
+    ) => {
       const line = draft.trim()
       if (line === '' || disabled) return
       if (inFlight.current.has(line)) return
@@ -274,49 +280,36 @@ export function Composer({
       // dispatch, so an escaped or pasted `/`-opening prompt still paints.
       const isPrompt = classifyLine(line) === 'prompt'
       const pendingId = isPrompt ? newPendingID() : undefined
-      if (pendingId !== undefined) onSubmit(line, pendingId)
+      if (pendingId !== undefined) optimistic(line, pendingId)
       inFlight.current.add(line)
       typedSinceSend.current = false
       setError('')
       try {
-        await sessionAPI.submit(sessionId, line, pendingId)
+        await land(sessionId, line, pendingId)
       } catch (err) {
         inFlight.current.delete(line)
-        if (pendingId !== undefined) onSubmitFailed(pendingId)
-        setError(describeError(err, 'Submit failed.'))
+        if (pendingId !== undefined) onFailed(pendingId)
+        setError(describeError(err, failureText))
         return // the refused text stays right where it is
       }
       inFlight.current.delete(line)
       if (!typedSinceSend.current && valueRef.current === draft) onChange('')
     },
-    [disabled, sessionId, onSubmit, onSubmitFailed, onChange],
+    [disabled, sessionId, onChange],
+  )
+
+  // send submits one draft line exactly as typed in the editor.
+  const send = useCallback(
+    (draft: string) =>
+      submitLine(draft, sessionAPI.submit, onSubmit, onSubmitFailed, 'Submit failed.'),
+    [submitLine, onSubmit, onSubmitFailed],
   )
 
   // queue parks one draft line for the session's next idle point: the same
   // optimistic row and draft rules as send, only the wire call differs.
   const queue = useCallback(
-    async (draft: string) => {
-      const line = draft.trim()
-      if (line === '' || disabled) return
-      if (inFlight.current.has(line)) return
-      const isPrompt = classifyLine(line) === 'prompt'
-      const pendingId = isPrompt ? newPendingID() : undefined
-      if (pendingId !== undefined) onQueue(line, pendingId)
-      inFlight.current.add(line)
-      typedSinceSend.current = false
-      setError('')
-      try {
-        await sessionAPI.queue(sessionId, line, pendingId)
-      } catch (err) {
-        inFlight.current.delete(line)
-        if (pendingId !== undefined) onQueueFailed(pendingId)
-        setError(describeError(err, 'Queue failed.'))
-        return // the refused text stays right where it is
-      }
-      inFlight.current.delete(line)
-      if (!typedSinceSend.current && valueRef.current === draft) onChange('')
-    },
-    [disabled, sessionId, onQueue, onQueueFailed, onChange],
+    (draft: string) => submitLine(draft, sessionAPI.queue, onQueue, onQueueFailed, 'Queue failed.'),
+    [submitLine, onQueue, onQueueFailed],
   )
 
   // openSearchOverlay arms the blank Ctrl+R surface and refreshes the
@@ -329,7 +322,7 @@ export function Composer({
     setPick({ key: '', index: 0, moved: false })
     setDismissed(menuKey)
     setRawSearch(openSearch(recall.items))
-    recall.refresh?.()
+    recall.refresh()
     areaRef.current?.focus({ preventScroll: true }) // touch opens from a button; typing starts now
   }
 

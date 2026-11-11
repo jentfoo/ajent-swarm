@@ -123,7 +123,15 @@ function SessionCard({
   const stateClass = s.state === ChildState.Online ? 'ok' : childEnded(s.state) ? 'danger' : 'warn'
   const label = displayName(s, home)
   const ended = childEnded(s.state)
-  const detail = cardDetail(s)
+  // the card's story line: the exit note once ended, else the last turn's end
+  // in the shared rail vocabulary
+  const detail = ended
+    ? (s.detail ?? '')
+    : s.lastStopErr
+      ? `last turn failed: ${s.lastStopErr}`
+      : s.lastStop
+        ? describeStop(s.lastStop, undefined)
+        : ''
   // known facts only: no placeholder when the model or workspace is missing
   const tail = s.workspace?.split('/').filter(Boolean).pop()
   const facts = [s.model, tail].filter(Boolean).join(' · ')
@@ -182,14 +190,6 @@ function SessionCard({
       <ActionsBar status={s} />
     </div>
   )
-}
-
-// cardDetail picks the card's story line: the exit note once ended, else the
-// last turn's end in the shared rail vocabulary.
-function cardDetail(s: SessionStatus): string {
-  if (childEnded(s.state)) return s.detail ?? ''
-  if (s.lastStopErr) return `last turn failed: ${s.lastStopErr}`
-  return s.lastStop ? describeStop(s.lastStop, undefined) : ''
 }
 
 // ActionsBar holds the quick actions: open, agent settings and stop for live

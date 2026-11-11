@@ -75,7 +75,7 @@ describe('SessionStore', () => {
   // a fresh stream per test still leaves the old one listening on document
   // visibility, and its fake timers pending: tear both down like swarmStream.test
   afterEach(() => {
-    stream.destroy()
+    stream.disconnect()
     vi.useRealTimers()
     vi.restoreAllMocks() // a leaked entries spy must not shadow later fetch mocks
   })

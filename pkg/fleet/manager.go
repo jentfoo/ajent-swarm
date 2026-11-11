@@ -312,7 +312,14 @@ func (m *Manager) diff() error {
 			unrecorded = append(unrecorded, inst)
 		}
 	}
-	rebinds := m.planRebinds()
+	rebinds := make(map[string][]*subscription)
+	for sessionID, set := range m.bySession {
+		orphans := bulk.SliceFilter(func(sub *subscription) bool { return sub.hostKey == (actorKey{}) },
+			bulk.MapValuesSlice(set))
+		if len(orphans) > 0 {
+			rebinds[sessionID] = orphans
+		}
+	}
 	m.mu.Unlock()
 
 	// publish to them here: it cannot race an attach queued on the actor
@@ -450,19 +457,6 @@ func (m *Manager) orphanLocked(key actorKey) []*subscription {
 		bulk.MapValuesSlice(m.bySession[key.sessionID]))
 	for _, sub := range out {
 		sub.hostKey = actorKey{}
-	}
-	return out
-}
-
-// planRebinds collects the orphaned subscriptions per session. mu must be held.
-func (m *Manager) planRebinds() map[string][]*subscription {
-	out := make(map[string][]*subscription)
-	for sessionID, set := range m.bySession {
-		for _, sub := range set {
-			if sub.hostKey == (actorKey{}) {
-				out[sessionID] = append(out[sessionID], sub)
-			}
-		}
 	}
 	return out
 }

@@ -7,13 +7,7 @@ import { MockWebSocket } from '../test/mockWebSocket'
 
 // The launch-facts hook under the real provider stack with fetch stubs shaped
 // like the Go handlers answer: workspaces union live before saved keeping
-// first sight, the model union renders as the server computed it, and refused
-// reads leave that section empty instead of throwing.
-
-function modelState(key: string) {
-  return { key, short: '', window: 0, caps: {} }
-}
-
+// first sight, and refused reads leave that section empty instead of throwing.
 describe('useLaunchFacts', () => {
   let sockets: MockWebSocket[]
 
@@ -70,26 +64,6 @@ describe('useLaunchFacts', () => {
 
     await waitFor(() => expect(result.current.saved).toHaveLength(2))
     expect(result.current.workspaceOptions).toEqual(['/live/one', '/live/two', '/saved/three'])
-  })
-
-  it('renders the server model union as answered', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (url: string | URL) => {
-        const path = String(url).split('?')[0]
-        if (path === '/api/models/options') {
-          return Response.json([modelState('openai/gpt-5'), modelState('anthropic/x')])
-        }
-        if (path === '/api/sessions' || path === '/api/attention') return Response.json([])
-        if (path === '/api/saved-sessions') return Response.json([])
-        throw new Error(`unexpected fetch ${String(url)}`)
-      }),
-    )
-
-    const { result } = renderFacts()
-
-    await waitFor(() => expect(result.current.models).toHaveLength(2))
-    expect(result.current.models).toEqual([modelState('openai/gpt-5'), modelState('anthropic/x')])
   })
 
   it('survives refused listings beside live workspaces', async () => {

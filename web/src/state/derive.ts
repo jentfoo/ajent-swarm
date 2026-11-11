@@ -143,7 +143,8 @@ export function mergeRecallSources(
 ): string[] {
   const seen = new Set<string>()
   const out: string[] = []
-  const merged = [...local, ...workspace].sort((a, b) => b.ts - a.ts) // stable: ties keep source order
+  // stable: ties keep source order
+  const merged = [...local, ...workspace].sort((a, b) => b.ts - a.ts)
   for (const p of merged) {
     if (p.text === '' || seen.has(p.text)) continue
     seen.add(p.text)

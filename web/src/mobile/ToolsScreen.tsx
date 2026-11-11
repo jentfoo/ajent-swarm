@@ -24,8 +24,8 @@ export function ToolsScreen({
   onClose: () => void
   onToast: (text: string, level?: 'info' | 'error') => void
 }): ReactElement | null {
-  const rows = snap.tools ?? []
   if (!open) return null
+  const rows = snap.tools ?? []
 
   return (
     <PushedScreen title="Tools" onClose={onClose}>

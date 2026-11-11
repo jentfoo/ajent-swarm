@@ -374,7 +374,7 @@ func (m *Manager) StopSession(ctx context.Context, sessionID string) error {
 		return ErrUnknownSession
 	}
 
-	exited := false
+	var exited bool
 	if a != nil {
 		err, _ := mailboxCall(ctx, a, func(reply chan error) actorMsg { return msgStop{reply: reply} })
 		var ce *ctl.Error

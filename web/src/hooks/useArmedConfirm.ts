@@ -16,8 +16,8 @@ interface ArmedFacts {
 // confirms when armed, onBlur disarms, wired to the button's own blur.
 interface ArmedConfirm {
   armed: boolean
-  onClick: (ev?: ReactMouseEvent<HTMLElement>) => void
-  onBlur: (ev?: ReactFocusEvent<HTMLElement>) => void
+  onClick: (ev: ReactMouseEvent<HTMLElement>) => void
+  onBlur: (ev: ReactFocusEvent<HTMLElement>) => void
 }
 
 export interface ArmedConfirmOptions {
@@ -84,7 +84,7 @@ export function useArmedConfirm(
   }, [armed, disarm])
 
   const onClick = useCallback(
-    (ev?: ReactMouseEvent<HTMLElement>) => {
+    (ev: ReactMouseEvent<HTMLElement>) => {
       if (disabled) return
       if (armed) {
         disarm()
@@ -92,7 +92,7 @@ export function useArmedConfirm(
         return
       }
       if (timer.current !== null) clearTimeout(timer.current)
-      armedEl.current = ev?.currentTarget ?? null
+      armedEl.current = ev.currentTarget
       setArmedFacts({ disabled, resetKey })
       timer.current = setTimeout(() => {
         timer.current = null
@@ -103,11 +103,11 @@ export function useArmedConfirm(
   )
 
   const onBlur = useCallback(
-    (ev?: ReactFocusEvent<HTMLElement>) => {
+    (ev: ReactFocusEvent<HTMLElement>) => {
       // focus with nowhere in-document to land (alt-tab, a click on plain page
       // area, focus-follows-mouse crossing windows) is not a changed mind
       // only a move onto another control voids the arm
-      if (ev && ev.relatedTarget === null) return
+      if (ev.relatedTarget === null) return
       disarm()
     },
     [disarm],

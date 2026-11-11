@@ -22,7 +22,7 @@ export interface KillSnapshot {
 
 // KillResult is one kill's outcome: the collapsed state it leaves and the
 // snapshot restoring what it replaced.
-export interface KillResult {
+interface KillResult {
   next: EditState
   snapshot: KillSnapshot
 }

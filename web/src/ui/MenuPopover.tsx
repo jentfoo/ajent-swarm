@@ -170,10 +170,9 @@ export function MenuPopover({
     const menu = menuRef.current
     if (!menu) return
     overlayEnter(menu)
-    const topmost = () => overlayTopmost(menu)
     const onKey = (ev: KeyboardEvent) => {
       // only the topmost layer answers, and never a press claimed elsewhere
-      if (!topmost() || ev.defaultPrevented) return
+      if (!overlayTopmost(menu) || ev.defaultPrevented) return
       if (ev.isComposing) return // an IME mid-composition keeps its keys
       // chords like Ctrl+Escape belong to the platform, never to a layer
       if (ev.key === 'Escape' && !ev.ctrlKey && !ev.metaKey && !ev.altKey) closeRef.current()

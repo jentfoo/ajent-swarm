@@ -25,7 +25,7 @@ export function isTransientPhase(phase: SessionPhase): boolean {
 
 // EndedBanner holds one ended-session warn banner's facts: whether any surface
 // renders it, and the sentence it opens with.
-export interface EndedBanner {
+interface EndedBanner {
   show: boolean
   text: string // 'Session ended.' or 'Session ended: <reason>.'
 }

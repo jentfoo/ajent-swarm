@@ -1,5 +1,5 @@
 import { act, fireEvent, render as renderView, renderHook, screen } from '@testing-library/react'
-import type { FocusEvent as ReactFocusEvent } from 'react'
+import type { FocusEvent as ReactFocusEvent, MouseEvent as ReactMouseEvent } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { useArmedConfirm } from './useArmedConfirm'
@@ -9,6 +9,10 @@ import type { ArmedConfirmOptions } from './useArmedConfirm'
 // confirms, and the timer, a focus move onto another control, a disabled
 // transition or fresh resetKey data disarms. Scroll voids the arm only once
 // it carries the control out of view, document-level focus loss keeps it.
+
+// clickEv fakes React's synthetic click, only currentTarget is read.
+const clickEv = () =>
+  ({ currentTarget: document.createElement('button') }) as unknown as ReactMouseEvent<HTMLElement>
 
 function scrollerScrolls() {
   const scroller = document.createElement('div')
@@ -77,11 +81,11 @@ describe('useArmedConfirm', () => {
   it('arms on the first click and confirms on the second', () => {
     const { result } = render()
 
-    act(() => result.current.onClick())
+    act(() => result.current.onClick(clickEv()))
     expect(result.current.armed).toBe(true)
     expect(onConfirm).not.toHaveBeenCalled()
 
-    act(() => result.current.onClick())
+    act(() => result.current.onClick(clickEv()))
     expect(result.current.armed).toBe(false)
     expect(onConfirm).toHaveBeenCalledTimes(1)
   })
@@ -89,11 +93,11 @@ describe('useArmedConfirm', () => {
   it('resets the arm once the window passes', () => {
     const { result } = render()
 
-    act(() => result.current.onClick())
+    act(() => result.current.onClick(clickEv()))
     act(() => vi.advanceTimersByTime(10_000))
     expect(result.current.armed).toBe(false)
 
-    act(() => result.current.onClick())
+    act(() => result.current.onClick(clickEv()))
     expect(result.current.armed).toBe(true)
     expect(onConfirm).not.toHaveBeenCalled()
   })
@@ -101,31 +105,18 @@ describe('useArmedConfirm', () => {
   it('holds the arm just inside the window', () => {
     const { result } = render()
 
-    act(() => result.current.onClick())
+    act(() => result.current.onClick(clickEv()))
     act(() => vi.advanceTimersByTime(9_999))
     expect(result.current.armed).toBe(true)
 
-    act(() => result.current.onClick())
+    act(() => result.current.onClick(clickEv()))
     expect(onConfirm).toHaveBeenCalledTimes(1)
-  })
-
-  it('resets the arm on blur without a related target', () => {
-    const { result } = render()
-
-    act(() => result.current.onClick())
-    // a direct call carries no event, so it reads as a plain reset
-    act(() => result.current.onBlur())
-    expect(result.current.armed).toBe(false)
-
-    act(() => result.current.onClick())
-    expect(result.current.armed).toBe(true)
-    expect(onConfirm).not.toHaveBeenCalled()
   })
 
   it('keeps the arm when focus leaves the document', () => {
     const { result } = render()
 
-    act(() => result.current.onClick())
+    act(() => result.current.onClick(clickEv()))
     // alt-tab or a focus-follows-mouse crossing fires focusout with a null target
     act(() =>
       result.current.onBlur({ relatedTarget: null } as unknown as ReactFocusEvent<HTMLElement>),
@@ -136,7 +127,7 @@ describe('useArmedConfirm', () => {
   it('resets the arm when focus lands on another control', () => {
     const { result } = render()
 
-    act(() => result.current.onClick())
+    act(() => result.current.onClick(clickEv()))
     act(() =>
       result.current.onBlur({
         relatedTarget: document.createElement('input'),
@@ -226,11 +217,11 @@ describe('useArmedConfirm', () => {
   it('resets the arm when disabled transitions', () => {
     const { result, rerender } = render()
 
-    act(() => result.current.onClick())
+    act(() => result.current.onClick(clickEv()))
     rerender({ disabled: true })
     expect(result.current.armed).toBe(false)
 
-    act(() => result.current.onClick())
+    act(() => result.current.onClick(clickEv()))
     expect(result.current.armed).toBe(false)
     expect(onConfirm).not.toHaveBeenCalled()
   })
@@ -238,12 +229,12 @@ describe('useArmedConfirm', () => {
   it('resets the arm when the reset key changes', () => {
     const { result, rerender } = render({ resetKey: { sessionId: '01A' } })
 
-    act(() => result.current.onClick())
+    act(() => result.current.onClick(clickEv()))
     // a poll rebuilds row objects even when the facts are unchanged
     rerender({ resetKey: { sessionId: '01A' } })
     expect(result.current.armed).toBe(false)
 
-    act(() => result.current.onClick())
+    act(() => result.current.onClick(clickEv()))
     expect(result.current.armed).toBe(true)
     expect(onConfirm).not.toHaveBeenCalled()
   })
@@ -252,11 +243,11 @@ describe('useArmedConfirm', () => {
     const row = { sessionId: '01A' }
     const { result, rerender } = render({ resetKey: row })
 
-    act(() => result.current.onClick())
+    act(() => result.current.onClick(clickEv()))
     rerender({ resetKey: row })
     expect(result.current.armed).toBe(true)
 
-    act(() => result.current.onClick())
+    act(() => result.current.onClick(clickEv()))
     expect(onConfirm).toHaveBeenCalledTimes(1)
   })
 })

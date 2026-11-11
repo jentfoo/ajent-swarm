@@ -71,7 +71,7 @@ func (s *Service) Session(ctx context.Context, token string) (Principal, bool, e
 		_ = s.st.DeleteAuthSession(ctx, sess.TokenHash)
 		return Principal{}, false, ErrInvalidSession
 	}
-	renewed := false
+	var renewed bool
 	if now.Sub(sess.LastSeen) >= s.slideEvery {
 		err = s.st.TouchAuthSession(ctx, sess.TokenHash, now, now.Add(s.ttl))
 		if err != nil {

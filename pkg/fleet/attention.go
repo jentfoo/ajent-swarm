@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/go-analyze/bulk"
 )
 
 // Attention kinds carried by the digest, one per live session row. The
@@ -74,10 +76,9 @@ func (m *Manager) loadAcks(ctx context.Context) {
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.dialogAcks = make(map[dialogAckKey]struct{}, len(dialogs))
-	for _, d := range dialogs {
-		m.dialogAcks[dialogAckKey{d.SessionID, d.PID, d.DialogID}] = struct{}{}
-	}
+	m.dialogAcks = bulk.SliceToSetBy(func(d DialogAck) dialogAckKey {
+		return dialogAckKey{d.SessionID, d.PID, d.DialogID}
+	}, dialogs)
 	m.turnAcks = turns
 }
 
@@ -158,8 +159,6 @@ func (m *Manager) ackFactsFor(statuses []*Status) []ackFacts {
 func deriveAttention(st *Status, acks ackFacts) Attention {
 	row := Attention{
 		digestFacts: st.digestFacts,
-		// Acknowledgment facts from the server-side ledger: whether this row's
-		// oldest open dialog is settled, and the session's acknowledged turn end.
 		AckedDialog: acks.dialog,
 		AckedTurn:   acks.turn,
 	}

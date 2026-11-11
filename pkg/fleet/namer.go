@@ -48,19 +48,16 @@ func (m *Manager) maybeNameSessionFrom(a *sessionActor, prompt string) {
 		return
 	}
 	m.mu.Lock()
-	if _, tried := m.named[a.key.sessionID]; tried {
-		m.mu.Unlock()
-		return
-	}
-	// an existing title wins: a rename from any surface is never overwritten
-	if m.titles[a.key.sessionID] != "" {
-		m.named[a.key.sessionID] = struct{}{}
-		m.mu.Unlock()
-		return
-	}
+	_, tried := m.named[a.key.sessionID]
+	titled := m.titles[a.key.sessionID] != ""
 	m.named[a.key.sessionID] = struct{}{}
 	sessionID := a.key.sessionID
 	m.mu.Unlock()
+
+	// an existing title wins: a rename from any surface is never overwritten
+	if tried || titled {
+		return
+	}
 
 	m.wg.Add(1)
 	go func() {
@@ -93,10 +90,7 @@ func (m *Manager) autoName(sessionID, startPrompt string) error {
 // sessionTitleFor asks a one-shot ajent run for the label. A configured
 // titling model rides along, when the run fails with it, the setting drops
 // back to the default (each session's own model) for this naming and beyond.
-// Tools stay off via --no-tools and the scratch working directory keeps any
-// stray output away from real workspaces. The transcript ajent saves for that
-// scratch run is dropped afterwards, so titling never adds a session to the
-// active ajent home.
+// The scratch run never touches ajent's own sessions or workspace.
 func (m *Manager) sessionTitleFor(ctx context.Context, startPrompt string) (string, error) {
 	dir, err := os.MkdirTemp("", "swarm-name-")
 	if err != nil {

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -99,32 +100,20 @@ func mintPendingID(client string) string {
 // handleSessionSubmit routes one prompt line exactly as typed in the session's
 // editor, answering 202 with the pendingId echoed so optimistic rows resolve.
 func (s *apiServer) handleSessionSubmit(w http.ResponseWriter, r *http.Request) {
-	var req submitRequest
-	if !readRequest(w, r, &req) {
-		return
-	}
-	if strings.TrimSpace(req.Line) == "" {
-		writeError(w, http.StatusBadRequest, codeInvalidRequest, "line must not be empty")
-		return
-	}
-	if len(req.PendingID) > maxPendingID {
-		writeError(w, http.StatusBadRequest, codeInvalidRequest, "pendingId is too long")
-		return
-	}
-	pendingID := mintPendingID(req.PendingID)
-	err := s.fleet.SubmitTracked(r.Context(), r.PathValue("id"),
-		ctl.SubmitParams{Line: req.Line, PendingID: pendingID})
-	if err != nil {
-		writeCommandFailure(w, err)
-		return
-	}
-	writeJSON(w, http.StatusAccepted, submitReply{PendingID: pendingID})
+	s.handleSubmitLine(w, r, s.fleet.SubmitTracked)
 }
 
 // handleSessionQueue parks one prompt line until the session has been idle
 // for the queue window, answering 202 like submit so the same optimistic row
 // resolves when the line lands.
 func (s *apiServer) handleSessionQueue(w http.ResponseWriter, r *http.Request) {
+	s.handleSubmitLine(w, r, s.fleet.QueueSubmit)
+}
+
+// handleSubmitLine validates one prompt line and lands it through land.
+func (s *apiServer) handleSubmitLine(w http.ResponseWriter, r *http.Request,
+	land func(ctx context.Context, sessionID string, params ctl.SubmitParams) error,
+) {
 	var req submitRequest
 	if !readRequest(w, r, &req) {
 		return
@@ -138,7 +127,7 @@ func (s *apiServer) handleSessionQueue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	pendingID := mintPendingID(req.PendingID)
-	err := s.fleet.QueueSubmit(r.Context(), r.PathValue("id"),
+	err := land(r.Context(), r.PathValue("id"),
 		ctl.SubmitParams{Line: req.Line, PendingID: pendingID})
 	if err != nil {
 		writeCommandFailure(w, err)

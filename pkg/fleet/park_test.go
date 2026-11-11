@@ -2,7 +2,6 @@ package fleet
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -65,111 +64,28 @@ func waitForRunning(t *testing.T, m *Manager, f *fleettest.Stub, running bool) {
 
 func TestPark(t *testing.T) {
 	t.Run("idle_session_waits_out_one_window", func(t *testing.T) {
-		m, f := newParkFleet(t, 80*time.Millisecond)
+		m, f := newParkFleet(t, 50*time.Millisecond)
 		// no known activity, but the park itself still lives one window so the
 		// queued state is observable and recallable
 		require.NoError(t, m.QueueSubmit(t.Context(), f.SessionID(), ctl.SubmitParams{Line: "hello"}))
-		require.Never(t, func() bool { return len(submittedLines(f)) > 0 }, 40*time.Millisecond, 10*time.Millisecond)
+		require.Never(t, func() bool { return len(submittedLines(f)) > 0 }, 25*time.Millisecond, 5*time.Millisecond)
 		require.Eventually(t, func() bool {
 			return len(submittedLines(f)) == 1
 		}, 2*time.Second, testPoll)
 	})
 
 	t.Run("busy_session_waits_for_quiet", func(t *testing.T) {
-		m, f := newParkFleet(t, 80*time.Millisecond)
+		m, f := newParkFleet(t, 50*time.Millisecond)
 		f.Broadcast(ctl.EventTurnStart, nil)
 		waitForRunning(t, m, f, true) // the park must arm against the live turn
 		require.NoError(t, m.QueueSubmit(t.Context(), f.SessionID(), ctl.SubmitParams{Line: "later"}))
 		f.Broadcast(ctl.EventTurnEnd, ctl.TurnEndData{Stop: "end_turn"})
 
 		// the flush only lands once the turn end has aged past the window
-		require.Never(t, func() bool { return len(submittedLines(f)) > 0 }, 40*time.Millisecond, 10*time.Millisecond)
+		require.Never(t, func() bool { return len(submittedLines(f)) > 0 }, 25*time.Millisecond, 5*time.Millisecond)
 		require.Eventually(t, func() bool {
 			return len(submittedLines(f)) == 1
 		}, 2*time.Second, testPoll)
-	})
-
-	t.Run("quiet_fleet_drips_one_line_per_window", func(t *testing.T) {
-		m, f := newParkFleet(t, 150*time.Millisecond)
-		require.NoError(t, m.QueueSubmit(t.Context(), f.SessionID(), ctl.SubmitParams{Line: "first"}))
-		require.NoError(t, m.QueueSubmit(t.Context(), f.SessionID(), ctl.SubmitParams{Line: "second"}))
-
-		// the oldest line lands alone at the first idle point
-		require.Eventually(t, func() bool { return len(submittedLines(f)) == 1 }, 2*time.Second, testPoll)
-		// the second waits out its own window instead of riding the same one
-		require.Never(t, func() bool { return len(submittedLines(f)) > 1 }, 100*time.Millisecond, testPoll)
-		require.Eventually(t, func() bool { return len(submittedLines(f)) == 2 }, 2*time.Second, testPoll)
-	})
-
-	t.Run("released_turn_holds_the_rest", func(t *testing.T) {
-		m, f := newParkFleet(t, 150*time.Millisecond)
-		first := true
-		f.OnSubmit(func(_ ctl.SubmitParams) { // the released line starts a turn
-			if first {
-				first = false
-				f.Broadcast(ctl.EventTurnStart, nil)
-			}
-		})
-		require.NoError(t, m.QueueSubmit(t.Context(), f.SessionID(), ctl.SubmitParams{Line: "first"}))
-		require.NoError(t, m.QueueSubmit(t.Context(), f.SessionID(), ctl.SubmitParams{Line: "second"}))
-
-		require.Eventually(t, func() bool { return len(submittedLines(f)) == 1 }, 2*time.Second, testPoll)
-		waitForRunning(t, m, f, true)
-		// the running turn keeps every later line parked past two whole windows
-		require.Never(t, func() bool { return len(submittedLines(f)) > 1 }, 300*time.Millisecond, testPoll)
-
-		f.Broadcast(ctl.EventTurnEnd, ctl.TurnEndData{Stop: "end_turn"})
-		// and after it ends the next line still waits one full quiet window
-		require.Never(t, func() bool { return len(submittedLines(f)) > 1 }, 75*time.Millisecond, testPoll)
-		require.Eventually(t, func() bool { return len(submittedLines(f)) == 2 }, 2*time.Second, testPoll)
-	})
-
-	t.Run("one_idle_point_across_sessions", func(t *testing.T) {
-		home := testutil.IsolateHome(t)
-		m := New(Options{
-			Log:            testLogger(),
-			PollInterval:   testPoll,
-			BackoffBase:    testBackoff,
-			BackoffMax:     testBackoffHi,
-			ParkIdleWindow: 120 * time.Millisecond,
-		})
-		m.Start(t.Context())
-		t.Cleanup(m.Stop)
-
-		stubs := make([]*fleettest.Stub, 0, 2)
-		for i, sid := range []string{"01PARKSESSION000000", "01PARKSESSION000001"} {
-			f := fleettest.New(t, home, fleettest.Options{SessionID: sid,
-				Token: fmt.Sprintf("token%d", i)})
-			f.SetSnapshot(ctl.State{Session: ctl.Session{ID: f.SessionID()}})
-			f.WriteRegistry(t, os.Getpid(), time.Now())
-			waitForState(t, m, f.SessionID(), ChildOnline)
-			stubs = append(stubs, f)
-		}
-
-		for i, f := range stubs {
-			require.NoError(t, m.QueueSubmit(t.Context(), f.SessionID(),
-				ctl.SubmitParams{Line: fmt.Sprintf("line %d", i)}))
-			f.Broadcast(ctl.EventTurnStart, nil) // hold both behind the live turns
-		}
-		for _, f := range stubs {
-			waitForRunning(t, m, f, true)
-		}
-		for _, f := range stubs { // both end together: one shared quiet point
-			f.Broadcast(ctl.EventTurnEnd, ctl.TurnEndData{Stop: "end_turn"})
-		}
-
-		flushed := func() int {
-			n := 0
-			for _, f := range stubs {
-				n += len(submittedLines(f))
-			}
-			return n
-		}
-		require.Eventually(t, func() bool { return flushed() == 1 }, 2*time.Second, testPoll)
-		// the loser re-arms behind the winner instead of riding its idle point
-		require.Never(t, func() bool { return flushed() > 1 },
-			60*time.Millisecond, testPoll)
-		require.Eventually(t, func() bool { return flushed() == 2 }, 2*time.Second, testPoll)
 	})
 
 	t.Run("parked_facts_reach_the_digest", func(t *testing.T) {

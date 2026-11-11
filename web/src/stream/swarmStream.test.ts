@@ -63,7 +63,7 @@ describe('SwarmStream subscriptions', () => {
   })
 
   afterEach(() => {
-    stream.destroy()
+    stream.disconnect()
     vi.useRealTimers()
   })
 
@@ -283,7 +283,7 @@ describe('SwarmStream reconnects', () => {
   })
 
   afterEach(() => {
-    stream.destroy()
+    stream.disconnect()
     vi.useRealTimers()
   })
 

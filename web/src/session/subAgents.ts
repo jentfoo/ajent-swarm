@@ -14,7 +14,7 @@ import type { ActivityRow, AgentJob, AgentJobStatus, Segment } from '../api/type
 const rowPrefix = 'sub-'
 
 // isSubAgentRow reports whether an activity row belongs to a sub-agent job.
-export function isSubAgentRow(row: ActivityRow): boolean {
+function isSubAgentRow(row: ActivityRow): boolean {
   return row.key.startsWith(rowPrefix)
 }
 
@@ -27,7 +27,7 @@ export function subAgentRows(activity: ActivityRow[] | undefined): ActivityRow[]
 
 // CappedRows is a band's visible rows plus how many fold under the overflow
 // line.
-export interface CappedRows {
+interface CappedRows {
   rows: ActivityRow[]
   overflow: number
 }

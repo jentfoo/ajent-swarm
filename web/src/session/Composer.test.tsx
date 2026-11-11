@@ -89,6 +89,7 @@ function ControlledHarness({ component: Component = Composer, ...overrides }: Ha
         setValue(next)
         return next
       },
+      refresh: () => {}, // no mirror rides the test harness
     },
   }
   return <Component {...props} />
@@ -1810,7 +1811,7 @@ describe('Composer image paste', () => {
 // acceptance tests can assert the merged draft and the handed-back caret.
 function recallHarness(items: string[]) {
   const accept = vi.fn((text: string, current: string) => prependDraft(current, text))
-  return { recall: { items, accept }, accept }
+  return { recall: { items, accept, refresh: () => {} }, accept }
 }
 
 // mirrorHarness feeds a recall source that gains the workspace mirror's row

@@ -11,7 +11,7 @@ interface ToolIntent {
   seen: readonly ToolState[]
 }
 
-export interface ToolToggles {
+interface ToolToggles {
   // enabledOf reads one row's effective state: the streamed fact overlaid with
   // any pending intent still decided against the rows of this render.
   enabledOf: (row: ToolState) => boolean

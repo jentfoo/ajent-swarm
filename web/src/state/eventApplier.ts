@@ -438,10 +438,11 @@ function applyEvent(state: AppliedSessionState, ev: WireEvent): AppliedSessionSt
       const d = decode<{ rows?: QueueRow[]; cause?: string }>(ev.data)
       if (d === undefined) return next
       // Rows are dropped by id: secret redaction means text may be empty.
-      const dropped = new Set((d.rows ?? []).map((row) => row.id))
+      const rowsIn = d.rows ?? []
+      const dropped = new Set(rowsIn.map((row) => row.id))
       const rows = (next.snapshot.queuedRows ?? []).filter((row) => !dropped.has(row.id))
       next.snapshot = { ...next.snapshot, queuedRows: rows, queued: rows.length }
-      for (const row of d.rows ?? []) {
+      for (const row of rowsIn) {
         if (!isValidId(row.id)) continue
         next.droppedRows = boundedAppend(
           next.droppedRows,
@@ -703,7 +704,7 @@ function applyStatus(next: AppliedSessionState, ev: WireEvent): AppliedSessionSt
   }>(ev.data)
   if (d === undefined) return next
 
-  if (d.segment !== undefined && d.segment !== null) {
+  if (d.segment != null) {
     const seg = d.segment
     if (!isValidId(seg.key)) return next
     const { key } = seg
@@ -723,11 +724,11 @@ function applyStatus(next: AppliedSessionState, ev: WireEvent): AppliedSessionSt
     next.snapshot = { ...next.snapshot, status: { segments } }
     return next
   }
-  if (d.model !== undefined && d.model !== null) {
+  if (d.model != null) {
     next.snapshot = { ...next.snapshot, model: d.model }
     return next
   }
-  if (d.spinning !== undefined && d.spinning !== null) {
+  if (d.spinning != null) {
     next.snapshot = { ...next.snapshot, spinning: d.spinning }
     return next
   }
@@ -1039,9 +1040,9 @@ function drainLiveCoveredBy(state: AppliedSessionState, entry: Entry): void {
     }
   } else if (role === 'user') {
     const resultIds = new Set(
-      blocks
-        .filter((b) => b.type === 'tool_result' && isValidId(toolCallId(b)))
-        .map((b) => toolCallId(b)!),
+      blocks.flatMap((b) =>
+        b.type === 'tool_result' && isValidId(toolCallId(b)) ? [toolCallId(b)!] : [],
+      ),
     )
     // A staged run's flush commits as an injected "User Ran: <cmd>" message:
     // its finished cards retire, the output is transcript history now. Both

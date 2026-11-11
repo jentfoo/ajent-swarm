@@ -14,6 +14,15 @@ import { overlayOpen } from '../ui/overlayStack'
 
 export type Direction = 'left' | 'right' | 'up' | 'down'
 
+// Arrow keys report the same key name regardless of shift, one table serves
+// both the mod focus moves and the alt resizes.
+const arrowDirections: Record<string, Direction> = {
+  ArrowLeft: 'left',
+  ArrowRight: 'right',
+  ArrowUp: 'up',
+  ArrowDown: 'down',
+}
+
 export interface WorkspaceKeyHandlers {
   onNext?: () => void // j
   onPrevious?: () => void // k
@@ -67,48 +76,20 @@ export function useWorkspaceKeys(handlers: WorkspaceKeyHandlers): void {
           else h.onSplitRight?.()
           return
         }
-        switch (ev.key.toLowerCase()) {
-          case 'arrowleft':
-            ev.preventDefault()
-            h.onFocusDirection?.('left')
-            return
-          case 'arrowright':
-            ev.preventDefault()
-            h.onFocusDirection?.('right')
-            return
-          case 'arrowup':
-            ev.preventDefault()
-            h.onFocusDirection?.('up')
-            return
-          case 'arrowdown':
-            ev.preventDefault()
-            h.onFocusDirection?.('down')
-            return
-          default:
-            return
+        const dir = arrowDirections[ev.key]
+        if (dir !== undefined) {
+          ev.preventDefault()
+          h.onFocusDirection?.(dir)
         }
+        return
       }
       if (ev.altKey && !mod) {
-        switch (ev.key) {
-          case 'ArrowLeft':
-            ev.preventDefault()
-            h.onResize?.('left')
-            return
-          case 'ArrowRight':
-            ev.preventDefault()
-            h.onResize?.('right')
-            return
-          case 'ArrowUp':
-            ev.preventDefault()
-            h.onResize?.('up')
-            return
-          case 'ArrowDown':
-            ev.preventDefault()
-            h.onResize?.('down')
-            return
-          default:
-            return
+        const dir = arrowDirections[ev.key]
+        if (dir !== undefined) {
+          ev.preventDefault()
+          h.onResize?.(dir)
         }
+        return
       }
       if (mod || ev.altKey) return
       // a focused real button or link keeps its native activation, so Enter

@@ -41,7 +41,9 @@ export default function FocusedWorkspace() {
   const rows = useMemo(() => [...needs, ...waiting, ...working], [needs, waiting, working])
   const [cursorId, setCursorId] = useState<string | null>(selected ?? rows[0]?.sessionId ?? null)
 
-  // The cursor follows reality: a row that leaves the queue moves to the next.
+  // The cursor follows reality: a row that leaves the queue snaps to the
+  // first needs row, an unknown id lands at index zero rather than falling
+  // off the list.
   const cursorIndex = Math.max(
     0,
     rows.findIndex((r) => r.sessionId === cursorId),

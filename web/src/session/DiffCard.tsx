@@ -40,7 +40,7 @@ export function EditOpDiff({ op }: { op: EditOp }) {
   return <DiffRows view={view} />
 }
 
-export type DiffKind = 'add' | 'del' | 'ctx' | 'meta'
+type DiffKind = 'add' | 'del' | 'ctx' | 'meta'
 
 // one rendered row: kind carries the screen role, num the file line it came
 // from (null on hunk headers), em the intraline changed ranges within text
@@ -196,7 +196,7 @@ export function gutterWidth(before: string, after: string): number {
   return Math.max(minGutter, String(lines).length)
 }
 
-export interface IntralineSpans {
+interface IntralineSpans {
   del: Array<[number, number]>
   add: Array<[number, number]>
 }

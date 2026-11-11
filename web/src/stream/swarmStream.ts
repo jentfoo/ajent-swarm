@@ -78,7 +78,6 @@ export class SwarmStream {
   private retryTimer: ReturnType<typeof setTimeout> | null = null
   private watchdog: ReturnType<typeof setInterval> | null = null
   private lastFrameAt = 0
-  private destroyed = false
   // per-session resubscribe backoff after a refused subscribe
   private resubTimers = new Map<string, ReturnType<typeof setTimeout>>()
   private resubAttempts = new Map<string, number>()
@@ -138,7 +137,7 @@ export class SwarmStream {
   // connect opens the shared socket eagerly so the global connection banner
   // reflects reality before any view subscribes, later subscribes ride it.
   connect(): void {
-    if (this.destroyed || this.socket !== null) return
+    if (this.socket !== null) return
     this.retryAttempt = 0
     this.ensureSocket()
   }
@@ -199,12 +198,6 @@ export class SwarmStream {
     ws?.close()
   }
 
-  // destroy tears the client down permanently, used by tests.
-  destroy(): void {
-    this.destroyed = true
-    this.disconnect()
-  }
-
   // --- internals ---
 
   private isOpen(): boolean {
@@ -218,7 +211,7 @@ export class SwarmStream {
   }
 
   private ensureSocket() {
-    if (this.destroyed || this.socket !== null) return
+    if (this.socket !== null) return
     // the visibility handler only matters once a socket exists, registering
     // here keeps an unused instance (a StrictMode discard) off the document
     document.addEventListener('visibilitychange', this.handleVisibility)
@@ -281,13 +274,13 @@ export class SwarmStream {
   }
 
   private scheduleReconnect() {
-    if (this.destroyed || this.retryTimer !== null) return
+    if (this.retryTimer !== null) return
     const exp = Math.min(this.backoffBaseMs * 2 ** this.retryAttempt, this.backoffMaxMs)
     const spread = this.jitter ? Math.random() * this.backoffBaseMs : 0
     this.retryAttempt += 1
     this.retryTimer = setTimeout(() => {
       this.retryTimer = null
-      if (!this.destroyed) this.ensureSocket()
+      this.ensureSocket()
     }, exp + spread)
   }
 
@@ -389,7 +382,7 @@ export class SwarmStream {
   // refused or retired subscription rejoins as soon as the fleet can serve it.
   // Exhausted attempts mark the phase lost, an ended session never retries.
   private scheduleResubscribe(sessionId: string): void {
-    if (this.destroyed || !this.refs.has(sessionId)) return
+    if (!this.refs.has(sessionId)) return
     if (this.phases.get(sessionId) === 'ended') return // definitive end, stops retrying
     const attempt = this.resubAttempts.get(sessionId) ?? 0
     if (attempt >= resubscribeMaxAttempts) {
@@ -401,7 +394,7 @@ export class SwarmStream {
     const wait = Math.min(resubscribeBaseMs * 2 ** attempt, resubscribeMaxMs)
     const timer = setTimeout(() => {
       this.resubTimers.delete(sessionId)
-      if (this.destroyed || !this.refs.has(sessionId)) return
+      if (!this.refs.has(sessionId)) return
       this.setPhase(sessionId, 'connecting')
       this.sendFrame({ type: 'subscribe', sessionId })
     }, wait)

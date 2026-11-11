@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -134,6 +135,21 @@ func waitForCommit(t *testing.T, m *Manager, sessionID, id string) {
 	}, 2*time.Second, testPoll)
 }
 
+// waitForRecord waits until the wanted recall rows landed in the mirror: the
+// submit reply intentionally outruns the mirror write.
+func waitForRecord(t *testing.T, rs *fakeRecallStore, want ...string) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		texts := rs.texts()
+		for _, w := range want {
+			if !slices.Contains(texts, w) {
+				return false
+			}
+		}
+		return true
+	}, 2*time.Second, testPoll)
+}
+
 func TestSubmitTrackedRecall(t *testing.T) {
 	t.Run("typed_prompt_records", func(t *testing.T) {
 		rs := newFakeRecallStore()
@@ -141,7 +157,7 @@ func TestSubmitTrackedRecall(t *testing.T) {
 		require.NoError(t, m.SubmitTracked(t.Context(), f.SessionID(),
 			ctl.SubmitParams{Line: "explain this diff", PendingID: "c1"}))
 
-		assert.Contains(t, rs.texts(), "/repo|explain this diff")
+		waitForRecord(t, rs, "/repo|explain this diff")
 		assert.Empty(t, rs.scrubbed()) // nothing contradicts the row yet
 	})
 
@@ -165,9 +181,8 @@ func TestSubmitTrackedRecall(t *testing.T) {
 		require.NoError(t, m.SubmitTracked(t.Context(), f.SessionID(),
 			ctl.SubmitParams{Line: " ordinary prompt", PendingID: "c3"}))
 
-		assert.Contains(t, rs.texts(), "/repo|//not a command")
-		assert.Contains(t, rs.texts(), "/repo|/pasted\nmulti line")
-		assert.Contains(t, rs.texts(), "/repo| ordinary prompt")
+		waitForRecord(t, rs,
+			"/repo|//not a command", "/repo|/pasted\nmulti line", "/repo| ordinary prompt")
 	})
 
 	t.Run("secret_prefix_records_withheld", func(t *testing.T) {
@@ -183,6 +198,7 @@ func TestSubmitTrackedRecall(t *testing.T) {
 		require.NoError(t, m.SubmitTracked(t.Context(), f.SessionID(),
 			ctl.SubmitParams{Line: " escaped secret:of mine", PendingID: "c3"}))
 
+		waitForRecord(t, rs, "/repo| escaped secret:of mine")
 		assert.Contains(t, rs.texts(), "/repo|") // both withheld rows exist
 		assert.NotContains(t, rs.texts(), "/repo|secret:hunter2")
 		assert.NotContains(t, rs.texts(), "/repo| secret:hunter2")
@@ -309,7 +325,10 @@ func TestRecallLedger(t *testing.T) {
 	})
 }
 
-func TestRecallLinesListing(t *testing.T) {
+// The listing merges ajent's own recall store with the mirror. IsolateHome
+// pins AJENT_HOME, so helpers writing through session.NewStore land where the
+// manager reads.
+func TestRecallLines(t *testing.T) {
 	t.Run("serves_the_session_workspace", func(t *testing.T) {
 		rs := newFakeRecallStore()
 		m, f := recallFleet(t, rs)
@@ -339,45 +358,7 @@ func TestRecallLinesListing(t *testing.T) {
 		assert.NotNil(t, rows)
 		assert.Empty(t, rows)
 	})
-}
 
-// appendTypedLine records one CLI-typed line in workspace's editor history,
-// where an interactive ajent run persists its recall source.
-func appendTypedLine(t *testing.T, ws, text string) {
-	t.Helper()
-	store, err := session.NewStore()
-	require.NoError(t, err)
-	hist, err := session.NewEditorHistory(store, ws, recallSecretPrefix)
-	require.NoError(t, err)
-	hist.Append(text)
-}
-
-// recordPromptTranscript saves one user prompt in workspace's session store,
-// the transcript source an interactive CLI's Ctrl+R backfills from.
-func recordPromptTranscript(t *testing.T, ws, text string) {
-	t.Helper()
-	store, err := session.NewStore()
-	require.NoError(t, err)
-	w, err := store.Create(ws, session.SessionData{Version: session.Version(), Workspace: ws})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = w.Close() })
-	_, err = w.Append(session.TypeMessage, session.MessageData{
-		Message: llm.Text(llm.RoleUser, text)})
-	require.NoError(t, err)
-}
-
-func recallTexts(rows []RecallLine) []string {
-	out := make([]string, len(rows))
-	for i, r := range rows {
-		out[i] = r.Text
-	}
-	return out
-}
-
-// The listing merges ajent's own recall store with the mirror. IsolateHome
-// pins AJENT_HOME, so helpers writing through session.NewStore land where the
-// manager reads.
-func TestRecallLinesAjentSources(t *testing.T) {
 	t.Run("serves_cli_typed_lines", func(t *testing.T) {
 		m, f := recallFleet(t, newFakeRecallStore())
 		appendTypedLine(t, "/repo", "typed in the cli")
@@ -438,6 +419,39 @@ func TestRecallLinesAjentSources(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, []string{"cli SEARCH target"}, recallTexts(rows))
 	})
+}
+
+// appendTypedLine records one CLI-typed line in workspace's editor history,
+// where an interactive ajent run persists its recall source.
+func appendTypedLine(t *testing.T, ws, text string) {
+	t.Helper()
+	store, err := session.NewStore()
+	require.NoError(t, err)
+	hist, err := session.NewEditorHistory(store, ws, recallSecretPrefix)
+	require.NoError(t, err)
+	hist.Append(text)
+}
+
+// recordPromptTranscript saves one user prompt in workspace's session store,
+// the transcript source an interactive CLI's Ctrl+R backfills from.
+func recordPromptTranscript(t *testing.T, ws, text string) {
+	t.Helper()
+	store, err := session.NewStore()
+	require.NoError(t, err)
+	w, err := store.Create(ws, session.SessionData{Version: session.Version(), Workspace: ws})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = w.Close() })
+	_, err = w.Append(session.TypeMessage, session.MessageData{
+		Message: llm.Text(llm.RoleUser, text)})
+	require.NoError(t, err)
+}
+
+func recallTexts(rows []RecallLine) []string {
+	out := make([]string, len(rows))
+	for i, r := range rows {
+		out[i] = r.Text
+	}
+	return out
 }
 
 func TestMergeRecallLines(t *testing.T) {

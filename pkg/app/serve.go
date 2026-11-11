@@ -219,7 +219,7 @@ func startLogRotation(dir string, opts Options, log *slog.Logger) func() {
 	if opts.LogMaxBytes <= 0 {
 		return func() {}
 	}
-	selfLog := ""
+	var selfLog string
 	if isDaemonChild() {
 		selfLog = opts.LogPath
 		if selfLog == "" {

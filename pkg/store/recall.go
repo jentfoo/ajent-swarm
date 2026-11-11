@@ -46,7 +46,7 @@ func (s *Store) RecordRecallLine(ctx context.Context, workspace, text string, at
 		`SELECT id, text FROM recall_lines WHERE workspace = ?
         ORDER BY created_at DESC, id DESC LIMIT 1`, workspace,
 	).Scan(&id, &newest)
-	isRepeat := false
+	var isRepeat bool
 	switch {
 	case errors.Is(rowErr, sql.ErrNoRows): // first row for the workspace
 	case rowErr != nil:

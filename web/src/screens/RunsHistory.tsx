@@ -3,6 +3,7 @@ import type { ReactElement } from 'react'
 import { describeError } from '../api/errors'
 import { jobsApi, runsApi } from '../api/endpoints'
 import type { Job, Run, RunStatus } from '../api/types'
+import { runStatuses } from '../api/types'
 import { mobileLayout, useMediaQuery } from '../hooks/useMediaQuery'
 import { useNow } from '../hooks/useNow'
 import { usePoll } from '../hooks/usePoll'
@@ -17,8 +18,6 @@ import { RunDetail } from '../jobs/RunDetail'
 import { useOverlayBack } from '../ui/useOverlayBack'
 
 const pollRunsMs = 10_000
-
-const runStatuses: RunStatus[] = ['running', 'awaiting_input', 'ok', 'failed', 'timeout', 'skipped']
 
 // RunsHistory is the filterable history over /api/runs: by job through the
 // backend's ?job= parameter, by status client-side. Each row's display data

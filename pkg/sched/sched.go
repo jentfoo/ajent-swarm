@@ -225,13 +225,15 @@ func (s *Scheduler) fireDue(j store.Job, now time.Time) bool {
 	late := !j.RunWhenIdle && // an idle wait delays by design, never late
 		now.Sub(slot) > s.opts.MissedGrace
 	if late && (j.ScheduleKind == store.ScheduleOnce || j.OnMissed == store.MissSkip) {
-		run.Status = store.RunSkipped // the slot is beyond its grace window
+		var reason string
 		if j.ScheduleKind == store.ScheduleOnce {
-			run.Error = "skipped: one-shot missed its slot at " + slot.Format(time.RFC3339)
+			reason = "skipped: one-shot missed its slot at " + slot.Format(time.RFC3339)
 		} else {
-			run.Error = "skipped: slot at " + slot.Format(time.RFC3339) +
+			reason = "skipped: slot at " + slot.Format(time.RFC3339) +
 				" was missed while the service was away"
 		}
+		s.skipDue(j, slot, reason)
+		return false
 	}
 
 	id, final, claimed := s.claimFire(j, slot, now, run)
@@ -263,8 +265,7 @@ func (s *Scheduler) skipDue(j store.Job, slot time.Time, reason string) {
 	run := s.baseRun(j, store.TriggerSchedule, now)
 	run.Status = store.RunSkipped
 	run.Error = reason
-	id, final, claimed := s.claimFire(j, slot, now, run)
-	if claimed && final == store.RunSkipped {
+	if id, _, claimed := s.claimFire(j, slot, now, run); claimed {
 		s.log.Info("run skipped", "job", j.Name, "reason", reason,
 			"run", id)
 	}

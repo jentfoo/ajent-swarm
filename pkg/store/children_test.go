@@ -70,7 +70,7 @@ func TestChildren(t *testing.T) {
 			SessionName: "daily",
 			Workspace:   "/repo",
 			StartedAt:   time.Unix(1000, 0),
-			Origin:      OriginExternal,
+			Origin:      "external",
 		})
 		require.NoError(t, err)
 		assert.True(t, inserted)
@@ -78,7 +78,7 @@ func TestChildren(t *testing.T) {
 
 		// a repeated discovery pass over the same process keeps the first row
 		again, inserted, err := st.CreateChildIfAbsent(ctx, Child{
-			PID: 55, SessionID: "01LATERPASS000001", Origin: OriginExternal,
+			PID: 55, SessionID: "01LATERPASS000001", Origin: "external",
 		})
 		require.NoError(t, err)
 		assert.False(t, inserted)
@@ -92,7 +92,7 @@ func TestChildren(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, rows, 2)
 		assert.Equal(t, "01FIRSTSEEN000001", rows[1].SessionID)
-		assert.Equal(t, OriginExternal, rows[1].Origin)
+		assert.Equal(t, "external", rows[1].Origin)
 		assert.Equal(t, OriginSwarm, rows[0].Origin) // empty origin defaults to swarm
 	})
 
@@ -119,7 +119,7 @@ func TestChildren(t *testing.T) {
 
 		_, inserted, err := st.CreateChildIfAbsent(ctx, Child{
 			PID: 91, SessionID: "01EXTERNAL00000001", Workspace: "/repo",
-			StartedAt: time.Unix(1000, 0), Origin: OriginExternal,
+			StartedAt: time.Unix(1000, 0), Origin: "external",
 		})
 		require.NoError(t, err)
 		assert.True(t, inserted)

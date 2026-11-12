@@ -37,22 +37,37 @@ function thinkingPanel(): HTMLDetailsElement | null {
   return screen.getByText('thinking…').closest('details')
 }
 
+// noopToggle satisfies the applier callback every live block must report through
+const noopToggle = () => {}
+
 describe('LiveStreamBlock thinking panel', () => {
   it('mounts expanded from the applier intent', () => {
-    render(<LiveStreamBlock live={liveFor({ thinking: 'hmm' })} />)
+    render(<LiveStreamBlock live={liveFor({ thinking: 'hmm' })} onThinkingToggle={() => {}} />)
     expect(thinkingPanel()?.open).toBe(true)
   })
 
   it('seeds a remounted stream with the recorded intent', () => {
-    const { rerender } = render(<LiveStreamBlock live={liveFor({ thinking: 'one' })} />)
+    const { rerender } = render(
+      <LiveStreamBlock live={liveFor({ thinking: 'one' })} onThinkingToggle={() => {}} />,
+    )
 
     // step one ends and its content hands off, unmounting the panel
-    rerender(<LiveStreamBlock live={liveFor({ thinking: '', thinkingOpen: false })} />)
+    rerender(
+      <LiveStreamBlock
+        live={liveFor({ thinking: '', thinkingOpen: false })}
+        onThinkingToggle={() => {}}
+      />,
+    )
     expect(screen.queryByText('thinking…')).not.toBeInTheDocument()
 
     // a mid-turn remount seeds from intent, which is how an applier-recorded
     // user collapse survives the handoff between steps
-    rerender(<LiveStreamBlock live={liveFor({ thinking: 'two', thinkingOpen: false })} />)
+    rerender(
+      <LiveStreamBlock
+        live={liveFor({ thinking: 'two', thinkingOpen: false })}
+        onThinkingToggle={() => {}}
+      />,
+    )
     expect(thinkingPanel()?.open).toBe(false)
   })
 
@@ -79,7 +94,12 @@ describe('LiveStreamBlock thinking panel', () => {
     expect(thinkingPanel()?.open).toBe(false)
 
     // the applier honoring the toggle converges to the same closed panel
-    rerender(<LiveStreamBlock live={liveFor({ thinking: 'hmm and more', thinkingOpen: false })} />)
+    rerender(
+      <LiveStreamBlock
+        onThinkingToggle={noopToggle}
+        live={liveFor({ thinking: 'hmm and more', thinkingOpen: false })}
+      />,
+    )
     expect(thinkingPanel()?.open).toBe(false)
   })
 
@@ -102,12 +122,17 @@ describe('LiveStreamBlock thinking panel', () => {
     // reopening reports ownership, the matching intent never rewrites the DOM
     await user.click(screen.getByText('thinking…'))
     expect(onThinkingToggle).toHaveBeenCalledWith(true)
-    rerender(<LiveStreamBlock live={liveFor({ thinking: 'hmm', thinkingOpen: true })} />)
+    rerender(
+      <LiveStreamBlock
+        onThinkingToggle={noopToggle}
+        live={liveFor({ thinking: 'hmm', thinkingOpen: true })}
+      />,
+    )
     expect(thinkingPanel()?.open).toBe(true)
   })
 
   it('renders without a panel while nothing streamed yet', () => {
-    render(<LiveStreamBlock live={liveFor()} />)
+    render(<LiveStreamBlock onThinkingToggle={noopToggle} live={liveFor()} />)
     expect(screen.queryByText('thinking…')).not.toBeInTheDocument()
   })
 })
@@ -116,6 +141,7 @@ describe('LiveStreamBlock tool cards', () => {
   it('headers a user shell card from its label', () => {
     render(
       <LiveStreamBlock
+        onThinkingToggle={noopToggle}
         live={liveFor({
           tools: [{ id: 'shell-1', name: 'bash', label: '! make test', shell: true, outputs: [] }],
         })}
@@ -128,6 +154,7 @@ describe('LiveStreamBlock tool cards', () => {
   it('carries the excluded kind to a finished card', () => {
     render(
       <LiveStreamBlock
+        onThinkingToggle={noopToggle}
         live={liveFor({
           tools: [
             {
@@ -149,6 +176,7 @@ describe('LiveStreamBlock tool cards', () => {
   it('shows a waiting poll card only its own job', () => {
     render(
       <LiveStreamBlock
+        onThinkingToggle={noopToggle}
         live={liveFor({
           tools: [{ id: 'p2', name: 'agent_poll', input: { id: 'sub-2' }, outputs: [] }],
         })}
@@ -170,6 +198,7 @@ describe('LiveStreamBlock tool cards', () => {
     // band keeps every row until upstream clears it.
     render(
       <LiveStreamBlock
+        onThinkingToggle={noopToggle}
         live={liveFor({
           tools: [
             {
@@ -198,6 +227,7 @@ describe('LiveStreamBlock tool cards', () => {
     // parallel starts race to publish, rank keeps the list in job order
     render(
       <LiveStreamBlock
+        onThinkingToggle={noopToggle}
         live={liveFor()}
         activity={[
           { key: 'sub-3', text: 'sub-3  drafting', rank: 3 },
@@ -217,7 +247,7 @@ describe('LiveStreamBlock tool cards', () => {
       text: `sub-${i + 1}  working`,
       rank: i + 1,
     }))
-    render(<LiveStreamBlock live={liveFor()} activity={rows} />)
+    render(<LiveStreamBlock onThinkingToggle={noopToggle} live={liveFor()} activity={rows} />)
     const chips = document.querySelectorAll('.subagent-chips .sub-agent-chip')
     expect(chips).toHaveLength(5) // four rows plus the overflow line
     expect(chips[4].textContent).toBe('+2 more')
@@ -227,6 +257,7 @@ describe('LiveStreamBlock tool cards', () => {
   it('leaves non-agent cards without job lines', () => {
     render(
       <LiveStreamBlock
+        onThinkingToggle={noopToggle}
         live={liveFor({
           tools: [
             { id: 'b1', name: 'bash', input: { cmd: 'ls' }, outputs: [] },
@@ -245,6 +276,7 @@ describe('LiveStreamBlock tool cards', () => {
     const stop = vi.fn()
     render(
       <LiveStreamBlock
+        onThinkingToggle={noopToggle}
         live={liveFor({
           tools: [{ id: 'p2', name: 'agent_poll', input: { id: 'sub-2' }, outputs: [] }],
         })}

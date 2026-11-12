@@ -90,7 +90,7 @@ func buildView(snap ctl.State, branch []session.Entry, watermark uint64) *view {
 		seat:       snap.Seat,
 		seen:       make(map[string]struct{}, len(branch)),
 	}
-	v.tools = cloneTools(snap.Tools)
+	v.tools = nonNilClone(snap.Tools)
 	v.queuedRows = slices.Clone(snap.QueuedRows)
 	v.activity = make(map[string]ctl.ActivityRow, len(snap.Activity))
 	for _, row := range snap.Activity {
@@ -166,7 +166,7 @@ func (v *view) apply(ev ctl.Event) {
 		if err := ev.Decode(&d); err != nil {
 			return
 		}
-		v.tools = cloneTools(d.Rows)
+		v.tools = nonNilClone(d.Rows)
 
 	case ctl.EventQueued: // full replacement, oldest first
 		var d ctl.QueuedData
@@ -339,26 +339,18 @@ func (v *view) snapshot() ctl.State {
 		Queued:     len(v.queuedRows),
 		Seat:       v.seat,
 	}
-	// every list encodes [] not null, never a bare nil
-	st.Tools = cloneTools(v.tools)
-	if v.queuedRows != nil {
-		st.QueuedRows = slices.Clone(v.queuedRows)
-	} else {
-		st.QueuedRows = []ctl.QueueRow{}
-	}
-	st.Interactions = slices.Clone(v.interactions)
-	if st.Interactions == nil {
-		st.Interactions = []ctl.InteractionPendingData{}
-	}
+	st.Tools = nonNilClone(v.tools)
+	st.QueuedRows = nonNilClone(v.queuedRows)
+	st.Interactions = nonNilClone(v.interactions)
 	st.Activity = sortedActivity(v.activity)
 	st.Status.Segments = sortedSegments(v.segments)
 	return st
 }
 
-// cloneTools always returns a non-nil copy so snapshots encode [] not null.
-func cloneTools(rows []ctl.ToolState) []ctl.ToolState {
+// nonNilClone always returns a non-nil copy so snapshots encode [] not null.
+func nonNilClone[T any](rows []T) []T {
 	if rows == nil {
-		return []ctl.ToolState{}
+		return []T{}
 	}
 	return slices.Clone(rows)
 }

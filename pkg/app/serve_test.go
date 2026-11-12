@@ -19,7 +19,7 @@ func quietLogger() *slog.Logger {
 	return slog.New(slog.DiscardHandler)
 }
 
-func TestServe(t *testing.T) {
+func TestStartLogRotation(t *testing.T) {
 	// not parallel: t.Setenv mutates process state
 
 	t.Run("daemon_log_copytruncates", func(t *testing.T) {

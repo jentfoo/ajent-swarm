@@ -22,7 +22,7 @@ const RequestCloseContext = createContext<(() => void) | null>(null)
 // Escape calls `onClose`, Tab cycles inside, focus that escapes is pulled back
 // while open, and closing returns focus to the element focused before opening.
 // `label` names the dialog for assistive technology, `className` adds classes
-// beside `card modal` so per-dialog widths still apply (e.g. rename-modal)
+// beside `card modal` so per-dialog widths still apply (e.g. rename-modal).
 // `showClose` adds a visible × in the card's corner beside the Esc convention.
 // `onKey`, when set, receives every other plain keydown while this shell is
 // the topmost layer and the press is unclaimed, so dialog content can bind

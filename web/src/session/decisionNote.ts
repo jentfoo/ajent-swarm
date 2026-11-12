@@ -93,7 +93,7 @@ export function pickPermitOption(
 ): PermitAnswer {
   const label = options[picked] ?? ''
   if (denyAskOption(label)) return { index: picked, deny: true }
-  if (allowNoteOption(label)) return { index: picked, deny: false } // defensive; hidden in practice
+  if (allowNoteOption(label)) return { index: picked, deny: false } // defensive, hidden through the UI
   const noteIdx = options.findIndex(allowNoteOption)
   if (note.trim() === '' || noteIdx < 0 || sessionAllowOption(label)) return { index: picked }
   return { index: noteIdx, deny: false } // a typed note turns Allow into allow-with-note
@@ -101,8 +101,8 @@ export function pickPermitOption(
 
 // PermitNoteIntent is one answered permit card awaiting its follow-up ask.
 interface PermitNoteIntent {
-  deny: boolean // a "for denying" ask consumes this; false consumes "for allowing"
-  text: string // trimmed note; '' meaning cancel the ask so the barrier skips it
+  deny: boolean // a "for denying" ask consumes this, false consumes "for allowing"
+  text: string // trimmed note, '' cancels the ask so the barrier skips it
 }
 
 // takeIntent consumes the oldest intent matching the ask's flavor.
@@ -127,15 +127,8 @@ type SuppressionAction =
 // landed, so nothing flash-bound remains to hide. Returns prev when unchanged,
 // so scans that find nothing never re-render the dock.
 function prune(prev: ReadonlySet<number>, live: ReadonlySet<number>): ReadonlySet<number> {
-  let changed = false
-  const next = new Set(prev)
-  for (const id of prev) {
-    if (!live.has(id)) {
-      next.delete(id)
-      changed = true
-    }
-  }
-  return changed ? next : prev
+  const next = new Set([...prev].filter((id) => live.has(id)))
+  return next.size === prev.size ? prev : next
 }
 
 function suppressionReducer(

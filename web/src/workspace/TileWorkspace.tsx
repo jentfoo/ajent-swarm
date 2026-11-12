@@ -101,10 +101,11 @@ export default function TileWorkspace() {
     const open = searchParams.get('open')
     if (open !== null) {
       if (openedRef.current === open) return // this exact request already tiled
+      const known = new Set(sessions.map((s) => s.sessionId))
       const ids = open
         .split(',')
         .map((id) => decodeURIComponent(id.trim()))
-        .filter((id) => sessions.some((s) => s.sessionId === id))
+        .filter((id) => known.has(id))
       if (ids.length > 0) {
         openedRef.current = open
         setSearchParams({}, { replace: true }) // deep links clean up after tiling

@@ -229,12 +229,16 @@ export function rankAttention(items: readonly AttentionItem[]): {
   needsInputCount: number
 } {
   const stamped = stampQueueEntries(items)
-  return {
-    needs: stamped.filter((i) => attentionQueue(i) === 'needs').sort(compareAttention),
-    waiting: stamped.filter((i) => attentionQueue(i) === 'waiting').sort(compareAttention),
-    working: stamped.filter((i) => attentionQueue(i) === 'working').sort(compareAttention),
-    needsInputCount: stamped.filter((i) => i.kind === 'needs-input').length,
+  const buckets: Record<AttentionQueue, AttentionItem[]> = { needs: [], waiting: [], working: [] }
+  let needsInputCount = 0
+  for (const item of stamped) {
+    if (item.kind === 'needs-input') needsInputCount += 1
+    buckets[attentionQueue(item)].push(item)
   }
+  buckets.needs.sort(compareAttention)
+  buckets.waiting.sort(compareAttention)
+  buckets.working.sort(compareAttention)
+  return { ...buckets, needsInputCount }
 }
 
 // attentionKindLabels is the human vocabulary for one attention kind: the

@@ -139,10 +139,7 @@ function refusalAnnouncement(pendings: PendingSubmit[], now: number): string {
 
 // newestParkedId names the newest prompt still parked for the idle point.
 function newestParkedId(pendings: PendingSubmit[]): string {
-  for (let i = pendings.length - 1; i >= 0; i--) {
-    if (pendings[i]!.state === 'parked') return pendings[i]!.id
-  }
-  return ''
+  return pendings.findLast((p) => p.state === 'parked')?.id ?? ''
 }
 
 function QueueChip({

@@ -50,10 +50,10 @@ func (s *apiServer) handleJobPreview(w http.ResponseWriter, r *http.Request) {
 		count = defaultPreviewSlots
 	}
 
-	reply := schedulePreview{Times: []time.Time{}}
+	var wsErr string
 	if ws := strings.TrimSpace(req.Workspace); ws != "" {
 		if err := sched.CheckWorkspace(ws); err != nil {
-			reply.WorkspaceError = err.Error()
+			wsErr = err.Error()
 		}
 	}
 	times, err := sched.PreviewTimes(req.Job, time.Now(), count)
@@ -61,8 +61,7 @@ func (s *apiServer) handleJobPreview(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, codeInvalidRequest, err.Error())
 		return
 	}
-	reply.Times = times
-	writeJSON(w, http.StatusOK, reply)
+	writeJSON(w, http.StatusOK, schedulePreview{Times: times, WorkspaceError: wsErr})
 }
 
 // jobRequest is the POST and PUT body for a job. Enabled rides separately so

@@ -48,10 +48,9 @@ export function useToolToggles(
   const toggle = (row: ToolState): void => {
     const wanted = !enabledOf(row)
     // drop intents the stream already settled, then record this one
-    const fresh: Record<string, ToolIntent> = {}
-    for (const [name, pending] of Object.entries(ref.current)) {
-      if (pending.seen === rows) fresh[name] = pending
-    }
+    const fresh = Object.fromEntries(
+      Object.entries(ref.current).filter(([, pending]) => pending.seen === rows),
+    )
     fresh[row.name] = { wanted, seen: rows }
     commit(fresh)
 

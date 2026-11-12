@@ -833,111 +833,6 @@ func TestManager(t *testing.T) {
 			assert.Equal(t, ChildReconnecting, st.State) // still a running row
 		})
 	})
-
-	t.Run("provider_busy_at", func(t *testing.T) {
-		actor := func(m *Manager, model string, lastTurnEnd int64, running bool) *sessionActor {
-			live := &sessionActor{}
-			live.key.sessionID = "01BUSYSESSION0000000"
-			live.status.Store(&Status{
-				digestFacts: digestFacts{SessionID: live.key.sessionID, LastTurnEnd: lastTurnEnd,
-					Running: running},
-				Model:  model,
-				State:  ChildOnline,
-				served: true, // attached and streaming at least once
-			})
-			m.actors[actorKey{sessionID: live.key.sessionID, token: "t"}] = live
-			return live
-		}
-
-		t.Run("aged_turn_end_reported", func(t *testing.T) {
-			// a serving session's last turn end is reported however old it is
-			m := New(Options{Log: testLogger()})
-			now := time.Now()
-			actor(m, "anthropic/claude", now.Add(-time.Hour).UnixMilli(), false)
-			busy := m.ProviderBusyAt("anthropic")
-			assert.False(t, busy.IsZero())
-			assert.LessOrEqual(t, busy.UnixMilli(), now.Add(-time.Hour).UnixMilli())
-		})
-
-		t.Run("running_actor_busy_now", func(t *testing.T) {
-			m := New(Options{Log: testLogger()})
-			actor(m, "anthropic/claude", time.Now().Add(-time.Hour).UnixMilli(), true)
-			assert.WithinDuration(t, time.Now(), m.ProviderBusyAt("anthropic"), time.Second)
-		})
-
-		t.Run("other_provider_not_held", func(t *testing.T) {
-			m := New(Options{Log: testLogger()})
-			actor(m, "openai/gpt", time.Now().UnixMilli(), true)
-			assert.True(t, m.ProviderBusyAt("anthropic").IsZero())
-		})
-
-		t.Run("unknown_model_holds_every_provider", func(t *testing.T) {
-			// a session with no known model could belong to any provider
-			m := New(Options{Log: testLogger()})
-			actor(m, "", time.Now().UnixMilli(), true)
-			assert.WithinDuration(t, time.Now(), m.ProviderBusyAt("anthropic"), time.Second)
-			assert.WithinDuration(t, time.Now(), m.ProviderBusyAt("openai"), time.Second)
-		})
-
-		t.Run("empty_provider_waits_for_all", func(t *testing.T) {
-			// an unattributed flusher has no facts of its own to gate on
-			m := New(Options{Log: testLogger()})
-			actor(m, "openai/gpt", time.Now().UnixMilli(), true)
-			assert.WithinDuration(t, time.Now(), m.ProviderBusyAt(""), time.Second)
-		})
-
-		t.Run("needs_input_actor_not_busy", func(t *testing.T) {
-			// a dialog waits on its user, so the aged turn end still bounds idle
-			m := New(Options{Log: testLogger()})
-			live := actor(m, "anthropic/claude", time.Now().Add(-time.Hour).UnixMilli(), true)
-			live.status.Store(&Status{
-				digestFacts: digestFacts{SessionID: live.key.sessionID, Running: true, OpenInteractions: 1,
-					LastTurnEnd: time.Now().Add(-time.Hour).UnixMilli()},
-				Model:  "anthropic/claude",
-				State:  ChildOnline,
-				served: true,
-			})
-			busy := m.ProviderBusyAt("anthropic")
-			assert.False(t, busy.IsZero())
-			assert.LessOrEqual(t, busy.UnixMilli(), time.Now().Add(-time.Hour).UnixMilli())
-		})
-
-		t.Run("exited_actor_never_busy", func(t *testing.T) {
-			m := New(Options{Log: testLogger()})
-			live := actor(m, "anthropic/claude", time.Now().Add(-time.Hour).UnixMilli(), true)
-			live.status.Store(&Status{
-				digestFacts: digestFacts{SessionID: live.key.sessionID, Running: true},
-				Model:       "anthropic/claude",
-				State:       ChildExited,
-				served:      true, // stale flag beside a terminal state still means ended
-			})
-			assert.True(t, m.ProviderBusyAt("anthropic").IsZero())
-		})
-
-		t.Run("release_scopes_to_provider", func(t *testing.T) {
-			m := New(Options{Log: testLogger()})
-			m.NoteRelease("openai") // an unattributed turn there holds only openai
-
-			assert.WithinDuration(t, time.Now(), m.ProviderBusyAt("openai"), time.Second)
-			assert.True(t, m.ProviderBusyAt("anthropic").IsZero())
-			assert.True(t, m.ClaimRelease("anthropic", time.Minute))
-		})
-
-		t.Run("unattributed_release_holds_every_provider", func(t *testing.T) {
-			m := New(Options{Log: testLogger()})
-			m.NoteRelease("") // a launch with no model could land anywhere
-
-			assert.WithinDuration(t, time.Now(), m.ProviderBusyAt("anthropic"), time.Second)
-			assert.False(t, m.ClaimRelease("openai", time.Minute))
-		})
-
-		t.Run("claim_blocks_until_window_ages_out", func(t *testing.T) {
-			m := New(Options{Log: testLogger()})
-			require.True(t, m.ClaimRelease("anthropic", time.Hour))
-			assert.False(t, m.ClaimRelease("anthropic", time.Hour)) // one point per window
-			assert.True(t, m.ClaimRelease("openai", time.Hour))     // other providers run on
-		})
-	})
 }
 
 // Exited swarm children stay listed for one-click resume: the four most
@@ -950,6 +845,111 @@ func exitedRec(id string, pid int, at time.Time) ChildRecord {
 		ExitedAt:  at,
 		ExitNote:  "exited",
 	}
+}
+
+func TestProviderBusyAt(t *testing.T) {
+	actor := func(m *Manager, model string, lastTurnEnd int64, running bool) *sessionActor {
+		live := &sessionActor{}
+		live.key.sessionID = "01BUSYSESSION0000000"
+		live.status.Store(&Status{
+			digestFacts: digestFacts{SessionID: live.key.sessionID, LastTurnEnd: lastTurnEnd,
+				Running: running},
+			Model:  model,
+			State:  ChildOnline,
+			served: true, // attached and streaming at least once
+		})
+		m.actors[actorKey{sessionID: live.key.sessionID, token: "t"}] = live
+		return live
+	}
+
+	t.Run("aged_turn_end_reported", func(t *testing.T) {
+		// a serving session's last turn end is reported however old it is
+		m := New(Options{Log: testLogger()})
+		now := time.Now()
+		actor(m, "anthropic/claude", now.Add(-time.Hour).UnixMilli(), false)
+		busy := m.ProviderBusyAt("anthropic")
+		assert.False(t, busy.IsZero())
+		assert.LessOrEqual(t, busy.UnixMilli(), now.Add(-time.Hour).UnixMilli())
+	})
+
+	t.Run("running_actor_busy_now", func(t *testing.T) {
+		m := New(Options{Log: testLogger()})
+		actor(m, "anthropic/claude", time.Now().Add(-time.Hour).UnixMilli(), true)
+		assert.WithinDuration(t, time.Now(), m.ProviderBusyAt("anthropic"), time.Second)
+	})
+
+	t.Run("other_provider_not_held", func(t *testing.T) {
+		m := New(Options{Log: testLogger()})
+		actor(m, "openai/gpt", time.Now().UnixMilli(), true)
+		assert.True(t, m.ProviderBusyAt("anthropic").IsZero())
+	})
+
+	t.Run("unknown_model_holds_every_provider", func(t *testing.T) {
+		// a session with no known model could belong to any provider
+		m := New(Options{Log: testLogger()})
+		actor(m, "", time.Now().UnixMilli(), true)
+		assert.WithinDuration(t, time.Now(), m.ProviderBusyAt("anthropic"), time.Second)
+		assert.WithinDuration(t, time.Now(), m.ProviderBusyAt("openai"), time.Second)
+	})
+
+	t.Run("empty_provider_waits_for_all", func(t *testing.T) {
+		// an unattributed flusher has no facts of its own to gate on
+		m := New(Options{Log: testLogger()})
+		actor(m, "openai/gpt", time.Now().UnixMilli(), true)
+		assert.WithinDuration(t, time.Now(), m.ProviderBusyAt(""), time.Second)
+	})
+
+	t.Run("needs_input_actor_not_busy", func(t *testing.T) {
+		// a dialog waits on its user, so the aged turn end still bounds idle
+		m := New(Options{Log: testLogger()})
+		live := actor(m, "anthropic/claude", time.Now().Add(-time.Hour).UnixMilli(), true)
+		live.status.Store(&Status{
+			digestFacts: digestFacts{SessionID: live.key.sessionID, Running: true, OpenInteractions: 1,
+				LastTurnEnd: time.Now().Add(-time.Hour).UnixMilli()},
+			Model:  "anthropic/claude",
+			State:  ChildOnline,
+			served: true,
+		})
+		busy := m.ProviderBusyAt("anthropic")
+		assert.False(t, busy.IsZero())
+		assert.LessOrEqual(t, busy.UnixMilli(), time.Now().Add(-time.Hour).UnixMilli())
+	})
+
+	t.Run("exited_actor_never_busy", func(t *testing.T) {
+		m := New(Options{Log: testLogger()})
+		live := actor(m, "anthropic/claude", time.Now().Add(-time.Hour).UnixMilli(), true)
+		live.status.Store(&Status{
+			digestFacts: digestFacts{SessionID: live.key.sessionID, Running: true},
+			Model:       "anthropic/claude",
+			State:       ChildExited,
+			served:      true, // stale flag beside a terminal state still means ended
+		})
+		assert.True(t, m.ProviderBusyAt("anthropic").IsZero())
+	})
+
+	t.Run("release_scopes_to_provider", func(t *testing.T) {
+		m := New(Options{Log: testLogger()})
+		m.NoteRelease("openai") // an unattributed turn there holds only openai
+
+		assert.WithinDuration(t, time.Now(), m.ProviderBusyAt("openai"), time.Second)
+		assert.True(t, m.ProviderBusyAt("anthropic").IsZero())
+		assert.True(t, m.ClaimRelease("anthropic", time.Minute))
+	})
+
+	t.Run("unattributed_release_holds_every_provider", func(t *testing.T) {
+		m := New(Options{Log: testLogger()})
+		m.NoteRelease("") // a launch with no model could land anywhere
+
+		assert.WithinDuration(t, time.Now(), m.ProviderBusyAt("anthropic"), time.Second)
+		assert.False(t, m.ClaimRelease("openai", time.Minute))
+	})
+
+	t.Run("claim_blocks_until_window_ages_out", func(t *testing.T) {
+		m := New(Options{Log: testLogger()})
+		require.True(t, m.ClaimRelease("anthropic", time.Hour))
+		assert.False(t, m.ClaimRelease("anthropic", time.Hour)) // one point per window
+		assert.True(t, m.ClaimRelease("openai", time.Hour))     // other providers run on
+	})
 }
 
 func expectRaw(t *testing.T, in <-chan []byte, want string) []byte {

@@ -18,35 +18,37 @@ import (
 	"github.com/jentfoo/ajent/pkg/session"
 )
 
-func TestNamer(t *testing.T) {
-	t.Run("sanitize_session_title", func(t *testing.T) {
-		cases := []struct {
-			name string
-			in   string
-			want string
-		}{
-			{"plain_one_line", "Fix the login flow", "Fix the login flow"},
-			{"padded_spaces_collapse", "  padded   spaces  collapse ", "padded spaces collapse"},
-			{"first_line_wins", "first line only\nsecond line dropped", "first line only"},
-			{"blank_output", "\n", ""},
-			{"empty_output", "", ""},
-			{"tool_call_then_title",
-				"<tool_call>\n{\"name\": \"agent_start\"}\n</tool_call>\nFix the login flow", "Fix the login flow"},
-			{"interleaved_tags_skip_to_last",
-				"first try\n<arg_key>\nsecond try\n</tool_call>\nreal title", "real title"},
-			{"markup_only", "<tool_call>\n{\"name\": \"read\"}\n</tool_call>\n", ""},
-			{"blank_lines_after_tag_skipped", "</tool_call>\n\n   \nFix the login flow", "Fix the login flow"},
-			{"indented_closing_tag", "\t </tool_call>  \nFix the login flow", "Fix the login flow"},
-			{"brackets_with_spaces_are_content", "<invoke some tool>", "<invoke some tool>"},
-			{"markup_inside_prose_kept", "Fix <div> layout now", "Fix <div> layout now"},
-		}
-		for _, tc := range cases {
-			t.Run(tc.name, func(t *testing.T) {
-				assert.Equal(t, tc.want, sanitizeSessionTitle(tc.in))
-			})
-		}
-	})
+func TestSanitizeSessionTitle(t *testing.T) {
+	t.Parallel()
 
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"plain_one_line", "Fix the login flow", "Fix the login flow"},
+		{"padded_spaces_collapse", "  padded   spaces  collapse ", "padded spaces collapse"},
+		{"first_line_wins", "first line only\nsecond line dropped", "first line only"},
+		{"blank_output", "\n", ""},
+		{"empty_output", "", ""},
+		{"tool_call_then_title",
+			"<tool_call>\n{\"name\": \"agent_start\"}\n</tool_call>\nFix the login flow", "Fix the login flow"},
+		{"interleaved_tags_skip_to_last",
+			"first try\n<arg_key>\nsecond try\n</tool_call>\nreal title", "real title"},
+		{"markup_only", "<tool_call>\n{\"name\": \"read\"}\n</tool_call>\n", ""},
+		{"blank_lines_after_tag_skipped", "</tool_call>\n\n   \nFix the login flow", "Fix the login flow"},
+		{"indented_closing_tag", "\t </tool_call>  \nFix the login flow", "Fix the login flow"},
+		{"brackets_with_spaces_are_content", "<invoke some tool>", "<invoke some tool>"},
+		{"markup_inside_prose_kept", "Fix <div> layout now", "Fix <div> layout now"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, sanitizeSessionTitle(tc.in))
+		})
+	}
+}
+
+func TestNamer(t *testing.T) {
 	t.Run("titles_from_first_prompt", func(t *testing.T) {
 		store := newTitleMemStore()
 		owned := func(inst ctl.Instance) bool { return inst.SessionID == "01AUTOTITLE0000000" }

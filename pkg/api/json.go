@@ -18,6 +18,9 @@ const (
 	codeConflict        = "conflict"
 	codeJobNotFound     = "job_not_found"
 	codeSessionNotFound = "session_not_found"
+
+	// codeFrameBadRequest is the stream frame counterpart of invalid_request.
+	codeFrameBadRequest = "bad_request"
 )
 
 // errorBody is the one error envelope every failure uses, so clients branch

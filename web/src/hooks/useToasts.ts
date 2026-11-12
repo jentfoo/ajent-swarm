@@ -24,7 +24,7 @@ export function useToasts(): ToastsApi {
   const [toasts, setToasts] = useState<ToastView[]>([])
   const nextID = useRef(0)
   // Expiry timers tracked for teardown, React drops a post-unmount setState,
-  // but clearing keeps jsdom runs and remounts free of stray callbacks.
+  // but clearing keeps an expiry from firing after unmount or remount.
   const timers = useRef(new Map<number, ReturnType<typeof setTimeout>>())
 
   useEffect(() => {

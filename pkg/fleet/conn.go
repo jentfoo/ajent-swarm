@@ -689,11 +689,6 @@ func (a *sessionActor) refreshStatus() {
 	a.status.Store(st)
 }
 
-// stop shuts the actor down, safe to call again.
-func (a *sessionActor) stop() {
-	a.cancel() // context.CancelFunc is idempotent
-}
-
 // mailboxCall sends one request to the actor and awaits its reply, bounded
 // by ctx. build constructs the message around a fresh reply channel.
 func mailboxCall[T any](ctx context.Context, a *sessionActor, build func(chan T) actorMsg) (T, error) {

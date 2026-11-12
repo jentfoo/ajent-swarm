@@ -299,9 +299,11 @@ export function applierReducer(
     }
     case 'pendingRecalled': {
       // A recalled park returns to the composer, its chip retires quietly.
+      const parked = state.pendings.find((p) => p.id === action.pendingId && p.state === 'parked')
+      if (!parked) return state
       const next = cloneShallow(state)
       next.pendings = state.pendings.map((p) =>
-        p.id === action.pendingId && p.state === 'parked' ? { ...p, state: 'dropped' as const } : p,
+        p.id === action.pendingId ? { ...p, state: 'dropped' as const } : p,
       )
       return next
     }
@@ -1040,9 +1042,11 @@ function drainLiveCoveredBy(state: AppliedSessionState, entry: Entry): void {
     }
   } else if (role === 'user') {
     const resultIds = new Set(
-      blocks.flatMap((b) =>
-        b.type === 'tool_result' && isValidId(toolCallId(b)) ? [toolCallId(b)!] : [],
-      ),
+      blocks.flatMap((b) => {
+        if (b.type !== 'tool_result') return []
+        const id = toolCallId(b)
+        return isValidId(id) ? [id] : []
+      }),
     )
     // A staged run's flush commits as an injected "User Ran: <cmd>" message:
     // its finished cards retire, the output is transcript history now. Both

@@ -9,10 +9,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestToken(t *testing.T) {
+func TestCreateToken(t *testing.T) {
 	t.Parallel()
 
-	t.Run("create_rejects_duplicate_names", func(t *testing.T) {
+	t.Run("rejects_duplicate_names", func(t *testing.T) {
 		svc, _, _ := newTestAuth(t)
 		ctx := t.Context()
 		require.NoError(t, svc.EnsureUser(ctx, "jent"))
@@ -24,8 +24,12 @@ func TestToken(t *testing.T) {
 		_, err = svc.CreateToken(ctx, "ci")
 		assert.ErrorIs(t, err, ErrTokenNameTaken)
 	})
+}
 
-	t.Run("bearer", func(t *testing.T) {
+func TestBearer(t *testing.T) {
+	t.Parallel()
+
+	t.Run("resolves_the_secret", func(t *testing.T) {
 		svc, _, _ := newTestAuth(t)
 		ctx := t.Context()
 		require.NoError(t, svc.EnsureUser(ctx, "jent"))
@@ -81,8 +85,12 @@ func TestToken(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, clock.now, toks[0].LastUsed)
 	})
+}
 
-	t.Run("delete", func(t *testing.T) {
+func TestDeleteToken(t *testing.T) {
+	t.Parallel()
+
+	t.Run("removes_and_reports", func(t *testing.T) {
 		svc, _, _ := newTestAuth(t)
 		ctx := t.Context()
 		require.NoError(t, svc.EnsureUser(ctx, "jent"))
@@ -101,29 +109,31 @@ func TestToken(t *testing.T) {
 		require.NoError(t, err)
 		assert.False(t, removed)
 	})
+}
 
-	t.Run("validate_name", func(t *testing.T) {
-		tests := []struct {
-			name    string
-			token   string
-			wantErr bool
-		}{
-			{name: "letters", token: "ci"},
-			{name: "mixed_safe_chars", token: "laptop.v2_3-a"},
-			{name: "empty", token: "", wantErr: true},
-			{name: "spaces", token: "my token", wantErr: true},
-			{name: "slash", token: "a/b", wantErr: true},
-			{name: "too_long", token: strings.Repeat("a", 65), wantErr: true},
-		}
-		for _, tt := range tests {
-			t.Run(tt.name, func(t *testing.T) {
-				err := ValidateTokenName(tt.token)
-				if tt.wantErr {
-					assert.Error(t, err)
-					return
-				}
-				assert.NoError(t, err)
-			})
-		}
-	})
+func TestValidateTokenName(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		token   string
+		wantErr bool
+	}{
+		{name: "letters", token: "ci"},
+		{name: "mixed_safe_chars", token: "laptop.v2_3-a"},
+		{name: "empty", token: "", wantErr: true},
+		{name: "spaces", token: "my token", wantErr: true},
+		{name: "slash", token: "a/b", wantErr: true},
+		{name: "too_long", token: strings.Repeat("a", 65), wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateTokenName(tt.token)
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			assert.NoError(t, err)
+		})
+	}
 }

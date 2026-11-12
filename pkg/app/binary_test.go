@@ -18,7 +18,7 @@ func writeScript(t *testing.T, dir, name, body string) string {
 	return path
 }
 
-func TestBinary(t *testing.T) {
+func TestLocateAjent(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell scripts are unix only")
 	}

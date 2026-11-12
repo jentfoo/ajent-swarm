@@ -337,7 +337,7 @@ func (m *Manager) diff() error {
 	for _, a := range stopping {
 		// a.inst is actor-confined, the retiring row carries its current facts
 		m.markExternalGone(a)
-		a.stop()
+		a.cancel() // context.CancelFunc is idempotent
 		select {
 		case <-a.done:
 		case <-time.After(stopActorWait):

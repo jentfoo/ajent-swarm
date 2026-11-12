@@ -391,7 +391,16 @@ export type ScheduleKind = 'once' | 'interval' | 'daily'
 export type MissPolicy = 'skip' | 'fire_late'
 export type OverlapPolicy = 'run' | 'skip_if_running'
 export type TriggerOn = 'success' | 'error'
-export type RunStatus = 'running' | 'awaiting_input' | 'ok' | 'failed' | 'timeout' | 'skipped'
+// runStatuses is the one list of run statuses, mirrors pkg/store/jobs.go.
+export const runStatuses = [
+  'running',
+  'awaiting_input',
+  'ok',
+  'failed',
+  'timeout',
+  'skipped',
+] as const
+export type RunStatus = (typeof runStatuses)[number]
 
 // Job is one scheduled job row from /api/jobs. nextRunAt stays null while the
 // job is disabled or has nothing left to fire.

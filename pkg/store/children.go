@@ -7,12 +7,9 @@ import (
 	"time"
 )
 
-// Child origins recorded in the children table, empty origins read as swarm,
-// matching the column's legacy default.
-const (
-	OriginSwarm    = "swarm"
-	OriginExternal = "external"
-)
+// OriginSwarm is the children-table origin recorded for swarm-spawned
+// processes; empty origins read as swarm, matching the column's legacy default.
+const OriginSwarm = "swarm"
 
 // Child is one row of the children table: a tracked ajent process, either
 // swarm-spawned or external by Origin. ExitCode is nil while the process

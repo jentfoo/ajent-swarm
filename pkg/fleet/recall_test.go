@@ -325,10 +325,11 @@ func TestRecallLedger(t *testing.T) {
 	})
 }
 
-// The listing merges ajent's own recall store with the mirror. IsolateHome
-// pins AJENT_HOME, so helpers writing through session.NewStore land where the
-// manager reads.
 func TestRecallLines(t *testing.T) {
+	// the listing merges ajent's own recall store with the mirror; IsolateHome
+	// pins AJENT_HOME so helpers writing through session.NewStore land where
+	// the manager reads
+
 	t.Run("serves_the_session_workspace", func(t *testing.T) {
 		rs := newFakeRecallStore()
 		m, f := recallFleet(t, rs)

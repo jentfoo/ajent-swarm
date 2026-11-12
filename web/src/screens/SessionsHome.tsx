@@ -281,8 +281,8 @@ function LaunchPanel({ home }: { home?: string }) {
   const { saved, models, workspaceOptions } = useLaunchFacts()
   const form = useLaunchForm()
 
-  // No mode picker: empty target launches new, a saved-session id resumes it
-  // anything else is a create-or-resume session name.
+  // No mode picker: an empty target launches new, a saved-session id resumes
+  // it, anything else is a create-or-resume session name.
   const [target, setTarget] = useState('')
   const launchTarget = useCallback((): LaunchTarget => {
     const t = target.trim()

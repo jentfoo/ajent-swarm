@@ -14,7 +14,7 @@ import (
 	"github.com/jentfoo/ajent/pkg/ctl"
 )
 
-func TestSessionControl(t *testing.T) {
+func TestControlHandlers(t *testing.T) {
 	t.Run("models_endpoint", func(t *testing.T) {
 		h := newSessionAPI(t)
 		f := h.addSession("01MODELS00000000000", fleettest.Options{})

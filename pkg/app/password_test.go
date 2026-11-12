@@ -52,7 +52,7 @@ func setEnv(t *testing.T, key, value string) {
 	})
 }
 
-func TestPassword(t *testing.T) {
+func TestResolveLoginPassword(t *testing.T) {
 	// not parallel: swaps the terminal seams and process environment
 
 	t.Run("prompt_match", func(t *testing.T) {

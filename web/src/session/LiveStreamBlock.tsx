@@ -25,8 +25,8 @@ export function LiveStreamBlock({
   activity?: ActivityRow[]
   agentJobs?: AgentJobs
   // Reports each manual panel toggle's post-click state so the applier can
-  // stop applying programmatic collapses, absent leaves toggles view-local.
-  onThinkingToggle?: (open: boolean) => void
+  // stop applying programmatic collapses.
+  onThinkingToggle: (open: boolean) => void
 }) {
   const current = useRafThrottled(live)
   const subs = subAgentRows(activity)

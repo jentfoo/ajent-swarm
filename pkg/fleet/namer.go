@@ -54,7 +54,6 @@ func (m *Manager) maybeNameSessionFrom(a *sessionActor, prompt string) {
 	sessionID := a.key.sessionID
 	m.mu.Unlock()
 
-	// an existing title wins: a rename from any surface is never overwritten
 	if tried || titled {
 		return
 	}
@@ -79,7 +78,6 @@ func (m *Manager) autoName(sessionID, startPrompt string) error {
 	if err != nil {
 		return err
 	}
-	// tight listing rows: clip the label before it ever reaches the store
 	if err := m.SetTitle(ctx, sessionID, clipRunes(title, maxTitleLabelRunes)); err != nil {
 		return fmt.Errorf("title not stored: %w", err)
 	}
@@ -179,9 +177,10 @@ func sanitizeSessionTitle(s string) string {
 
 // clipRunes bounds s to at most n runes.
 func clipRunes(s string, n int) string {
-	runes := []rune(strings.TrimSpace(s))
-	if len(runes) <= n {
-		return strings.TrimSpace(s)
+	t := strings.TrimSpace(s)
+	runes := []rune(t)
+	if len(runes) > n {
+		return string(runes[:n])
 	}
-	return string(runes[:n])
+	return t
 }

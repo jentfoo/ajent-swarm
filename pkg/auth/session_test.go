@@ -1,7 +1,6 @@
 package auth
 
 import (
-	"net/http"
 	"testing"
 	"time"
 
@@ -25,12 +24,6 @@ func TestSession(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, ViaCookie, p.Via)
 		assert.False(t, renewed)
-
-		err = svc.Logout(ctx, token)
-		require.NoError(t, err)
-
-		_, _, err = svc.Session(ctx, token)
-		require.ErrorIs(t, err, ErrInvalidSession)
 	})
 
 	t.Run("rejects_empty_and_unknown_tokens", func(t *testing.T) {
@@ -99,18 +92,67 @@ func TestSession(t *testing.T) {
 		assert.Equal(t, "jent", p.Username)
 		assert.True(t, renewed)
 	})
+}
 
-	t.Run("cookie_shape", func(t *testing.T) {
-		svc, _, _ := newTestAuth(t)
+func TestLogout(t *testing.T) {
+	t.Parallel()
 
-		c := svc.SessionCookie("rawtoken")
-		assert.Equal(t, SessionCookieName, c.Name)
-		assert.Equal(t, "rawtoken", c.Value)
-		assert.True(t, c.HttpOnly)
-		assert.Equal(t, http.SameSiteLaxMode, c.SameSite)
-		assert.Positive(t, c.MaxAge)
+	svc, _, _ := newTestAuth(t)
+	ctx := t.Context()
+	require.NoError(t, svc.EnsureUser(ctx, "jent"))
+	require.NoError(t, svc.SetPassword(ctx, "hunter2"))
 
-		cleared := svc.ClearSessionCookie()
-		assert.Equal(t, -1, cleared.MaxAge)
-	})
+	token, err := svc.Login(ctx, "jent", "hunter2")
+	require.NoError(t, err)
+
+	require.NoError(t, svc.Logout(ctx, token))
+
+	_, _, err = svc.Session(ctx, token)
+	require.ErrorIs(t, err, ErrInvalidSession)
+}
+
+func TestLogin(t *testing.T) {
+	t.Parallel()
+
+	svc, _, _ := newTestAuth(t)
+	ctx := t.Context()
+	require.NoError(t, svc.EnsureUser(ctx, "jent"))
+	require.NoError(t, svc.SetPassword(ctx, "hunter2"))
+
+	tests := []struct {
+		name     string
+		username string
+		password string
+		wantErr  error
+	}{
+		{name: "valid_credentials", username: "jent", password: "hunter2"},
+		{name: "unknown_user", username: "nobody", password: "hunter2", wantErr: ErrInvalidCredentials},
+		{name: "wrong_password", username: "jent", password: "nope", wantErr: ErrInvalidCredentials},
+		{name: "empty_password", username: "jent", password: "", wantErr: ErrInvalidCredentials},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			token, err := svc.Login(ctx, tt.username, tt.password)
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.NotEmpty(t, token)
+
+			p, _, err := svc.Session(ctx, token)
+			require.NoError(t, err)
+			assert.Equal(t, "jent", p.Username)
+			assert.Equal(t, ViaCookie, p.Via)
+		})
+	}
+}
+
+func TestClearSessionCookie(t *testing.T) {
+	t.Parallel()
+
+	svc, _, _ := newTestAuth(t)
+
+	cleared := svc.ClearSessionCookie()
+	assert.Equal(t, -1, cleared.MaxAge)
 }

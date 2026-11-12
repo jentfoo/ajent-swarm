@@ -303,12 +303,12 @@ export function Composer({
       try {
         await submitWire[verb](sessionId, line, pendingId)
       } catch (err) {
-        inFlight.current[verb].delete(line)
         if (pendingId !== undefined) onFailed(pendingId)
         setError(describeError(err, failureText))
         return // the refused text stays right where it is
+      } finally {
+        inFlight.current[verb].delete(line)
       }
-      inFlight.current[verb].delete(line)
       if (!typedSinceSend.current && valueRef.current === draft) onChange('')
     },
     [disabled, sessionId, onChange],

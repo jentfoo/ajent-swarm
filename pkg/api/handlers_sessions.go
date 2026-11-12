@@ -87,16 +87,6 @@ func writeCommandFailure(w http.ResponseWriter, err error) {
 	writeError(w, http.StatusInternalServerError, codeInternalError, "")
 }
 
-// mintPendingID answers a caller's correlation id or mints one.
-func mintPendingID(client string) string {
-	if client != "" {
-		return client
-	}
-	var b [8]byte
-	rand.Read(b[:]) // crypto/rand never fails, nothing sensible to answer anyway
-	return hex.EncodeToString(b[:])
-}
-
 // handleSessionSubmit routes one prompt line exactly as typed in the session's
 // editor, answering 202 with the pendingId echoed so optimistic rows resolve.
 func (s *apiServer) handleSessionSubmit(w http.ResponseWriter, r *http.Request) {
@@ -110,7 +100,7 @@ func (s *apiServer) handleSessionQueue(w http.ResponseWriter, r *http.Request) {
 	s.handleSubmitLine(w, r, s.fleet.QueueSubmit)
 }
 
-// handleSubmitLine validates one prompt line and lands it through land.
+// handleSubmitLine validates one prompt line and sends it through land.
 func (s *apiServer) handleSubmitLine(w http.ResponseWriter, r *http.Request,
 	land func(ctx context.Context, sessionID string, params ctl.SubmitParams) error,
 ) {
@@ -126,7 +116,12 @@ func (s *apiServer) handleSubmitLine(w http.ResponseWriter, r *http.Request,
 		writeError(w, http.StatusBadRequest, codeInvalidRequest, "pendingId is too long")
 		return
 	}
-	pendingID := mintPendingID(req.PendingID)
+	pendingID := req.PendingID
+	if pendingID == "" {
+		var b [8]byte
+		rand.Read(b[:]) // crypto/rand never fails, nothing sensible to answer anyway
+		pendingID = hex.EncodeToString(b[:])
+	}
 	err := land(r.Context(), r.PathValue("id"),
 		ctl.SubmitParams{Line: req.Line, PendingID: pendingID})
 	if err != nil {
@@ -365,7 +360,7 @@ func (s *apiServer) handleSessionFiles(w http.ResponseWriter, r *http.Request) {
 		writeCommandFailure(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, filesReply{Items: items})
+	writeJSON(w, http.StatusOK, filesReply{Items: orEmptySlice(items)})
 }
 
 // handleAttention serves the per-live-session digest behind the focus rail

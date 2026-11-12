@@ -31,23 +31,23 @@ export function TranscriptPreview({ sessionId }: { sessionId: string }) {
   }
 
   useEffect(() => {
-    sessionToken.current++ // retires any older-page fetch of the prior session
-    let alive = true
+    // Bumping retires any older-page fetch of the prior session, this walk's
+    // own fetch compares against the same token.
+    const token = ++sessionToken.current
     fleet
       .savedEntries(sessionId)
       .then((page) => {
-        if (!alive) return
+        if (token !== sessionToken.current) return
         setPages([page.entries])
         setCursor(page.cursor)
         setError('')
       })
       .catch((err: unknown) => {
-        if (alive) setError(describeError(err, 'Reading the transcript failed.'))
+        if (token === sessionToken.current) {
+          setError(describeError(err, 'Reading the transcript failed.'))
+        }
       })
-      .finally(() => alive && setLoading(false))
-    return () => {
-      alive = false
-    }
+      .finally(() => token === sessionToken.current && setLoading(false))
   }, [sessionId])
 
   const loadOlder = async () => {

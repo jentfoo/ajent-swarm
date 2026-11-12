@@ -73,59 +73,61 @@ func TestFiles(t *testing.T) {
 			assert.Empty(t, items)
 		})
 	})
+}
 
-	t.Run("split_query", func(t *testing.T) {
-		cwd := "/home/you/project"
-		cases := []struct {
-			name          string
-			query         string
-			wantDir       string
-			wantBase      string
-			wantRelPrefix string
-		}{
-			{
-				name:          "empty_completes_the_working_directory",
-				query:         "",
-				wantDir:       cwd,
-				wantBase:      "",
-				wantRelPrefix: "",
-			},
-			{
-				name:          "bare_prefix_matches_in_cwd",
-				query:         "ma",
-				wantDir:       cwd,
-				wantBase:      "ma",
-				wantRelPrefix: "",
-			},
-			{
-				name:          "directory_path_completes_inside_it",
-				query:         "src/",
-				wantDir:       filepath.Join(cwd, "src"),
-				wantBase:      "",
-				wantRelPrefix: "src/",
-			},
-			{
-				name:          "partial_prefix_under_directory",
-				query:         "src/ma",
-				wantDir:       filepath.Join(cwd, "src"),
-				wantBase:      "ma",
-				wantRelPrefix: "src/",
-			},
-			{
-				name:          "absolute_paths_pass_through",
-				query:         "/etc/ng",
-				wantDir:       "/etc",
-				wantBase:      "ng",
-				wantRelPrefix: "/etc/",
-			},
-		}
-		for _, tc := range cases {
-			t.Run(tc.name, func(t *testing.T) {
-				dir, base, relPrefix := splitQuery(cwd, tc.query)
-				assert.Equal(t, tc.wantDir, dir)
-				assert.Equal(t, tc.wantBase, base)
-				assert.Equal(t, tc.wantRelPrefix, relPrefix)
-			})
-		}
-	})
+func TestSplitQuery(t *testing.T) {
+	t.Parallel()
+
+	cwd := "/home/you/project"
+	cases := []struct {
+		name          string
+		query         string
+		wantDir       string
+		wantBase      string
+		wantRelPrefix string
+	}{
+		{
+			name:          "empty_completes_the_working_directory",
+			query:         "",
+			wantDir:       cwd,
+			wantBase:      "",
+			wantRelPrefix: "",
+		},
+		{
+			name:          "bare_prefix_matches_in_cwd",
+			query:         "ma",
+			wantDir:       cwd,
+			wantBase:      "ma",
+			wantRelPrefix: "",
+		},
+		{
+			name:          "directory_path_completes_inside_it",
+			query:         "src/",
+			wantDir:       filepath.Join(cwd, "src"),
+			wantBase:      "",
+			wantRelPrefix: "src/",
+		},
+		{
+			name:          "partial_prefix_under_directory",
+			query:         "src/ma",
+			wantDir:       filepath.Join(cwd, "src"),
+			wantBase:      "ma",
+			wantRelPrefix: "src/",
+		},
+		{
+			name:          "absolute_paths_pass_through",
+			query:         "/etc/ng",
+			wantDir:       "/etc",
+			wantBase:      "ng",
+			wantRelPrefix: "/etc/",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir, base, relPrefix := splitQuery(cwd, tc.query)
+			assert.Equal(t, tc.wantDir, dir)
+			assert.Equal(t, tc.wantBase, base)
+			assert.Equal(t, tc.wantRelPrefix, relPrefix)
+		})
+	}
 }

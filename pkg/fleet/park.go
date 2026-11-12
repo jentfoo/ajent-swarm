@@ -86,9 +86,6 @@ func (a *sessionActor) handleParkRecall(msg msgParkRecall) {
 // modelProvider names the provider this session's flushes gate on, from its
 // current model key. An unknown key gates on the whole fleet.
 func (a *sessionActor) modelProvider() string {
-	if a.view == nil {
-		return ""
-	}
 	return ProviderOf(a.view.model.Key)
 }
 

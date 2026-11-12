@@ -10,7 +10,7 @@ import { useSubmitPress } from './submitPress'
 
 // DialogCardLayout picks a card's control arrangement: compact one-row answers
 // for the desktop dock, stacked full-width controls for touch.
-export type DialogCardLayout = 'compact' | 'touch'
+type DialogCardLayout = 'compact' | 'touch'
 
 interface DialogCardBodyProps {
   dialog: InteractionPending

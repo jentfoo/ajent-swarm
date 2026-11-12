@@ -60,7 +60,7 @@ func (m *Manager) SavedSessions() ([]SavedSession, error) {
 	out := make([]SavedSession, 0, len(rows))
 	for _, row := range rows {
 		_, isLive := live[row.ID]
-		target := row.ID // resume handle: the name, else the id
+		target := row.ID
 		if row.Name != "" {
 			target = row.Name
 		}
@@ -120,12 +120,11 @@ func (m *Manager) savedRow(target string) (session.Listed, error) {
 	if err != nil {
 		return session.Listed{}, err
 	}
-	if row, err := findSavedRow(rows, target); err == nil {
-		return row, nil
-	} else if !errors.Is(err, errNoSavedMatch) {
-		return session.Listed{}, err
+	row, err := findSavedRow(rows, target)
+	if errors.Is(err, errNoSavedMatch) {
+		return session.Listed{}, fmt.Errorf("%w: %s", ErrUnknownSaved, target)
 	}
-	return session.Listed{}, fmt.Errorf("%w: %s", ErrUnknownSaved, target)
+	return row, err
 }
 
 // errNoSavedMatch reports a target that matched no row, findSavedRow uses it

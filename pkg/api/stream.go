@@ -110,7 +110,7 @@ func (sc *streamConn) readPump() {
 
 		var f fleet.ClientFrame
 		if err := json.Unmarshal(raw, &f); err != nil {
-			sc.pushError("bad_request", "frame is not valid JSON", "")
+			sc.pushError(codeFrameBadRequest, "frame is not valid JSON", "")
 			continue
 		}
 		switch f.Type {
@@ -121,7 +121,7 @@ func (sc *streamConn) readPump() {
 		case fleet.FrameSync:
 			sc.sync(&f)
 		default:
-			sc.pushError("bad_request", "unknown frame type "+f.Type, f.SessionID)
+			sc.pushError(codeFrameBadRequest, "unknown frame type "+f.Type, f.SessionID)
 		}
 	}
 }
@@ -130,7 +130,7 @@ func (sc *streamConn) readPump() {
 // subscribe re-syncs instead of stacking a second seat on the same pane.
 func (sc *streamConn) subscribe(f *fleet.ClientFrame) {
 	if f.SessionID == "" {
-		sc.pushError("bad_request", "subscribe needs a sessionId", "")
+		sc.pushError(codeFrameBadRequest, "subscribe needs a sessionId", "")
 		return
 	}
 	sc.mu.Lock()
@@ -156,7 +156,7 @@ func (sc *streamConn) subscribe(f *fleet.ClientFrame) {
 
 func (sc *streamConn) unsubscribe(sessionID string) {
 	if sessionID == "" {
-		sc.pushError("bad_request", "unsubscribe needs a sessionId", "")
+		sc.pushError(codeFrameBadRequest, "unsubscribe needs a sessionId", "")
 		return
 	}
 	sc.mu.Lock()
@@ -169,7 +169,7 @@ func (sc *streamConn) unsubscribe(sessionID string) {
 // sync re-pushes one subscription's init so a client can rebuild in place.
 func (sc *streamConn) sync(f *fleet.ClientFrame) {
 	if f.SessionID == "" {
-		sc.pushError("bad_request", "sync needs a sessionId", "")
+		sc.pushError(codeFrameBadRequest, "sync needs a sessionId", "")
 		return
 	}
 	sc.mu.Lock()

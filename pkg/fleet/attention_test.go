@@ -2,6 +2,7 @@ package fleet
 
 import (
 	"context"
+	"fmt"
 	"maps"
 	"os"
 	"sync"
@@ -223,14 +224,27 @@ func TestDeriveAttention(t *testing.T) {
 			})
 		}
 	})
+}
 
-	t.Run("stop_reason_text", func(t *testing.T) {
-		assert.Equal(t, "turn failed", stopReasonText("end_turn", "boom"))
-		assert.Equal(t, "turn complete", stopReasonText("end_turn", ""))
-		assert.Equal(t, "turn finished", stopReasonText("", ""))
-		assert.Equal(t, "turn finished", stopReasonText("unknown", ""))
-		assert.Equal(t, "stopped: weird_new_stop", stopReasonText("weird_new_stop", ""))
-	})
+func TestStopReasonText(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		stop string
+		err  string
+		want string
+	}{
+		{stop: "end_turn", err: "boom", want: "turn failed"},
+		{stop: "end_turn", want: "turn complete"},
+		{want: "turn finished"},
+		{stop: "unknown", want: "turn finished"},
+		{stop: "weird_new_stop", want: "stopped: weird_new_stop"},
+	}
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("%s/%s", tt.stop, tt.err), func(t *testing.T) {
+			assert.Equal(t, tt.want, stopReasonText(tt.stop, tt.err))
+		})
+	}
 }
 
 func TestManagerAcks(t *testing.T) {

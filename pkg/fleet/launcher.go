@@ -18,8 +18,8 @@ import (
 	"github.com/jentfoo/ajent/pkg/ctl"
 )
 
-// resumePathSuffix targets ajent resolves by transcript path inside the
-// workspace, which the cross-workspace listing never carries.
+// resumePathSuffix marks targets naming an ajent-resolved transcript path,
+// which the cross-workspace listing never carries.
 const resumePathSuffix = ".jsonl"
 
 // Launch and stop tuning. The launch window must cover a resuming child

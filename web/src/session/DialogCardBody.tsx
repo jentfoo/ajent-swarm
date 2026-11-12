@@ -143,7 +143,7 @@ function StandardDialogBody({
             busy={busy}
             autoFocus={mayFocus}
             chat={dialog.chat === true}
-            onSend={(text) => void resolve({ text, chat: dialog.chat })}
+            onSend={(text) => resolve({ text, chat: dialog.chat })}
           />
         )}
         {dialog.text === true && dialog.secret && (
@@ -251,7 +251,7 @@ function StandardDialogBody({
         <TextAnswer
           busy={busy}
           chat={dialog.chat === true}
-          onSend={(text) => void resolve({ text, chat: dialog.chat })}
+          onSend={(text) => resolve({ text, chat: dialog.chat })}
         />
       )}
       <div className="dialog-cancel">

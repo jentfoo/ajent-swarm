@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -27,22 +27,31 @@ function MultiProbe() {
   )
 }
 
+// heldSend holds one resolve in flight until released, pinning draft timing.
+function heldSend() {
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  return { onSend: () => gate.then(() => true), release }
+}
+
 describe('TextAnswer', () => {
   it('names the answer input for screen readers', () => {
-    render(<TextAnswer busy={false} chat onSend={() => {}} />)
+    render(<TextAnswer busy={false} chat onSend={() => Promise.resolve(true)} />)
 
     expect(screen.getByRole('textbox')).toHaveAttribute('aria-label', 'Dialog answer')
   })
 
-  it('sends the typed text and clears it', async () => {
+  it('sends the typed text and clears it once landed', async () => {
     const user = userEvent.setup()
-    const onSend = vi.fn()
+    const onSend = vi.fn(async () => true)
     render(<TextAnswer busy={false} chat={false} onSend={onSend} />)
 
     await user.type(screen.getByRole('textbox'), 'my answer')
     await user.click(screen.getByRole('button', { name: 'Answer' }))
     expect(onSend).toHaveBeenCalledWith('my answer')
-    expect(screen.getByRole('textbox')).toHaveValue('')
+    await waitFor(() => expect(screen.getByRole('textbox')).toHaveValue(''))
   })
 
   it('refuses whitespace-only and busy answers', async () => {
@@ -72,7 +81,7 @@ describe('TextAnswer', () => {
 
   it('marks a chat answer when the toggle is on', async () => {
     const user = userEvent.setup()
-    const onSend = vi.fn()
+    const onSend = vi.fn(async () => true)
     render(<TextAnswer busy={false} chat onSend={onSend} />)
 
     await user.type(screen.getByRole('textbox'), 'own words')
@@ -86,10 +95,53 @@ describe('TextAnswer', () => {
     ['keeps the caret off by default', false],
     ['takes the caret when allowed', true],
   ])('%s', (_name, autoFocus) => {
-    render(<TextAnswer busy={false} chat={false} autoFocus={autoFocus} onSend={() => {}} />)
+    render(
+      <TextAnswer
+        busy={false}
+        chat={false}
+        autoFocus={autoFocus}
+        onSend={() => Promise.resolve(true)}
+      />,
+    )
     const input = screen.getByRole('textbox')
     if (autoFocus) expect(input).toHaveFocus()
     else expect(document.activeElement).toBe(document.body)
+  })
+
+  it('keeps the typed draft when a resolve is refused', async () => {
+    const user = userEvent.setup()
+    render(<TextAnswer busy={false} chat={false} onSend={() => Promise.resolve(false)} />)
+
+    await user.type(screen.getByRole('textbox'), 'my answer')
+    await user.click(screen.getByRole('button', { name: 'Answer' }))
+
+    expect(screen.getByRole('textbox')).toHaveValue('my answer')
+  })
+
+  it('holds the draft through a landed resolve still in flight', async () => {
+    const user = userEvent.setup()
+    const { onSend, release } = heldSend()
+    render(<TextAnswer busy={false} chat={false} onSend={onSend} />)
+
+    await user.type(screen.getByRole('textbox'), 'my answer')
+    await user.click(screen.getByRole('button', { name: 'Answer' }))
+    expect(screen.getByRole('textbox')).toHaveValue('my answer')
+
+    await act(async () => release())
+    await waitFor(() => expect(screen.getByRole('textbox')).toHaveValue(''))
+  })
+
+  it('keeps edits typed while a resolve was in flight', async () => {
+    const user = userEvent.setup()
+    const { onSend, release } = heldSend()
+    render(<TextAnswer busy={false} chat={false} onSend={onSend} />)
+
+    await user.type(screen.getByRole('textbox'), 'first')
+    await user.click(screen.getByRole('button', { name: 'Answer' }))
+    await user.type(screen.getByRole('textbox'), ' edited')
+
+    await act(async () => release())
+    await waitFor(() => expect(screen.getByRole('textbox')).toHaveValue('first edited'))
   })
 })
 
@@ -106,7 +158,7 @@ describe('TextAnswer touch press', () => {
 
   it('sends one tap with the keyboard up', async () => {
     const user = userEvent.setup()
-    const onSend = vi.fn()
+    const onSend = vi.fn(async () => true)
     const CoarseTextAnswer = await coarseTextAnswer()
     render(<CoarseTextAnswer busy={false} chat={false} onSend={onSend} />)
 
@@ -121,7 +173,7 @@ describe('TextAnswer touch press', () => {
 
   it('dismisses the keyboard on an empty tap', async () => {
     const user = userEvent.setup()
-    const onSend = vi.fn()
+    const onSend = vi.fn(async () => true)
     const CoarseTextAnswer = await coarseTextAnswer()
     render(<CoarseTextAnswer busy={false} chat={false} onSend={onSend} />)
 
@@ -140,7 +192,7 @@ describe('TextAnswer touch press', () => {
 
   it('keeps a busy answer really disabled', async () => {
     const CoarseTextAnswer = await coarseTextAnswer()
-    render(<CoarseTextAnswer busy chat={false} onSend={() => {}} />)
+    render(<CoarseTextAnswer busy chat={false} onSend={() => Promise.resolve(true)} />)
 
     const answer = screen.getByRole('button', { name: 'Answer' })
     expect(answer).toBeDisabled()

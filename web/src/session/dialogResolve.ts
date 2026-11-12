@@ -12,8 +12,10 @@ type DialogAnswer = Omit<ResolveAnswer, 'dialogId'>
 interface DialogResolve {
   busy: boolean
   error: string
-  // resolve posts one answer for this dialog, a busy card answers nothing
-  resolve: (body: DialogAnswer) => Promise<void>
+  // resolve posts one answer for this dialog, a busy card answers nothing;
+  // true when the answer lands or settled benignly, false on a refusal so a
+  // caller can keep its draft
+  resolve: (body: DialogAnswer) => Promise<boolean>
 }
 
 // useDialogResolve is one dialog card's answer state, shared by every dock:
@@ -31,8 +33,8 @@ export function useDialogResolve(
   const [error, setError] = useState('')
 
   const resolve = useCallback(
-    async (body: DialogAnswer) => {
-      if (busy) return
+    async (body: DialogAnswer): Promise<boolean> => {
+      if (busy) return false
       setBusy(true)
       setError('')
       // ownership rides the submit, not the response: the settled frame takes
@@ -40,11 +42,14 @@ export function useDialogResolve(
       onAnsweredLocally(dialogId)
       try {
         await sessions.resolve(sessionId, { ...body, dialogId })
+        return true
       } catch (err) {
         // settled is benign: another surface's answer already won
         if (!(err instanceof ApiError && err.code === 'settled')) {
           setError(describeError(err, 'Resolve failed.'))
+          return false
         }
+        return true
       } finally {
         setBusy(false)
       }

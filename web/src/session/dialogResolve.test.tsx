@@ -1,5 +1,6 @@
 import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { useState } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 
 import { useDialogResolve } from './dialogResolve'
@@ -18,13 +19,18 @@ function ResolveProbe({
   onAnsweredLocally: (dialogId: number) => void
 }) {
   const { busy, error, resolve } = useDialogResolve(sessionId, dialogId, onAnsweredLocally)
+  const [landed, setLanded] = useState('')
   return (
     <div>
       <span data-testid="busy">{String(busy)}</span>
       <span data-testid="error">{error}</span>
-      <button type="button" onClick={() => void resolve({ index: 1 })}>
+      <button
+        type="button"
+        onClick={() => void resolve({ index: 1 }).then((ok) => setLanded(String(ok)))}
+      >
         answer
       </button>
+      <span data-testid="landed">{landed}</span>
     </div>
   )
 }
@@ -65,6 +71,15 @@ describe('useDialogResolve', () => {
     expect(onAnsweredLocally).toHaveBeenCalledWith(7)
   })
 
+  it('reports a landed answer as true', async () => {
+    const user = userEvent.setup()
+    stubFetch(() => Response.json({ settled: false }))
+    render(<ResolveProbe sessionId="01S" dialogId={7} onAnsweredLocally={vi.fn()} />)
+
+    await user.click(screen.getByRole('button', { name: 'answer' }))
+    expect(screen.getByTestId('landed')).toHaveTextContent('true')
+  })
+
   it('treats a settled refusal as benign', async () => {
     const user = userEvent.setup()
     stubFetch(() =>
@@ -75,6 +90,8 @@ describe('useDialogResolve', () => {
 
     await user.click(screen.getByRole('button', { name: 'answer' }))
     expect(screen.getByTestId('error')).toHaveTextContent('')
+    // a settled dialog is gone either way, so the answer reports as landed
+    expect(screen.getByTestId('landed')).toHaveTextContent('true')
     expect(onAnsweredLocally).toHaveBeenCalledWith(7)
   })
 
@@ -91,6 +108,8 @@ describe('useDialogResolve', () => {
     // ownership still lands: the dialog stays answerable, another surface's
     // settle may close it meanwhile
     expect(onAnsweredLocally).toHaveBeenCalledWith(7)
+    // a refused answer reports as not landed so a caller can keep its draft
+    expect(screen.getByTestId('landed')).toHaveTextContent('false')
   })
 
   it('marks ownership at submission, ahead of the response', async () => {

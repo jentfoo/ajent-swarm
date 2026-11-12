@@ -53,8 +53,10 @@ export function ResolvedChip({
 }
 
 // TextAnswer is the free-text answer body: the input, the chat toggle when the
-// dialog offers one, and the send button. autoFocus stays opt-in so only a
-// chrome whose focus policy allows the caret passes it.
+// dialog offers one, and the send button. onSend reports whether the resolve
+// landed: a refusal keeps the typed text for another try, secrets never retain
+// (DialogCardBody). autoFocus stays opt-in so only a chrome whose focus policy
+// allows the caret passes it.
 export function TextAnswer({
   busy,
   chat,
@@ -64,19 +66,22 @@ export function TextAnswer({
   busy: boolean
   chat: boolean
   autoFocus?: boolean
-  onSend: (text: string) => void
+  onSend: (text: string) => Promise<boolean>
 }): ReactElement {
   const [text, setText] = useState('')
   const [asChat, setAsChat] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const empty = text.trim() === ''
   const press = useSubmitPress(inputRef, empty, busy)
-  const submit = (ev: FormEvent) => {
+  const submit = async (ev: FormEvent) => {
     ev.preventDefault()
     // the disabled button blocks clicks, Enter still submits while busy
     if (busy || empty) return
-    onSend(text)
-    setText('')
+    const sent = text
+    // a refusal keeps its draft for another try; a landed answer clears only
+    // if typing has not reshaped it meanwhile
+    const landed = await onSend(sent).catch(() => false)
+    setText((cur) => (landed && cur === sent ? '' : cur))
   }
   return (
     <form onSubmit={submit} className="dialog-text">

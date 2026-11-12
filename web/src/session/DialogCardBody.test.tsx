@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -230,6 +230,58 @@ describe('DialogCardBody read-only', () => {
     expect(screen.getByText('name?')).toBeInTheDocument()
     expect(document.querySelector('.dialog-options-ended')).toBeNull()
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+  })
+})
+
+// Text drafts ride the resolve outcome: a refusal keeps the typed text for
+// another try, a landed answer clears it. Secrets clear at send whatever the
+// outcome, they never retain.
+describe('DialogCardBody text draft retention', () => {
+  const textDialog = base({ id: 7, kind: 'input', prompt: 'name?', text: true })
+  const secretDialog = base({ id: 7, kind: 'secret', prompt: 'API key?', text: true, secret: true })
+
+  function stubRefusal() {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Response.json({ error: 'busy', message: 'turn owns the loop' }, { status: 409 }),
+      ),
+    )
+  }
+
+  it.each(layouts)('keeps a refused %s text draft standing', async (layout) => {
+    stubRefusal()
+    renderBody(textDialog, layout)
+
+    const input = screen.getByLabelText('Dialog answer')
+    await userEvent.type(input, 'my answer')
+    await userEvent.click(screen.getByRole('button', { name: 'Answer' }))
+
+    expect(screen.getByText('turn owns the loop')).toBeInTheDocument()
+    expect(input).toHaveValue('my answer')
+  })
+
+  it.each(layouts)('clears a landed %s text draft', async (layout) => {
+    stubFetch({ settled: false })
+    renderBody(textDialog, layout)
+
+    const input = screen.getByLabelText('Dialog answer')
+    await userEvent.type(input, 'my answer')
+    await userEvent.click(screen.getByRole('button', { name: 'Answer' }))
+
+    await waitFor(() => expect(input).toHaveValue(''))
+  })
+
+  it.each(layouts)('clears a refused %s secret at send', async (layout) => {
+    stubRefusal()
+    renderBody(secretDialog, layout)
+
+    const input = screen.getByLabelText('Secret answer')
+    await userEvent.type(input, 's3cret')
+    await userEvent.click(screen.getByRole('button', { name: 'Answer' }))
+
+    expect(screen.getByText('turn owns the loop')).toBeInTheDocument()
+    expect(input).toHaveValue('')
   })
 })
 

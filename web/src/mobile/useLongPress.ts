@@ -4,6 +4,10 @@ import type { PointerEvent as ReactPointerEvent } from 'react'
 // longPressMs is the hold time before the rename affordance fires.
 const longPressMs = 500
 
+// moveSlopPx is how far a held pointer may wander in either axis before the
+// hold reads as a drag or scroll, matched with BottomSheet's tap slop.
+const moveSlopPx = 8
+
 // clickBlockMs bounds how long a fired hold keeps swallowing taps after its
 // release. Every real gesture starts with a pointerdown, which disarms first.
 const clickBlockMs = 1_000
@@ -11,18 +15,25 @@ const clickBlockMs = 1_000
 interface LongPressHandlers {
   pressed: boolean // true while a touch or press is held, for row styling
   onPointerDown: (ev: ReactPointerEvent) => void
+  onPointerMove: (ev: ReactPointerEvent) => void
   onPointerUp: () => void
   onPointerLeave: () => void
   onPointerCancel: () => void
 }
 
 // useLongPress fires after a held touch, any early release or pointer leaving
-// cancels it, so scrolling the rows never triggers a rename. A fired hold
-// also swallows the tap its release synthesizes, wherever that click lands,
-// so holding to rename does not read as opening the row underneath.
+// cancels it, so scrolling the rows never triggers a rename. A hold whose
+// pointer drags past moveSlopPx first cancels the same way and its release
+// tap stays ordinary. A fired hold also swallows the tap its release
+// synthesizes, wherever that click lands, so holding to rename does not read
+// as opening the row underneath.
 export function useLongPress(onLongPress: () => void): LongPressHandlers {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [pressed, setPressed] = useState(false)
+  // startX/startY anchor the pending hold's slop check; they only matter
+  // while timer is set, so gesture ends need no reset of either.
+  const startX = useRef(0)
+  const startY = useRef(0)
   // fired marks a hold that ran past the threshold this gesture. Its release
   // must not leak through as a tap.
   const fired = useRef(false)
@@ -87,7 +98,10 @@ export function useLongPress(onLongPress: () => void): LongPressHandlers {
     onPointerDown: (ev) => {
       if (!ev.isPrimary) return
       stopClickBlock.current?.() // a new gesture never inherits the last blocker
+      if (timer.current !== null) clearTimeout(timer.current) // nor the last timer
       fired.current = false
+      startX.current = ev.clientX
+      startY.current = ev.clientY
       setPressed(true)
       timer.current = setTimeout(() => {
         timer.current = null
@@ -95,6 +109,14 @@ export function useLongPress(onLongPress: () => void): LongPressHandlers {
         fired.current = true
         onLongPress()
       }, longPressMs)
+    },
+    // movement only matters to a pending hold: past the slop it is a drag or
+    // scroll, so the hold cancels and its release tap lands unblocked
+    onPointerMove: (ev) => {
+      if (!ev.isPrimary || timer.current === null) return
+      const dx = Math.abs(ev.clientX - startX.current)
+      const dy = Math.abs(ev.clientY - startY.current)
+      if (dx > moveSlopPx || dy > moveSlopPx) cancel()
     },
     onPointerUp: release,
     onPointerLeave: release,

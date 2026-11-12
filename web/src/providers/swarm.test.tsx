@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SwarmProvider, useSwarm } from './swarm'
 import { MockWebSocket } from '../test/mockWebSocket'
 import type { AttentionRow, ServerFrame, SessionStatus } from '../api/types'
+import type { SocketState } from '../stream/swarmStream'
 
 // The provider keeps the focus-queue digest in step with the stream: a frame
 // that moves a session between queues (a dialog opening or settling, a turn
@@ -48,6 +49,13 @@ function Probe({ sessionId }: { sessionId: string }) {
   return null
 }
 
+// lastSocket grabs the newest mock connection, each mounted provider owns one.
+function lastSocket(): MockWebSocket {
+  const ws = MockWebSocket.instances.at(-1)
+  if (!ws) throw new Error('no socket created')
+  return ws
+}
+
 describe('SwarmProvider digest sync', () => {
   let attentionFetches: number
   let attentionRows: AttentionRow[]
@@ -83,8 +91,7 @@ describe('SwarmProvider digest sync', () => {
   })
 
   function openSocket(): MockWebSocket {
-    const ws = MockWebSocket.instances.at(-1)
-    if (!ws) throw new Error('no socket created')
+    const ws = lastSocket()
     act(() => ws.open())
     return ws
   }
@@ -322,5 +329,68 @@ describe('SwarmProvider stale poll guards', () => {
       parkedSessions[0]([])
     })
     expect(latestCtx.sessionsLoaded).toBe(true)
+  })
+})
+
+describe('SwarmProvider connection state', () => {
+  // Records each committed value, exactly what the banner renders.
+  let seen: SocketState[] = []
+
+  function ConnProbe() {
+    const { connection } = useSwarm()
+    useEffect(() => {
+      seen.push(connection)
+    })
+    return null
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    seen = []
+    MockWebSocket.instances = []
+    vi.stubGlobal('WebSocket', class extends MockWebSocket {})
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json([])),
+    )
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.useRealTimers()
+  })
+
+  it('claims connecting at first paint', () => {
+    render(
+      <SwarmProvider>
+        <ConnProbe />
+      </SwarmProvider>,
+    )
+
+    // mount effects run before connect(), the very first read is the init
+    expect(seen[0]).toBe('connecting')
+  })
+
+  it('follows the stream through open and a drop', async () => {
+    render(
+      <SwarmProvider>
+        <ConnProbe />
+      </SwarmProvider>,
+    )
+
+    const ws = lastSocket()
+    act(() => ws.open())
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0)
+    })
+    expect(seen.at(-1)).toBe('open')
+
+    // A drop lands as closed, the lost banner's cue. Zero advance keeps the
+    // scheduled reconnect from firing.
+    act(() => ws.close())
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0)
+    })
+    expect(seen.at(-1)).toBe('closed')
   })
 })

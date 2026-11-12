@@ -75,7 +75,9 @@ export function SwarmProvider({ children }: { children: ReactNode }) {
   // keep serving the last known rows.
   const [sessionsLoaded, setSessionsLoaded] = useState(false)
   const [attention, setAttention] = useState<AttentionRow[]>([])
-  const [connection, setConnection] = useState<SocketState>('closed')
+  // First paint claims connecting: connect() runs after mount, so a fresh page
+  // must not flash lost for a connection it never held.
+  const [connection, setConnection] = useState<SocketState>('connecting')
 
   useEffect(
     () => stream.onConnectionChange(() => setConnection(stream.connectionState())),

@@ -21,8 +21,9 @@ interface SessionCompose {
   // an existing draft with a toast.
   placedAbove: (text: string) => void
   // recall wires the composer's prompt recall: items merge the session's
-  // committed typed prompts with the workspace-wide mirror, accept lands a
-  // match under the prepend rule, and refresh re-reads the mirror.
+  // committed typed prompts with the workspace-wide mirror under one reference
+  // that holds until the contents change. Accept lands a match under the
+  // prepend rule, and refresh re-reads the mirror.
   recall: ComposerRecall
   // recallToEdit pops the newest queued prompt back into the composer, secret
   // rows refuse upstream and their toast says so.
@@ -97,17 +98,30 @@ export function useSessionCompose(sessionId: string): SessionCompose {
     },
     [setDraft, pushToast],
   )
-  // The source merges the session's committed prompts with the workspace
-  // recall mirror, one newest-first order, it re-derives with the chain, the
-  // same trigger the transcript's own block derivation uses, and whenever a
-  // mirror fetch lands.
+  // The merged source re-derives with the chain (the transcript's own
+  // trigger) and whenever a mirror fetch lands. One content set holds one
+  // array reference: the composer refilters an open search over any new
+  // reference and restarts at its newest hit, so the promptless commits a
+  // streaming turn lands constantly must not move it.
+  const mergedRecall = useMemo(
+    () => mergeRecallSources(recallPrompts(state.chain.ids, state.entries), workspaceLines),
+    [state.chain, state.entries, workspaceLines],
+  )
+  const [heldRecall, setHeldRecall] = useState<readonly string[]>(mergedRecall)
+  const unchanged = sameTexts(heldRecall, mergedRecall)
+  if (!unchanged) {
+    // setState during render re-renders before React commits this pass
+    setHeldRecall(mergedRecall)
+  }
+  const recallItems = unchanged ? heldRecall : mergedRecall
+
   const recall = useMemo(
     () => ({
-      items: mergeRecallSources(recallPrompts(state.chain.ids, state.entries), workspaceLines),
+      items: recallItems,
       accept: recallAccept,
       refresh: fetchWorkspaceRecall,
     }),
-    [state.chain, state.entries, recallAccept, workspaceLines, fetchWorkspaceRecall],
+    [recallItems, recallAccept, fetchWorkspaceRecall],
   )
 
   const recallToEdit = useCallback(async () => {
@@ -160,4 +174,15 @@ export function useSessionCompose(sessionId: string): SessionCompose {
     toasts,
     pushToast,
   }
+}
+
+// sameTexts reports whether two recall listings hold the same texts in one
+// order: equal sequences reuse the held reference even when the derivation
+// rebuilt every string instance.
+function sameTexts(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false
+  }
+  return true
 }

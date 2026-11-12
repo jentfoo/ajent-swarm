@@ -62,10 +62,12 @@ function isTextFile(file: File): boolean {
 
 // ComposerRecall wires the session's prompt recall into the composer. Items
 // merge committed typed prompts with the workspace-wide mirror, newest first
-// and deduplicated. Accept places a chosen prompt under the prepend rule (the
-// rewind prefill path, never clobbering a draft) and returns the landed draft
-// for caret placement. Refresh re-reads the workspace mirror so a later
-// search sees what other surfaces submitted since mount.
+// and deduplicated, holding one array reference until the contents change:
+// an open search refilters any new reference and restarts at its newest hit.
+// Accept places a chosen prompt under the prepend rule (the rewind prefill
+// path, never clobbering a draft) and returns the landed draft for caret
+// placement. Refresh re-reads the workspace mirror so a later search sees
+// what other surfaces submitted since mount.
 export interface ComposerRecall {
   items: readonly string[]
   accept: (text: string, current: string) => string

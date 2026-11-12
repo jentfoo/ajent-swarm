@@ -300,6 +300,97 @@ describe('useSessionCompose', () => {
     )
   })
 
+  it('holds the items reference across promptless commits', async () => {
+    const { result } = renderCompose(VIEW)
+    const ws = await openSocket()
+    act(() => {
+      ws.message({
+        type: 'init',
+        sessionId: VIEW,
+        state: snapshotFor(VIEW, { head: '01H1' }),
+        entries: [messageEntry('01H1', undefined, 'user', 'first prompt')],
+      })
+    })
+
+    await waitFor(() => expect(result.current.recall.items).toEqual(['first prompt']))
+    const before = result.current.recall.items
+
+    // a streaming turn commits constantly without joining a prompt: the merged
+    // list keeps its reference so an open search holds its cursor instead of
+    // restarting at the newest hit on every commit
+    act(() => {
+      ws.message({
+        type: 'event',
+        sessionId: VIEW,
+        event: {
+          event: 'entry.append',
+          seq: 2,
+          data: { entry: messageEntry('01H2', '01H1', 'assistant', 'answering') },
+        },
+      })
+    })
+    expect(result.current.recall.items).toBe(before)
+  })
+
+  it('joins a committed prompt with fresh items', async () => {
+    const { result } = renderCompose(VIEW)
+    const ws = await openSocket()
+    act(() => {
+      ws.message({
+        type: 'init',
+        sessionId: VIEW,
+        state: snapshotFor(VIEW, { head: '01H1' }),
+        entries: [messageEntry('01H1', undefined, 'user', 'first prompt')],
+      })
+    })
+
+    await waitFor(() => expect(result.current.recall.items).toEqual(['first prompt']))
+    const before = result.current.recall.items
+
+    act(() => {
+      ws.message({
+        type: 'event',
+        sessionId: VIEW,
+        event: {
+          event: 'entry.append',
+          seq: 2,
+          data: { entry: messageEntry('01H2', '01H1', 'user', 'second prompt') },
+        },
+      })
+    })
+
+    // new content moves the reference, so an open search refilters and
+    // restarts at the newest hit like any query change
+    expect(result.current.recall.items).not.toBe(before)
+    expect(result.current.recall.items).toEqual(['second prompt', 'first prompt'])
+  })
+
+  it('a mirror refresh keeps identical rows on one reference', async () => {
+    let reads = 0
+    fetcher.on(`/api/sessions/${VIEW}/recall-lines`, () => {
+      reads += 1
+      return Response.json({
+        items: [{ id: 7, text: 'mirror row', createdAt: '2026-01-02T00:00:00Z' }],
+      })
+    })
+    const { result } = renderCompose(VIEW)
+    const ws = await openSocket()
+    act(() => {
+      ws.message({ type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
+    })
+
+    await waitFor(() => expect(result.current.recall.items).toEqual(['mirror row']))
+    const before = result.current.recall.items
+    await act(async () => {
+      result.current.recall.refresh()
+    })
+    await waitFor(() => expect(reads).toBe(2))
+
+    // identical rows re-served keep the reference, so a refresh landing under
+    // an open search never restarts it on its own
+    expect(result.current.recall.items).toBe(before)
+  })
+
   it('merges the workspace mirror under one ordering', async () => {
     fetcher.on(`/api/sessions/${VIEW}/recall-lines`, () =>
       Response.json({

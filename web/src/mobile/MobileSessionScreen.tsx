@@ -3,7 +3,7 @@ import type { ReactElement } from 'react'
 import { Link, useParams } from 'react-router'
 
 import { sessionBusy } from '../state/eventApplier'
-import { headerBadgeOf } from '../workspace/attention'
+import { headerBadgeOf, submitTurnEnd } from '../workspace/attention'
 import { Composer } from '../session/Composer'
 import { SeatBadge } from '../session/SeatBadge'
 import { Notices } from '../session/Notices'
@@ -153,7 +153,8 @@ function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElemen
         disabledReason={disabledReason}
         onSubmit={(line, pendingId) => {
           dispatch({ type: 'pendingSubmitted', pendingId, text: line })
-          acknowledgeTurn(sessionId, Date.now())
+          // the raised review row's server turn end settles, a later turn re-raises
+          acknowledgeTurn(sessionId, submitTurnEnd(itemFor(sessionId)))
         }}
         onSubmitFailed={(pendingId) => dispatch({ type: 'pendingFailed', pendingId })}
         onQueue={(line, pendingId) =>

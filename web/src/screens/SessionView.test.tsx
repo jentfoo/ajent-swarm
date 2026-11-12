@@ -505,6 +505,51 @@ describe('SessionView', () => {
     })
   })
 
+  it('acks a submit with the digest row server turn end, not the local clock', async () => {
+    const TURN_END = 1_234_567
+    fetcher.on('/api/attention', () =>
+      Response.json([
+        {
+          sessionId: VIEW,
+          openInteractions: 0,
+          running: false,
+          idle: true,
+          lastTurnEnd: TURN_END,
+          kind: 'needs-review',
+          reason: 'turn complete',
+          since: TURN_END,
+        },
+      ]),
+    )
+    fetcher.on(`/api/sessions/${VIEW}/submit`, () =>
+      Response.json({ pendingId: 'p-client' }, { status: 202 }),
+    )
+    // the browser clock runs an hour past the host: stamping it would lift the
+    // ledger's watermark above every future server turn end
+    const skewed = vi.spyOn(Date, 'now').mockReturnValue(TURN_END + 3_600_000)
+    try {
+      renderView()
+      const ws = await openSocket()
+      frame(ws, { type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
+      await waitFor(() => expect(fetcher.callsTo('/attention').length).toBeGreaterThan(0))
+      await act(async () => {}) // the digest commit is in, itemFor finds the row
+
+      const user = userEvent.setup()
+      await user.type(await screen.findByLabelText('Prompt'), 'next prompt{Enter}')
+
+      await waitFor(() => {
+        const acks = fetcher.callsTo('/attention/ack')
+        expect(acks).toHaveLength(1)
+        expect(JSON.parse(String(acks[0]!.init?.body))).toEqual({
+          sessionId: VIEW,
+          turnEnd: TURN_END,
+        })
+      })
+    } finally {
+      skewed.mockRestore()
+    }
+  })
+
   it('interrupts a running stream on escape', async () => {
     fetcher.on(`/api/sessions/${VIEW}/interrupt`, () => Response.json({ stopped: VIEW }))
     renderView()

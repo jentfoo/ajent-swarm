@@ -10,6 +10,7 @@ import {
   rankAttention,
   resetQueueEntries,
   sessionBadgeOf,
+  submitTurnEnd,
 } from './attention'
 import type { AttentionSort } from './attention'
 
@@ -264,5 +265,24 @@ describe('explicit check-off', () => {
     expect(
       ackBodyFor(deriveItem(row({ sessionId: 'sw2', running: true, kind: 'working' }))),
     ).toBeUndefined()
+  })
+})
+
+describe('submit-path turn acks', () => {
+  it('stamps the digest row server turn end over the local clock', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(9_000) // a client clock far past the server's turn end
+
+    const review = deriveItem(
+      row({ sessionId: 'st', kind: 'needs-review', since: 500, lastTurnEnd: 500 }),
+    )
+    expect(submitTurnEnd(review)).toBe(500)
+
+    // no digest row, or one without a review target, keeps the local clock
+    expect(submitTurnEnd(undefined)).toBe(9_000)
+    expect(submitTurnEnd(deriveItem(row({ sessionId: 'st' })))).toBe(9_000)
+    expect(
+      submitTurnEnd(deriveItem(row({ sessionId: 'st', running: true, kind: 'working' }))),
+    ).toBe(9_000)
   })
 })

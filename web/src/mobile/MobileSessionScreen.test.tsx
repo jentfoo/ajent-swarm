@@ -536,6 +536,60 @@ describe('MobileSessionScreen', () => {
     expect(chips).toHaveTextContent('first prompt')
   })
 
+  it('acks a submit with the digest row server turn end, not the local clock', async () => {
+    const TURN_END = 1_234_567
+    fetcher.on('/api/attention', () =>
+      Response.json([
+        {
+          sessionId: VIEW,
+          openInteractions: 0,
+          running: false,
+          idle: true,
+          lastTurnEnd: TURN_END,
+          kind: 'needs-review',
+          reason: 'turn complete',
+          since: TURN_END,
+        },
+      ]),
+    )
+    fetcher.on(`/api/sessions/${VIEW}/submit`, () =>
+      Response.json({ pendingId: 'p-mobile' }, { status: 202 }),
+    )
+    // the phone clock runs an hour past the host: stamping it would lift the
+    // ledger's watermark above every future server turn end
+    const skewed = vi.spyOn(Date, 'now').mockReturnValue(TURN_END + 3_600_000)
+    try {
+      renderScreen()
+      const ws = await openSocket()
+      act(() => {
+        ws.message({ type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
+      })
+      await vi.waitFor(() => {
+        const digests = fetcher.handler.mock.calls.filter(([u]) =>
+          String(u).endsWith('/api/attention'),
+        )
+        expect(digests.length).toBeGreaterThan(0)
+      })
+      await act(async () => {}) // the digest commit is in, itemFor finds the row
+
+      const user = userEvent.setup()
+      await user.type(await screen.findByLabelText('Prompt'), 'next prompt{Enter}')
+
+      await vi.waitFor(() => {
+        const acks = fetcher.handler.mock.calls.filter(([u]) =>
+          String(u).endsWith('/attention/ack'),
+        )
+        expect(acks).toHaveLength(1)
+        expect(JSON.parse(String(acks[0]![1]?.body))).toEqual({
+          sessionId: VIEW,
+          turnEnd: TURN_END,
+        })
+      })
+    } finally {
+      skewed.mockRestore()
+    }
+  })
+
   it('renders queue rows with edit only on the newest and recalls to the draft', async () => {
     fetcher.on(`/api/sessions/${VIEW}/recall`, () =>
       Response.json({ id: 'q1', text: 'recalled prompt' }),

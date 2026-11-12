@@ -6,6 +6,7 @@ import { useResume } from '../hooks/useResume'
 import { useSessionChannel } from '../hooks/useSessionChannel'
 import { useWorkspace } from '../providers/workspace'
 import { sessionBusy } from '../state/eventApplier'
+import { submitTurnEnd } from '../workspace/attention'
 import { Composer } from '../session/Composer'
 import { endedBanner, PhaseBanner } from '../session/phases'
 import { DialogDock } from '../session/DialogDock'
@@ -50,7 +51,7 @@ export default function SessionView({
 // session swap a remount, so local state never outlives its session.
 function SessionSurface({ sessionId, focused }: { sessionId: string; focused: boolean }) {
   const { state, phase, loadOlder, dispatch } = useSessionChannel(sessionId)
-  const { acknowledgeDialog, acknowledgeTurn } = useWorkspace()
+  const { acknowledgeDialog, acknowledgeTurn, itemFor } = useWorkspace()
   const snap = state.snapshot
 
   const {
@@ -166,9 +167,9 @@ function SessionSurface({ sessionId, focused }: { sessionId: string; focused: bo
         disabledReason={disabledReason}
         onSubmit={(line, pendingId) => {
           dispatch({ type: 'pendingSubmitted', pendingId, text: line })
-          // Sending feedback counts as acting: any unreviewed completion
-          // before now is settled, a later turn will re-raise.
-          acknowledgeTurn(sessionId, Date.now())
+          // Sending feedback counts as acting: the raised review row's
+          // server turn end settles, a later turn will re-raise.
+          acknowledgeTurn(sessionId, submitTurnEnd(itemFor(sessionId)))
         }}
         onSubmitFailed={(pendingId) => dispatch({ type: 'pendingFailed', pendingId })}
         onQueue={(line, pendingId) =>

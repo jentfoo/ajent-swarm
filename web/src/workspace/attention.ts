@@ -68,6 +68,13 @@ export function ackBodyFor(item: AttentionItem): AttentionAck | undefined {
   return undefined
 }
 
+// submitTurnEnd stamps the submit path's turn ack: the review row's server
+// turn end, so a client clock skewed ahead of the host cannot over-settle a
+// future turn. Without a row the local clock stands in.
+export function submitTurnEnd(item: AttentionItem | undefined): number {
+  return item?.turnEnd ?? Date.now()
+}
+
 // --- badge states ---
 
 // SessionBadge is one live session's at-a-glance badge state. The switcher

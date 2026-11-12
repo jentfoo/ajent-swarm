@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 
-import { ApiError, onUnauthorized } from '../api/client'
+import { ApiError, bumpAuthEpoch, onUnauthorized } from '../api/client'
 import { auth } from '../api/endpoints'
 
 type AuthStatus = 'loading' | 'bootstrap' | 'anon' | 'authed'
@@ -18,8 +18,8 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | null>(null)
 
 // AuthProvider resolves the gate state from /api/me once per mount and keeps
-// watching for session expiry: any 401 from any call drops back to anon so
-// expired sessions land on the login screen with the current location kept.
+// watching for session expiry: a fresh 401 drops back to anon so expired
+// sessions land on the login screen with the current location kept.
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>('loading')
   const [principal, setPrincipal] = useState<{ username?: string; home?: string }>({})
@@ -56,6 +56,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(async (username: string, password: string) => {
     await auth.login(username, password)
+    // The cookie is set, but polls dispatched while anon may still resolve
+    // 401; the bump retires their notifications before status turns authed.
+    bumpAuthEpoch()
     const me = await auth.me()
     setPrincipal({ username: me.username, home: me.home })
     setStatus('authed')

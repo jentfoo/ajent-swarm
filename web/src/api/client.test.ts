@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { ApiError, onUnauthorized, request } from './client'
+import { ApiError, bumpAuthEpoch, onUnauthorized, request } from './client'
 
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -71,6 +71,34 @@ describe('request', () => {
 
   it('notifies listeners once per unauthorized response', async () => {
     fetchMock.mockResolvedValue(jsonResponse(401, { error: 'unauthorized' }))
+    const seen: number[] = []
+    const off = onUnauthorized(() => seen.push(1))
+    await request('/api/sessions').catch(() => undefined)
+    expect(seen).toEqual([1])
+    off()
+  })
+
+  it('drops 401 notices from requests dispatched before an epoch bump', async () => {
+    let settle!: (res: Response) => void
+    fetchMock.mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          settle = resolve
+        }),
+    )
+    const seen: number[] = []
+    const off = onUnauthorized(() => seen.push(1))
+    const pending = request('/api/sessions').catch(() => undefined)
+    bumpAuthEpoch()
+    settle(jsonResponse(401, { error: 'unauthorized' }))
+    await pending
+    expect(seen).toEqual([])
+    off()
+  })
+
+  it('notifies for 401s dispatched after an epoch bump', async () => {
+    bumpAuthEpoch()
+    fetchMock.mockResolvedValueOnce(jsonResponse(401, { error: 'unauthorized' }))
     const seen: number[] = []
     const off = onUnauthorized(() => seen.push(1))
     await request('/api/sessions').catch(() => undefined)

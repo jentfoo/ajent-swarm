@@ -35,6 +35,16 @@ function notifyUnauthorized(err: ApiError) {
   }
 }
 
+// Auth generation, bumped when a fresh session cookie lands. A poll dispatched
+// while anon can resolve 401 after the cookie exists, and that late notice
+// must not bounce the new session back to the login screen.
+let authEpoch = 0
+
+// bumpAuthEpoch retires 401 notices from requests dispatched before the bump.
+export function bumpAuthEpoch(): void {
+  authEpoch++
+}
+
 interface RequestOptions {
   method?: string
   body?: unknown
@@ -80,6 +90,7 @@ function retryAfterOf(res: Response): number | undefined {
 
 // request performs one API call and unwraps the standard error envelope.
 export async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
+  const epoch = authEpoch
   let res: Response
   try {
     res = await fetch(path, {
@@ -93,25 +104,27 @@ export async function request<T>(path: string, opts: RequestOptions = {}): Promi
     if (cause instanceof Error && cause.name === 'AbortError') throw cause
     throw new ApiError(0, 'network_error', `request to ${path} failed`)
   }
-  return unwrap<T>(res)
+  return unwrap<T>(res, epoch)
 }
 
 // postForm uploads one multipart body, the browser supplies the boundary.
 export async function postForm<T>(path: string, form: FormData): Promise<T> {
+  const epoch = authEpoch
   let res: Response
   try {
     res = await fetch(path, { method: 'POST', body: form, credentials: 'same-origin' })
   } catch {
     throw new ApiError(0, 'network_error', `request to ${path} failed`)
   }
-  return unwrap<T>(res)
+  return unwrap<T>(res, epoch)
 }
 
 // unwrap turns every failure into an ApiError carrying the structured body.
-async function unwrap<T>(res: Response): Promise<T> {
+// A 401 only notifies when the request rode the current auth generation.
+async function unwrap<T>(res: Response, epoch: number): Promise<T> {
   if (!res.ok) {
     const err = await errorBody(res)
-    if (res.status === 401) notifyUnauthorized(err)
+    if (res.status === 401 && epoch === authEpoch) notifyUnauthorized(err)
     throw err
   }
   return (await parseBody(res)) as T

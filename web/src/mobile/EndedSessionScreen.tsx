@@ -8,8 +8,8 @@ import { TranscriptPreview } from '../jobs/TranscriptPreview'
 import { useResume } from '../hooks/useResume'
 
 // EndedSessionScreen is an ended session's read-only transcript with a Resume
-// button that launches headless `--resume id`. The recording rides the saved-
-// entries endpoint, so it works however long ago the run finished.
+// button that launches headless `--resume target`. The recording rides the
+// saved-entries endpoint, so it works however long ago the run finished.
 export default function EndedSessionScreen(): ReactElement {
   const { sessionId = '' } = useParams()
   const location = useLocation()
@@ -58,8 +58,9 @@ function ResumeButton({ sessionId }: { sessionId: string }): ReactElement {
         setLookupError('No recorded workspace; launch manually from the home screen.')
         return
       }
-      // the listing matched this id directly, so it rides as the target
-      await resume(row.workspace, sessionId)
+      // resume on the row's listed target, matching MobileHome; a named row
+      // carries id != target so this lookup may match by either field
+      await resume(row.workspace, row.target)
     } catch (err) {
       setLookupError(describeError(err, 'Resume failed.'))
     } finally {

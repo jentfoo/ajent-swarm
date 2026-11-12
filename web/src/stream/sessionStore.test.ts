@@ -409,6 +409,25 @@ describe('SessionStore', () => {
     expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/s1/snapshot'))).toBe(false)
   })
 
+  it('stops polling sessions that went lost', async () => {
+    store.acquire('s1')
+    const ws = openSocket()
+    ws.message({ type: 'init', sessionId: 's1', state: snapshotFor('s1'), entries: [] })
+    ws.message({ type: 'child', sessionId: 's1', state: 'gone' })
+
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockClear()
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/s1/snapshot'))).toBe(false)
+
+    // the child's return lands an init and polling resumes on its own
+    ws.message({ type: 'child', sessionId: 's1', state: 'online' })
+    ws.message({ type: 'init', sessionId: 's1', state: snapshotFor('s1'), entries: [] })
+    expect(stream.sessionPhase('s1')).toBe('live')
+    await vi.advanceTimersByTimeAsync(20_000)
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/s1/snapshot'))).toBe(true)
+  })
+
   it('answers dry for an untracked session', async () => {
     expect(await store.loadOlder('ghost')).toEqual({ kind: 'dry' })
   })

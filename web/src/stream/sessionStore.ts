@@ -199,7 +199,9 @@ export class SessionStore {
   }
 
   // resnapshot merges the poll-only facts, skipped while the tab is hidden,
-  // mirroring the digest polls, and for sessions that ended for good. A read
+  // mirroring the digest polls, and for sessions that ended or went lost:
+  // neither phase can serve a read. Lost recovers on its own, the child's
+  // return lands an init, so polling resumes without special re-arming. A read
   // that raced a stream rebuild drops: init replaced state wholesale, so the
   // response predates what the client now holds. A reply a newer request
   // superseded drops too: poll-only facts carry no stamp, so an older slow
@@ -208,7 +210,7 @@ export class SessionStore {
     if (this.disposed) return
     if (document.visibilityState === 'hidden') return
     const phase = this.stream.sessionPhase(sessionId)
-    if (phase === 'ended') return
+    if (phase === 'ended' || phase === 'lost') return
     const entry = this.entries.get(sessionId)
     if (!entry) return
     const initTick = entry.initTick

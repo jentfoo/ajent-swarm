@@ -1421,6 +1421,70 @@ describe('Composer submit flow', () => {
     expect(onSubmit).toHaveBeenCalledOnce()
   })
 
+  it('queues identical text while a send is unanswered', async () => {
+    const user = userEvent.setup()
+    const wire = vi.fn((_url: string | URL) => new Promise<Response>(() => {})) // never answers
+    vi.stubGlobal('fetch', wire)
+    const onSubmit = vi.fn()
+    const onQueue = vi.fn()
+    render(Harness({ onSubmit, onQueue }))
+
+    await user.type(screen.getByLabelText('Prompt'), 'same text{Enter}')
+    expect(onSubmit).toHaveBeenCalledOnce()
+
+    // the same line parks beside the unanswered send: both optimistic rows
+    // paint and each verb rides its own wire call
+    await user.click(screen.getByRole('button', { name: 'Queue prompt for the next idle point' }))
+    expect(onQueue).toHaveBeenCalledOnce()
+    expect(onQueue.mock.calls[0]![0]).toBe('same text')
+    expect(wire.mock.calls.map((c) => String(c[0]))).toEqual([
+      '/api/sessions/01S/submit',
+      '/api/sessions/01S/queue',
+    ])
+  })
+
+  it('sends identical text while a queue is unanswered', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => new Promise<Response>(() => {})), // never answers
+    )
+    const onSubmit = vi.fn()
+    const onQueue = vi.fn()
+    render(Harness({ onSubmit, onQueue }))
+
+    const box = screen.getByLabelText('Prompt')
+    await user.type(box, 'same text')
+    await user.click(screen.getByRole('button', { name: 'Queue prompt for the next idle point' }))
+    expect(onQueue).toHaveBeenCalledOnce()
+
+    // Enter still sends while the identical park waits on its reply
+    await user.click(box)
+    await user.keyboard('{Enter}')
+    expect(onSubmit).toHaveBeenCalledOnce()
+    expect(onSubmit.mock.calls[0]![0]).toBe('same text')
+  })
+
+  it('fires one queue while an identical park is unanswered', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => new Promise<Response>(() => {})), // never answers
+    )
+    const onQueue = vi.fn()
+    render(Harness({ onQueue }))
+
+    await user.type(screen.getByLabelText('Prompt'), 'park once')
+    const queueButton = screen.getByRole('button', {
+      name: 'Queue prompt for the next idle point',
+    })
+    await user.click(queueButton)
+    await user.click(queueButton)
+
+    // the reply never lands, so a second tap must not double-park
+    expect(onQueue).toHaveBeenCalledOnce()
+  })
+
   it('never resubmits a line another send left unanswered', async () => {
     const user = userEvent.setup()
     // deferred submits keep both sends on the wire until released in order

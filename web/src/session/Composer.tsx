@@ -37,6 +37,16 @@ const inlineFileCapBytes = 64 << 10
 // files inline into the draft as fenced blocks.
 const textAccept = 'image/*,text/*,.json,.toml,.yaml,.yml,.md,.txt'
 
+// SubmitVerb names the composer's two submit verbs, each guarding its own
+// in-flight set: a sent copy and a parked one are distinct actions.
+type SubmitVerb = 'send' | 'queue'
+
+// submitWire routes every verb onto its endpoint, both sharing one body shape.
+const submitWire: Record<SubmitVerb, typeof sessionAPI.submit> = {
+  send: sessionAPI.submit,
+  queue: sessionAPI.queue,
+}
+
 // stagedHint and excludedHint state shell staging: a `!` run's output rides
 // the user's next message, a `!!` run never reaches the model. They swap in
 // as the placeholder and label the marker glyph while a shell draft is up.
@@ -151,11 +161,14 @@ export function Composer({
   // typedSinceSend flags edits made while a submit is on the wire: an
   // acceptance must never clear them (a retype included).
   const typedSinceSend = useRef(false)
-  // inFlight holds every unanswered submit's trimmed line, so an impatient
-  // Enter cannot fire the same submission twice before its reply lands. One
-  // marker per send: a completion clears only its own. Lines key it because
-  // slash and shell submits mint no pendingId.
-  const inFlight = useRef<Set<string>>(new Set())
+  // inFlight holds every unanswered submission's trimmed line, one set per
+  // verb: an impatient press cannot fire the same submission twice before its
+  // reply lands, and a send never blocks an identical queue (or vice versa).
+  // Lines key it because slash and shell submits mint no pendingId.
+  const inFlight = useRef<Record<SubmitVerb, Set<string>>>({
+    send: new Set(),
+    queue: new Set(),
+  })
 
   // Shell affordances follow the line ajent will see: the trimmed draft,
   // since submit trims. Marker, hint and the Run label track each keystroke
@@ -261,39 +274,39 @@ export function Composer({
     }
   }, [sessionId, query])
 
-  // submitLine lands one draft line through land: prompts mint the client
-  // pendingId that paints an optimistic row, slash and shell lines commit
-  // as-is. The draft stays put until the reply: a refusal keeps its text,
-  // acceptance clears it solely when typing has not already reshaped it.
+  // submitLine lands one draft line through its verb's endpoint: prompts mint
+  // the client pendingId that paints an optimistic row, slash and shell lines
+  // commit as-is. The draft stays put until the reply: a refusal keeps its
+  // text, acceptance clears it solely when typing has not already reshaped it.
   const submitLine = useCallback(
     async (
       draft: string,
-      land: (sessionId: string, line: string, pendingId?: string) => Promise<unknown>,
+      verb: SubmitVerb,
       optimistic: (line: string, pendingId: string) => void,
       onFailed: (pendingId: string) => void,
       failureText: string,
     ) => {
       const line = draft.trim()
       if (line === '' || disabled) return
-      if (inFlight.current.has(line)) return
+      if (inFlight.current[verb].has(line)) return
       // Shell runs and slash commands commit no message entry, so only
       // prompts paint an optimistic row, classification matches ajent's
       // dispatch, so an escaped or pasted `/`-opening prompt still paints.
       const isPrompt = classifyLine(line) === 'prompt'
       const pendingId = isPrompt ? newPendingID() : undefined
       if (pendingId !== undefined) optimistic(line, pendingId)
-      inFlight.current.add(line)
+      inFlight.current[verb].add(line)
       typedSinceSend.current = false
       setError('')
       try {
-        await land(sessionId, line, pendingId)
+        await submitWire[verb](sessionId, line, pendingId)
       } catch (err) {
-        inFlight.current.delete(line)
+        inFlight.current[verb].delete(line)
         if (pendingId !== undefined) onFailed(pendingId)
         setError(describeError(err, failureText))
         return // the refused text stays right where it is
       }
-      inFlight.current.delete(line)
+      inFlight.current[verb].delete(line)
       if (!typedSinceSend.current && valueRef.current === draft) onChange('')
     },
     [disabled, sessionId, onChange],
@@ -301,15 +314,14 @@ export function Composer({
 
   // send submits one draft line exactly as typed in the editor.
   const send = useCallback(
-    (draft: string) =>
-      submitLine(draft, sessionAPI.submit, onSubmit, onSubmitFailed, 'Submit failed.'),
+    (draft: string) => submitLine(draft, 'send', onSubmit, onSubmitFailed, 'Submit failed.'),
     [submitLine, onSubmit, onSubmitFailed],
   )
 
   // queue parks one draft line for the session's next idle point: the same
-  // optimistic row and draft rules as send, only the wire call differs.
+  // optimistic row and draft rules as send, only the endpoint differs.
   const queue = useCallback(
-    (draft: string) => submitLine(draft, sessionAPI.queue, onQueue, onQueueFailed, 'Queue failed.'),
+    (draft: string) => submitLine(draft, 'queue', onQueue, onQueueFailed, 'Queue failed.'),
     [submitLine, onQueue, onQueueFailed],
   )
 

@@ -418,6 +418,34 @@ describe('JobsHome', () => {
     expect(screen.getByRole('checkbox', { name: 'Disable nightly sweep' })).toBeChecked()
   })
 
+  it('sends editor-shaped payloads from the toggle', async () => {
+    const user = userEvent.setup()
+    jobsReply = { rows: [job, onceJob] }
+    renderJobs()
+    await screen.findByText('nightly sweep')
+
+    // a recurring row echoes through toPayload: schedule identity rides along,
+    // the stored next slot never does, so the update cannot move it
+    await user.click(screen.getByRole('checkbox', { name: 'Disable nightly sweep' }))
+    updateWaiters.shift()!(Response.json({ ...job, enabled: false }))
+    await waitFor(() => expect(updateBodies).toHaveLength(1))
+    expect(updateBodies[0]).toMatchObject({
+      id: 5,
+      enabled: false,
+      scheduleKind: 'interval',
+      intervalSeconds: 1800,
+      name: 'nightly sweep',
+      prompt: 'sweep the logs',
+    })
+    expect(updateBodies[0].nextRunAt).toBeUndefined()
+
+    // a one-shot keeps its slot, matching what an editor save sends
+    await user.click(screen.getByRole('checkbox', { name: 'Disable one shot' }))
+    updateWaiters.shift()!(Response.json({ ...onceJob, enabled: false }))
+    await waitFor(() => expect(updateBodies).toHaveLength(2))
+    expect(updateBodies[1].nextRunAt).toBe('2026-11-06T14:00:00.000Z')
+  })
+
   it('wears the button styling on header links directly', async () => {
     renderJobs()
 
@@ -487,6 +515,18 @@ describe('JobsHome', () => {
     fireReplies.push({ id: 21, ok: false })
     await user.click(screen.getByRole('button', { name: 'Run nightly sweep now' }))
     expect(await screen.findByText(/previous run is still active/)).toBeInTheDocument()
+  })
+
+  it('refreshes rows right after a manual fire', async () => {
+    const user = userEvent.setup()
+    renderJobs()
+    await screen.findByText('nightly sweep')
+
+    // the fresh run replaces the stale failure badge without waiting out the poll
+    runsReply = [manualRun(20)]
+    fireReplies.push({ id: 20, ok: true })
+    await user.click(screen.getByRole('button', { name: 'Run nightly sweep now' }))
+    expect(await screen.findByText('running')).toBeInTheDocument()
   })
 
   it('keeps a rapid double click to one fire', async () => {

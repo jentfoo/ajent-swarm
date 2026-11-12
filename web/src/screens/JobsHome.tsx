@@ -11,7 +11,7 @@ import { useAuth } from '../providers/auth'
 import { tildePath } from '../session/names'
 import { JobEditor } from '../jobs/JobEditor'
 import { QueueComposer } from '../jobs/QueueComposer'
-import { duplicateDraft } from '../jobs/jobDraft'
+import { draftFromJob, duplicateDraft, toPayload } from '../jobs/jobDraft'
 import type { JobDraft } from '../jobs/jobDraft'
 import { JobTabs } from '../jobs/JobTabs'
 import { formatSlot, runStatusClass, scheduleSummary, sortJobsForDisplay } from '../jobs/schedule'
@@ -139,18 +139,20 @@ export default function JobsHome() {
     [closeEditor, load],
   )
 
-  // toggle flips the row optimistically and reverts when the backend refuses.
-  // After the request settles a fresh load re-syncs the row with server truth
-  // (a toggle moves nextRunAt too). The row stays shielded from polls until
-  // every overlapping toggle settles. Overlapping flips may end one step off,
-  // so the next poll converges on the stored row.
+  // toggle flips the row optimistically and reverts when the backend refuses,
+  // then load() re-syncs with server truth (a toggle moves nextRunAt too). The
+  // PUT rides the editor's payload shaping, so a recurring row never echoes its
+  // stored slot: a stale echo would read as a schedule change and silently move
+  // the next fire. Polls hold off until every overlapping toggle settles;
+  // overlaps may end one step off for the next poll to converge.
   const toggle = async (job: Job) => {
     pendingToggles.current.set(job.id, (pendingToggles.current.get(job.id) ?? 0) + 1)
     setJobs((rows) =>
       (rows ?? []).map((j) => (j.id === job.id ? { ...j, enabled: !j.enabled } : j)),
     )
     try {
-      await jobsApi.update(job.id, { ...job, enabled: !job.enabled })
+      const draft = { ...draftFromJob(job), enabled: !job.enabled }
+      await jobsApi.update(job.id, toPayload(draft, job.id))
       await load()
     } catch (err) {
       setJobs((rows) =>
@@ -171,6 +173,7 @@ export default function JobsHome() {
       const run = await jobsApi.fire(job.id)
       setNotice(`Run #${run.id} started.`)
       setError('')
+      void load() // the fresh run row lands without waiting out the poll
     } catch (err) {
       setError(describeError(err, 'Manual fire failed.'))
     } finally {

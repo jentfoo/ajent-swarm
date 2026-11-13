@@ -1,0 +1,247 @@
+import { useRef, useState } from 'react'
+import type { ReactElement } from 'react'
+import { Link, useParams } from 'react-router'
+
+import { sessionBusy } from '../state/eventApplier'
+import { headerBadgeOf, submitTurnEnd } from '../workspace/attention'
+import { Composer } from '../session/Composer'
+import { SeatBadge } from '../session/SeatBadge'
+import { Notices } from '../session/Notices'
+import { StatusBadge } from '../session/StatusBadge'
+import { endedBanner, isTransientPhase, PhaseBanner } from '../session/phases'
+import { QueuedPrompts } from '../session/QueuedPrompts'
+import { ModeMenu } from '../ui/ModeMenu'
+import { StatusBar } from '../session/StatusBar'
+import { TranscriptView } from '../session/TranscriptView'
+import { useAgentJobs } from '../session/useAgentJobs'
+import { useInterruptStream } from '../session/useInterruptStream'
+import { useSessionCompose } from '../session/useSessionCompose'
+import { useSessionLabel } from '../session/useSessionLabel'
+import { Toasts } from '../hooks/Toasts'
+import { useSessionChannel } from '../hooks/useSessionChannel'
+import { ModelMenu } from '../ui/ModelMenu'
+import { OverlayMenu } from '../ui/OverlayMenu'
+import { useWorkspace } from '../providers/workspace'
+import { RewindSheet } from './RewindSheet'
+import { SettingsScreen } from './SettingsScreen'
+import { ToolsScreen } from './ToolsScreen'
+import { DialogDock } from '../session/DialogDock'
+
+// MobileSessionScreen drives one session on a phone. The component tree stays
+// shared with desktop (TranscriptView, notices, dialogs, queue chips, Composer,
+// StatusBar), only the chrome forks: a sticky one-line header carrying the
+// session label, the shared status badge, the model chip and mode menu, with
+// the secondary actions collapsed behind one menu button. The working turn's
+// Stop rides beside Send, and dialogs stack as full-width cards above the
+// composer.
+//
+// The content keys on sessionId, so the route reusing this screen for another
+// session presents it as a remount: that session's own draft restores from the
+// store while open sheets, menus and toasts reset instead of bleeding across
+// sessions.
+export default function MobileSessionScreen(): ReactElement {
+  const { sessionId = '' } = useParams()
+  return <MobileSessionSurface key={sessionId} sessionId={sessionId} />
+}
+
+// MobileSessionSurface is one session's mounted presentation, the key above
+// makes a session swap a remount, so local state never outlives its session.
+function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElement {
+  const { state, phase, loadOlder, dispatch } = useSessionChannel(sessionId)
+  const { acknowledgeDialog, acknowledgeTurn, itemFor } = useWorkspace()
+  const snap = state.snapshot
+
+  const {
+    draft,
+    setDraft,
+    placedAbove,
+    recall,
+    recallToEdit,
+    recallParked,
+    dialogs,
+    composerDisabled,
+    disabledReason,
+    toasts,
+    pushToast,
+  } = useSessionCompose(sessionId)
+  const [showTools, setShowTools] = useState(false)
+  const [showRewind, setShowRewind] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
+
+  const working = sessionBusy(snap)
+  const ended = endedBanner(phase, state.exitReason)
+  // sub-agent job records are pull-only: re-listed while any job is live, so
+  // the chips band and poll cards carry stop controls and real statuses
+  const agentJobs = useAgentJobs(sessionId, snap.activity, snap.status?.segments, pushToast)
+  // Escape shares the composer Stop button's guarded fire, sheets and pushed
+  // screens gate it through the shared overlay stack, so the interrupt stands
+  // down behind any open layer without naming each one
+  const { interrupt, inFlight: stopBusy } = useInterruptStream({
+    sessionId,
+    busy: working,
+    onToast: pushToast,
+  })
+  // the switcher's own label chain, so a rename follows the user into the view
+  const label = useSessionLabel(sessionId)
+
+  return (
+    <div className="session-screen mobile-session">
+      <header className="mobile-session-header">
+        <Link to="/" aria-label="Back to launcher" className="back-link">
+          ←
+        </Link>
+        <span className="session-title">{label}</span>
+        {/* the same badge desktop's header renders, off the same derivation */}
+        <StatusBadge status={headerBadgeOf(working, itemFor(sessionId))} />
+        <ModelMenu sessionId={sessionId} snap={snap} onToast={pushToast} />
+        <ModeMenu sessionId={sessionId} mode={snap.permission} onToast={pushToast} />
+        {isTransientPhase(phase) && (
+          <span className={`badge ${phase === 'resyncing' ? 'warn' : ''}`}>{phase}</span>
+        )}
+        <SeatBadge sessionId={sessionId} seat={snap.seat} compact onToast={pushToast} />
+        <HeaderMenu
+          onRewind={() => setShowRewind(true)}
+          onTools={() => setShowTools(true)}
+          onSettings={() => setShowSettings(true)}
+        />
+      </header>
+
+      {ended.show && (
+        <div className="banner warn" role="status">
+          {ended.text}{' '}
+          <Link to={`/m/read/${encodeURIComponent(sessionId)}`}>Read the transcript</Link> or resume
+          from the launcher.
+        </div>
+      )}
+      <PhaseBanner phase={phase} />
+
+      <TranscriptView
+        sessionId={sessionId}
+        state={state}
+        loadOlder={loadOlder}
+        pullDownToLatest
+        agentJobs={agentJobs}
+        onThinkingToggle={(open) => dispatch({ type: 'liveThinkingToggled', open })}
+      />
+
+      <Notices notices={state.notices} />
+      <DialogDock
+        touch
+        sessionId={sessionId}
+        dialogs={dialogs}
+        outcomes={state.resolvedElsewhere}
+        ended={ended.show}
+        onAnsweredLocally={(dialogId) => {
+          dispatch({ type: 'dialogAnswered', dialogId })
+          acknowledgeDialog(sessionId, dialogId)
+        }}
+        onOutcomeDismissed={(dialogId) => dispatch({ type: 'outcomeDismissed', dialogId })}
+      />
+      <QueuedPrompts
+        queuedRows={snap.queuedRows ?? []}
+        parkedRows={snap.parkedRows}
+        pendings={state.pendings}
+        droppedRows={state.droppedRows}
+        onEdit={() => void recallToEdit()}
+        onEditParked={() => void recallParked()}
+      />
+      <Composer
+        sessionId={sessionId}
+        value={draft}
+        onChange={setDraft}
+        disabled={composerDisabled}
+        disabledReason={disabledReason}
+        onSubmit={(line, pendingId) => {
+          dispatch({ type: 'pendingSubmitted', pendingId, text: line })
+          // the raised review row's server turn end settles, a later turn re-raises
+          acknowledgeTurn(sessionId, submitTurnEnd(itemFor(sessionId)))
+        }}
+        onSubmitFailed={(pendingId) => dispatch({ type: 'pendingFailed', pendingId })}
+        onQueue={(line, pendingId) =>
+          dispatch({ type: 'pendingSubmitted', pendingId, text: line, parked: true })
+        }
+        onQueueFailed={(pendingId) => dispatch({ type: 'pendingFailed', pendingId })}
+        recall={recall}
+        stop={working ? { onClick: interrupt, busy: stopBusy } : undefined}
+      />
+      <StatusBar snap={snap} live={state.live} />
+
+      <ToolsScreen
+        sessionId={sessionId}
+        snap={snap}
+        open={showTools}
+        onClose={() => setShowTools(false)}
+        onToast={pushToast}
+      />
+      <SettingsScreen
+        sessionId={sessionId}
+        open={showSettings}
+        onClose={() => setShowSettings(false)}
+      />
+      <RewindSheet
+        sessionId={sessionId}
+        open={showRewind}
+        onClose={() => setShowRewind(false)}
+        // a rewound prompt lands above the draft to edit, announced like every
+        // other prefill that merges above existing text
+        onPrefill={placedAbove}
+        onToast={pushToast}
+      />
+
+      <Toasts toasts={toasts} />
+    </div>
+  )
+}
+
+// HeaderMenu collapses the header's secondary actions behind one entry point:
+// Rewind, Tools and agent settings open from the menu, so the sticky row keeps
+// a single line while every target keeps its touch floor.
+function HeaderMenu({
+  onRewind,
+  onTools,
+  onSettings,
+}: {
+  onRewind: () => void
+  onTools: () => void
+  onSettings: () => void
+}): ReactElement {
+  const [open, setOpen] = useState(false)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+
+  const item = (label: string, run: () => void): ReactElement => (
+    <button
+      key={label}
+      type="button"
+      role="menuitem"
+      onClick={() => {
+        setOpen(false)
+        run()
+      }}
+    >
+      {label}
+    </button>
+  )
+
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        className="header-menu-trigger"
+        aria-label="Session actions"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+      >
+        ⋯
+      </button>
+      {open && (
+        <OverlayMenu anchorRef={triggerRef} onClose={() => setOpen(false)}>
+          {item('Rewind', onRewind)}
+          {item('Tools', onTools)}
+          {item('Agent settings', onSettings)}
+        </OverlayMenu>
+      )}
+    </>
+  )
+}

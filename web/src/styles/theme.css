@@ -1,0 +1,2626 @@
+/* Theme tokens as CSS custom properties; dark/light via [data-theme]. */
+
+:root {
+  --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, Ubuntu, Cantarell, sans-serif;
+  --font-mono: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+  --radius: 8px;
+
+  /* one compact density scale; no cozy variant anymore */
+  --unit: 3px;
+  --fs-body: 13px;
+  --fs-small: 11.5px;
+
+  /* spinner states mirror ajent's TUI glyph colors */
+  --spin-idle: var(--muted);
+  --spin-wait: var(--text);
+  --spin-stream: var(--accent);
+  --spin-tool: var(--warn);
+}
+
+/* dark is the default; index.html's head script applies the stored choice
+   before first paint, SwarmProvider on runtime change */
+:root,
+[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #101216;
+  --surface: #171a20;
+  --surface-2: #1e232b;
+  --border: #2a313c;
+  --text: #e6e9ef;
+  --muted: #98a2b3;
+  --accent: #4f7cff;
+  --accent-text: #ffffff;
+  --ok: #35c46f;
+  --warn: #e5b24a;
+  --danger: #e5534b;
+  /* hunk @@ markers get their own hue so a boundary reads as a separator */
+  --diff-hunk: #3fc6d9;
+}
+
+[data-theme='light'] {
+  color-scheme: light;
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --surface-2: #eff1f5;
+  --border: #d8dde5;
+  --text: #1c2430;
+  --muted: #5b6675;
+  --accent: #3564e0;
+  --accent-text: #ffffff;
+  --ok: #188543;
+  --warn: #a06a00;
+  --danger: #c33f36;
+  --diff-hunk: #0e7490;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: var(--fs-body);
+  line-height: 1.5;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+
+code,
+pre {
+  font-family: var(--font-mono);
+  font-size: var(--fs-small);
+}
+
+/* --- layout chrome --- */
+
+/* definite height so inner regions own their scrolling: the workspace rail
+   and transcript never share a scrollbar with each other or the page. dvh
+   rides collapsing browser toolbars instead of clipping behind them */
+.app-shell {
+  height: 100vh; /* static fallback for engines without dynamic units */
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--unit) * 3);
+  padding: calc(var(--unit) * 2) calc(var(--unit) * 4);
+  /* env() is zero without a notch; standalone PWA keeps chrome below the
+     status bar while the surface still paints behind it */
+  padding-top: calc(env(safe-area-inset-top, 0px) + var(--unit) * 2);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.topbar nav {
+  display: flex;
+  gap: calc(var(--unit) * 3);
+}
+.topbar nav a {
+  color: var(--muted);
+  padding: calc(var(--unit) * 1) calc(var(--unit) * 2);
+  border-radius: var(--radius);
+}
+.topbar nav a.active {
+  color: var(--text);
+  background: var(--surface-2);
+}
+.topbar .spacer {
+  flex: 1;
+}
+
+.banner {
+  padding: calc(var(--unit) * 2) calc(var(--unit) * 4);
+  font-size: var(--fs-small);
+  border-bottom: 1px solid var(--border);
+}
+.banner.warn {
+  background: color-mix(in srgb, var(--warn) 18%, var(--bg));
+  color: var(--text);
+}
+.banner.info {
+  background: color-mix(in srgb, var(--accent) 14%, var(--bg));
+}
+
+main.content {
+  flex: 1;
+  padding: calc(var(--unit) * 4);
+  max-width: 1200px;
+  width: 100%;
+  margin: 0 auto;
+  overflow-y: auto; /* pages scroll inside the shell, never the window */
+}
+
+/* --- shared widgets --- */
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: calc(var(--unit) * 3);
+}
+
+.grid {
+  display: grid;
+  gap: calc(var(--unit) * 3);
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+}
+
+.badge {
+  display: inline-block;
+  font-size: var(--fs-small);
+  padding: calc(var(--unit) * 0.5) calc(var(--unit) * 2);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--muted);
+  margin-right: calc(var(--unit) * 1);
+}
+.badge.ok {
+  color: var(--ok);
+}
+.badge.warn {
+  color: var(--warn);
+}
+.badge.danger {
+  color: var(--danger);
+}
+.badge.accent {
+  color: var(--accent);
+}
+
+button,
+.btn {
+  font: inherit;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: var(--radius);
+  padding: calc(var(--unit) * 1.5) calc(var(--unit) * 3);
+  cursor: pointer;
+}
+button.primary,
+.btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+/* a:hover underline at (0,1,1) beats bare .btn, so re-suppress it here */
+.btn:hover {
+  text-decoration: none;
+}
+/* destructive intent reads through weight: danger border and text, a quiet red
+   fill only on hover, so the button invites reading rather than mashing */
+button.danger {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+button.danger:hover {
+  background: color-mix(in srgb, var(--danger) 15%, var(--surface-2));
+}
+/* the armed confirm step is the one loud moment */
+button.danger.armed {
+  background: var(--danger);
+  color: #fff;
+}
+button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+/* the touch empty-draft submit: the disabled look over a live press, so the
+   button still takes the tap that dismisses the keyboard */
+button.keyboard-dismiss {
+  opacity: 0.55;
+  cursor: default;
+}
+
+input,
+select,
+textarea {
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: calc(var(--unit) * 1.5) calc(var(--unit) * 2);
+}
+input:focus,
+select:focus {
+  outline: 1px solid var(--accent);
+}
+
+/* touch keyboards auto-zoom any focused control under 16px, so coarse
+   pointers get a readable floor while desktop keeps its compact density */
+@media (pointer: coarse) {
+  input,
+  select,
+  textarea {
+    font-size: max(var(--fs-body), 16px);
+  }
+}
+
+label {
+  display: block;
+  margin-bottom: calc(var(--unit) * 2);
+  color: var(--muted);
+  font-size: var(--fs-small);
+}
+
+.error-text {
+  color: var(--danger);
+  font-size: var(--fs-small);
+}
+.muted {
+  color: var(--muted);
+}
+.mono {
+  font-family: var(--font-mono);
+  font-size: var(--fs-small);
+}
+
+/* --- auth screens --- */
+
+.auth-screen {
+  min-height: 100vh; /* static fallback for engines without dynamic units */
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+}
+.auth-card {
+  width: min(22rem, 90vw);
+}
+.auth-card h1 {
+  margin-top: 0;
+  font-size: calc(var(--fs-body) * 1.2);
+}
+
+/* --- session view placeholder --- */
+
+.session-screen {
+  display: flex;
+  flex-direction: column;
+  height: 100%; /* the hosting shell bounds it; overflow stays internal */
+  min-height: 0;
+}
+.session-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--unit) * 2);
+  margin-bottom: calc(var(--unit) * 3);
+}
+
+/* transcript area: the virtualized list plus transient cards below it */
+.transcript-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+.transcript-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: calc(var(--unit) * 2);
+}
+.entry {
+  padding: calc(var(--unit) * 2) 0;
+  border-bottom: 1px solid var(--border);
+}
+.entry.user {
+  border-left: 3px solid var(--accent);
+  padding-left: calc(var(--unit) * 3);
+}
+.entry.injected {
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  padding: calc(var(--unit) * 2);
+}
+/* the delivered half of the shell-run accent, matching the live shell card */
+.entry.injected.shell-run {
+  border-left: 3px solid var(--warn);
+}
+/* injected context mirrors ajent's InjectBlock shape: a mono header label with
+   tool output beneath, so both wrap instead of widening the card on phones */
+.injected-label,
+.injected-body {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.injected-label {
+  font-weight: 550;
+}
+.injected-body {
+  margin: calc(var(--unit) * 1) 0 0;
+}
+/* the head-rule disclosure under a collapsed injected body */
+.injected-toggle {
+  margin-top: calc(var(--unit) * 1);
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+.injected-toggle:hover {
+  color: var(--text);
+}
+.entry.system,
+.entry.unknown {
+  color: var(--muted);
+}
+.compaction-divider {
+  text-align: center;
+  font-size: 0.85em;
+  color: var(--muted);
+  border-bottom: none;
+}
+.block-role {
+  display: block;
+  font-size: var(--fs-small);
+  color: var(--muted);
+  margin-bottom: calc(var(--unit) * 0.5);
+}
+.thinking summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-style: italic;
+}
+/* ajent paints thinking under an accent marker; the label keeps the muted tone */
+.thinking summary::before {
+  content: '✻ ';
+  color: var(--accent);
+  font-style: normal;
+}
+/* the agent's own line breaks are content here, so pre-wrap them like the TUI
+   and dim italic as ajent shades it */
+.thinking-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-style: italic;
+}
+.entry-image {
+  max-width: 20rem;
+  max-height: 12rem;
+  border-radius: var(--radius);
+  display: block;
+  margin-top: calc(var(--unit) * 1);
+}
+.image-row {
+  display: flex;
+  gap: calc(var(--unit) * 2);
+  flex-wrap: wrap;
+}
+.print-card {
+  margin: calc(var(--unit) * 2) 0;
+}
+.jump-latest {
+  position: absolute;
+  bottom: calc(var(--unit) * 4);
+  right: calc(var(--unit) * 4);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 35%);
+}
+
+@media (max-width: 48rem) {
+  /* the pill is the only way back to the live tail on a phone */
+  .jump-latest {
+    min-height: 44px;
+  }
+}
+
+/* markdown */
+.markdown p {
+  margin: 0.25em 0;
+  white-space: pre-wrap;
+}
+.markdown pre {
+  overflow-x: auto;
+}
+.markdown table {
+  border-collapse: collapse;
+}
+.markdown table td,
+.markdown table th {
+  border: 1px solid var(--border);
+  padding: calc(var(--unit) * 0.5) calc(var(--unit) * 2);
+}
+.fence {
+  background: #0d1117;
+  color: #e6edf3;
+  border-radius: var(--radius);
+  padding: calc(var(--unit) * 2) calc(var(--unit) * 3);
+  overflow-x: auto;
+}
+.fence > div > pre {
+  margin: 0;
+  background: transparent !important;
+}
+
+/* raw-copy buttons: one icon per state cell, so a swap never resizes the
+   button; labels stay in the tree for screen readers via .sr-only */
+.copy-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: calc(var(--unit) * 1);
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.copy-labels {
+  display: inline-grid;
+  grid-template-areas: 'stack';
+  justify-items: center;
+}
+.copy-labels > span {
+  grid-area: stack;
+  visibility: hidden;
+}
+.copy-labels > span[data-on='true'] {
+  visibility: visible;
+}
+
+.fence-wrap {
+  position: relative;
+}
+/* the fence is dark in both themes, so the pill matches it, not the page */
+.fence-copy {
+  position: absolute;
+  top: calc(var(--unit) * 1);
+  right: calc(var(--unit) * 1);
+  z-index: 1;
+  background: rgb(22 27 34 / 85%);
+  border-color: #30363d;
+  color: #e6edf3;
+}
+
+/* clipboard affordance at the bottom-right corner of an assistant message:
+   the entry lays out as a column so align-self parks the button at its end */
+.entry.assistant {
+  display: flex;
+  flex-direction: column;
+}
+.entry-copy {
+  align-self: flex-end;
+  margin-top: calc(var(--unit) * 1);
+  padding: calc(var(--unit) * 0.5) calc(var(--unit) * 2);
+  border: none;
+  background: none;
+  color: var(--muted);
+}
+.entry-copy:hover {
+  color: var(--text);
+}
+@media (max-width: 48rem) {
+  /* phones get the theme's touch floor; neither button is hover-revealed */
+  .fence-copy,
+  .entry-copy {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
+
+/* diffs */
+.diff-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin: calc(var(--unit) * 2) 0;
+  overflow: hidden;
+}
+.diff-path {
+  background: var(--surface-2);
+  padding: calc(var(--unit) * 1) calc(var(--unit) * 3);
+  font-size: var(--fs-small);
+  /* long workspace paths wrap instead of widening the card on phones */
+  overflow-wrap: anywhere;
+}
+.diff-pre {
+  margin: 0;
+  overflow-x: auto;
+}
+.diff-line {
+  white-space: pre;
+  padding: 0 calc(var(--unit) * 2);
+}
+/* four roles on screen at once, matching ajent's TUI diffs: color and the
+   gutter marker carry meaning, never a background shade */
+.diff-line.add {
+  color: var(--ok);
+}
+.diff-line.del {
+  color: var(--danger);
+}
+.diff-line.ctx {
+  color: var(--muted);
+}
+.diff-line.meta {
+  color: var(--diff-hunk);
+}
+.diff-num {
+  color: var(--muted);
+}
+/* intraline emphasis, the web analog of the TUI's reverse video marks */
+.diff-em {
+  background: color-mix(in srgb, currentColor 30%, transparent);
+  border-radius: 2px;
+  font-weight: 600;
+}
+
+/* tool cards */
+.tool-card {
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  padding: calc(var(--unit) * 2);
+  margin: calc(var(--unit) * 1) 0;
+}
+.tool-card.error {
+  border-color: var(--danger);
+}
+/* staged user shell run: the amber left edge ties the composer glyph, the live
+   card, its staged badge and the delivered block into one object; a `!!` run
+   reads danger and never delivers, so the delivered accent is always amber */
+.tool-card.shell {
+  border-left: 3px solid var(--warn);
+}
+.tool-card.shell.excluded {
+  border-left-color: var(--danger);
+}
+.tool-header {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--unit) * 2);
+  background: none;
+  border: none;
+  padding: 0;
+  width: 100%;
+  text-align: left;
+}
+.tool-preview {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+.tool-body pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: calc(var(--unit) * 1) 0 0;
+}
+/* edit input preview: per-op fragment diffs under the path chip; rows keep
+   their own nowrap so long hunks scroll inside the card */
+.edit-input {
+  margin-top: calc(var(--unit) * 1);
+}
+
+/* live stream */
+.live-block {
+  border-left: 3px solid var(--accent);
+  padding-left: calc(var(--unit) * 3);
+  margin-top: calc(var(--unit) * 2);
+}
+
+/* dialog dock */
+.dialog-dock {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--unit) * 2);
+  margin: calc(var(--unit) * 3) 0;
+}
+.dialog-card .dialog-prompt {
+  font-weight: 550;
+  margin: 0.2em 0;
+}
+.dialog-card button + button {
+  margin-left: calc(var(--unit) * 2);
+}
+/* leading digit naming a head option's answer key; aria-hidden, the accessible
+   exposure is the button's aria-keyshortcuts */
+.dialog-digit {
+  color: var(--muted);
+  font-size: var(--fs-small);
+  margin-right: calc(var(--unit) * 1.5);
+}
+/* optional permit note input, one per permit card above its option buttons */
+.dialog-note {
+  width: 100%;
+  margin: calc(var(--unit) * 1) 0 calc(var(--unit) * 2);
+}
+/* ended-run context: the offered choices read as plain labels, no controls */
+.dialog-options-ended {
+  margin: calc(var(--unit) * 1) 0;
+  padding-left: calc(var(--unit) * 4);
+  color: var(--muted);
+}
+.multipick {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--unit) * 1);
+  margin: calc(var(--unit) * 2) 0;
+}
+.multipick-row {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--unit) * 2);
+  color: var(--text);
+  font-size: var(--fs-body);
+}
+.dialog-text {
+  display: flex;
+  gap: calc(var(--unit) * 2);
+  margin: calc(var(--unit) * 2) 0;
+  align-items: center;
+}
+.dialog-text input {
+  flex: 1;
+}
+.chat-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--unit) * 1);
+  margin: 0;
+  font-size: var(--fs-small);
+}
+.resolved-dialog {
+  width: 100%;
+  text-align: left;
+  color: var(--muted);
+  padding: calc(var(--unit) * 2);
+}
+
+/* composer: prompt line with the attach and send buttons beside it, Queue
+   parking a draft below the toolbar */
+.composer {
+  border-top: 1px solid var(--border);
+  padding-top: calc(var(--unit) * 3);
+}
+.composer textarea {
+  flex: 1;
+  resize: none;
+  display: block;
+  min-width: 0;
+}
+.composer-side {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--unit) * 2);
+  flex-shrink: 0;
+}
+.composer-actions {
+  display: flex;
+  gap: calc(var(--unit) * 2);
+}
+/* spans the toolbar row above: attach through Send */
+.composer-queue {
+  width: 100%;
+}
+@media (max-width: 48rem) {
+  /* phones meet the theme's touch floor while desktop keeps its density */
+  .composer-side button {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+.queue-chip.failed .badge.danger {
+  margin-left: calc(var(--unit) * 1);
+}
+.queue-chip button {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font-size: inherit;
+  margin-left: calc(var(--unit) * 2);
+  cursor: pointer;
+}
+
+/* header controls */
+.mode-chip,
+.usage-chip {
+  cursor: pointer;
+}
+/* MenuPopover portals .menu layers into body and fixes them in place; these
+   rules only size and stack them. */
+.menu {
+  position: fixed;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  min-width: 16rem;
+  max-height: 20rem;
+  overflow-y: auto;
+}
+.menu button {
+  text-align: left;
+  border: none;
+  background: transparent;
+  padding: calc(var(--unit) * 1.5) calc(var(--unit) * 2);
+}
+.menu button:hover {
+  background: var(--surface-2);
+}
+.usage-card {
+  position: absolute;
+  z-index: 20;
+}
+.usage-table th {
+  text-align: left;
+  color: var(--muted);
+  font-weight: 500;
+}
+.usage-table td {
+  padding-right: calc(var(--unit) * 3);
+}
+
+/* rewind modal */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgb(0 0 0 / 45%);
+  display: grid;
+  place-items: center;
+  z-index: 30;
+}
+.modal {
+  width: min(34rem, 92vw);
+  max-height: 80vh;
+  overflow-y: auto;
+}
+/* the optional corner ✕ floats into the card's top right and sticks there
+   while the card's own content scrolls past it */
+.modal-close {
+  position: sticky;
+  top: 0;
+  z-index: 1; /* stay above content flowing beside the float */
+  float: right;
+  min-width: 26px;
+  min-height: 26px;
+  margin: calc(var(--unit) * -1) calc(var(--unit) * -2) 0 calc(var(--unit) * 2);
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 1em;
+  line-height: 26px;
+}
+.modal-close:hover {
+  color: var(--danger);
+}
+@media (max-width: 48rem) {
+  /* rename rides this modal on phones, so the ✕ meets the touch floor */
+  .modal-close {
+    min-width: 44px;
+    min-height: 44px;
+    line-height: 44px;
+  }
+}
+/* the rewind modal is a column: the list is the one scroll container, header
+   and footer stay put */
+.modal.rewind-modal {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.rewind-modal > .rewind-list {
+  min-height: 0; /* lets the capped modal shrink the list, not overflow it */
+}
+.rewind-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(var(--unit) * 2);
+  margin-top: calc(var(--unit) * 3);
+}
+.rewind-hint {
+  font-size: var(--fs-small);
+}
+
+/* toasts */
+.toasts {
+  position: fixed;
+  /* --keyboard-inset lifts notices above the OS keyboard, where ancestor
+     padding cannot reach a fixed element; MobileShell publishes it at :root,
+     so every mobile screen sees one value and desktop reads zero */
+  bottom: calc(var(--unit) * 6 + var(--keyboard-inset, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--unit) * 2);
+  z-index: 40;
+}
+.toast {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: calc(var(--unit) * 2) calc(var(--unit) * 3);
+  box-shadow: 0 2px 10px rgb(0 0 0 / 30%);
+}
+.toast.error {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.block-notice.info {
+  color: var(--text);
+}
+.block-notice.warn {
+  color: var(--warn);
+}
+.block-notice.error {
+  color: var(--danger);
+}
+.tool-card {
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  padding: calc(var(--unit) * 2);
+  margin: calc(var(--unit) * 1) 0;
+}
+.live-block {
+  border-left: 3px solid var(--accent);
+  padding-left: calc(var(--unit) * 3);
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--unit) * 2);
+  margin: calc(var(--unit) * 1) 0;
+}
+.queue-chip {
+  font-size: var(--fs-small);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: calc(var(--unit) * 0.5) calc(var(--unit) * 2);
+}
+/* the overflow line stands in for rows hidden by the chip cap */
+.queue-more {
+  align-self: center;
+  color: var(--muted);
+  font-size: var(--fs-small);
+}
+
+/* context meter: the track fills against the compaction budget so full means
+   compaction fires now, the count reads used over the real window, and the
+   color escalates on the same denominator as the fill */
+.meter {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--unit) * 1.5);
+  flex-shrink: 0;
+}
+.meter-track {
+  width: 9rem;
+  height: 6px;
+  background: var(--surface-2);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.meter-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+.meter.warn .meter-fill {
+  background: var(--warn);
+}
+.meter.danger .meter-fill {
+  background: var(--danger);
+}
+.meter-count {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- desktop workspaces (phase 09) --- */
+
+.content.workspace-content {
+  max-width: none;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.workspace {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+/* topbar additions */
+.ws-switcher {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.ws-switcher button {
+  border: none;
+  border-radius: 0;
+  background: none;
+  padding: calc(var(--unit) * 1) calc(var(--unit) * 3);
+  color: var(--muted);
+}
+.ws-switcher button.active {
+  background: var(--surface-2);
+  color: var(--text);
+}
+.attend-badge {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+  font-weight: 650;
+  border-radius: 999px;
+  min-width: 1.8em;
+}
+.bell {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1em;
+  padding: calc(var(--unit) * 1);
+}
+.shortcut-card {
+  max-width: 26rem;
+}
+.shortcut-card h3 {
+  margin: calc(var(--unit) * 3) 0 calc(var(--unit) * 1);
+  font-size: inherit;
+  color: var(--muted);
+}
+.shortcut-table td {
+  padding: calc(var(--unit) * 0.5) calc(var(--unit) * 3) calc(var(--unit) * 0.5) 0;
+}
+
+/* focus rail */
+.focus-rail {
+  width: 320px;
+  min-width: 250px;
+  border-right: 1px solid var(--border);
+  background: var(--surface);
+  overflow-y: auto;
+  padding: calc(var(--unit) * 2);
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--unit) * 4);
+}
+.rail-section {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--unit) * 1);
+}
+.rail-section-title {
+  font-size: var(--fs-small);
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: calc(var(--unit) * 1) calc(var(--unit) * 2) 0;
+}
+.rail-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: calc(var(--unit) * 1.5) calc(var(--unit) * 2);
+  cursor: pointer;
+  background: var(--bg);
+}
+.rail-row:hover {
+  border-color: var(--accent);
+}
+.rail-row.selected {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg));
+}
+.rail-row[data-cursor='true'] {
+  outline: 1px solid var(--accent);
+}
+.rail-row.kind-needs-input {
+  border-left: 3px solid var(--danger);
+}
+.rail-row.kind-needs-review {
+  border-left: 3px solid var(--warn);
+}
+.rail-top {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--unit) * 2);
+  position: relative;
+}
+.rail-name {
+  font-weight: 550;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rail-meta {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: calc(var(--unit) * 1);
+}
+.rail-meta .badge {
+  margin-right: 0;
+}
+.rail-wait {
+  font-size: var(--fs-small);
+}
+/* the reason line carries the row's check-off at its end, mirroring the
+   switcher rows' bottom line */
+.rail-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(var(--unit) * 2);
+}
+.rail-reason {
+  font-size: var(--fs-small);
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0; /* the flex line lets a long reason ellipsize */
+}
+/* the check-off rides the switcher and rail rows, so only phones carry the
+   touch floor while the rail keeps its density */
+.rail-check {
+  border: none;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0 2px;
+  font-size: var(--fs-small);
+}
+.rail-check:hover {
+  color: var(--ok);
+}
+@media (max-width: 48rem) {
+  /* the switcher's large rows meet the touch floor */
+  .rail-check {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
+.workspace-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding: calc(var(--unit) * 3);
+  overflow: hidden;
+}
+.workspace-placeholder {
+  margin: auto;
+  text-align: center;
+}
+.rail-hint {
+  font-size: var(--fs-small);
+}
+
+.rail-row.kind-awaiting {
+  border-left: 3px solid var(--border);
+}
+
+/* composer @-path completion */
+.composer-box {
+  display: flex;
+  align-items: flex-end;
+  gap: calc(var(--unit) * 2);
+}
+/* shell-mode marker beside the prompt: the draft's own prefix as a glyph,
+   amber for a staged run, danger for one excluded from context */
+.composer-kind {
+  flex-shrink: 0;
+  padding-bottom: calc(var(--unit) * 1.5); /* rides the textarea's text line */
+  font-family: var(--font-mono);
+  font-weight: 700;
+  color: var(--warn);
+  user-select: none;
+}
+.composer-kind.excluded {
+  color: var(--danger);
+}
+/* composer popups portal through MenuPopover as .composer-pop: placement is
+   inline there, this lifts the layer above pane content like .tile-menu */
+.composer-pop {
+  z-index: 14;
+}
+.at-menu {
+  margin: 0;
+  padding: calc(var(--unit) * 1);
+  list-style: none;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  max-height: 16rem;
+  overflow-y: auto;
+}
+.at-menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font-family: var(--font-mono);
+  font-size: var(--fs-small);
+  background: none;
+}
+.at-menu button.active {
+  background: color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
+/* slash-command menu: the @-menu shell, each row pairing the command with its
+   one-line description so the menu teaches as it completes */
+.slash-menu button {
+  display: flex;
+  align-items: baseline;
+  gap: calc(var(--unit) * 2);
+}
+.slash-menu .slash-name {
+  flex-shrink: 0;
+}
+.slash-menu .slash-desc {
+  margin-left: auto;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* reverse history search: opens blank above the composer, a live block hosted
+   by .composer-pop like the completion menus rather than a modal picker, with
+   more room since a searched prompt may span lines */
+.search-menu {
+  padding: calc(var(--unit) * 1);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.search-header {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--unit) * 2);
+  font-family: var(--font-mono);
+  font-size: var(--fs-small);
+  color: var(--accent);
+}
+.search-echo {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.search-count {
+  color: var(--muted);
+}
+.search-close {
+  flex-shrink: 0;
+  margin-left: auto;
+  padding: 0 calc(var(--unit) * 1);
+}
+.search-empty {
+  margin: calc(var(--unit) * 1) 0 0;
+  font-size: var(--fs-small);
+  color: var(--muted);
+}
+.search-list {
+  margin: calc(var(--unit) * 1) 0 0;
+  padding: 0;
+  list-style: none;
+  max-height: 24rem;
+  overflow-y: auto;
+}
+.search-list button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font-family: var(--font-mono);
+  font-size: var(--fs-small);
+  background: none;
+}
+.search-list button.active {
+  background: color-mix(in srgb, var(--accent) 25%, transparent);
+}
+.search-row {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  overflow: hidden;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.search-row mark {
+  background: color-mix(in srgb, var(--accent) 35%, transparent);
+  color: inherit;
+  border-radius: 2px;
+}
+
+@media (max-width: 48rem) {
+  /* the popups open from touch too, so their rows and close button meet the
+     theme's touch floor */
+  .at-menu button,
+  .search-list button,
+  .search-close {
+    min-height: 44px;
+  }
+}
+
+/* rewind picker rows: one grid row per candidate, columns shared through
+   subgrid so guide, tag, label and detail line up down the whole tree */
+.rewind-list {
+  display: grid;
+  grid-template-columns: max-content max-content minmax(0, 1fr) max-content;
+  gap: 1px calc(var(--unit) * 3);
+  align-content: start;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.rewind-list > p {
+  grid-column: 1 / -1; /* load states never squeeze into the guide track */
+}
+.rewind-row {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  align-items: center;
+  min-height: calc(var(--unit) * 8);
+  padding: 0 calc(var(--unit) * 2);
+  border-radius: var(--radius);
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+}
+.rewind-row:not([aria-disabled='true']):hover,
+.rewind-row[data-cursor='true'] {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.rewind-row[aria-disabled='true'] {
+  cursor: default;
+}
+.rewind-row.head {
+  box-shadow: inset 2px 0 0 var(--accent); /* the one head marker */
+}
+.rewind-row.off {
+  opacity: 0.55; /* abandoned forks recede, ajent's Off shading */
+}
+/* kind colors follow ajent's marks: prompts accent, replies plain, rest muted */
+.rewind-row .kind-user {
+  --rewind-kind: var(--accent);
+}
+.rewind-row .kind-assistant {
+  --rewind-kind: var(--text);
+}
+.rewind-row .kind-compaction {
+  --rewind-kind: var(--muted);
+}
+.rewind-guide {
+  font-family: var(--font-mono);
+  font-size: var(--fs-small);
+  color: var(--muted);
+  white-space: pre; /* connector cells are four-column mono runs */
+}
+.rewind-tag {
+  font-size: var(--fs-small);
+  color: var(--rewind-kind, var(--muted));
+}
+.rewind-dot {
+  display: none; /* the dot is the sheet's kind mark; the tree shows the tag */
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--rewind-kind, var(--muted));
+}
+.rewind-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rewind-detail {
+  font-size: var(--fs-small);
+  color: var(--muted);
+  padding-left: calc(var(--unit) * 2);
+}
+.rewind-row.head .rewind-detail {
+  color: var(--accent);
+}
+
+/* tile mode */
+.tile-workspace {
+  position: relative;
+  overflow: hidden;
+}
+.tile-split {
+  display: flex;
+  min-height: 0;
+  min-width: 0;
+  flex: 1;
+}
+.tile-split.split-row {
+  flex-direction: row;
+}
+.tile-split.split-column {
+  flex-direction: column;
+}
+.tile-cell {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+}
+.tile-pane {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin: 3px;
+  overflow: hidden;
+  background: var(--surface);
+}
+.tile-pane.focused {
+  border-color: var(--accent);
+}
+.tile-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+  min-height: 28px;
+  overflow-x: visible; /* overflowing tabs paint instead of scrolling */
+}
+/* the tablist nests inside the strip so the + picker stays outside the role */
+.tile-tablist {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+.tile-add {
+  margin-left: auto;
+  display: inline-flex;
+}
+.tile-add button {
+  background: none;
+  border: none;
+  padding: 0 calc(var(--unit) * 2);
+  border-radius: var(--radius);
+  color: var(--muted);
+  user-select: none;
+}
+.tile-add button:hover,
+.tile-add button[aria-expanded='true'] {
+  background: var(--surface);
+  color: var(--text);
+}
+/* positioned by MenuPopover; a pane's overflow must never clip it */
+.tile-menu {
+  position: fixed;
+  min-width: 14rem;
+  max-height: 18rem;
+  overflow-y: auto;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: calc(var(--unit) * 1);
+  z-index: 14;
+}
+.tile-menu-row {
+  display: flex;
+  gap: 2px;
+}
+.tile-menu-row button:first-child {
+  flex: 1;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tile-menu-split {
+  color: var(--muted);
+}
+.tile-tab {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--unit) * 1);
+  padding: 2px calc(var(--unit) * 2);
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: var(--fs-small);
+  max-width: 15rem;
+}
+.tile-tab.active {
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+.tile-tab.drop-before {
+  box-shadow: -2px 0 0 var(--accent);
+}
+.tile-tab:focus-visible {
+  outline: 1px solid var(--accent);
+}
+.tab-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tab-close {
+  border: none;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0 2px;
+}
+.tab-close:hover {
+  color: var(--danger);
+}
+.tab-badge {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.tab-badge.needs-input {
+  background: var(--danger);
+}
+.tab-badge.needs-review {
+  background: var(--warn);
+}
+.tile-divider {
+  flex: 0 0 6px;
+  z-index: 5;
+  touch-action: none; /* pan gestures must not steal a divider drag */
+}
+.tile-divider.v {
+  cursor: col-resize;
+  margin: 0 -3px;
+}
+.tile-divider.h {
+  cursor: row-resize;
+  margin: -3px 0;
+}
+.tile-divider.v:hover,
+.tile-divider.h:hover {
+  background: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+.tile-body {
+  flex: 1;
+  min-height: 0;
+  padding: calc(var(--unit) * 2);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.drop-edge {
+  position: absolute;
+  z-index: 8;
+}
+.drop-edge.top {
+  top: 30px; /* below the tab strip so tab drops win there */
+  left: 0;
+  right: 0;
+  height: 22%;
+}
+.drop-edge.bottom {
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 22%;
+}
+.drop-edge.left {
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 22%;
+}
+.drop-edge.right {
+  top: 0;
+  bottom: 0;
+  right: 0;
+  width: 22%;
+}
+.drop-edge.hinted {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  border: 2px dashed var(--accent);
+}
+.tile-empty {
+  margin: auto;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: calc(var(--unit) * 2);
+}
+
+/* --- scheduler UI (phase 10) --- */
+
+.jobs-table,
+.runs-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.jobs-table th,
+.runs-table th {
+  text-align: left;
+  color: var(--muted);
+  font-size: var(--fs-small);
+  font-weight: 500;
+  padding: calc(var(--unit) * 1) calc(var(--unit) * 2);
+  border-bottom: 1px solid var(--border);
+}
+.jobs-table td,
+.runs-table td {
+  padding: calc(var(--unit) * 2) calc(var(--unit) * 2);
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+.run-row,
+.jobs-table tbody tr {
+  cursor: pointer;
+}
+.run-row:hover {
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+.run-prompt-cell {
+  max-width: 24rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.run-error-excerpt {
+  max-width: 16rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* the history table keeps its six columns intact: narrower viewports scroll it
+   sideways instead of crushing the cells (phones swap to cards below) */
+.runs-scroll {
+  overflow-x: auto;
+}
+
+/* jobs area sub-navigation */
+.job-tabs {
+  display: flex;
+  gap: calc(var(--unit) * 3);
+  margin-bottom: calc(var(--unit) * 3);
+}
+.job-tabs a {
+  color: var(--muted);
+  padding: calc(var(--unit) * 1) 0;
+}
+.job-tabs a.active {
+  color: var(--text);
+  border-bottom: 2px solid var(--accent);
+}
+
+.runs-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--unit) * 1);
+  margin: 0;
+}
+
+/* editor form */
+.job-editor {
+  width: min(44rem, 94vw);
+}
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: calc(var(--unit) * 2) calc(var(--unit) * 4);
+}
+.job-editor h3 {
+  margin: calc(var(--unit) * 3) 0 calc(var(--unit) * 1);
+  font-size: inherit;
+  color: var(--muted);
+}
+.field-error {
+  display: block;
+  margin-top: calc(var(--unit) * 1);
+}
+.small-note {
+  display: block;
+  font-size: var(--fs-small);
+}
+.warn-text {
+  color: var(--warn);
+}
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--unit) * 2);
+  margin-bottom: calc(var(--unit) * 2);
+  color: var(--muted);
+  font-size: var(--fs-small);
+}
+.check-row label {
+  margin: 0;
+  color: inherit;
+}
+.toggle-row {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--unit) * 1);
+  color: var(--muted);
+  font-size: var(--fs-small);
+}
+/* copy/play controls sit under the enabled toggle instead of wrapping beside it */
+.job-row-actions {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--unit) * 1);
+  margin-top: calc(var(--unit) * 1);
+}
+.editor-actions {
+  display: flex;
+  gap: calc(var(--unit) * 2);
+  margin-top: calc(var(--unit) * 4);
+}
+
+/* phone layout swaps the jobs and runs tables for stacked cards over the same
+   row facts; chrome follows the switcher rows: surface cards, status beside
+   the label, touch-sized controls (both screens mount these under
+   hooks/useMediaQuery's shared 48rem breakpoint, so no media query is needed
+   here) */
+.job-cards,
+.run-cards {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--unit) * 2);
+}
+.job-card,
+.run-card {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--unit) * 1);
+  padding: calc(var(--unit) * 3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+/* each card's labeled facts share one wrapping row so either side can take
+   the width */
+.job-card-when,
+.run-card-when {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: calc(var(--unit) * 1) calc(var(--unit) * 3);
+}
+/* the job badge's trailing margin would double the column gap */
+.job-card-when .badge {
+  margin-right: 0;
+}
+/* the toggle's label is its touch target, matching the card's buttons */
+.job-card .toggle-row {
+  min-height: 44px;
+}
+/* a run card opens its detail from anywhere on its face, like its table row */
+.run-card {
+  cursor: pointer;
+}
+.run-card:hover {
+  background: color-mix(in srgb, var(--accent) 6%, var(--surface));
+}
+/* the table's clipped prompt and error render unclipped here: long text wraps
+   and long tokens break so neither widens the card */
+.run-card-text {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* weekday picker: one row of day chips inside the job editor's schedule grid */
+.weekday-picker {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: calc(var(--unit) * 2);
+  color: var(--muted);
+  font-size: var(--fs-small);
+}
+.weekday-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--unit) * 1);
+  margin: 0;
+  padding: calc(var(--unit) * 0.5) calc(var(--unit) * 1.5);
+  background: var(--surface-2);
+  border-radius: var(--radius);
+  color: inherit;
+}
+.weekday-chip input {
+  margin: 0;
+}
+
+/* custom tool set inside the job editor's launch-facts grid: a master
+   checkbox plus chat-panel-styled rows, stacked across both columns */
+.job-tools {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--unit) * 2);
+}
+.job-tools .tool-row input {
+  margin: 0;
+}
+
+/* rename control: a quiet pencil beside session labels everywhere */
+.rename-control {
+  padding: 0 calc(var(--unit) * 1);
+  font-size: var(--fs-small);
+  color: var(--muted);
+  background: none;
+  border: none;
+}
+.rename-control:hover {
+  color: var(--text);
+}
+
+/* schedule preview beside the editor's mode chooser */
+.schedule-preview {
+  margin-top: calc(var(--unit) * 3);
+  padding: calc(var(--unit) * 2) calc(var(--unit) * 3);
+  background: var(--surface-2);
+  border-radius: var(--radius);
+}
+.schedule-preview ol {
+  margin: calc(var(--unit) * 1) 0 0;
+  padding-left: calc(var(--unit) * 4);
+}
+
+/* run detail */
+.run-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: calc(var(--unit) * 1) calc(var(--unit) * 4);
+  margin: 0;
+}
+.run-facts dt {
+  color: var(--muted);
+  font-size: var(--fs-small);
+}
+.run-facts dd {
+  margin: 0;
+}
+.run-prompt {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* recorded transcript inside run history */
+.transcript-preview {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  padding: calc(var(--unit) * 2) calc(var(--unit) * 3);
+  max-height: 55vh;
+  overflow-y: auto;
+}
+
+/* the editor fills small screens, so mobile gets a full-screen form; dvh
+   keeps its action buttons above browser toolbars instead of behind them */
+@media (max-width: 48rem) {
+  .modal.job-editor,
+  .modal.run-detail {
+    width: 100vw;
+    height: 100vh; /* static fallback for engines without dynamic units */
+    height: 100dvh;
+    max-height: 100vh;
+    max-height: 100dvh;
+    border-radius: 0;
+    overflow-y: auto;
+  }
+}
+
+/* --- phase 11: mobile experience ---
+   One session at a time under the breakpoint: launcher and switcher rows,
+   bottom sheets with drag handles, touch-sized dialogs, keyboard-aware
+   composer spacing and pushed full-screen panels. */
+
+/* double-tap zoom stands down for tappable controls on phones: buttons,
+   links, role=button rows (rewind cards) and clickable card faces. :where
+   holds specificity at zero so drag surfaces keep their own touch-action
+   (the sheet handle). The breakpoint alone scopes it: AuthGate forks to the
+   mobile shell on this same query */
+@media (max-width: 48rem) {
+  :where(button, [role='button'], a, .switch-row, .job-card, .run-card) {
+    touch-action: manipulation;
+  }
+}
+
+.mobile-topbar {
+  padding-right: calc(var(--unit) * 4);
+}
+/* tab links mirror the desktop nav at the phone's touch target floor */
+.mobile-topbar nav a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+}
+/* the badge is the phone's only needs-input affordance, so it meets the
+   touch floor. Desktop's compact topbar button keeps its own density */
+.mobile-topbar .attend-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+}
+.mobile-content {
+  padding: calc(var(--unit) * 3);
+  /* every hosted page clears the home indicator; .mobile-session drops its own
+     baseline so chat does not count this inset twice */
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--unit) * 3);
+  max-width: none;
+  /* pull-to-refresh plays in the launcher's own dead overscroll; containing it
+     here keeps the browser's page-level refresh from stealing the gesture */
+  overscroll-behavior-y: contain;
+}
+
+/* launcher and switcher rows: large targets with status beside the label */
+.switcher-rows {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--unit) * 2);
+}
+/* section headings reuse the desktop rail's label style, padded to the rows */
+.switcher-rows .rail-section-title {
+  padding: calc(var(--unit) * 2) calc(var(--unit) * 3) 0;
+}
+.switch-row {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--unit) * 1);
+  padding: calc(var(--unit) * 3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.switch-row.pressed {
+  background: var(--surface-2);
+}
+.switch-top {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--unit) * 2);
+}
+.switch-name {
+  font-weight: 550;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.switch-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 24px;
+}
+.switch-reason {
+  font-size: var(--fs-small);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* trailing action area per row: Rename everywhere, Settings and Stop on live
+   rows, Resume on ended ones with a workspace; refusals wrap onto their own
+   line */
+.switch-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: calc(var(--unit) * 2);
+}
+.switch-actions button,
+.switch-actions .btn {
+  min-height: 44px; /* touch target */
+}
+.switch-actions .error-text {
+  flex-basis: 100%;
+}
+
+.mobile-home {
+  position: relative; /* anchors .pull-refresh over the launcher's top edge */
+}
+/* the pull-to-refresh status floats instead of joining flow, so appearing or
+   clearing never shifts content beneath an in-flight gesture. The small
+   negative offset rides .mobile-content's page padding, which a scroll port
+   shows at rest, so nothing clips */
+.pull-refresh {
+  position: absolute;
+  top: calc(var(--unit) * -2);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: calc(var(--unit) * 3);
+  margin: 0;
+  padding: calc(var(--unit) * 1.5) calc(var(--unit) * 4);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  pointer-events: none; /* taps pass through to the controls beneath */
+  animation: pull-refresh-in 150ms ease-out;
+}
+/* the entrance keeps the centering translate and rides the pull's downward
+   axis; `to` is omitted so resting state stays defined by the rule above */
+@keyframes pull-refresh-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, calc(var(--unit) * -1.5));
+  }
+}
+/* decorative arc: currentColor follows .muted, pure CSS so no re-renders */
+.pull-refresh-spin {
+  inline-size: calc(var(--unit) * 3);
+  block-size: calc(var(--unit) * 3);
+  border: 1.5px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: pull-refresh-rotate 700ms linear infinite;
+}
+@keyframes pull-refresh-rotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pull-refresh,
+  .pull-refresh-spin {
+    animation: none;
+  }
+}
+
+.mobile-home section {
+  margin-bottom: calc(var(--unit) * 5);
+}
+.mobile-home h2 {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--unit) * 3);
+  font-size: var(--fs-body);
+  margin: 0 0 calc(var(--unit) * 2);
+}
+.mobile-home h2 button {
+  min-height: 44px; /* touch floor: the launch/hide toggle */
+}
+.mobile-links {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--unit) * 2);
+}
+.mobile-links a {
+  display: flex;
+  flex-direction: column;
+  padding: calc(var(--unit) * 3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  min-height: 44px; /* touch target floor */
+}
+.mobile-links a .muted {
+  font-size: var(--fs-small);
+}
+
+.launch-form label,
+.session-picker {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--unit) * 1);
+  margin-bottom: calc(var(--unit) * 3);
+}
+.saved-resume {
+  margin-top: calc(var(--unit) * 4);
+  border-top: 1px solid var(--border);
+  padding-top: calc(var(--unit) * 3);
+}
+.saved-resume h3 {
+  font-size: var(--fs-small);
+  margin: 0 0 calc(var(--unit) * 2);
+}
+.saved-row {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--unit) * 1);
+  text-align: left;
+  width: 100%;
+  margin-bottom: calc(var(--unit) * 2);
+}
+.saved-meta {
+  font-size: var(--fs-small);
+}
+/* the launcher card's buttons: Launch plus every saved row's Resume */
+.launch-form button {
+  min-height: 44px; /* touch target floor */
+}
+
+/* bottom sheet with drag handle */
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  /* the sheet rides this offset above the keyboard; ancestor padding cannot
+     move a fixed element, so MobileShell publishes --keyboard-inset at :root */
+  bottom: var(--keyboard-inset, 0px);
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+  z-index: 30;
+}
+.bottom-sheet {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  /* the keyboard-lifted backdrop is shorter than the layout viewport, so
+     cap against both instead of poking past the screen top */
+  max-height: min(82vh, 100%);
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius) var(--radius) 0 0;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.bottom-sheet.dragging {
+  transition: none;
+}
+.bottom-sheet > * {
+  min-height: 0; /* children shrink so the body can own scrolling */
+}
+/* the one child exempt from the flatten rule above: drag surface plus
+   tap-to-dismiss in a single 44px target. Same specificity, so this rule
+   must stay below that one */
+.sheet-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px; /* touch floor */
+  touch-action: none;
+  cursor: grab;
+}
+.sheet-grip {
+  width: 44px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--border);
+}
+/* mobile rewind rows: the shared picker row at touch scale — the kind dot
+   replaces the tree chrome, single-line cards meet the 44px floor */
+.bottom-sheet .rewind-list {
+  grid-template-columns: auto minmax(0, 1fr) max-content;
+  gap: calc(var(--unit) * 1);
+  padding: 0 calc(var(--unit) * 3) calc(var(--unit) * 4);
+}
+.bottom-sheet .rewind-row {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  min-height: 44px; /* touch floor */
+}
+.bottom-sheet .rewind-guide,
+.bottom-sheet .rewind-tag {
+  display: none; /* the dot carries the kind where the tree folds away */
+}
+.bottom-sheet .rewind-dot {
+  display: block;
+}
+.bottom-sheet .rewind-row[aria-disabled='true'] {
+  opacity: 0.55; /* the head row reads inert among the touch cards */
+}
+
+/* mobile session screen: compact sticky header, shared status bar under the
+   composer. The safe-area baseline lives on .mobile-content, so this padding
+   carries only --keyboard-inset; repeating it here would count the inset twice */
+.mobile-session {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding-bottom: var(--keyboard-inset, 0px);
+}
+.mobile-session-header {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  /* one line on every phone: the secondary actions collapse behind the
+     trailing menu button and the chips ellipsize before the row can overflow */
+  gap: calc(var(--unit) * 2);
+  padding: calc(var(--unit) * 2) calc(var(--unit) * 3);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+/* 44px touch-target floor for the header buttons, matching the back link */
+.mobile-session-header button {
+  min-height: 44px;
+}
+/* navigation controls never yield space to the shrinking chips */
+.mobile-session-header .back-link,
+.mobile-session-header .header-menu-trigger {
+  flex: none;
+}
+.mobile-session-header .header-menu-trigger {
+  min-width: 44px; /* touch target, width included */
+}
+.mobile-session-header .back-link {
+  font-size: 1.2em;
+  min-width: 44px; /* touch target, width included */
+  min-height: 44px; /* touch target */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+/* session identity: one ellipsized label after the back link, sized by
+   leftover space so a long title truncates instead of forcing wraps */
+.mobile-session-header .session-title {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 550;
+}
+/* chips and badges give way instead of wrapping: each ellipsizes inside the
+   one-line row, shrinking behind its own min-width */
+.mobile-session-header .badge,
+.mobile-session-header .model-menu {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* the chip wrapper yields with its button, since a visible-overflow flex item
+   otherwise floors at its content's width */
+.mobile-session-header .model-chip-wrap {
+  min-width: 0;
+}
+
+.model-chip-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+/* segment chip inside a status line; both label lengths render and the bar's
+   width picks, standing in for upstream's terminal-width collapse ladder */
+.strip-segment {
+  flex-shrink: 0;
+}
+.strip-segment .seg-short {
+  display: none;
+}
+@container (max-width: 44rem) {
+  .strip-segment .seg-text {
+    display: none;
+  }
+  .strip-segment .seg-short {
+    display: inline;
+  }
+  .meter-track {
+    width: 5rem;
+  }
+}
+
+/* touch dialogs: full-width stacked cards, big answer buttons; every
+   tappable button in a card meets the 44px floor */
+.dialog-dock.touch {
+  padding: calc(var(--unit) * 2) calc(var(--unit) * 3);
+}
+.dialog-card.touch button {
+  min-height: 44px;
+}
+.dialog-card.touch .dialog-choice {
+  display: block;
+  width: 100%; /* against the one-line compact row on purpose */
+  margin-bottom: calc(var(--unit) * 2);
+  text-align: center;
+}
+.dialog-card.secret-screen {
+  border-color: var(--warn);
+}
+.secret-row {
+  display: flex;
+  gap: calc(var(--unit) * 2);
+  margin-bottom: calc(var(--unit) * 3);
+}
+.secret-row input {
+  flex: 1;
+}
+
+/* pushed full-screen panels (tools, settings); named *Screen components,
+   beside draggable BottomSheets for lightweight pickers and centered modals
+   for tiny shared forms */
+.pushed-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 25;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  /* safe-area baseline plus the keyboard inset MobileShell publishes at
+     :root, so inputs inside scroll clear of the keyboard */
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--keyboard-inset, 0px));
+}
+.pushed-header {
+  position: sticky;
+  top: 0;
+  display: flex;
+  align-items: center;
+  gap: calc(var(--unit) * 3);
+  padding: calc(var(--unit) * 2) calc(var(--unit) * 3);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.pushed-header h2 {
+  font-size: var(--fs-body);
+  margin: 0;
+  flex: 1;
+}
+/* 44px touch-target floor for the header buttons; the ended screen reuses
+   this header, so its back and resume ride the same floor (the cold deep-link
+   fallback renders Back as an anchor) */
+.pushed-header button,
+.pushed-header a {
+  min-height: 44px;
+}
+/* fixed panels cover the whole viewport, so their sticky header carries the
+   top safe area itself; the ended-screen header sits below the shell topbar
+   and must not double it */
+.pushed-screen > .pushed-header {
+  padding-top: calc(env(safe-area-inset-top, 0px) + var(--unit) * 2);
+}
+.tools-hint {
+  padding-left: calc(var(--unit) * 3);
+  padding-right: calc(var(--unit) * 3);
+}
+.settings-screen-body {
+  padding: 0 calc(var(--unit) * 3) calc(var(--unit) * 4);
+}
+.tool-rows {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--unit) * 2);
+  padding: 0 calc(var(--unit) * 3) calc(var(--unit) * 4);
+}
+.tool-row {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--unit) * 2);
+  min-height: 44px;
+  padding: calc(var(--unit) * 1) calc(var(--unit) * 2);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.tool-row.disabled {
+  opacity: 0.6;
+}
+.tool-source {
+  margin-left: auto;
+  font-size: var(--fs-small);
+}
+
+/* full-screen settings */
+.mobile-settings h2,
+.mobile-settings h3 {
+  font-size: var(--fs-body);
+}
+/* every top-level settings card, so sections read as separate rows */
+.settings-card {
+  margin-bottom: calc(var(--unit) * 4);
+}
+.setting-row {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--unit) * 3);
+  min-height: 44px;
+  padding: calc(var(--unit) * 1) 0;
+  border-bottom: 1px solid var(--border);
+}
+.setting-row:last-child {
+  border-bottom: none;
+}
+.setting-row.text input {
+  flex: 1;
+}
+.setting-label {
+  font-weight: 550;
+}
+.segmented {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.segmented button {
+  min-height: 44px; /* touch target floor, like every mobile button */
+  padding: 0 calc(var(--unit) * 4);
+  background: transparent;
+}
+.segmented button.active {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+/* contextual notification opt-in: one quiet card riding the attention moment,
+   shown only while a session waits and permission is undecided */
+.notify-prompt {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--unit) * 2) calc(var(--unit) * 3);
+}
+.notify-copy {
+  flex: 1;
+  min-width: 14rem;
+  margin: 0;
+}
+.notify-actions {
+  display: flex;
+  gap: calc(var(--unit) * 2);
+}
+.notify-prompt button {
+  min-height: 44px; /* touch target floor, like every mobile button */
+}
+
+/* mobile session screen: the transcript owns the scroll under the sticky
+   header, and the bottom status bar gets touch padding the desktop bar does
+   not need; it hugs the bottom edge like desktop's, inside the host's
+   safe-area baseline */
+@media (max-width: 48rem) {
+  .mobile-session .transcript-wrap {
+    flex: 1;
+    min-height: 0;
+  }
+  .mobile-session .status-bar {
+    padding: calc(var(--unit) * 2) calc(var(--unit) * 3);
+  }
+  /* queue chips wrap instead of clipping, and the edit button gets the 44px
+     touch target floor */
+  .mobile-session .queue-chip {
+    display: inline-flex;
+    align-items: center;
+    flex-wrap: wrap;
+    overflow-wrap: anywhere;
+  }
+  .mobile-session .queue-chip button {
+    min-height: 44px;
+  }
+  /* the sub-agent stop rides its chip, so it meets the floor too */
+  .mobile-session .sub-agent-stop {
+    min-height: 44px;
+  }
+}
+
+/* --- phase 14: status bar, tools panel, settings hamburger, barrier rows --- */
+
+/* bottom status bar under the composer: agent state at a glance */
+.status-bar {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--unit) * 3);
+  border-top: 1px solid var(--border);
+  padding: calc(var(--unit) * 1.5) 0;
+  font-size: var(--fs-small);
+  min-height: 2em;
+  /* inline-size container so segment chips trade long labels for short forms */
+  container-type: inline-size;
+}
+.bar-activity {
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 40%;
+}
+.strip-segment.muted,
+.status-bar .muted {
+  flex-shrink: 0;
+}
+
+/* sub-agent jobs */
+.subagent-chips,
+.subagent-state {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--unit) * 1);
+  margin: calc(var(--unit) * 1) 0;
+}
+/* one job = live line chip, record status/elapsed badges, optional stop */
+.sub-agent-job {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--unit) * 0.5);
+  min-width: 0;
+}
+/* rows run long upstream (~2048 runes); clamp keeps the bar one line tall */
+.sub-agent-chip {
+  max-width: 28rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--fs-small);
+}
+.sub-agent-stop {
+  font-size: var(--fs-small);
+  padding: 0 calc(var(--unit) * 1.5);
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.sub-agent-stop:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* tools panel popover, positioned by MenuPopover beside its trigger chip */
+.menu .menu-empty {
+  display: block;
+  padding: calc(var(--unit) * 1) 0;
+}
+/* provider label heading a grouped model menu renders before its items */
+.menu .menu-heading {
+  display: block;
+  padding: calc(var(--unit) * 1.5) calc(var(--unit) * 2);
+  color: var(--muted);
+  font-size: var(--fs-small);
+}
+/* a provider group is semantic only; its items join the menu's own layout */
+.menu .model-menu-group {
+  display: contents;
+}
+/* filter input heading the model menus; sticky so a long registry scrolls
+   under it while the query stays reachable */
+.menu .menu-filter-row {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface);
+  padding-bottom: calc(var(--unit) * 1);
+}
+.menu .menu-filter-row input {
+  width: 100%;
+}
+.tool-row {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--unit) * 2);
+  color: var(--text);
+  font-size: var(--fs-small);
+  white-space: nowrap;
+}
+.tool-row.disabled {
+  opacity: 0.5;
+}
+.tool-row .tool-source {
+  margin-left: auto;
+}
+
+/* rename rides a centered modal at every breakpoint, so cramped cards and
+   rails never bury the editor */
+.rename-modal {
+  width: min(26rem, 92vw);
+}
+.rename-modal label {
+  margin-top: 0;
+}
+.rename-modal input {
+  width: 100%;
+  margin-top: calc(var(--unit) * 1);
+}
+.rename-modal .rename-actions {
+  display: flex;
+  gap: calc(var(--unit) * 2);
+  margin-top: calc(var(--unit) * 3);
+}
+
+/* spinner: the working glyph, first element of the status line, colored by
+   what the turn is waiting on and static dim at rest */
+.spinner {
+  display: inline-block;
+  min-width: 1.2em;
+  text-align: center;
+  font-family: var(--font-mono);
+}
+.spinner.idle {
+  color: var(--spin-idle);
+}
+.spinner.wait {
+  color: var(--spin-wait);
+}
+.spinner.stream {
+  color: var(--spin-stream);
+}
+.spinner.tool {
+  color: var(--spin-tool);
+}
+
+/* barrier buttons and cancel share one compact row */
+.dialog-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: calc(var(--unit) * 2);
+  margin-top: calc(var(--unit) * 2);
+}
+.dialog-actions button {
+  margin: 0;
+}
+
+/* both ☰ settings menus ride a centered modal narrower than the default, so
+   the setting rows read comfortably on wide screens too */
+.modal.settings-modal {
+  width: min(28rem, 92vw);
+}
+
+/* the discard confirm rides above its dialog, narrower than a default card */
+.modal.discard-modal {
+  width: min(24rem, 92vw);
+}
+
+/* seat badge and stop affordance */
+.seat-badge {
+  cursor: pointer;
+}
+.stop-session {
+  color: var(--danger);
+}
+
+/* exited session cards keep their facts readable */
+.session-card .card-detail {
+  overflow-wrap: anywhere;
+}
+.exited-transcript {
+  margin-top: calc(var(--unit) * 2);
+  max-height: 60vh;
+  overflow: auto;
+}
+
+/* focus rail: stored title leading line one, its workspace path a smaller
+   sub-line below so long titles keep the whole row width */
+.rail-path {
+  display: block;
+  font-size: var(--fs-small);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+/* job editor prompt takes the whole card width under its heading */
+.prompt-field,
+.prompt-field textarea {
+  display: block;
+  width: 100%;
+}
+.prompt-field textarea {
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+/* chat header identity: stored title leading, short session id trailing */
+.header-session-id {
+  margin-left: calc(var(--unit) * 2);
+  font-size: var(--fs-small);
+}

@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- viewport-fit covers notched phones; the theme-color swaps with the
+         app's own dark or light setting so installed chrome matches.
+         interactive-widget makes keyboards resize the layout viewport instead
+         of overlaying it where an engine honors the key (Chrome and Firefox
+         Android already default there, Safari 27.3+), so dvh layouts fit above
+         the keyboard without a reveal pan -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content"
+    />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="theme-color" content="#101216" data-theme-color />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <!-- Applies the stored theme, falling back to prefers-color-scheme,
+         before first paint so light users never see a dark flash. Mirrors
+         SwarmProvider's readStored/preferredTheme; the provider keeps owning
+         runtime changes and the meta theme-color after mount. -->
+    <script id="theme-bootstrap">
+      ;(() => {
+        var theme = ''
+        try {
+          var stored = localStorage.getItem('swarm.theme')
+          if (stored === 'dark' || stored === 'light') theme = stored
+        } catch (_e) {}
+        if (!theme && window.matchMedia) {
+          try {
+            if (window.matchMedia('(prefers-color-scheme: light)').matches) theme = 'light'
+          } catch (_e) {}
+        }
+        document.documentElement.dataset.theme = theme || 'dark'
+      })()
+    </script>
+    <title>ajent-swarm</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

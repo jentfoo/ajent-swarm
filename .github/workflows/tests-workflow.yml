@@ -53,3 +53,55 @@ jobs:
       - name: Run unit tests
         run: make test
 
+  web:
+    name: Verify Frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version-file: web/.node-version
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Lint, typecheck and test
+        run: make web-check
+
+  e2e:
+    name: Verify E2E Smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # the e2e script installs ajent from the module proxy when no sibling
+      # checkout exists
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version-file: web/.node-version
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Install playwright browsers
+        run: cd web && pnpm install --frozen-lockfile && pnpm exec playwright install chromium
+
+      - name: Run the smoke suite
+        run: make test-e2e
+

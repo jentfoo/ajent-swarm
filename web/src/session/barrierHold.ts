@@ -1,10 +1,12 @@
 import type { LiveTurn } from '../state/eventApplier'
 
 // BarrierHold is the live stream's split while a dialog holds the turn: the
-// cards that paint and how many calls wait behind the answer.
+// cards that paint, how many calls wait behind the answer, and the id of the
+// call the open dialog gates (undefined when nothing is gated).
 export interface BarrierHold {
   shown: LiveTurn['tools']
   held: number
+  gatedId?: string
 }
 
 // barrierHold splits the live tool cards while a dialog holds the turn. A batch
@@ -27,5 +29,5 @@ export function barrierHold(tools: LiveTurn['tools'], dialogOpen: boolean): Barr
   }
   if (cut < 0) return { shown: tools, held: 0 }
   const shown = tools.filter((t, i) => i <= cut || t.shell === true)
-  return { shown, held: tools.length - shown.length }
+  return { shown, held: tools.length - shown.length, gatedId: tools[cut].id }
 }

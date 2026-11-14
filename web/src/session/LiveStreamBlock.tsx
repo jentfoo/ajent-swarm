@@ -17,7 +17,9 @@ import type { ToolResultView } from '../state/derive'
 // it, the one full list, a waiting poll card shows its own job's state line.
 // agentJobs carries the pull listing: record status, elapsed and stop.
 // While a dialog holds the turn, calls queued behind the gated one wait (see
-// barrierHold) so the dialog's answer reads against that one action.
+// barrierHold) so the dialog's answer reads against that one action, and the
+// gated edit card itself drops its op preview: the full-file diff rides above
+// the dialog, a fragment-numbered copy would only misread against it.
 export function LiveStreamBlock({
   live,
   activity,
@@ -50,7 +52,13 @@ export function LiveStreamBlock({
       )}
       {current.text !== '' && <MarkdownBlock text={current.text} />}
       {held.shown.map((tool) => (
-        <LiveToolCard key={tool.id} tool={tool} agents={subs} agentJobs={agentJobs} />
+        <LiveToolCard
+          key={tool.id}
+          tool={tool}
+          agents={subs}
+          agentJobs={agentJobs}
+          gated={tool.id === held.gatedId}
+        />
       ))}
       {held.held > 0 && (
         <p className="held-calls">
@@ -94,10 +102,12 @@ function LiveToolCard({
   tool,
   agents,
   agentJobs,
+  gated = false,
 }: {
   tool: LiveTurn['tools'][number]
   agents: ActivityRow[]
   agentJobs?: AgentJobs
+  gated?: boolean
 }) {
   const result: ToolResultView | undefined = tool.result
     ? {
@@ -125,6 +135,7 @@ function LiveToolCard({
       }}
       agents={agents}
       agentJobs={agentJobs}
+      gated={gated}
     />
   )
 }

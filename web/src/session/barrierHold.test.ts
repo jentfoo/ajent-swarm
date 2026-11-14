@@ -32,12 +32,16 @@ describe('barrierHold', () => {
       tool('c3'),
       tool('c4'),
     ]
-    expect(barrierHold(tools, true)).toEqual({ shown: tools.slice(0, 2), held: 2 })
+    expect(barrierHold(tools, true)).toEqual({
+      shown: tools.slice(0, 2),
+      held: 2,
+      gatedId: 'c2',
+    })
   })
 
   it('gates the first call when nothing settled yet', () => {
     const tools = [tool('c1'), tool('c2')]
-    expect(barrierHold(tools, true)).toEqual({ shown: tools.slice(0, 1), held: 1 })
+    expect(barrierHold(tools, true)).toEqual({ shown: tools.slice(0, 1), held: 1, gatedId: 'c1' })
   })
 
   it('releases once every call settled', () => {
@@ -59,15 +63,16 @@ describe('barrierHold', () => {
     expect(barrierHold(tools, true)).toEqual({
       shown: [tools[0], tools[1], tools[2], tools[3]],
       held: 1,
+      gatedId: 'c2',
     })
   })
 
   it('releases when the gated call resolves and the next one opens', () => {
     // the answer landed, c2 runs now: the cut moves with the first unresolved
     const tools = [tool('c1', { result: result() }), tool('c2', { result: result() }), tool('c3')]
-    expect(barrierHold(tools, true)).toEqual({ shown: tools.slice(0, 3), held: 0 })
+    expect(barrierHold(tools, true)).toEqual({ shown: tools.slice(0, 3), held: 0, gatedId: 'c3' })
     const next = [...tools, tool('c4')]
-    expect(barrierHold(next, true)).toEqual({ shown: next.slice(0, 3), held: 1 })
+    expect(barrierHold(next, true)).toEqual({ shown: next.slice(0, 3), held: 1, gatedId: 'c3' })
   })
 
   it('holds nothing on an empty buffer', () => {

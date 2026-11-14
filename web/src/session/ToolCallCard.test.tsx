@@ -73,6 +73,23 @@ describe('ToolCallCard inputs', () => {
     expect(rows('add')).toEqual(['y'])
   })
 
+  it('drops the op diffs on a gated edit, keeping the path', () => {
+    // the full-file diff rides above the dialog, a fragment-numbered copy
+    // would only misread against it
+    render(
+      <ToolCallCard
+        gated
+        call={{
+          id: 'c1',
+          name: 'edit',
+          input: { path: 'a.go', edits: [{ oldText: 'one\n', newText: 'ONE\n' }] },
+        }}
+      />,
+    )
+    expect(screen.getByText('a.go')).toHaveClass('diff-path')
+    expect(document.querySelector('.diff-pre')).toBeNull()
+  })
+
   it('pretty-prints unparseable edit input', () => {
     render(
       <ToolCallCard

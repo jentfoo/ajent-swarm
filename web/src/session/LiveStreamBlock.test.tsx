@@ -339,6 +339,37 @@ describe('LiveStreamBlock tool cards', () => {
     expect(screen.queryByText(/held until the dialog/)).not.toBeInTheDocument()
   })
 
+  it('drops the gated edit op preview while the dialog holds it', () => {
+    // upstream commits the full-file diff above the dialog before the ask, so
+    // the gated card names the file instead of repeating it fragment-numbered
+    const edit = {
+      id: 'c1',
+      name: 'edit',
+      input: { path: 'a.go', edits: [{ oldText: 'one\n', newText: 'ONE\n' }] },
+      outputs: [],
+    }
+    const { rerender } = render(
+      <LiveStreamBlock
+        onThinkingToggle={noopToggle}
+        dialogOpen
+        live={liveFor({ tools: [edit] })}
+      />,
+    )
+    expect(document.querySelector('[data-tool-id="c1"] .diff-path')?.textContent).toBe('a.go')
+    expect(document.querySelector('[data-tool-id="c1"] .diff-pre')).toBeNull()
+
+    // the answer landed, the settled card paints its op diff again
+    rerender(
+      <LiveStreamBlock
+        onThinkingToggle={noopToggle}
+        live={liveFor({
+          tools: [{ ...edit, result: { output: 'edited a.go', error: false } }],
+        })}
+      />,
+    )
+    expect(document.querySelectorAll('[data-tool-id="c1"] .diff-pre')).toHaveLength(1)
+  })
+
   it('threads the pull listing', async () => {
     const user = userEvent.setup()
     const stop = vi.fn()

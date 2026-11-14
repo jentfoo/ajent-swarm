@@ -33,6 +33,7 @@ export function ToolCallCard({
   call,
   agents,
   agentJobs,
+  gated = false,
 }: {
   call: ToolCardView
   // Live sub-agent rows (sub-N keys): an agent_poll card renders the one job
@@ -42,6 +43,9 @@ export function ToolCallCard({
   // plus the stop control on the poll card's own row. Absent (committed
   // history, unwired sessions) renders the row text alone.
   agentJobs?: AgentJobs
+  // An open dialog gates this call: the full-file diff rides above the dialog,
+  // so the edit preview stands down instead of repeating it fragment-numbered
+  gated?: boolean
 }) {
   const ownJob = cardSubAgentRow(call, agents ?? [])
   const streamed = (call.outputs ?? []).join('')
@@ -106,7 +110,9 @@ export function ToolCallCard({
       </button>
       {(call.input !== undefined || open) && (
         <div className="tool-body">
-          {call.input !== undefined && <ToolInputView name={call.name} input={call.input} />}
+          {call.input !== undefined && (
+            <ToolInputView name={call.name} input={call.input} gated={gated} />
+          )}
           {open && body !== '' && <pre className="mono">{body}</pre>}
           {images.map((img, i) => (
             <ToolImage key={i} image={img} />
@@ -120,8 +126,18 @@ export function ToolCallCard({
 
 // ToolInputView renders a call's arguments: edit calls as one diff per op,
 // every other shape pretty-printed. Unparseable edit input pretty-prints with
-// the rest rather than risking a half-read diff.
-function ToolInputView({ name, input }: { name?: string; input: unknown }) {
+// the rest rather than risking a half-read diff. A gated edit drops its op
+// diffs: upstream commits the full-file diff before the ask, so the preview
+// would repeat it with fragment line numbers that read against file lines.
+function ToolInputView({
+  name,
+  input,
+  gated = false,
+}: {
+  name?: string
+  input: unknown
+  gated?: boolean
+}) {
   // Memoized on the input's identity, which the applier preserves across
   // events, so live streaming never rediffs a settled call per frame.
   const edit = useMemo(() => (name === 'edit' ? parseEditInput(input) : undefined), [name, input])
@@ -132,9 +148,7 @@ function ToolInputView({ name, input }: { name?: string; input: unknown }) {
           {edit.path}
           {edit.ops.length > 1 ? ` · ${edit.ops.length} edits` : ''}
         </div>
-        {edit.ops.map((op, i) => (
-          <EditOpDiff key={i} op={op} />
-        ))}
+        {!gated && edit.ops.map((op, i) => <EditOpDiff key={i} op={op} />)}
       </div>
     )
   }

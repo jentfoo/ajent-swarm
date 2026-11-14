@@ -249,7 +249,9 @@ describe('applierReducer queue rows', () => {
       ev('queue.dropped', 2, { rows: [{ id: 'a', text: 'one' }], cause: 'interrupt' }),
     )
     expect(s.snapshot.queuedRows).toEqual([{ id: 'b', text: 'two' }])
-    expect(s.droppedRows).toEqual([{ id: 'a', text: 'one', cause: 'interrupt' }])
+    expect(s.droppedRows).toEqual([
+      { id: 'a', text: 'one', cause: 'interrupt', droppedAt: expect.any(Number) },
+    ])
   })
 
   it('resolves optimistic submits by queueIds on the committed entry', () => {

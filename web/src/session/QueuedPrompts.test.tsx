@@ -85,9 +85,9 @@ describe('QueuedPrompts', () => {
     renderChips({
       queuedRows: rows('live one', 'live two'),
       droppedRows: [
-        { id: 'd0', text: 'dropped old', cause: 'interrupt' },
-        { id: 'd1', text: 'dropped new', cause: 'recalled' },
-        { id: 'd2', text: 'dropped last', cause: 'rewind' },
+        { id: 'd0', text: 'dropped old', cause: 'interrupt', droppedAt: Date.now() },
+        { id: 'd1', text: 'dropped new', cause: 'recalled', droppedAt: Date.now() },
+        { id: 'd2', text: 'dropped last', cause: 'rewind', droppedAt: Date.now() },
       ],
     })
 
@@ -100,6 +100,38 @@ describe('QueuedPrompts', () => {
     const dropped = screen.getByText('dropped new').closest('.queue-chip')!
     const live = screen.getByText('live one').closest('.queue-chip')!
     expect(dropped.compareDocumentPosition(live) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('expires a dropped chip after its ttl', () => {
+    vi.useFakeTimers()
+    try {
+      renderChips({
+        queuedRows: rows('live one'),
+        droppedRows: [{ id: 'd1', text: 'recalled one', cause: 'recalled', droppedAt: Date.now() }],
+      })
+      expect(screen.getByText('recalled one')).toBeInTheDocument()
+
+      act(() => {
+        vi.advanceTimersByTime(9_000)
+      })
+      // the removed row leaves on its own, so a recalled prompt never reads
+      // as still queued, and the live row keeps its place
+      expect(screen.queryByText('recalled one')).not.toBeInTheDocument()
+      expect(screen.getByText('live one')).toBeInTheDocument()
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('skips dropped chips that expired before mount', () => {
+    renderChips({
+      droppedRows: [
+        { id: 'd0', text: 'stale exit', cause: 'interrupt', droppedAt: Date.now() - 9_000 },
+      ],
+    })
+
+    expect(screen.queryByText('stale exit')).not.toBeInTheDocument()
   })
 
   it('badges parked rows and offers recall on the newest only', async () => {

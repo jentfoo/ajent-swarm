@@ -12,6 +12,11 @@ const maxChips = 4
 // after failing, then the render drops it, so repeat failures age out.
 const refusedTtlMs = 8_000
 
+// droppedTtlMs rides the same expiry: a removed row keeps its cause chip this
+// long after leaving the queue, so an interrupted, rewound or recalled prompt
+// ages out instead of reading as still queued.
+const droppedTtlMs = 8_000
+
 // QueuedPrompts renders queue management as chips: the wire's rows beside this
 // client's optimistic ones, swarm's own park list reading ahead of them (those
 // flush into the wire in order), secret rows redacted to their id, and
@@ -22,7 +27,8 @@ const refusedTtlMs = 8_000
 // newest row into the composer, so only that chip offers it, and the newest
 // prompt parked for the next idle point offers the same through swarm's own
 // recall — a park this client does not hold optimistically counts too.
-// Refused submits expire refusedTtlMs after their refusal.
+// Refused submits expire refusedTtlMs after their refusal, dropped rows
+// droppedTtlMs after leaving, so recalled prompts never linger as chips.
 // Fresh refusals also announce through one sr-only polite region, so a failed
 // submit is heard without every queue chip being read aloud.
 export function QueuedPrompts({
@@ -43,14 +49,16 @@ export function QueuedPrompts({
   onEditParked: () => void
 }) {
   const [now, setNow] = useState(() => Date.now())
-  // tick only while a refused chip is fresh: expired rows stay in store state
-  // forever, so gating on freshness keeps the timer from running for nothing
+  // tick only while a refused or dropped chip is fresh: expired rows stay in
+  // store state forever, so gating on freshness keeps the timer from running
+  // for nothing
   const freshRefused = pendings.some((p) => refusedVisible(p, now))
+  const freshDropped = droppedRows.some((row) => droppedVisible(row, now))
   useEffect(() => {
-    if (!freshRefused) return
+    if (!freshRefused && !freshDropped) return
     const timer = setInterval(() => setNow(Date.now()), 1_000)
     return () => clearInterval(timer)
-  }, [freshRefused])
+  }, [freshRefused, freshDropped])
 
   // dropped rows are former queue contents, then swarm's parks oldest first,
   // then the wire queue, then this client's in-flight submits, one order so
@@ -62,9 +70,11 @@ export function QueuedPrompts({
   // than anything the server has named, so it owns the affordance when present
   const ownParkedNewest = newestParkedId(pendings)
   const chips = [
-    ...droppedRows.map((row) => (
-      <QueueChip key={`dropped-${row.id}`} id={row.id} text={row.text} cause={row.cause} />
-    )),
+    ...droppedRows
+      .filter((row) => droppedVisible(row, now))
+      .map((row) => (
+        <QueueChip key={`dropped-${row.id}`} id={row.id} text={row.text} cause={row.cause} />
+      )),
     ...foreignParks.map((row, i) => (
       <QueueChip
         key={`park-${row.id}`}
@@ -124,6 +134,12 @@ export function QueuedPrompts({
 // an absent stamp reads as expired.
 function refusedVisible(p: PendingSubmit, now: number): boolean {
   return p.state === 'failed' && now - (p.failedAt ?? 0) < refusedTtlMs
+}
+
+// droppedVisible reports whether a removed row still shows its cause chip:
+// an absent stamp reads as expired.
+function droppedVisible(row: DroppedQueueRow, now: number): boolean {
+  return now - (row.droppedAt ?? 0) < droppedTtlMs
 }
 
 // refusalAnnouncement summarizes the fresh failed rows as one polite line,

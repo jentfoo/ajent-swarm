@@ -112,6 +112,7 @@ export interface DroppedQueueRow {
   id: string
   text: string
   cause?: string
+  droppedAt?: number // wall clock of the drop, rendering expires the chip off it
 }
 
 // DialogOutcome is the real result of a dialog answered elsewhere. Free-text
@@ -448,7 +449,7 @@ function applyEvent(state: AppliedSessionState, ev: WireEvent): AppliedSessionSt
         if (!isValidId(row.id)) continue
         next.droppedRows = boundedAppend(
           next.droppedRows,
-          { id: row.id, text: row.text ?? '', cause: d.cause },
+          { id: row.id, text: row.text ?? '', cause: d.cause, droppedAt: Date.now() },
           maxDroppedRows,
         )
       }

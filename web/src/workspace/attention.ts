@@ -79,7 +79,7 @@ export function submitTurnEnd(item: AttentionItem | undefined): number {
 
 // SessionBadge is one live session's at-a-glance badge state. The switcher
 // rows render it directly, the session headers fold waiting into idle.
-export type SessionBadge = 'input' | 'running' | 'queued' | 'waiting' | 'idle'
+export type SessionBadge = 'input' | 'running' | 'queued' | 'review' | 'waiting' | 'idle'
 
 // sessionBadgeOf ranks one session's badge state from its own busy fact plus
 // the shared attention item. A pending dialog parks the turn upstream, so
@@ -87,22 +87,31 @@ export type SessionBadge = 'input' | 'running' | 'queued' | 'waiting' | 'idle'
 // progress. A parked prompt outranks a live turn: the queue outlives the turn
 // and stays pending until the idle point, while the row itself sits in
 // Working through the digest kind.
+// sessionBadgeOf ranks one session's badge state from its own busy fact plus
+// the shared attention item. A pending dialog parks the turn upstream, so
+// needs-input outranks running: the run is blocked on this human, not making
+// progress. A parked prompt outranks a live turn: the queue outlives the turn
+// and stays pending until the idle point, while the row itself sits in
+// Working through the digest kind. An unreviewed turn end badges review once
+// the run goes quiet, matching the rail's kind badge, while a locally busy
+// snapshot still leads a stale digest.
 export function sessionBadgeOf(busy: boolean, item: AttentionItem | undefined): SessionBadge {
   if (item?.kind === 'needs-input') return 'input'
   if (item?.parked) return 'queued'
   if (busy || (item?.running ?? false)) return 'running'
+  if (item?.kind === 'needs-review') return 'review'
   if (item?.kind === 'awaiting') return 'waiting'
   return 'idle'
 }
 
 // HeaderBadge is the session headers' badge state: working, resting, queued
-// for the next idle point, or blocked on a human.
-type HeaderBadge = 'input' | 'running' | 'queued' | 'idle'
+// for the next idle point, blocked on a human, or holding an unreviewed turn.
+type HeaderBadge = 'input' | 'running' | 'queued' | 'review' | 'idle'
 
 // headerBadgeOf is the headers' coarsening of sessionBadgeOf: waiting folds
 // into idle, since the header answers working-versus-resting while the status
-// line under the transcript explains a resting agent. A queued prompt stays
-// visible, it explains the wait itself.
+// line under the transcript explains a resting agent. Review and queued stay
+// visible, they explain the wait itself.
 export function headerBadgeOf(busy: boolean, item: AttentionItem | undefined): HeaderBadge {
   const badge = sessionBadgeOf(busy, item)
   return badge === 'waiting' ? 'idle' : badge

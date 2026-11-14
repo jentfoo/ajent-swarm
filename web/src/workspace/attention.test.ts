@@ -204,13 +204,17 @@ describe('session badge states', () => {
     expect(sessionBadgeOf(false, awaiting)).toBe('waiting')
     expect(headerBadgeOf(false, awaiting)).toBe('idle')
 
-    // a completed unreviewed turn rests idle on both surfaces
+    // a completed unreviewed turn badges review on both surfaces, the rail's
+    // kind badge; the header keeps it visible like queued
     const review = deriveItem(
       row({ sessionId: 'sb', kind: 'needs-review', since: 10, lastTurnEnd: 10 }),
     )
     expect(review.kind).toBe('needs-review')
-    expect(sessionBadgeOf(false, review)).toBe('idle')
-    expect(headerBadgeOf(false, review)).toBe('idle')
+    expect(sessionBadgeOf(false, review)).toBe('review')
+    expect(headerBadgeOf(false, review)).toBe('review')
+
+    // a locally busy snapshot leads a stale digest still naming review
+    expect(sessionBadgeOf(true, review)).toBe('running')
 
     // no digest at all reads the same as a resting session
     expect(sessionBadgeOf(false, undefined)).toBe('idle')

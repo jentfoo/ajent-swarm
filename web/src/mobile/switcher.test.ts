@@ -121,9 +121,10 @@ describe('buildSwitcherRows', () => {
       ],
     )
     expect(rows.map((r) => r.sessionId)).toEqual(['03', '02', '01'])
-    // a dialog outranks the turn still running behind it
+    // a dialog outranks the turn still running behind it, an unreviewed turn
+    // end badges review like the desktop rail
     expect(rows[0]!.status).toBe('input')
-    expect(rows[1]!.status).toBe('idle')
+    expect(rows[1]!.status).toBe('review')
     expect(rows[2]!.status).toBe('waiting')
 
     // waiting rows offer no check-off, actionable ones do

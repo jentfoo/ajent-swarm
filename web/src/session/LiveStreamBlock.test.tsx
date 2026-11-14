@@ -271,6 +271,74 @@ describe('LiveStreamBlock tool cards', () => {
     expect(document.querySelector('[data-tool-id="p2"] .subagent-state')).not.toBeNull()
   })
 
+  it('holds queued calls behind the gated one while a dialog blocks', () => {
+    render(
+      <LiveStreamBlock
+        onThinkingToggle={noopToggle}
+        dialogOpen
+        live={liveFor({
+          tools: [
+            {
+              id: 'c1',
+              name: 'bash',
+              input: { cmd: 'ls' },
+              outputs: [],
+              result: { output: 'ok', error: false },
+            },
+            { id: 'c2', name: 'bash', input: { cmd: 'rm -rf build' }, outputs: [] },
+            { id: 'c3', name: 'bash', input: { cmd: 'make' }, outputs: [] },
+          ],
+        })}
+      />,
+    )
+    expect(document.querySelector('[data-tool-id="c1"]')).not.toBeNull()
+    expect(document.querySelector('[data-tool-id="c2"]')).not.toBeNull()
+    expect(document.querySelector('[data-tool-id="c3"]')).toBeNull()
+    expect(screen.getByText('+1 tool call held until the dialog is answered')).toBeInTheDocument()
+  })
+
+  it('paints every call again once the dialog settles', () => {
+    const { rerender } = render(
+      <LiveStreamBlock
+        onThinkingToggle={noopToggle}
+        dialogOpen
+        live={liveFor({
+          tools: [
+            { id: 'c1', name: 'bash', input: { cmd: 'rm -rf build' }, outputs: [] },
+            { id: 'c2', name: 'bash', input: { cmd: 'make' }, outputs: [] },
+          ],
+        })}
+      />,
+    )
+    expect(document.querySelector('[data-tool-id="c2"]')).toBeNull()
+    rerender(
+      <LiveStreamBlock
+        onThinkingToggle={noopToggle}
+        live={liveFor({
+          tools: [
+            {
+              id: 'c1',
+              name: 'bash',
+              input: { cmd: 'rm -rf build' },
+              outputs: [],
+              result: { output: 'ok', error: false },
+            },
+            {
+              id: 'c2',
+              name: 'bash',
+              input: { cmd: 'make' },
+              outputs: [],
+              result: { output: 'built', error: false },
+            },
+          ],
+        })}
+      />,
+    )
+    expect(document.querySelector('[data-tool-id="c1"]')).not.toBeNull()
+    expect(document.querySelector('[data-tool-id="c2"]')).not.toBeNull()
+    expect(screen.queryByText(/held until the dialog/)).not.toBeInTheDocument()
+  })
+
   it('threads the pull listing', async () => {
     const user = userEvent.setup()
     const stop = vi.fn()

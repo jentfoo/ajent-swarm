@@ -615,6 +615,12 @@ label {
   padding-left: calc(var(--unit) * 3);
   margin-top: calc(var(--unit) * 2);
 }
+/* calls queued behind the gated one while a dialog holds the turn */
+.held-calls {
+  color: var(--muted);
+  font-size: var(--fs-small);
+  margin: calc(var(--unit) * 1) 0;
+}
 
 /* dialog dock */
 .dialog-dock {

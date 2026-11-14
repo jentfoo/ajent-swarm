@@ -286,6 +286,8 @@ export function TranscriptView({
               live={state.live}
               activity={state.snapshot.activity}
               agentJobs={agentJobs}
+              // an open dialog gates the live tail: queued calls wait behind it
+              dialogOpen={(state.snapshot.interactions?.length ?? 0) > 0}
               onThinkingToggle={onThinkingToggle}
             />
           )}

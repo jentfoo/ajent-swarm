@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef } from 'react'
 
+import { barrierHold } from './barrierHold'
 import { MarkdownBlock } from './MarkdownBlock'
 import { ToolCallCard, SubAgentChips } from './ToolCallCard'
 import { capRows, subAgentRows } from './subAgents'
@@ -15,20 +16,25 @@ import type { ToolResultView } from '../state/derive'
 // at turn end swaps nothing visibly. Sub-agent jobs stream as live chips above
 // it, the one full list, a waiting poll card shows its own job's state line.
 // agentJobs carries the pull listing: record status, elapsed and stop.
+// While a dialog holds the turn, calls queued behind the gated one wait (see
+// barrierHold) so the dialog's answer reads against that one action.
 export function LiveStreamBlock({
   live,
   activity,
   agentJobs,
+  dialogOpen = false, // an open dialog holds the turn at the gated call
   onThinkingToggle,
 }: {
   live: LiveTurn
   activity?: ActivityRow[]
   agentJobs?: AgentJobs
+  dialogOpen?: boolean
   // Reports each manual panel toggle's post-click state so the applier can
   // stop applying programmatic collapses.
   onThinkingToggle: (open: boolean) => void
 }) {
   const current = useRafThrottled(live)
+  const held = barrierHold(current.tools, dialogOpen)
   const subs = subAgentRows(activity)
   const chips = capRows(subs)
   return (
@@ -43,9 +49,14 @@ export function LiveStreamBlock({
         />
       )}
       {current.text !== '' && <MarkdownBlock text={current.text} />}
-      {current.tools.map((tool) => (
+      {held.shown.map((tool) => (
         <LiveToolCard key={tool.id} tool={tool} agents={subs} agentJobs={agentJobs} />
       ))}
+      {held.held > 0 && (
+        <p className="held-calls">
+          +{held.held} tool {held.held === 1 ? 'call' : 'calls'} held until the dialog is answered
+        </p>
+      )}
     </div>
   )
 }

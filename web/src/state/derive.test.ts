@@ -146,6 +146,50 @@ describe('deriveBlocks user classification', () => {
     })
   })
 
+  it('folds an injected @ pair under its call', () => {
+    // the loop commits @ injections injected and un-replayed, the carrier
+    // must still fold: replay's OnlyToolResults-first rule
+    const call = messageEntry(
+      '01A',
+      undefined,
+      'assistant',
+      [{ type: 'tool_call', data: { id: 'ref-1-r-a.go', name: 'read', input: { path: 'a.go' } } }],
+      { injected: true },
+    )
+    const carrier = messageEntry(
+      '01C',
+      '01A',
+      'user',
+      [
+        {
+          type: 'tool_result',
+          data: { callId: 'ref-1-r-a.go', content: [textBlock('file body')], toolName: 'read' },
+        },
+      ],
+      { injected: true },
+    )
+
+    const out = blocks([call, carrier])
+    expect(out).toHaveLength(1)
+    expect(out[0].kind).toBe('assistant')
+    const calls = callPartsOf(out[0])
+    expect(calls).toHaveLength(1)
+    expect(calls[0]?.result).toMatchObject({ callId: 'ref-1-r-a.go', text: 'file body' })
+  })
+
+  it('renders an injected carrier standalone without its call', () => {
+    const carrier = messageEntry(
+      '01C',
+      undefined,
+      'user',
+      [{ type: 'tool_result', data: { callId: 'ref-1-ls-sub', content: [textBlock('a.go')] } }],
+      { injected: true },
+    )
+    expect(blocks([carrier])).toMatchObject([
+      { kind: 'tool-results', id: '01C', results: [{ callId: 'ref-1-ls-sub', text: 'a.go' }] },
+    ])
+  })
+
   it('renders display text when the result carries one', () => {
     const assistant = messageEntry('01A', undefined, 'assistant', [
       { type: 'tool_call', data: { id: 'c1', name: 'bash' } },

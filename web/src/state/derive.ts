@@ -199,6 +199,13 @@ function deriveMessage(
   }
 
   const text = joinText(blocks)
+  // carrier classification precedes the injected mark: the loop commits @
+  // injection pairs injected and un-replayed, yet the result carrier must
+  // still fold (replay's OnlyToolResults-first rule)
+  const results = foldResults(blocks, pendingCalls)
+  if (isCarrier(blocks)) {
+    return results.length > 0 ? { kind: 'tool-results', id: entry.id, results } : undefined
+  }
   if (d.injected) {
     // injected context opens no turn, it draws only when replay-marked,
     // matching replay's InjectBlock path
@@ -214,10 +221,6 @@ function deriveMessage(
     }
   }
 
-  const results = foldResults(blocks, pendingCalls)
-  if (isCarrier(blocks)) {
-    return results.length > 0 ? { kind: 'tool-results', id: entry.id, results } : undefined
-  }
   return { kind: 'user', id: entry.id, text, images: collectImages(blocks) }
 }
 

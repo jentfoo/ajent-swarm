@@ -5,6 +5,7 @@ import type { ToolProgressView } from '../state/eventApplier'
 
 import { EditOpDiff, splitRows } from './DiffCard'
 import { parseEditInput } from './editInput'
+import { progressText } from './progressText'
 import { agentJobStatusClass, cardSubAgentRow, formatElapsed, stoppableJob } from './subAgents'
 import type { AgentJobs } from './useAgentJobs'
 
@@ -66,6 +67,10 @@ export function ToolCallCard({
   const open = userOpen ?? streaming
   const shellCard = call.shell === true
   const excludedCard = shellCard && call.excluded === true
+  // While the model is still composing this call's arguments (before tool.start
+  // delivers full input) the header carries its streamed size, matching
+  // upstream's TUI activity row. The done frame or the start takes over from here.
+  const compose = !done && call.input === undefined ? progressText(call.progress ?? {}) : ''
   const label = call.label || call.name || call.progress?.path || call.id
   const bodyLines = body === '' ? 0 : splitRows(body).length
   // Only a body nobody watched stream collapses behind a count: a streamed
@@ -103,6 +108,7 @@ export function ToolCallCard({
             <span className="badge ok">done</span>
           ))}
         {call.verdict && <span className="badge">{call.verdict}</span>}
+        {compose !== '' && <span className="muted tool-preview">{compose}</span>}
         {body !== '' && !open && (
           <span className="muted tool-preview">
             {counted ? `Output · ${bodyLines} lines` : oneLine(body)}

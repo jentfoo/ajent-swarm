@@ -788,15 +788,18 @@ function applyToolEvent(next: AppliedSessionState, ev: WireEvent): AppliedSessio
         path?: string
         bytes?: number
         lines?: number
+        done?: boolean
       }>(ev.data)
       if (!isValidId(d?.id)) return next
       // Progress may name a call before its start: upsert keeps first-seen order.
+      // Upstream's closing frame (done) clears the row instead of freezing a
+      // size, tool.start's full input takes over from here.
       return withLive(
         next,
         upsertTool(live.tools, d.id!, (t) => ({
           ...t,
           name: t.name || d.name || '',
-          progress: { path: d.path, bytes: d.bytes, lines: d.lines },
+          progress: d.done ? undefined : { path: d.path, bytes: d.bytes, lines: d.lines },
         })),
       )
     }

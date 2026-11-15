@@ -488,6 +488,21 @@ describe('applierReducer live turn buffers', () => {
     expect(s2.live?.tools[0].result).toEqual({ output: '', error: true })
   })
 
+  it('clears compose progress on the done frame', () => {
+    let s = apply(
+      initialSessionState(),
+      ev('tool.progress', 1, { id: 'call9', name: 'write', bytes: 4096, lines: 12 }),
+    )
+    expect(s.live?.tools[0].progress).toEqual({ bytes: 4096, lines: 12 })
+
+    s = apply(s, ev('tool.progress', 2, { id: 'call9', done: true }))
+    expect(s.live?.tools[0].progress).toBeUndefined()
+
+    // a later start still builds its own card from here
+    s = apply(s, ev('tool.start', 3, { id: 'call9', name: 'write', input: { path: 'a' } }))
+    expect(s.live?.tools[0]).toMatchObject({ name: 'write', progress: undefined })
+  })
+
   it('buffers deltas across a lost turn.start and closes on turn.end', () => {
     let s = apply(
       initialSessionState(),

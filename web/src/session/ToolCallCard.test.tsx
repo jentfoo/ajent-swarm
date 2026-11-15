@@ -150,6 +150,40 @@ describe('ToolCallCard headers', () => {
   })
 })
 
+describe('ToolCallCard compose progress', () => {
+  it('shows size feedback while composing', () => {
+    render(
+      <ToolCallCard
+        call={{ id: 'c1', name: 'write', progress: { path: 'notes.go', lines: 132, bytes: 4203 } }}
+      />,
+    )
+    expect(screen.getByText('132 lines · 4.1kb')).toHaveClass('tool-preview')
+  })
+
+  it('hides once full input arrives', () => {
+    render(
+      <ToolCallCard
+        call={{ id: 'c1', name: 'write', progress: { lines: 5, bytes: 300 }, input: { path: 'a' } }}
+      />,
+    )
+    expect(screen.queryByText('5 lines · 300b')).not.toBeInTheDocument()
+  })
+
+  it('hides at the result', () => {
+    render(
+      <ToolCallCard
+        call={{
+          id: 'c1',
+          name: 'write',
+          progress: { lines: 5, bytes: 300 },
+          result: { callId: 'c1', text: '', images: [], isError: false },
+        }}
+      />,
+    )
+    expect(screen.queryByText('5 lines · 300b')).not.toBeInTheDocument()
+  })
+})
+
 describe('ToolCallCard shell lifecycle', () => {
   type CardCall = ComponentProps<typeof ToolCallCard>['call']
 

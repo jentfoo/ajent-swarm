@@ -85,8 +85,14 @@ web-check:
 	$(MAKE) dist
 	cd web && $(PNPM) test && $(PNPM) lint && $(PNPM) format:check
 
+# one pass over every suite: Go unit (race + cover), web units, integration,
+# then e2e; subtargets run serially so shared pnpm/go build steps never race
 test-all: | embed-stubs
 	go test -race -cover ./... $(_FILTER)
+	$(MAKE) test-web
+	$(MAKE) test-integration
+	$(MAKE) test-integration-fleet
+	$(MAKE) test-e2e
 
 # builds the binary and exercises daemon mode end to end; guarded so unit
 # runs stay hermetic (see docs/phases/02-service-skeleton.md)

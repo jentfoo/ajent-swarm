@@ -74,8 +74,8 @@ describe('ToolCallCard inputs', () => {
   })
 
   it('drops the op diffs on a gated edit, keeping the path', () => {
-    // the full-file diff rides above the dialog, a fragment-numbered copy
-    // would only misread against it
+    // the full-file diff rides above the dialog, an unnumbered fragment copy
+    // would only repeat it
     render(
       <ToolCallCard
         gated
@@ -88,6 +88,31 @@ describe('ToolCallCard inputs', () => {
     )
     expect(screen.getByText('a.go')).toHaveClass('diff-path')
     expect(document.querySelector('.diff-pre')).toBeNull()
+  })
+
+  it('keeps op diffs on a failed edit', () => {
+    // the diff is the requested change, worth showing beside the fault's real
+    // match lines in the body; fragment rows render unnumbered like anywhere else
+    render(
+      <ToolCallCard
+        call={{
+          id: 'c1',
+          name: 'edit',
+          input: { path: 'a.go', edits: [{ oldText: 'one\n', newText: 'ONE\n' }] },
+          result: {
+            callId: 'c1',
+            text: '',
+            images: [],
+            isError: true,
+            fault: 'old text not found near line 12',
+          },
+        }}
+      />,
+    )
+    expect(document.querySelector('.tool-card')).toHaveClass('error')
+    expect(rows('del')).toEqual(['one'])
+    expect(rows('add')).toEqual(['ONE'])
+    expect(document.querySelector('.diff-num')).toBeNull()
   })
 
   it('pretty-prints unparseable edit input', () => {
@@ -287,6 +312,21 @@ describe('ToolCallCard output preview', () => {
 
   it('keeps the first-line preview for streamed output', () => {
     render(<ToolCallCard call={{ id: 'c1', name: 'bash', outputs: [longBody(31)] }} />)
+    expect(screen.getByText('line 0')).toBeInTheDocument()
+    expect(screen.queryByText('Output · 31 lines')).not.toBeInTheDocument()
+  })
+
+  it('previews a fault instead of counting it', () => {
+    // the fault's head names what went wrong, keep it visible while collapsed
+    render(
+      <ToolCallCard
+        call={{
+          id: 'c1',
+          name: 'bash',
+          result: { callId: 'c1', text: '', images: [], isError: true, fault: longBody(31) },
+        }}
+      />,
+    )
     expect(screen.getByText('line 0')).toBeInTheDocument()
     expect(screen.queryByText('Output · 31 lines')).not.toBeInTheDocument()
   })

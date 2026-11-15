@@ -69,8 +69,9 @@ export function ToolCallCard({
   const label = call.label || call.name || call.progress?.path || call.id
   const bodyLines = body === '' ? 0 : splitRows(body).length
   // Only a body nobody watched stream collapses behind a count: a streamed
-  // body keeps its live first-line preview
-  const counted = streamed === '' && bodyLines > longBodyLines
+  // body keeps its live first-line preview, and a fault keeps its head since
+  // it names what went wrong
+  const counted = streamed === '' && !failedCard && bodyLines > longBodyLines
 
   return (
     <div
@@ -124,11 +125,12 @@ export function ToolCallCard({
   )
 }
 
-// ToolInputView renders a call's arguments: edit calls as one diff per op,
-// every other shape pretty-printed. Unparseable edit input pretty-prints with
-// the rest rather than risking a half-read diff. A gated edit drops its op
-// diffs: upstream commits the full-file diff before the ask, so the preview
-// would repeat it with fragment line numbers that read against file lines.
+// ToolInputView renders a call's arguments: edit calls as one unnumbered diff
+// per op (nothing on the wire says where an op sat in the file), every other
+// shape pretty-printed. Unparseable edit input pretty-prints with the rest
+// rather than risking a half-read diff. A gated edit drops its op diffs:
+// upstream commits the full-file diff before the ask, so the preview would
+// only repeat it.
 function ToolInputView({
   name,
   input,

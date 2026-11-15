@@ -268,9 +268,14 @@ describe('EditOpDiff', () => {
     expect(container.querySelector('.diff-line')).toBeNull()
   })
 
-  it('numbers fragment rows from one on both sides', () => {
+  it('renders fragment rows unnumbered', () => {
+    // no position on the wire, a per-fragment counter would read as file lines
     render(<EditOpDiff op={op({ oldText: 'one\ntwo\n', newText: 'one\nTWO\n' })} />)
-    expect(gutter()).toEqual([' 1', ' 2', ' 2'])
+    expect(gutter()).toEqual([])
+    const marks = Array.from(document.querySelectorAll('.diff-line .diff-mark')).map(
+      (el) => el.textContent ?? '',
+    )
+    expect(marks).toEqual(['  ', '- ', '+ '])
   })
 
   it('emphasizes a paired fragment rewrite', () => {

@@ -43,7 +43,8 @@ export function EditOpDiff({ op }: { op: EditOp }) {
 type DiffKind = 'add' | 'del' | 'ctx' | 'meta'
 
 // one rendered row: kind carries the screen role, num the file line it came
-// from (null on hunk headers), em the intraline changed ranges within text
+// from (null where numbering would mislead: hunk headers, op fragments), em
+// the intraline changed ranges within text
 interface DiffRow {
   kind: DiffKind
   num: number | null
@@ -65,12 +66,12 @@ function DiffRows({ view }: { view: DiffLayout }) {
       {view.rows.map((row, i) => (
         <div key={i} className={`diff-line ${row.kind}`}>
           {row.num !== null && (
-            <>
-              <span className="diff-num">{String(row.num).padStart(view.gw)}</span>
-              <span className="diff-mark">
-                {row.kind === 'del' ? '- ' : row.kind === 'add' ? '+ ' : '  '}
-              </span>
-            </>
+            <span className="diff-num">{String(row.num).padStart(view.gw)}</span>
+          )}
+          {row.kind !== 'meta' && (
+            <span className="diff-mark">
+              {row.kind === 'del' ? '- ' : row.kind === 'add' ? '+ ' : '  '}
+            </span>
           )}
           <DiffText text={row.text} em={row.em} />
         </div>
@@ -114,10 +115,9 @@ function fileDiffRows(before: string, after: string): DiffLayout {
   return { gw: gutterWidth(before, after), rows }
 }
 
-// opDiffRows builds one op's fragment diff, numbered within the fragment: the
-// wire never says where oldText sat in the file. Hunk headers would number
-// fragment lines rather than file lines, so none render, a replace_all op
-// leads with a meta row so its breadth stays visible.
+// opDiffRows builds one op's fragment diff, unnumbered: nothing on the wire
+// says where oldText sat in the file, so any counter would read as a file
+// line. A replace_all op leads with a meta row so its breadth stays visible.
 function opDiffRows(op: EditOp): DiffLayout {
   if (op.oldText === op.newText) return { gw: minGutter, rows: [] }
   const lines: string[] = []
@@ -126,20 +126,23 @@ function opDiffRows(op: EditOp): DiffLayout {
     for (const text of splitRows(run.value)) lines.push(mark + text)
   }
   const rows = op.replaceAll ? [metaRow('replace every occurrence')] : []
-  return { gw: gutterWidth(op.oldText, op.newText), rows: [...rows, ...hunkRows(lines, 1, 1)] }
+  return { gw: minGutter, rows: [...rows, ...hunkRows(lines)] }
 }
 
 function metaRow(text: string): DiffRow {
   return { kind: 'meta', num: null, text }
 }
 
-// hunkRows walks marked patch rows (' ', '-', '+'), numbering each line by the
-// file it came from and pairing adjacent deletion/addition runs for intraline
-// emphasis. '\' no-newline markers carry no content and drop.
-function hunkRows(lines: string[], oldStart: number, newStart: number): DiffRow[] {
+// hunkRows walks marked patch rows (' ', '-', '+') into display rows, pairing
+// adjacent deletion/addition runs for intraline emphasis. With start numbers
+// each row carries the file line it came from; without them (op fragments)
+// rows stay unnumbered, nothing on the wire says where a fragment sat in the
+// file. '\' no-newline markers carry no content and drop.
+function hunkRows(lines: string[], oldStart?: number, newStart?: number): DiffRow[] {
   const rows: DiffRow[] = []
-  let oldNo = oldStart
-  let newNo = newStart
+  const numbered = oldStart !== undefined && newStart !== undefined
+  let oldNo = oldStart ?? 0
+  let newNo = newStart ?? 0
   let dels: DiffRow[] = []
   let adds: DiffRow[] = []
   const flush = () => {
@@ -150,11 +153,11 @@ function hunkRows(lines: string[], oldStart: number, newStart: number): DiffRow[
   for (const line of lines) {
     if (line.startsWith('\\')) continue
     const text = line.slice(1)
-    if (line.startsWith('-')) dels.push({ kind: 'del', num: oldNo++, text })
-    else if (line.startsWith('+')) adds.push({ kind: 'add', num: newNo++, text })
+    if (line.startsWith('-')) dels.push({ kind: 'del', num: numbered ? oldNo++ : null, text })
+    else if (line.startsWith('+')) adds.push({ kind: 'add', num: numbered ? newNo++ : null, text })
     else {
       flush()
-      rows.push({ kind: 'ctx', num: newNo++, text })
+      rows.push({ kind: 'ctx', num: numbered ? newNo++ : null, text })
       oldNo++
     }
   }

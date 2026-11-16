@@ -100,13 +100,15 @@ export function deriveBlocks(
   return blocks
 }
 
-// The recall sources keep to the newest 500 typed prompts: a search never
-// needs deeper history and every returned list stays bounded.
-export const maxRecallPrompts = 500
+// The recall sources keep to upstream's own recall pool, the newest 1000
+// editor-history lines plus 500 recorded prompts: the search reaches
+// everything the TUI's Ctrl+R offers and every returned list stays bounded.
+export const maxRecallPrompts = 1500
 
 // RecallPrompt is one recall candidate beside its commit time, unix
 // milliseconds, so the session and workspace sources interleave under one
-// ordering. ts 0 means unknown: the candidate sorts oldest.
+// ordering. ts <= 0 means unknown: the candidate is typed-only upstream and
+// ranks first, the block upstream's recall list leads with.
 export interface RecallPrompt {
   text: string
   ts: number
@@ -135,16 +137,17 @@ export function recallPrompts(
 }
 
 // mergeRecallSources interleaves the workspace mirror with the session's own
-// committed prompts under one newest-first order, deduplicating to each text's
-// newest occurrence and capped like either source alone.
+// committed prompts, deduplicating to each text's newest occurrence and capped
+// like either source alone. Unknown-time (typed-only) candidates lead in
+// source order, recorded ones follow newest first, upstream's recall ranking.
 export function mergeRecallSources(
   local: readonly RecallPrompt[],
   workspace: readonly RecallPrompt[],
 ): string[] {
   const seen = new Set<string>()
   const out: string[] = []
-  // stable: ties keep source order
-  const merged = [...local, ...workspace].sort((a, b) => b.ts - a.ts)
+  // stable: ties and the unknown-time block keep source order
+  const merged = [...local, ...workspace].sort(recallRank)
   for (const p of merged) {
     if (p.text === '' || seen.has(p.text)) continue
     seen.add(p.text)
@@ -152,6 +155,18 @@ export function mergeRecallSources(
     if (out.length === maxRecallPrompts) break
   }
   return out
+}
+
+// recallRank orders unknown-time (typed-only) candidates ahead of recorded
+// ones, recorded candidates newest first, upstream's typed-first recall.
+// Recorded stamps are post-1970, so any ts <= 0 is unknown (a zero Go time
+// parses negative on the wire); unknown ones keep source order.
+function recallRank(a: RecallPrompt, b: RecallPrompt): number {
+  const aUnknown = a.ts <= 0
+  const bUnknown = b.ts <= 0
+  if (aUnknown !== bUnknown) return aUnknown ? -1 : 1
+  if (aUnknown) return 0
+  return b.ts - a.ts
 }
 
 // deriveNotice keeps a committed notice's level tint, the wire key is

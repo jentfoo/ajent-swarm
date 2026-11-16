@@ -3,6 +3,7 @@ package fleet
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"slices"
 	"sync"
@@ -420,6 +421,51 @@ func TestRecallLines(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, []string{"cli SEARCH target"}, recallTexts(rows))
 	})
+
+	t.Run("typed_only_survives_the_page_cap", func(t *testing.T) {
+		m, f := recallFleet(t, newFakeRecallStore())
+		// a page of recorded prompts, all newer than any typed-only line
+		batch := make([]string, 0, 250)
+		for i := 0; i < 500; i++ {
+			batch = append(batch, fmt.Sprintf("recorded prompt %d", i))
+			if len(batch) == 250 {
+				recordPromptFile(t, "/repo", batch)
+				batch = batch[:0]
+			}
+		}
+		appendTypedLine(t, "/repo", "cli typed only line")
+
+		rows, err := m.RecallLines(t.Context(), f.SessionID(), "", 500)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"cli typed only line"}, recallTexts(rows)[:1])
+	})
+
+	t.Run("typed_only_leads_recorded_rows", func(t *testing.T) {
+		m, f := recallFleet(t, newFakeRecallStore())
+		recordPromptTranscript(t, "/repo", "recorded prompt")
+		appendTypedLine(t, "/repo", "typed only line")
+
+		rows, err := m.RecallLines(t.Context(), f.SessionID(), "", 10)
+		require.NoError(t, err)
+		// upstream's recall lists typed lines first, transcript backfill behind
+		assert.Equal(t, []string{"typed only line", "recorded prompt"}, recallTexts(rows))
+	})
+}
+
+// recordPromptFile saves several user prompts in one transcript, so the
+// prompt index fills without exhausting the newest-files scan window.
+func recordPromptFile(t *testing.T, ws string, texts []string) {
+	t.Helper()
+	store, err := session.NewStore()
+	require.NoError(t, err)
+	w, err := store.Create(ws, session.SessionData{Version: session.Version(), Workspace: ws})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = w.Close() })
+	for _, text := range texts {
+		_, err = w.Append(session.TypeMessage, session.MessageData{
+			Message: llm.Text(llm.RoleUser, text)})
+		require.NoError(t, err)
+	}
 }
 
 // appendTypedLine records one CLI-typed line in workspace's editor history,

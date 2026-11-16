@@ -333,21 +333,21 @@ describe('recallPrompts', () => {
     ])
   })
 
-  it('drops empty texts and keeps the newest 500 prompts', () => {
+  it('drops empty texts and caps at the shared bound', () => {
     const imageOnly = messageEntry('01IMG', undefined, 'user', [
       { type: 'image', data: { mediaType: 'image/png' } },
     ])
     const entries: Entry[] = [imageOnly]
     const ids: string[] = ['01IMG']
-    for (let i = 0; i < 505; i++) {
+    for (let i = 0; i < maxRecallPrompts + 5; i++) {
       const id = `01F${String(i).padStart(4, '0')}`
       entries.push(messageEntry(id, undefined, 'user', [textBlock(`prompt ${i}`)]))
       ids.push(id)
     }
     const map = new Map(entries.map((e) => [e.id, e]))
     const out = recallPrompts(ids, map)
-    expect(out).toHaveLength(500)
-    expect(out[0]).toEqual({ text: 'prompt 504', ts: 1730000000000 }) // newest first
+    expect(out).toHaveLength(maxRecallPrompts)
+    expect(out[0].text).toBe(`prompt ${maxRecallPrompts + 4}`) // newest first
     expect(out.map((p) => p.text)).not.toContain('')
   })
 })
@@ -370,7 +370,7 @@ describe('mergeRecallSources', () => {
 
   it('drops empty texts and caps at the shared bound', () => {
     const workspace: RecallPrompt[] = [{ text: '', ts: 999 }]
-    for (let i = 0; i < maxRecallPrompts + 20; i++) workspace.push({ text: `w${i}`, ts: i })
+    for (let i = 0; i < maxRecallPrompts + 20; i++) workspace.push({ text: `w${i}`, ts: i + 1 })
     const out = mergeRecallSources([], workspace)
     expect(out).toHaveLength(maxRecallPrompts)
     expect(out[0]).toBe(`w${maxRecallPrompts + 19}`)
@@ -380,5 +380,19 @@ describe('mergeRecallSources', () => {
     const local = [{ text: 'local', ts: 5 }]
     const workspace = [{ text: 'mirror', ts: 5 }]
     expect(mergeRecallSources(local, workspace)).toEqual(['local', 'mirror'])
+  })
+
+  it('typed-only candidates lead in source order', () => {
+    // a zero Go time parses negative on the wire, both count as unknown
+    const local = [{ text: 'later typed', ts: -62135596800000 }]
+    const workspace = [
+      { text: 'earlier typed', ts: 0 },
+      { text: 'recorded', ts: 900 },
+    ]
+    expect(mergeRecallSources(local, workspace)).toEqual([
+      'later typed',
+      'earlier typed',
+      'recorded',
+    ])
   })
 })

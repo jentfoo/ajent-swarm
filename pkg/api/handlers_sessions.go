@@ -308,7 +308,8 @@ type recallLinesReply struct {
 
 // handleSessionRecallLines serves the session workspace's recall listing:
 // what ajent recalls for that directory beside swarm's own tracked submits,
-// one row per distinct text, newest first. ?query narrows by case-insensitive
+// one row per distinct text. Upstream's recall ranking leads with typed-only
+// lines, recorded rows follow newest first. ?query narrows by case-insensitive
 // substring and ?limit caps the page.
 func (s *apiServer) handleSessionRecallLines(w http.ResponseWriter, r *http.Request) {
 	limit, ok := parseLimit(w, r)

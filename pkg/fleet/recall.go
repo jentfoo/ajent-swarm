@@ -55,9 +55,11 @@ const recallMirrorPage = 1000
 // RecallLines serves a session workspace's recall listing: what an interactive
 // CLI recalls there (ajent's editor history merged with its recorded transcript
 // prompts) beside swarm's own tracked submits, one row per distinct text at its
-// newest record time, newest first. Query narrows by case-insensitive
-// substring. Both the ajent read and a failed mirror read are best effort:
-// whatever was readable is what serves. An unknown session refuses.
+// newest record time. Upstream's recall ranking leads with typed-only rows
+// (zero record time, in ajent's own order), recorded rows follow newest first.
+// Query narrows by case-insensitive substring. Both the ajent read and a
+// failed mirror read are best effort: whatever was readable is what serves.
+// An unknown session refuses.
 func (m *Manager) RecallLines(ctx context.Context, sessionID, query string, limit int) ([]RecallLine, error) {
 	a := m.route(sessionID)
 	if a == nil {
@@ -73,11 +75,24 @@ func (m *Manager) RecallLines(ctx context.Context, sessionID, query string, limi
 	out = bulk.SliceFilterInPlace(func(r RecallLine) bool {
 		return strings.Contains(strings.ToLower(r.Text), q)
 	}, out)
-	slices.SortStableFunc(out, func(a, b RecallLine) int { return b.CreatedAt.Compare(a.CreatedAt) })
+	slices.SortStableFunc(out, recallRank)
 	if limit > 0 && len(out) > limit {
 		out = out[:limit]
 	}
 	return out, nil
+}
+
+// recallRank leads with typed-only rows (zero record time) in upstream's
+// recall order, recorded rows newest first behind them, so a full page never
+// drops what upstream's Ctrl+R recalls first.
+func recallRank(a, b RecallLine) int {
+	if a.CreatedAt.IsZero() != b.CreatedAt.IsZero() {
+		if a.CreatedAt.IsZero() {
+			return -1
+		}
+		return 1
+	}
+	return b.CreatedAt.Compare(a.CreatedAt)
 }
 
 // mirrorRecallLines reads the recall mirror's page for workspace. A read

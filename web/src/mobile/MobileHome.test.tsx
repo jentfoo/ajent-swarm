@@ -137,11 +137,14 @@ describe('MobileHome', () => {
       throw new Error(`unexpected fetch ${String(url)}`)
     })
 
-    const user = userEvent.setup()
     renderHome()
 
     // the ended row navigates to its read-only transcript with a Resume button
-    await user.click(await screen.findByText('~/old'))
+    // label and path line both read ~/old for an untitled session, so tap the
+    // row element itself rather than either text node
+    await screen.findAllByText('~/old')
+    const user = userEvent.setup()
+    await user.click(document.querySelector(`[data-session-id="${ENDED}"]`)!)
     expect(await screen.findByRole('heading', { name: 'Ended session' })).toBeInTheDocument()
     expect(screen.getByTestId('resume-ended')).toBeInTheDocument()
   })
@@ -171,10 +174,11 @@ describe('MobileHome', () => {
       throw new Error(`unexpected fetch ${String(url)}`)
     })
 
-    const user = userEvent.setup()
+    // untitled rows repeat ~/old in label and path, so tap the row element
     renderHome()
-
-    await user.click(await screen.findByText('~/old'))
+    await screen.findAllByText('~/old')
+    const user = userEvent.setup()
+    await user.click(document.querySelector(`[data-session-id="${ENDED}"]`)!)
     await user.click(screen.getByTestId('resume-ended'))
 
     // the launch body rode the recorded workspace and resume target

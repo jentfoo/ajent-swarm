@@ -4,8 +4,10 @@ import type { ReactElement } from 'react'
 import { describeError } from '../api/errors'
 import { sessions as sessionAPI } from '../api/endpoints'
 import { useArmedConfirm } from '../hooks/useArmedConfirm'
+import { useAuth } from '../providers/auth'
 import { useResume } from '../hooks/useResume'
 import { RenameEditorModal } from '../session/RenameControl'
+import { tildePath } from '../session/names'
 import { StatusBadge } from '../session/StatusBadge'
 import { useSwarm } from '../providers/swarm'
 import { useWorkspace } from '../providers/workspace'
@@ -18,7 +20,8 @@ import type { SwitcherRow } from './switcher'
 
 // SwitcherRows renders the launcher's large touch rows grouped under the
 // shared rail headings plus the Recent tail: status and needs-input badges
-// beside each label plus a queued-prompt count when prompts wait, a
+// beside each label with the workspace path beneath like the desktop rail
+// row, a queued-prompt count when prompts wait, a
 // check-off on actionable attention states (never on neutral waiting or ended
 // rows), a trailing actions area mirroring the desktop card bar minus Open
 // plus an explicit Rename, and long-press rename opening the same editor.
@@ -91,6 +94,7 @@ function SwitchRow({
   onSettings: () => void
 }) {
   const { itemFor, acknowledgeItem } = useWorkspace()
+  const auth = useAuth()
   // pressed styles the row, the handlers spread without it
   const { pressed, ...pressProps } = useLongPress(onRename)
   // the check-off resolves live from the digest so a settled row never offers one
@@ -110,6 +114,13 @@ function SwitchRow({
         <StatusBadge status={row.status} />
         {row.queued > 0 && <span className="badge">{row.queued} queued</span>}
       </span>
+      {/* the path sub-line mirrors the desktop rail row: full tilde-folded
+          workspace, hover title carries the absolute directory */}
+      {row.workspace && (
+        <span className="rail-path muted" title={row.workspace}>
+          {tildePath(row.workspace, auth.home)}
+        </span>
+      )}
       <span className="switch-bottom">
         {row.reason !== '' ? <span className="muted switch-reason">{row.reason}</span> : null}
         {canCheckOff && (

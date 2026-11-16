@@ -49,7 +49,8 @@ function stubFacts() {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string | URL) => {
-      if (String(url) === '/api/me') return Response.json({ username: 'you', via: 'cookie' })
+      if (String(url) === '/api/me')
+        return Response.json({ username: 'you', home: '/home/you', via: 'cookie' })
       return Response.json([])
     }),
   )
@@ -500,6 +501,21 @@ describe('SwitcherRows', () => {
     await user.click(screen.getByRole('button', { name: 'Stop' }))
     expect(screen.getByRole('button', { name: 'Stop?' })).toBeInTheDocument()
     expect(fetchSpyCalled('/api/sessions/01A/stop')).toBe(false)
+  })
+
+  it('shows the workspace path like the desktop rail', async () => {
+    stubFacts()
+    const { container } = renderRows([
+      row({ workspace: '/home/you/proj' }),
+      row({ sessionId: '01B', label: 'bare' }),
+    ])
+    await screen.findByText('project')
+
+    // one tilde-folded path under the titled row, none without a workspace
+    const paths = container.querySelectorAll('.rail-path')
+    expect(paths).toHaveLength(1)
+    expect(paths[0]).toHaveTextContent('~/proj')
+    expect(paths[0]).toHaveAttribute('title', '/home/you/proj')
   })
 
   it('offers resume only on ended rows with a workspace', async () => {

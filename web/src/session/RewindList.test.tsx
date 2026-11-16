@@ -176,6 +176,9 @@ describe('RewindList', () => {
     const { bodies } = stubAPI(() => Response.json(forks))
     const { onClose, onToast, onPrefill } = renderList(true)
     await screen.findByTestId('rewind-01U')
+    // findBy resolves on the rows' commit; the keydown rebind is that commit's
+    // trailing effect, flush it or the stale empty-list handler swallows Enter
+    await act(async () => {})
 
     // held Enter repeats before the busy state commits: only the first lands,
     // and it picks beneath the cursor that opens beside the head

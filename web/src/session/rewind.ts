@@ -1,0 +1,61 @@
+import type { RewindKind } from '../api/types'
+
+// Rewind rows speak one visual language on every surface: a kind tag (or its
+// color on a dot), the row label, and a relative age. These helpers are the
+// single transcription of that agreement, so the desktop tree and the mobile
+// flat list never drift apart.
+
+// kindLabel names one rewind row's kind the way both pickers read it.
+export function kindLabel(kind: RewindKind): string {
+  switch (kind) {
+    case 'user':
+      return 'user'
+    case 'assistant':
+      return 'reply'
+    case 'compaction':
+      return 'compaction'
+    default:
+      return kind
+  }
+}
+
+// kindClass colors a row after ajent's marks: user turns carry the accent,
+// replies read as plain text, compactions and unknown kinds stay muted.
+export function kindClass(kind: RewindKind): string {
+  switch (kind) {
+    case 'user':
+      return 'kind-user'
+    case 'assistant':
+      return 'kind-assistant'
+    default:
+      return 'kind-compaction'
+  }
+}
+
+// relativeTime renders one age for every surface showing a timestamp's
+// distance from now (rewind picker, run history, focus rail), e.g. "96m ago":
+// minute precision holds two hours, past a week a short date, unreadable
+// stamps stay empty. `bare` drops the trailing "ago".
+export function relativeTime(
+  ts: number,
+  now: number = Date.now(),
+  opts?: { bare?: boolean },
+): string {
+  if (!Number.isFinite(ts)) return ''
+  const s = Math.max(0, Math.floor((now - ts) / 1000))
+  const suffix = opts?.bare ? '' : ' ago'
+  if (s < 60) return `${s}s${suffix}`
+  const m = Math.floor(s / 60)
+  if (m < 120) return `${m}m${suffix}`
+  const h = Math.floor(m / 60)
+  if (h < 24) return `${h}h${suffix}`
+  const d = Math.floor(h / 24)
+  if (d < 7) return `${d}d${suffix}`
+  return new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
+
+// absoluteTime renders a candidate's full local stamp for row tooltips.
+export function absoluteTime(ts: number): string {
+  if (!Number.isFinite(ts)) return ''
+  return new Date(ts).toLocaleString()
+}

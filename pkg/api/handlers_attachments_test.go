@@ -1,0 +1,185 @@
+package api
+
+import (
+	"bytes"
+	"encoding/json"
+	"mime/multipart"
+	"net/http"
+	"net/http/cookiejar"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"golang.org/x/crypto/bcrypt"
+
+	"github.com/jentfoo/ajent-swarm/pkg/auth"
+	"github.com/jentfoo/ajent-swarm/pkg/store"
+)
+
+// newTestAPIWithAttachments is newTestAPI plus a wired attachments directory,
+// returned beside the server so tests can assert where bytes landed.
+func newTestAPIWithAttachments(t *testing.T) (server *httptest.Server, client *http.Client, dir string) {
+	t.Helper()
+	st, err := store.Open(filepath.Join(t.TempDir(), store.FileName))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = st.Close() })
+
+	svc, err := auth.NewService(st, auth.WithBcryptCost(bcrypt.MinCost))
+	require.NoError(t, err)
+	require.NoError(t, svc.EnsureUser(t.Context(), "jent"))
+
+	dir = t.TempDir()
+	server = httptest.NewServer(Handler(Config{
+		Auth:           svc,
+		Fleet:          newTestFleet(t),
+		AttachmentsDir: dir,
+		Log:            testLogger(),
+	}))
+	t.Cleanup(server.Close)
+
+	jar, err := cookiejar.New(nil)
+	require.NoError(t, err)
+	return server, &http.Client{Jar: jar}, dir
+}
+
+// postAttachment uploads one file field and returns the response beside its
+// decoded JSON body.
+func postAttachment(t *testing.T, client *http.Client, baseURL, sessionID string,
+	fileName string, body []byte,
+) (*http.Response, map[string]any) {
+	t.Helper()
+
+	var payload bytes.Buffer
+	w := multipart.NewWriter(&payload)
+	fw, err := w.CreateFormFile("file", fileName)
+	require.NoError(t, err)
+	_, err = fw.Write(body)
+	require.NoError(t, err)
+	require.NoError(t, w.Close())
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost,
+		baseURL+"/api/sessions/"+sessionID+"/attachments", &payload)
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", w.FormDataContentType())
+
+	resp, err := client.Do(req)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = resp.Body.Close() })
+
+	var out map[string]any
+	err = json.NewDecoder(resp.Body).Decode(&out)
+	if err != nil && resp.StatusCode != http.StatusNoContent {
+		require.NoError(t, err)
+	}
+	return resp, out
+}
+
+func TestSessionAttachments(t *testing.T) {
+	t.Parallel()
+
+	t.Run("upload_stores_bytes", func(t *testing.T) {
+		server, client, dir := newTestAPIWithAttachments(t)
+		bootstrapAndLogin(t, client, server.URL)
+
+		resp, body := postAttachment(t, client, server.URL, "01ABC", "photo.png", []byte("fake png bytes"))
+		require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+		path, ok := body["path"].(string)
+		require.True(t, ok)
+		assert.True(t, filepath.IsAbs(path))
+		assert.Equal(t, ".png", filepath.Ext(path))
+
+		raw, err := os.ReadFile(path)
+		require.NoError(t, err)
+		assert.Equal(t, []byte("fake png bytes"), raw)
+
+		info, statErr := os.Stat(path)
+		require.NoError(t, statErr)
+		assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+
+		sessionDir := filepath.Dir(path)
+		assert.Equal(t, "01ABC", filepath.Base(sessionDir))
+		assert.True(t, strings.HasPrefix(sessionDir, dir))
+	})
+
+	t.Run("drops_hostile_names", func(t *testing.T) {
+		server, client, _ := newTestAPIWithAttachments(t)
+		bootstrapAndLogin(t, client, server.URL)
+
+		resp, body := postAttachment(t, client, server.URL, "01ABC", "../../etc/passwd", []byte("x"))
+		require.Equal(t, http.StatusCreated, resp.StatusCode)
+		path, ok := body["path"].(string)
+		require.True(t, ok)
+		assert.Empty(t, filepath.Ext(path))
+		assert.NotContains(t, path, "..")
+	})
+
+	t.Run("rejects_bad_requests", func(t *testing.T) {
+		server, client, _ := newTestAPIWithAttachments(t)
+		bootstrapAndLogin(t, client, server.URL)
+
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodPost,
+			server.URL+"/api/sessions/01ABC/attachments", bytes.NewReader([]byte("not multipart")))
+		require.NoError(t, err)
+		req.Header.Set("Content-Type", "text/plain")
+		resp, err := client.Do(req)
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = resp.Body.Close() })
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	})
+}
+
+func TestSanitizeAttachmentName(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{name: "traversal_reduces_to_one_element", in: "../../etc", want: "etc"},
+		{name: "traversal_keeps_contained_name", in: "../../swarm-state", want: "swarm-state"},
+		{name: "separators_strip", in: "../01-ABC_2/", want: "01-ABC_2"},
+		{name: "empty"},
+		{name: "dot", in: "."},
+		{name: "dot_dot", in: ".."},
+		{name: "slash", in: "/"},
+		{name: "trims_whitespace", in: " a.b.c ", want: "a.b.c"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, sanitizeAttachmentName(tc.in))
+		})
+	}
+}
+
+func TestSanitizeAttachmentExt(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{name: "hostile_reduces_to_empty", in: "....//"},
+		{name: "path_chars_drop", in: ".p/n/g?.", want: "png"},
+		{name: "overlong_truncates", in: "." + strings.Repeat("a", 20), want: strings.Repeat("a", 16)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, sanitizeAttachmentExt(tc.in))
+		})
+	}
+}
+
+func TestAttachmentName(t *testing.T) {
+	t.Parallel()
+
+	name := attachmentName(time.Now(), "shot.PNG")
+	assert.Regexp(t, `^\d{8}-\d{6}-[0-9a-f]{16}\.PNG$`, name)
+}

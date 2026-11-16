@@ -1,0 +1,962 @@
+import { act, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { MemoryRouter, Route, Routes } from 'react-router'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+import MobileSessionScreen from './MobileSessionScreen'
+import type { ReactElement } from 'react'
+import { useNavigate } from 'react-router'
+import { AuthProvider } from '../providers/auth'
+import { SwarmProvider } from '../providers/swarm'
+import { WorkspaceProvider } from '../providers/workspace'
+import { resetDrafts } from '../session/draftStore'
+import { stubCoarsePointer } from '../test/matchMedia'
+import { MockWebSocket } from '../test/mockWebSocket'
+
+// The mobile single-session screen over the real stream client: compact
+// chrome, keyboard-aware padding against a mocked visualViewport, tools as a
+// pushed sheet, and rewind as the shared picker in a sheet.
+
+const VIEW = '01MOBILEVIEW00000'
+const OTHER = '01MOBILEVIEW00001'
+
+class FetchRouter {
+  handler = vi.fn((url: string | URL, _init?: RequestInit): Response | Promise<Response> => {
+    const key = String(url)
+      .replace(/^https?:\/\/[^/]+/, '')
+      .split('?')[0]
+    const respond = this.routes.get(key)
+    if (!respond) throw new Error(`unexpected fetch ${String(url)}`)
+    return respond()
+  })
+
+  private routes = new Map<string, () => Response | Promise<Response>>()
+
+  on(url: string, respond: () => Response | Promise<Response>): this {
+    this.routes.set(url, respond)
+    return this
+  }
+}
+
+function wireEvent(name: string, seq: number, data?: unknown) {
+  return { type: 'event', sessionId: VIEW, event: { event: name, seq, data } }
+}
+
+function snapshotFor(sessionId: string, overrides: Record<string, unknown> = {}) {
+  return {
+    session: { id: sessionId },
+    workspace: '/home/you/project',
+    cwd: '/home/you/project',
+    head: '',
+    model: {
+      key: 'anthropic/claude-sonnet',
+      short: 'sonnet',
+      window: 200_000,
+      caps: { reasoning: true, images: false, parallelToolCalls: true },
+    },
+    permission: 'auto',
+    tools: [{ name: 'read_file', source: 'built-in', enabled: true, readOnly: false }],
+    usage: {
+      turns: 0,
+      total: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0, reasoning: 0 },
+      child: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0 },
+    },
+    context: { used: 1000, window: 200_000, reserve: 20_000, compact: 150_000, estimated: false },
+    running: false,
+    idle: true,
+    spinning: false,
+    queued: 2,
+    queuedRows: [],
+    activity: [{ key: 'sub-1', text: 'scanning files', rank: 0 }],
+    status: { segments: [{ key: 'ctx', text: 'context 40k', short: 'ctx 40k', order: 1 }] },
+    seat: { held: true, holder: 'swarm', yours: false },
+    ...overrides,
+  }
+}
+
+describe('MobileSessionScreen', () => {
+  let fetcher: FetchRouter
+  const sockets: MockWebSocket[] = []
+
+  beforeEach(() => {
+    localStorage.clear()
+    resetDrafts() // drafts persist by session, so tests start from a clean slate
+
+    fetcher = new FetchRouter()
+    fetcher
+      .on('/api/me', () => Response.json({ username: 'you', via: 'cookie', home: '/home/you' }))
+      .on('/api/sessions', () =>
+        Response.json([
+          {
+            sessionId: VIEW,
+            state: 'online',
+            seatHeld: false,
+            seatOurs: false,
+            running: false,
+            idle: true,
+            openInteractions: 0,
+            spawnedBy: 'external',
+          },
+        ]),
+      )
+      .on('/api/attention', () => Response.json([]))
+      // submits and dialog answers acknowledge server-side
+      .on('/api/attention/ack', () => new Response(null, { status: 204 }))
+      .on(`/api/sessions/${VIEW}/snapshot`, () => Response.json(snapshotFor(VIEW)))
+    vi.stubGlobal(
+      'WebSocket',
+      class extends MockWebSocket {
+        constructor(url: string) {
+          super(url)
+          sockets.push(this)
+        }
+      },
+    )
+    vi.stubGlobal('fetch', fetcher.handler)
+  })
+
+  afterEach(() => {
+    sockets.length = 0
+    vi.unstubAllGlobals()
+  })
+
+  function renderScreen() {
+    return render(
+      <MemoryRouter initialEntries={[`/s/${VIEW}`]}>
+        <AuthProvider>
+          <SwarmProvider>
+            <WorkspaceProvider>
+              <Routes>
+                <Route path="/s/:sessionId" element={<MobileSessionScreen />} />
+              </Routes>
+            </WorkspaceProvider>
+          </SwarmProvider>
+        </AuthProvider>
+      </MemoryRouter>,
+    )
+  }
+
+  async function openSocket(): Promise<MockWebSocket> {
+    await waitForSocket()
+    const ws = sockets.at(-1)!
+    act(() => ws.open())
+    return ws
+  }
+
+  function waitForSocket() {
+    return vi.waitFor(() => expect(sockets.length).toBeGreaterThan(0))
+  }
+
+  // openHeaderMenu opens the header's collapsed action menu and picks one
+  // item, standing in for the tap that used to sit directly in the header row
+  async function openHeaderMenu(
+    user: ReturnType<typeof userEvent.setup>,
+    item: string,
+  ): Promise<void> {
+    await user.click(screen.getByRole('button', { name: 'Session actions' }))
+    await user.click(await screen.findByRole('menuitem', { name: item }))
+  }
+
+  // NavButton drives MemoryRouter between the two session routes, standing in
+  // for the launcher and switcher navigations that reuse one screen instance.
+  function NavButton({ to, children }: { to: string; children: string }): ReactElement {
+    const navigate = useNavigate()
+    return (
+      <button type="button" onClick={() => navigate(to)}>
+        {children}
+      </button>
+    )
+  }
+
+  function renderSwitchable() {
+    return render(
+      <MemoryRouter initialEntries={[`/s/${VIEW}`]}>
+        <AuthProvider>
+          <SwarmProvider>
+            <WorkspaceProvider>
+              <NavButton to={`/s/${OTHER}`}>go other</NavButton>
+              <NavButton to={`/s/${VIEW}`}>go view</NavButton>
+              <Routes>
+                <Route path="/s/:sessionId" element={<MobileSessionScreen />} />
+              </Routes>
+            </WorkspaceProvider>
+          </SwarmProvider>
+        </AuthProvider>
+      </MemoryRouter>,
+    )
+  }
+
+  it('carries the session label between the back link and the model chip', async () => {
+    fetcher.on('/api/sessions', () =>
+      Response.json([
+        {
+          sessionId: VIEW,
+          title: 'nightly sweep',
+          state: 'online',
+          seatHeld: false,
+          seatOurs: false,
+          running: false,
+          idle: true,
+          openInteractions: 0,
+          spawnedBy: 'external',
+        },
+      ]),
+    )
+    renderScreen()
+    const ws = await openSocket()
+    act(() => {
+      ws.message({ type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
+    })
+
+    // identity leads the chrome, on the switcher's own label chain
+    const label = await screen.findByText('nightly sweep')
+    const back = screen.getByLabelText('Back to launcher')
+    const chip = screen.getByRole('button', { name: /sonnet/ })
+    expect(back.compareDocumentPosition(label) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(label.compareDocumentPosition(chip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('falls back to the short id until the listing names the session', async () => {
+    renderScreen()
+    const ws = await openSocket()
+    act(() => {
+      ws.message({ type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
+    })
+
+    // the default row carries no title, name or workspace
+    expect(await screen.findByText('01MOBILE…')).toBeInTheDocument()
+  })
+
+  it('renders the compact chrome with the shared status bar', async () => {
+    renderScreen()
+    const ws = await openSocket()
+
+    act(() => {
+      ws.message({
+        type: 'init',
+        sessionId: VIEW,
+        state: snapshotFor(VIEW),
+        entries: [],
+      })
+    })
+
+    // header collapses to the model chip, no desktop controls
+    expect(await screen.findByRole('button', { name: /sonnet/ })).toBeInTheDocument()
+    expect(screen.getByLabelText('Back to launcher')).toBeInTheDocument()
+
+    // the bar reads one data source with desktop's: queue depth, segments and
+    // sub-agent chips
+    expect(screen.getByText('2 queued')).toBeInTheDocument()
+    expect(screen.getByText('ctx 40k')).toBeInTheDocument()
+    expect(screen.getByText('agents 1 active')).toBeInTheDocument()
+  })
+
+  it('keeps the status bar visible on an idle session', async () => {
+    renderScreen()
+    const ws = await openSocket()
+    act(() => {
+      ws.message({
+        type: 'init',
+        sessionId: VIEW,
+        state: snapshotFor(VIEW, {
+          queued: 0,
+          activity: [],
+          status: { segments: [] },
+        }),
+        entries: [],
+      })
+    })
+
+    // the resting dim glyph answers "is it working" with nothing else to report
+    expect(await screen.findByLabelText('idle')).toBeInTheDocument()
+    expect(document.querySelector('.status-bar')).toBeInTheDocument()
+    expect(document.querySelector('.status-strip')).not.toBeInTheDocument()
+  })
+
+  it('flips the spinner to working and shows the activity line', async () => {
+    renderScreen()
+    const ws = await openSocket()
+    act(() => {
+      ws.message({
+        type: 'init',
+        sessionId: VIEW,
+        state: snapshotFor(VIEW, {
+          running: true,
+          idle: false,
+          activity: [
+            { key: 'step', text: 'reading files', rank: 10 },
+            { key: 'sub-1', text: 'scanning files', rank: 0 },
+          ],
+        }),
+        entries: [],
+      })
+    })
+
+    expect(await screen.findByText('reading files')).toBeInTheDocument()
+    // the glyph never rests dim while the turn runs
+    const bar = document.querySelector('.status-bar')!
+    expect(bar.querySelector('.spinner.wait')).toBeInTheDocument()
+    expect(bar.querySelector('.spinner.idle')).not.toBeInTheDocument()
+  })
+
+  it('interrupts a working stream on escape, standing down behind overlays', async () => {
+    fetcher.on(`/api/sessions/${VIEW}/interrupt`, () => Response.json({ stopped: VIEW }))
+    renderScreen()
+    const ws = await openSocket()
+    act(() => {
+      ws.message({
+        type: 'init',
+        sessionId: VIEW,
+        state: snapshotFor(VIEW, { running: true, idle: false }),
+        entries: [],
+      })
+    })
+
+    const interruptCalls = () =>
+      fetcher.handler.mock.calls.filter(([u]) => String(u).endsWith('/interrupt'))
+
+    const user = userEvent.setup()
+    // the pushed tools screen keeps Escape for itself: one press closes it,
+    // and the stream's interrupt never fires behind it
+    await openHeaderMenu(user, 'Tools')
+    await user.keyboard('{Escape}')
+    expect(interruptCalls()).toHaveLength(0)
+    expect(screen.queryByRole('dialog', { name: 'Tools' })).not.toBeInTheDocument()
+
+    // the closed layer hands Escape back to the stream
+    await user.keyboard('{Escape}')
+    await vi.waitFor(() => expect(interruptCalls()).toHaveLength(1))
+  })
+
+  it('stops a working turn from beside send rather than the header', async () => {
+    fetcher.on(`/api/sessions/${VIEW}/interrupt`, () => Response.json({ stopped: VIEW }))
+    renderScreen()
+    const ws = await openSocket()
+    act(() => {
+      ws.message({
+        type: 'init',
+        sessionId: VIEW,
+        state: snapshotFor(VIEW, { running: true, idle: false }),
+        entries: [],
+      })
+    })
+
+    // the header carries no interrupt control, the composer's Stop does
+    expect(screen.queryByRole('button', { name: 'Interrupt' })).not.toBeInTheDocument()
+    const stop = await screen.findByRole('button', { name: 'Stop' })
+    const send = screen.getByRole('button', { name: 'Send' })
+    expect(stop.compareDocumentPosition(send) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+
+    const user = userEvent.setup()
+    await user.click(stop)
+    await vi.waitFor(() => {
+      const calls = fetcher.handler.mock.calls.filter(([u]) => String(u).endsWith('/interrupt'))
+      expect(calls).toHaveLength(1)
+    })
+  })
+
+  it('renders the context meter only when the window is known', async () => {
+    renderScreen()
+    const ws = await openSocket()
+    act(() => {
+      ws.message({ type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
+    })
+
+    // 1k of a 200k window meters one percent, labeled for screen readers
+    expect(await screen.findByRole('img', { name: 'Context 1% full' })).toBeInTheDocument()
+
+    // an unknown window size leaves nothing to meter
+    act(() => {
+      ws.message({
+        type: 'init',
+        sessionId: VIEW,
+        state: snapshotFor(VIEW, {
+          context: { used: 0, window: 0, reserve: 0, compact: 0, estimated: false },
+        }),
+        entries: [],
+      })
+    })
+    expect(screen.queryByRole('img', { name: /Context/ })).not.toBeInTheDocument()
+  })
+
+  it('pushes the tools panel full-screen from the header menu', async () => {
+    renderScreen()
+    const ws = await openSocket()
+    act(() => {
+      ws.message({ type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
+    })
+    await screen.findByRole('button', { name: /sonnet/ })
+
+    const user = userEvent.setup()
+    await openHeaderMenu(user, 'Tools')
+    expect(await screen.findByRole('dialog', { name: 'Tools' })).toBeInTheDocument()
+    expect(screen.getByText('read_file')).toBeInTheDocument()
+
+    // toggling applies the complete desired set through tools.set
+    fetcher.on(`/api/sessions/${VIEW}/tools`, () =>
+      Response.json({
+        rows: [{ name: 'read_file', source: 'built-in', enabled: false, readOnly: false }],
+      }),
+    )
+    await user.click(screen.getByRole('checkbox'))
+    await vi.waitFor(() => {
+      const calls = fetcher.handler.mock.calls.filter(([u]) => String(u).endsWith('/tools'))
+      expect(calls.length).toBeGreaterThan(0)
+    })
+  })
+
+  it('opens agent settings from the header menu', async () => {
+    fetcher.on(`/api/sessions/${VIEW}/settings`, () => Response.json({}))
+    renderScreen()
+    const ws = await openSocket()
+    act(() => {
+      ws.message({ type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
+    })
+    await screen.findByRole('button', { name: /sonnet/ })
+
+    const user = userEvent.setup()
+    await openHeaderMenu(user, 'Agent settings')
+    expect(await screen.findByRole('dialog', { name: 'Agent settings' })).toBeInTheDocument()
+  })
+
+  it('presents rewind as the shared candidate list that prefills', async () => {
+    renderScreen()
+    const ws = await openSocket()
+    act(() => {
+      ws.message({ type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
+    })
+    await screen.findByRole('button', { name: /sonnet/ })
+
+    fetcher.on(`/api/sessions/${VIEW}/candidates`, () =>
+      Response.json({
+        head: '01C3',
+        candidates: [
+          {
+            id: '01C1',
+            kind: 'user',
+            ts: 1000,
+            isHead: false,
+            label: 'first prompt text',
+            text: 'first prompt text',
+          },
+          {
+            id: '01C2',
+            kind: 'assistant',
+            ts: 2000,
+            isHead: false,
+            label: "it's started",
+          },
+          {
+            id: '01C3',
+            kind: 'user',
+            ts: 3000,
+            isHead: true,
+            label: 'current prompt',
+            text: 'current prompt',
+          },
+        ],
+      }),
+    )
+    fetcher.on(`/api/sessions/${VIEW}/rewind`, () => Response.json({ head: '01C1' }))
+
+    const user = userEvent.setup()
+
+    // a draft in the composer survives: the rewind lands above it. The draft
+    // is seeded first because an open sheet, like a modal, holds focus
+    await user.type(screen.getByLabelText('Prompt'), 'my draft')
+
+    await openHeaderMenu(user, 'Rewind')
+    expect(await screen.findByRole('dialog', { name: /Rewind/ })).toBeInTheDocument()
+
+    // every kind lists, desktop's set verbatim, the head stays inert
+    expect(screen.getByText('first prompt text')).toBeInTheDocument()
+    expect(screen.getByTestId('rewind-01C2')).toHaveTextContent("it's started")
+    expect(screen.getByTestId('rewind-01C3')).toHaveAttribute('aria-disabled', 'true')
+
+    await user.click(screen.getByTestId('rewind-01C1'))
+    await vi.waitFor(() => {
+      const rewindCalls = fetcher.handler.mock.calls.filter(([u]) => String(u).endsWith('/rewind'))
+      expect(rewindCalls).toHaveLength(1)
+    })
+
+    // the full prompt text lands above the draft for an edit, noticed by toast
+    await vi.waitFor(() =>
+      expect(screen.getByLabelText('Prompt')).toHaveValue('first prompt text\nmy draft'),
+    )
+    expect(await screen.findByText('Placed above your existing draft.')).toBeInTheDocument()
+  })
+
+  it('tracks a submitted prompt through pending, refused and accepted', async () => {
+    // the first reply is held back, so the optimistic row is asserted mid-send
+    let release: (() => void) | undefined
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    fetcher.on(`/api/sessions/${VIEW}/submit`, () =>
+      held.then(() =>
+        Response.json({ error: 'busy', message: 'the prompt queue is full' }, { status: 429 }),
+      ),
+    )
+    renderScreen()
+    const ws = await openSocket()
+    act(() => {
+      ws.message({ type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
+    })
+    await screen.findByRole('button', { name: /sonnet/ })
+
+    const user = userEvent.setup()
+    const prompt = screen.getByLabelText('Prompt')
+    await user.type(prompt, 'first prompt{Enter}')
+
+    // the optimistic chip paints with its sending badge while the reply is out
+    const chips = document.querySelector('.chips') as HTMLElement
+    expect(chips).toHaveTextContent('first prompt')
+    expect(screen.getByText('sending…')).toBeInTheDocument()
+
+    // the refusal flips the row instead of vanishing it, draft intact
+    release!()
+    expect(await screen.findByText('refused')).toBeInTheDocument()
+    expect(screen.getByText(/prompt queue is full/)).toBeInTheDocument()
+    expect(prompt).toHaveValue('first prompt')
+
+    // a resend the wire accepts resolves the optimistic chip and the composer
+    fetcher.on(`/api/sessions/${VIEW}/submit`, () =>
+      Response.json({ pendingId: 'p-accepted' }, { status: 202 }),
+    )
+    await user.type(prompt, '{Enter}')
+    const submitCalls = fetcher.handler.mock.calls.filter(([u]) => String(u).endsWith('/submit'))
+    await vi.waitFor(() => expect(submitCalls).toHaveLength(2))
+    const accepted = JSON.parse(String(submitCalls[1]![1]?.body)).pendingId as string
+    act(() => {
+      ws.message(wireEvent('queued', 1, { rows: [{ id: accepted, text: 'first prompt' }] }))
+    })
+
+    await vi.waitFor(() => expect(screen.queryByText('sending…')).not.toBeInTheDocument())
+    expect(prompt).toHaveValue('')
+    expect(chips).toHaveTextContent('first prompt')
+  })
+
+  it('acks a submit with the digest row server turn end, not the local clock', async () => {
+    const TURN_END = 1_234_567
+    fetcher.on('/api/attention', () =>
+      Response.json([
+        {
+          sessionId: VIEW,
+          openInteractions: 0,
+          running: false,
+          idle: true,
+          lastTurnEnd: TURN_END,
+          kind: 'needs-review',
+          reason: 'turn complete',
+          since: TURN_END,
+        },
+      ]),
+    )
+    fetcher.on(`/api/sessions/${VIEW}/submit`, () =>
+      Response.json({ pendingId: 'p-mobile' }, { status: 202 }),
+    )
+    // the phone clock runs an hour past the host: stamping it would lift the
+    // ledger's watermark above every future server turn end
+    const skewed = vi.spyOn(Date, 'now').mockReturnValue(TURN_END + 3_600_000)
+    try {
+      renderScreen()
+      const ws = await openSocket()
+      act(() => {
+        ws.message({ type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
+      })
+      await vi.waitFor(() => {
+        const digests = fetcher.handler.mock.calls.filter(([u]) =>
+          String(u).endsWith('/api/attention'),
+        )
+        expect(digests.length).toBeGreaterThan(0)
+      })
+      await act(async () => {}) // the digest commit is in, itemFor finds the row
+
+      const user = userEvent.setup()
+      await user.type(await screen.findByLabelText('Prompt'), 'next prompt{Enter}')
+
+      await vi.waitFor(() => {
+        const acks = fetcher.handler.mock.calls.filter(([u]) =>
+          String(u).endsWith('/attention/ack'),
+        )
+        expect(acks).toHaveLength(1)
+        expect(JSON.parse(String(acks[0]![1]?.body))).toEqual({
+          sessionId: VIEW,
+          turnEnd: TURN_END,
+        })
+      })
+    } finally {
+      skewed.mockRestore()
+    }
+  })
+
+  it('renders queue rows with edit only on the newest and recalls to the draft', async () => {
+    fetcher.on(`/api/sessions/${VIEW}/recall`, () =>
+      Response.json({ id: 'q1', text: 'recalled prompt' }),
+    )
+    renderScreen()
+    const ws = await openSocket()
+    act(() => {
+      ws.message({
+        type: 'init',
+        sessionId: VIEW,
+        state: snapshotFor(VIEW, {
+          queued: 2,
+          queuedRows: [
+            { id: 'q0', text: 'older row' },
+            { id: 'q1', text: 'recalled prompt' },
+          ],
+        }),
+        entries: [],
+      })
+    })
+
+    // the wire's recall pops the newest row, so only that chip offers edit
+    const edits = await screen.findAllByRole('button', { name: /edit/ })
+    expect(edits).toHaveLength(1)
+    expect(edits[0]!.closest('.queue-chip')).toHaveTextContent('recalled prompt')
+    expect(screen.getByText('older row')).toBeInTheDocument()
+
+    const user = userEvent.setup()
+    await user.type(screen.getByLabelText('Prompt'), 'my draft')
+    await user.click(edits[0]!)
+    await vi.waitFor(() => {
+      const recallCalls = fetcher.handler.mock.calls.filter(([u]) => String(u).endsWith('/recall'))
+      expect(recallCalls).toHaveLength(1)
+    })
+
+    // the popped row merges above the draft, announced like every prefill
+    expect(await screen.findByLabelText('Prompt')).toHaveValue('recalled prompt\nmy draft')
+    expect(await screen.findByText('Placed above your existing draft.')).toBeInTheDocument()
+  })
+
+  it('shows notices above the dialog dock and expires them after their TTL', async () => {
+    renderScreen()
+    const ws = await openSocket()
+    act(() => {
+      ws.message({
+        type: 'init',
+        sessionId: VIEW,
+        state: snapshotFor(VIEW, {
+          interactions: [
+            { id: 42, kind: 'pick', prompt: 'Allow write access?', options: ['allow', 'deny'] },
+          ],
+        }),
+        entries: [],
+      })
+    })
+    expect(await screen.findByText('Allow write access?')).toBeInTheDocument()
+
+    // the notice arrives under fake timers, so its arrival stamp and the expiry
+    // tick share one clock
+    vi.useFakeTimers()
+    try {
+      act(() => {
+        ws.message(
+          wireEvent('notice', 1, {
+            text: 'Sub-agent sub-6 completed.',
+            level: 'info',
+            key: 'sub-6',
+          }),
+        )
+      })
+      expect(screen.getByText('Sub-agent sub-6 completed.')).toBeInTheDocument()
+
+      // the notice stacks above the dock, the same pre-composer order desktop
+      // uses
+      const notices = screen.getByLabelText('Notices')
+      const dock = screen.getByLabelText('Open dialogs')
+      expect(notices.compareDocumentPosition(dock) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+
+      act(() => {
+        vi.advanceTimersByTime(9_000)
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+    expect(screen.queryByText('Sub-agent sub-6 completed.')).not.toBeInTheDocument()
+    // the notice region itself stays mounted for later arrivals
+    expect(screen.getByLabelText('Notices')).toBeEmptyDOMElement()
+    expect(screen.getByText('Allow write access?')).toBeInTheDocument()
+  })
+
+  it('shares the desktop phase sentences in the connecting banner', async () => {
+    renderScreen()
+    await openSocket() // opened but silent: no init yet, so still connecting
+    expect(await screen.findByText('Connecting to the session stream…')).toBeInTheDocument()
+  })
+
+  it('banners a replayed exit without the phase settling', async () => {
+    renderScreen()
+    const ws = await openSocket()
+    act(() => {
+      ws.message({ type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
+      // session.exit applies while no child frame has flipped the phase to ended
+      ws.message(wireEvent('session.exit', 1, { reason: 'sigterm' }))
+    })
+
+    // the warn banner rides the exit reason off the shared derivation, like desktop
+    expect(await screen.findByText(/Session ended: sigterm\./)).toBeInTheDocument()
+    // and the surface's own transcript affordance survives the widened condition
+    expect(screen.getByRole('link', { name: 'Read the transcript' })).toBeInTheDocument()
+  })
+
+  it('renders dialogs left by an ended run as read-only context', async () => {
+    renderScreen()
+    const ws = await openSocket()
+    act(() => {
+      ws.message({
+        type: 'init',
+        sessionId: VIEW,
+        state: snapshotFor(VIEW, {
+          interactions: [
+            { id: 42, kind: 'pick', prompt: 'Allow write access?', options: ['allow', 'deny'] },
+          ],
+        }),
+        entries: [],
+      })
+    })
+    expect(await screen.findByRole('button', { name: 'allow' })).toBeInTheDocument()
+
+    // the run dies mid-dialog: the ask stays as context, the controls go
+    act(() => {
+      ws.message(wireEvent('session.exit', 1, { reason: 'sigterm' }))
+    })
+    expect(await screen.findByText(/Session ended: sigterm\./)).toBeInTheDocument()
+    await vi.waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'allow' })).not.toBeInTheDocument(),
+    )
+    expect(screen.getByText('Allow write access?')).toBeInTheDocument()
+    // the composer names the ended reason, never a dialog awaiting an answer
+    const prompt = screen.getByLabelText('Prompt')
+    expect(prompt).toBeDisabled()
+    expect(prompt).toHaveAttribute('placeholder', 'Session ended: sigterm.')
+  })
+
+  it('keeps the transcript link on a settled end', async () => {
+    renderScreen()
+    const ws = await openSocket()
+    act(() => {
+      ws.message({ type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
+      // a clean end announces itself with the backend's child fact
+      ws.message({ type: 'child', sessionId: VIEW, state: 'exited' })
+    })
+
+    expect(await screen.findByText(/Session ended\./)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Read the transcript' })).toBeInTheDocument()
+  })
+
+  it('closes the mode menu on browser back instead of leaving the session', async () => {
+    // touch device: the chip rides the history-bound popover, so a pop closes
+    // the menu, with desktop's plain popover nothing would answer the gesture
+    stubCoarsePointer()
+    const back = vi.spyOn(window.history, 'back').mockImplementation(() => {})
+    try {
+      renderScreen()
+      const ws = await openSocket()
+      act(() => {
+        ws.message({ type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
+      })
+
+      const user = userEvent.setup()
+      await user.click(await screen.findByRole('button', { name: /mode: auto/ }))
+      expect(screen.getByRole('menuitem', { name: /allow-read/ })).toBeInTheDocument()
+
+      // the platform back gesture pops the menu's own history entry and closes
+      // it, leaving the session on screen like every mobile overlay layer
+      act(() => {
+        window.dispatchEvent(new PopStateEvent('popstate'))
+      })
+      expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+      expect(screen.getByLabelText('Back to launcher')).toBeInTheDocument()
+
+      // settle the queued consume and leave unstamped ground behind, so later
+      // tests open their layers on a clean history entry
+      window.dispatchEvent(new PopStateEvent('popstate'))
+      window.history.replaceState(null, '', window.location.href)
+    } finally {
+      back.mockRestore()
+    }
+  })
+
+  it('collapses rewind, tools and settings behind one header menu entry', async () => {
+    renderScreen()
+    const ws = await openSocket()
+    act(() => {
+      ws.message({ type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
+    })
+    await screen.findByRole('button', { name: /sonnet/ })
+
+    // the sticky row keeps one line: the secondary actions hide behind ⋯ until
+    // the menu opens, and no sheet mounts before its item is picked
+    expect(screen.queryByRole('button', { name: 'Rewind' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Session actions' }))
+    expect(await screen.findByRole('menu')).toBeInTheDocument()
+    expect(
+      screen
+        .getAllByRole('menuitem')
+        .map((el) => el.textContent)
+        .sort(),
+    ).toEqual(['Agent settings', 'Rewind', 'Tools'])
+  })
+
+  it('badges the header off the shared desktop derivation', async () => {
+    renderScreen()
+    const ws = await openSocket()
+    act(() => {
+      ws.message({
+        type: 'init',
+        sessionId: VIEW,
+        state: snapshotFor(VIEW, { running: true, idle: false }),
+        entries: [],
+      })
+    })
+
+    // a running turn carries the same badge desktop's header renders
+    const badge = await screen.findByText('running')
+    expect(badge).toHaveClass('accent')
+
+    // the turn ends: the same badge set rests idle, like the switcher rows
+    act(() => {
+      ws.message(wireEvent('turn.end', 1))
+    })
+    expect(await screen.findByText('idle')).toBeInTheDocument()
+    expect(screen.queryByText('running')).not.toBeInTheDocument()
+  })
+
+  it('flips the header badge to needs input when a dialog parks the turn', async () => {
+    fetcher.on('/api/attention', () =>
+      Response.json([
+        {
+          sessionId: VIEW,
+          openInteractions: 1,
+          running: true,
+          idle: false,
+          dialogId: 5,
+          dialogPrompt: 'allow write?',
+          kind: 'needs-input',
+          reason: 'allow write?',
+        },
+      ]),
+    )
+    renderScreen()
+    const ws = await openSocket()
+    act(() => {
+      ws.message({
+        type: 'init',
+        sessionId: VIEW,
+        state: snapshotFor(VIEW, { running: true, idle: false }),
+        entries: [],
+      })
+    })
+
+    // the digest outranks the running snapshot exactly like the switcher
+    const badge = await screen.findByText('needs input')
+    expect(badge).toHaveClass('danger')
+    expect(screen.queryByText('running')).not.toBeInTheDocument()
+  })
+
+  it('shows the seat claim only while someone else holds the write seat', async () => {
+    renderScreen()
+    const ws = await openSocket()
+    act(() => {
+      ws.message({ type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
+    })
+    expect(await screen.findByText('seat: swarm')).toBeInTheDocument()
+
+    // a free seat renders nothing, writes take the seat lazily
+    act(() => {
+      ws.message({
+        type: 'init',
+        sessionId: VIEW,
+        state: snapshotFor(VIEW, { seat: { held: false, yours: false } }),
+        entries: [],
+      })
+    })
+    expect(screen.queryByText('seat: swarm')).not.toBeInTheDocument()
+    expect(screen.queryByText('seat held')).not.toBeInTheDocument()
+
+    // one this connection holds is not contested either
+    act(() => {
+      ws.message({
+        type: 'init',
+        sessionId: VIEW,
+        state: snapshotFor(VIEW, { seat: { held: true, holder: 'swarm', yours: true } }),
+        entries: [],
+      })
+    })
+    expect(screen.queryByText('seat: swarm')).not.toBeInTheDocument()
+  })
+
+  it('presents a switched session fresh and restores its own draft on return', async () => {
+    fetcher.on('/api/sessions', () =>
+      Response.json([
+        {
+          sessionId: VIEW,
+          state: 'online',
+          seatHeld: false,
+          seatOurs: false,
+          running: false,
+          idle: true,
+          openInteractions: 0,
+          spawnedBy: 'external',
+        },
+        {
+          sessionId: OTHER,
+          state: 'online',
+          seatHeld: false,
+          seatOurs: false,
+          running: false,
+          idle: true,
+          openInteractions: 0,
+          spawnedBy: 'external',
+        },
+      ]),
+    )
+    fetcher.on(`/api/sessions/${OTHER}/snapshot`, () => Response.json(snapshotFor(OTHER)))
+    fetcher.on(`/api/sessions/${VIEW}/models`, () =>
+      Response.json({
+        active: 'anthropic/claude-sonnet',
+        models: [
+          {
+            key: 'anthropic/claude-sonnet',
+            short: 'sonnet',
+            window: 200_000,
+            caps: { reasoning: true, images: false, parallelToolCalls: true },
+          },
+        ],
+      }),
+    )
+    renderSwitchable()
+    const ws = await openSocket()
+
+    act(() => {
+      ws.message({ type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
+    })
+    const user = userEvent.setup()
+    await user.type(await screen.findByLabelText('Prompt'), 'alpha draft')
+
+    // the tools panel and the model menu stand open over the first session
+    await openHeaderMenu(user, 'Tools')
+    expect(await screen.findByRole('dialog', { name: 'Tools' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /sonnet/ }))
+    expect(await screen.findByRole('menuitem', { name: /sonnet/ })).toBeInTheDocument()
+
+    // the swap presents the other session fresh: panel and menu closed, and a
+    // draft typed for the first session is not sitting in the composer
+    await user.click(screen.getByRole('button', { name: 'go other' }))
+    act(() => {
+      ws.message({ type: 'init', sessionId: OTHER, state: snapshotFor(OTHER), entries: [] })
+    })
+    expect(await screen.findByLabelText('Prompt')).toHaveValue('')
+    expect(screen.queryByRole('dialog', { name: 'Tools' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: /sonnet/ })).not.toBeInTheDocument()
+
+    // returning restores that session's draft from the store, not a blank
+    await user.click(screen.getByRole('button', { name: 'go view' }))
+    expect(await screen.findByLabelText('Prompt')).toHaveValue('alpha draft')
+  })
+})

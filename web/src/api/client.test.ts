@@ -1,0 +1,108 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+import { ApiError, bumpAuthEpoch, onUnauthorized, request } from './client'
+
+function jsonResponse(status: number, body: unknown): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  })
+}
+
+describe('request', () => {
+  const fetchMock = vi.fn<typeof fetch>()
+
+  beforeEach(() => {
+    fetchMock.mockReset()
+    vi.stubGlobal('fetch', fetchMock)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('unwraps JSON bodies and leaves 204 as undefined', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(200, { username: 'you' }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+
+    await expect(request('/api/me')).resolves.toEqual({ username: 'you' })
+    await expect(request<void>('/api/auth/logout', { method: 'POST' })).resolves.toBeUndefined()
+  })
+
+  it('surfaces the structured error body as an ApiError', async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(409, { error: 'seat-held', message: 'held by human-2' }),
+    )
+    const err = await request('/api/x').catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(ApiError)
+    expect(err).toMatchObject({ status: 409, code: 'seat-held', detail: 'held by human-2' })
+  })
+
+  it('falls back to a generic code when the body is not an envelope', async () => {
+    fetchMock.mockResolvedValueOnce(new Response('<html>', { status: 500 }))
+    const err = await request('/api/x').catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(ApiError)
+    expect(err).toMatchObject({ status: 500, code: 'unknown_error' })
+  })
+
+  it('carries Retry-After seconds onto the error', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'rate_limited', message: 'too many attempts' }), {
+        status: 429,
+        headers: { 'Content-Type': 'application/json', 'Retry-After': '120' },
+      }),
+    )
+    const err = await request('/api/auth/login', { method: 'POST' }).catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(ApiError)
+    expect(err).toMatchObject({ status: 429, code: 'rate_limited', retryAfter: 120 })
+  })
+
+  it('drops an unusable Retry-After header', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'rate_limited' }), {
+        status: 429,
+        headers: { 'Retry-After': 'tomorrow' },
+      }),
+    )
+    const err = await request('/api/auth/login', { method: 'POST' }).catch((e: unknown) => e)
+    expect(err).toMatchObject({ code: 'rate_limited', retryAfter: undefined })
+  })
+
+  it('notifies listeners once per unauthorized response', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(401, { error: 'unauthorized' }))
+    const seen: number[] = []
+    const off = onUnauthorized(() => seen.push(1))
+    await request('/api/sessions').catch(() => undefined)
+    expect(seen).toEqual([1])
+    off()
+  })
+
+  it('drops 401 notices from requests dispatched before an epoch bump', async () => {
+    let settle!: (res: Response) => void
+    fetchMock.mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          settle = resolve
+        }),
+    )
+    const seen: number[] = []
+    const off = onUnauthorized(() => seen.push(1))
+    const pending = request('/api/sessions').catch(() => undefined)
+    bumpAuthEpoch()
+    settle(jsonResponse(401, { error: 'unauthorized' }))
+    await pending
+    expect(seen).toEqual([])
+    off()
+  })
+
+  it('notifies for 401s dispatched after an epoch bump', async () => {
+    bumpAuthEpoch()
+    fetchMock.mockResolvedValueOnce(jsonResponse(401, { error: 'unauthorized' }))
+    const seen: number[] = []
+    const off = onUnauthorized(() => seen.push(1))
+    await request('/api/sessions').catch(() => undefined)
+    expect(seen).toEqual([1])
+    off()
+  })
+})

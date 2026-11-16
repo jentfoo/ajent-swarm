@@ -1,0 +1,188 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+
+import { describeError } from '../api/errors'
+import { sessions as sessionAPI } from '../api/endpoints'
+import type { InteractionPending } from '../api/types'
+import { useToasts } from '../hooks/useToasts'
+import type { ToastView } from '../hooks/useToasts'
+import { useSessionChannel } from '../hooks/useSessionChannel'
+import { mergeRecallSources, maxRecallPrompts, recallPrompts } from '../state/derive'
+import type { RecallPrompt } from '../state/derive'
+import type { ComposerRecall } from './Composer'
+import { prependDraft } from './draftStore'
+import { endedBanner, phaseText } from './phases'
+import { placedAboveNotice, useComposerDraft } from './useComposerDraft'
+
+interface SessionCompose {
+  draft: string
+  // setDraft applies one edit and writes through to storage.
+  setDraft: (text: string) => void
+  // placedAbove places text under the prepend rule, announcing a merge above
+  // an existing draft with a toast.
+  placedAbove: (text: string) => void
+  // recall wires the composer's prompt recall: items merge the session's
+  // committed typed prompts with the workspace-wide mirror under one reference
+  // that holds until the contents change. Accept lands a match under the
+  // prepend rule, and refresh re-reads the mirror.
+  recall: ComposerRecall
+  // recallToEdit pops the newest queued prompt back into the composer, secret
+  // rows refuse upstream and their toast says so.
+  recallToEdit: () => Promise<void>
+  // recallParked pops the newest prompt parked for the next idle point back
+  // into the composer and retires its optimistic row, quietly when nothing is
+  // parked.
+  recallParked: () => Promise<void>
+  // dialogs is the open-dialog set, while it holds input the composer disables.
+  dialogs: InteractionPending[]
+  composerDisabled: boolean
+  disabledReason: string
+  toasts: ToastView[]
+  pushToast: (text: string, level?: 'info' | 'error') => void
+}
+
+// useSessionCompose owns the session-compose glue every screen shares:
+// composer draft with its persistence rules, recall-to-edit, prefill
+// placement notices, the toast stack those surface through, and the disabled
+// state a holding dialog or unreachable session forces onto the composer.
+export function useSessionCompose(sessionId: string): SessionCompose {
+  const { state, phase, dispatch } = useSessionChannel(sessionId)
+  const { draft, setDraft, prefill } = useComposerDraft(sessionId)
+  const { toasts, pushToast } = useToasts()
+
+  // The workspace recall listing, best effort: a failed read just leaves
+  // the session-local source serving, and a session swap remounts this hook's
+  // host so the listing starts empty again. One fetch in flight, so a refresh
+  // landing late cannot be overwritten by the older reply it superseded.
+  const [workspaceLines, setWorkspaceLines] = useState<RecallPrompt[]>([])
+  const recallReq = useRef<AbortController | null>(null)
+  const fetchWorkspaceRecall = useCallback(() => {
+    recallReq.current?.abort()
+    const controller = new AbortController()
+    recallReq.current = controller
+    sessionAPI
+      .recallLines(sessionId, '', maxRecallPrompts, controller.signal)
+      .then((res) => {
+        if (controller.signal.aborted) return
+        setWorkspaceLines(
+          (res.items ?? []).map((row) => {
+            const ts = Date.parse(row.createdAt)
+            return { text: row.text, ts: Number.isFinite(ts) ? ts : 0 }
+          }),
+        )
+      })
+      .catch(() => {}) // aborted or failed: the local source still serves
+  }, [sessionId])
+  useEffect(() => {
+    fetchWorkspaceRecall()
+    return () => recallReq.current?.abort()
+  }, [fetchWorkspaceRecall])
+
+  // placedAbove surfaces a prefill that merged above an existing draft, so the
+  // arrival is noticed instead of reading as one's own text moving down.
+  const placedAbove = useCallback(
+    (text: string) => {
+      if (prefill(text)) pushToast(placedAboveNotice)
+    },
+    [prefill, pushToast],
+  )
+
+  // recallAccept lands an accepted history-search match through the same
+  // prepend-with-notice rule a rewind prefill takes, so an existing draft is
+  // never clobbered, the returned draft lets the composer place its caret.
+  const recallAccept = useCallback(
+    (text: string, current: string): string => {
+      const next = prependDraft(current, text)
+      setDraft(next)
+      if (current !== '') pushToast(placedAboveNotice)
+      return next
+    },
+    [setDraft, pushToast],
+  )
+  // The merged source re-derives with the chain (the transcript's own
+  // trigger) and whenever a mirror fetch lands. One content set holds one
+  // array reference: the composer refilters an open search over any new
+  // reference and restarts at its newest hit, so the promptless commits a
+  // streaming turn lands constantly must not move it.
+  const mergedRecall = useMemo(
+    () => mergeRecallSources(recallPrompts(state.chain.ids, state.entries), workspaceLines),
+    [state.chain, state.entries, workspaceLines],
+  )
+  const [heldRecall, setHeldRecall] = useState<readonly string[]>(mergedRecall)
+  const unchanged = sameTexts(heldRecall, mergedRecall)
+  if (!unchanged) {
+    // setState during render re-renders before React commits this pass
+    setHeldRecall(mergedRecall)
+  }
+  const recallItems = unchanged ? heldRecall : mergedRecall
+
+  const recall = useMemo(
+    () => ({
+      items: recallItems,
+      accept: recallAccept,
+      refresh: fetchWorkspaceRecall,
+    }),
+    [recallItems, recallAccept, fetchWorkspaceRecall],
+  )
+
+  const recallToEdit = useCallback(async () => {
+    try {
+      const row = await sessionAPI.recall(sessionId)
+      if (row.text) placedAbove(row.text)
+    } catch (err) {
+      pushToast(describeError(err, 'Recall failed.'), 'error')
+    }
+  }, [sessionId, placedAbove, pushToast])
+
+  const recallParked = useCallback(async () => {
+    try {
+      const row = await sessionAPI.queueRecall(sessionId)
+      if (row.queued && row.line) placedAbove(row.line)
+      // the popped row never flushes, so nothing else resolves its chip
+      if (row.pendingId) dispatch({ type: 'pendingRecalled', pendingId: row.pendingId })
+    } catch (err) {
+      pushToast(describeError(err, 'Recall failed.'), 'error')
+    }
+  }, [sessionId, dispatch, placedAbove, pushToast])
+
+  // A dialog holding input disables the composer ahead of any wire refusal.
+  // An ended run outranks it: nothing can answer anymore, so the placeholder
+  // names how the run stopped (the same sentence the ended banner renders)
+  // instead of claiming a dialog needs an answer. Connecting and resyncing
+  // borrow the shared banner copy (phases.tsx) so the placeholder matches it,
+  // a lost session keeps today's short line.
+  const dialogs = state.snapshot.interactions ?? []
+  const ended = endedBanner(phase, state.exitReason)
+  const composerDisabled = ended.show || phase !== 'live' || dialogs.length > 0
+  const disabledReason = ended.show
+    ? ended.text
+    : dialogs.length > 0
+      ? 'A dialog needs an answer before prompts can send.'
+      : phase === 'connecting' || phase === 'resyncing'
+        ? phaseText(phase)
+        : 'The session is not reachable right now.'
+
+  return {
+    draft,
+    setDraft,
+    placedAbove,
+    recall,
+    recallToEdit,
+    recallParked,
+    dialogs,
+    composerDisabled,
+    disabledReason,
+    toasts,
+    pushToast,
+  }
+}
+
+// sameTexts reports whether two recall listings hold the same texts in one
+// order: equal sequences reuse the held reference even when the derivation
+// rebuilt every string instance.
+function sameTexts(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false
+  }
+  return true
+}

@@ -1,2 +1,5 @@
 bin/
 test.out
+pkg/web/dist/
+pkg/web/.dist-stamp
+web/tsconfig.tsbuildinfo

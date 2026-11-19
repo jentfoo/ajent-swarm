@@ -295,8 +295,8 @@ func TestRecallLedger(t *testing.T) {
 			ctl.SubmitParams{Line: "dropped mid-flight", PendingID: "c1"}))
 
 		// the commit rides the transcript a reconnect backfills, no live
-		// entry.append announces it again
-		f.DropConns()
+		// entry.append announces it again; write before the drop so the
+		// reconnect's one backfill always sees the settled head
 		data, err := json.Marshal(session.MessageData{
 			Message:  llm.Text(llm.RoleUser, "typed body"),
 			QueueIDs: []string{"c1"},
@@ -304,6 +304,7 @@ func TestRecallLedger(t *testing.T) {
 		require.NoError(t, err)
 		f.WriteTranscript(t, fleettest.Entry{
 			ID: "01LR3", Type: session.TypeMessage, TS: 100, Data: data})
+		f.DropConns()
 		waitForState(t, m, f.SessionID(), ChildOnline)
 		waitForCommit(t, m, f.SessionID(), "01LR3")
 		assert.Empty(t, rs.scrubbed())

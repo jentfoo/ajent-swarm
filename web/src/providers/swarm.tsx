@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import type { ReactNode } from 'react'
 
 import { fleet } from '../api/endpoints'
+import { childEnded } from '../api/types'
 import type { AttentionRow, SessionStatus } from '../api/types'
 import { usePoll } from '../hooks/usePoll'
 import { SessionStore } from '../stream/sessionStore'
@@ -15,7 +16,10 @@ type Theme = 'dark' | 'light'
 // a slower background cadence for hidden tabs.
 const pollSessionsMs = 2_000
 const pollAttentionMs = 2_500
-const pollAttentionHiddenMs = 30_000
+// Both polls keep a slower background cadence while hidden: discovery must
+// still notice launches so tracking stays complete, and the digest raises
+// dialogs for notifications.
+const pollBackgroundMs = 30_000
 
 // Debounce for stream-driven digest refreshes: turn boundaries land several
 // frames in quick succession, so the burst coalesces into one fetch.
@@ -94,10 +98,20 @@ export function SwarmProvider({ children }: { children: ReactNode }) {
   const refreshSessions = useNewestPoll(fleet.sessions, onSessions)
   const refreshAttention = useNewestPoll(fleet.attention, setAttention)
 
-  usePoll(() => void refreshSessions(), pollSessionsMs)
+  usePoll(() => void refreshSessions(), pollSessionsMs, pollBackgroundMs)
   // The digest keeps a slow background cadence so hidden tabs still raise
   // notifications, everything else stays visible-only.
-  usePoll(() => void refreshAttention(), pollAttentionMs, pollAttentionHiddenMs)
+  usePoll(() => void refreshAttention(), pollAttentionMs, pollBackgroundMs)
+
+  // Track every live session so dialog and turn-end frames refresh the digest
+  // for unviewed sessions too: a hidden tab clears its title badge off events
+  // instead of waiting out throttled timers. Tracked entries skip snapshots.
+  // Ended rows stay out: a dead session serves no frames, and dropping it
+  // clears the stream's retry budget for a later relaunch of the same id.
+  useEffect(() => {
+    if (sessionsLoaded)
+      store.trackAll(sessions.filter((s) => !childEnded(s.state)).map((s) => s.sessionId))
+  }, [store, sessions, sessionsLoaded])
 
   // The chat pane updates straight off the stream, so the digest poll alone
   // leaves the focus queue re-sorting seconds behind what the user just saw.

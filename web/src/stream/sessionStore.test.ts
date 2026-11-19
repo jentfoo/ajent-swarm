@@ -3,36 +3,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SessionStore } from './sessionStore'
 import { SwarmStream } from './swarmStream'
 import { MockWebSocket } from '../test/mockWebSocket'
+import { ctlSnapshot } from '../test/ctlSnapshot'
 import { sessions } from '../api/endpoints'
 import type { ServerFrame } from '../api/types'
 
 // The store rides the real stream client over a mock socket and fetch mocks
 // shaped like the Go handlers: warm entries keep their subscription with no
-// view mounted, and two views of one session share one state object.
-function snapshotFor(sessionId: string) {
-  const zeroUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0 }
-  return {
-    session: { id: sessionId },
-    workspace: '',
-    cwd: '',
-    head: '',
-    model: {
-      key: '',
-      short: '',
-      window: 0,
-      caps: { reasoning: false, images: false, parallelToolCalls: false },
-    },
-    permission: '',
-    usage: { turns: 0, total: zeroUsage, child: zeroUsage, estimatedTurns: 0 },
-    context: { used: 0, window: 0, reserve: 0, compact: 0, estimated: false },
-    running: false,
-    idle: true,
-    spinning: false,
-    queued: 0,
-    queuedRows: [],
-    seat: { held: false, yours: false },
-  }
-}
+// view mounted, tracked roster sessions do too, and two views of one session
+// share one state object.
 
 function eventFrame(sessionId: string, name: string, seq: number, data?: unknown): ServerFrame {
   return { type: 'event', sessionId, event: { event: name, seq, data } }
@@ -44,7 +22,7 @@ function unrootedInit(sessionId: string) {
   return {
     type: 'init' as const,
     sessionId,
-    state: { ...snapshotFor(sessionId), head: 'e2' },
+    state: { ...ctlSnapshot(sessionId), head: 'e2' },
     entries: [{ id: 'e2', parentId: 'e1', type: 'message', ts: 2 }],
   }
 }
@@ -61,7 +39,7 @@ describe('SessionStore', () => {
       vi.fn((url: string | URL) => {
         const path = String(url)
         const id = /\/api\/sessions\/([^/]+)\/snapshot/.exec(path)?.[1]
-        return Promise.resolve(Response.json(id ? snapshotFor(id) : {}))
+        return Promise.resolve(Response.json(id ? ctlSnapshot(id) : {}))
       }),
     )
     stream = new SwarmStream({
@@ -113,7 +91,7 @@ describe('SessionStore', () => {
     MockWebSocket.instances[0].message({
       type: 'init',
       sessionId: 's1',
-      state: snapshotFor('s1'),
+      state: ctlSnapshot('s1'),
       entries: [],
     })
     expect(seen).toEqual(['changed'])
@@ -158,7 +136,7 @@ describe('SessionStore', () => {
   it('applies events to warm sessions and resnapshots after a turn ends', async () => {
     store.acquire('s1')
     const ws = openSocket()
-    ws.message({ type: 'init', sessionId: 's1', state: snapshotFor('s1'), entries: [] })
+    ws.message({ type: 'init', sessionId: 's1', state: ctlSnapshot('s1'), entries: [] })
 
     ws.message(eventFrame('s1', 'turn.start', 1, { model: 'm' }))
     expect(store.peek('s1').snapshot.running).toBe(true)
@@ -176,7 +154,7 @@ describe('SessionStore', () => {
   it('recovers a frozen view after the child restarts', async () => {
     store.acquire('s1')
     const ws = openSocket()
-    ws.message({ type: 'init', sessionId: 's1', state: snapshotFor('s1'), entries: [] })
+    ws.message({ type: 'init', sessionId: 's1', state: ctlSnapshot('s1'), entries: [] })
     ws.message(eventFrame('s1', 'turn.start', 40, { model: 'old' }))
     expect(store.peek('s1').snapshot.running).toBe(true)
 
@@ -189,7 +167,7 @@ describe('SessionStore', () => {
     expect(syncs).toEqual([{ type: 'sync', sessionId: 's1' }])
 
     // the sync answer rebuilds state, so the renumbered stream applies again
-    ws.message({ type: 'init', sessionId: 's1', state: snapshotFor('s1'), entries: [] })
+    ws.message({ type: 'init', sessionId: 's1', state: ctlSnapshot('s1'), entries: [] })
     expect(stream.sessionPhase('s1')).toBe('live')
     ws.message(eventFrame('s1', 'turn.start', 1, { model: 'new' }))
     expect(store.peek('s1').snapshot.running).toBe(true)
@@ -198,11 +176,11 @@ describe('SessionStore', () => {
   it('keeps stream state newer than a stale snapshot read', async () => {
     // The poll's response was read upstream before the dialog opened and lands
     // after its event, the stamp says so, so only poll-only facts merge.
-    const snap = { ...snapshotFor('s1'), seq: 3, cwd: '/elsewhere', interactions: [] }
+    const snap = { ...ctlSnapshot('s1'), seq: 3, cwd: '/elsewhere', interactions: [] }
     vi.mocked(fetch).mockImplementation(() => Promise.resolve(Response.json(snap)))
     store.acquire('s1')
     const ws = openSocket()
-    ws.message({ type: 'init', sessionId: 's1', state: snapshotFor('s1'), entries: [] })
+    ws.message({ type: 'init', sessionId: 's1', state: ctlSnapshot('s1'), entries: [] })
     ws.message(
       eventFrame('s1', 'interaction.pending', 5, {
         id: 7,
@@ -220,7 +198,7 @@ describe('SessionStore', () => {
   it('drops snapshot reads that raced a stream rebuild', async () => {
     store.acquire('s1')
     const ws = openSocket()
-    ws.message({ type: 'init', sessionId: 's1', state: snapshotFor('s1'), entries: [] })
+    ws.message({ type: 'init', sessionId: 's1', state: ctlSnapshot('s1'), entries: [] })
 
     // Hold the poll's response until a reconnect-style init has rebuilt state.
     let respond!: (res: Response) => void
@@ -228,9 +206,9 @@ describe('SessionStore', () => {
       () => new Promise<Response>((resolve) => (respond = resolve)),
     )
     await vi.advanceTimersByTimeAsync(21_000)
-    ws.message({ type: 'init', sessionId: 's1', state: snapshotFor('s1'), entries: [] })
+    ws.message({ type: 'init', sessionId: 's1', state: ctlSnapshot('s1'), entries: [] })
 
-    const stale = Response.json({ ...snapshotFor('s1'), cwd: '/before-the-rebuild' })
+    const stale = Response.json({ ...ctlSnapshot('s1'), cwd: '/before-the-rebuild' })
     respond(stale)
     await vi.advanceTimersByTimeAsync(0)
     expect(store.peek('s1').snapshot.cwd).toBe('') // the pre-init read never lands
@@ -239,7 +217,7 @@ describe('SessionStore', () => {
   it('drops a superseded poll after a turn refresh', async () => {
     store.acquire('s1')
     const ws = openSocket()
-    ws.message({ type: 'init', sessionId: 's1', state: snapshotFor('s1'), entries: [] })
+    ws.message({ type: 'init', sessionId: 's1', state: ctlSnapshot('s1'), entries: [] })
 
     const replies = holdFetches()
     await vi.advanceTimersByTimeAsync(20_000) // the interval poll starts first
@@ -249,12 +227,12 @@ describe('SessionStore', () => {
     expect(replies).toHaveLength(2)
 
     const afterTurn = {
-      ...snapshotFor('s1'),
+      ...ctlSnapshot('s1'),
       cwd: '/after-turn',
       seat: { held: true, holder: 'swarm', yours: true },
     }
     const beforeTurn = {
-      ...snapshotFor('s1'),
+      ...ctlSnapshot('s1'),
       seq: 99,
       cwd: '/before-turn',
       seat: { held: false, yours: false },
@@ -276,7 +254,7 @@ describe('SessionStore', () => {
   it('drops a superseded turn refresh after a poll', async () => {
     store.acquire('s1')
     const ws = openSocket()
-    ws.message({ type: 'init', sessionId: 's1', state: snapshotFor('s1'), entries: [] })
+    ws.message({ type: 'init', sessionId: 's1', state: ctlSnapshot('s1'), entries: [] })
     ws.message(eventFrame('s1', 'turn.start', 1, { model: 'm' }))
     ws.message(eventFrame('s1', 'turn.end', 2, { stop: 'end_turn' }))
 
@@ -285,8 +263,8 @@ describe('SessionStore', () => {
     await vi.advanceTimersByTimeAsync(20_000) // the interval poll supersedes it
     expect(replies).toHaveLength(2)
 
-    const fromPoll = { ...snapshotFor('s1'), seq: 99, cwd: '/from-poll' }
-    const fromTurn = { ...snapshotFor('s1'), seq: 99, cwd: '/from-turn' }
+    const fromPoll = { ...ctlSnapshot('s1'), seq: 99, cwd: '/from-poll' }
+    const fromTurn = { ...ctlSnapshot('s1'), seq: 99, cwd: '/from-turn' }
 
     replies[1](Response.json(fromPoll))
     await vi.advanceTimersByTimeAsync(0)
@@ -301,12 +279,12 @@ describe('SessionStore', () => {
   it('applies sequential snapshot replies in order', async () => {
     store.acquire('s1')
     const ws = openSocket()
-    ws.message({ type: 'init', sessionId: 's1', state: snapshotFor('s1'), entries: [] })
+    ws.message({ type: 'init', sessionId: 's1', state: ctlSnapshot('s1'), entries: [] })
 
     const replies = holdFetches()
     await vi.advanceTimersByTimeAsync(20_000) // the interval poll starts and lands
     expect(replies).toHaveLength(1)
-    replies[0](Response.json({ ...snapshotFor('s1'), seq: 5, cwd: '/first' }))
+    replies[0](Response.json({ ...ctlSnapshot('s1'), seq: 5, cwd: '/first' }))
     await vi.advanceTimersByTimeAsync(0)
     expect(store.peek('s1').snapshot.cwd).toBe('/first')
 
@@ -316,7 +294,7 @@ describe('SessionStore', () => {
     ws.message(eventFrame('s1', 'turn.end', 2, { stop: 'end_turn' }))
     await vi.advanceTimersByTimeAsync(200)
     expect(replies).toHaveLength(2)
-    replies[1](Response.json({ ...snapshotFor('s1'), seq: 6, cwd: '/second' }))
+    replies[1](Response.json({ ...ctlSnapshot('s1'), seq: 6, cwd: '/second' }))
     await vi.advanceTimersByTimeAsync(0)
     expect(store.peek('s1').snapshot.cwd).toBe('/second')
   })
@@ -324,7 +302,7 @@ describe('SessionStore', () => {
   it('signals digest changes only on queue-moving transitions', async () => {
     store.acquire('s1')
     const ws = openSocket()
-    ws.message({ type: 'init', sessionId: 's1', state: snapshotFor('s1'), entries: [] })
+    ws.message({ type: 'init', sessionId: 's1', state: ctlSnapshot('s1'), entries: [] })
 
     const changes: string[] = []
     store.onDigestChange(() => changes.push('digest'))
@@ -357,7 +335,7 @@ describe('SessionStore', () => {
   it('drops snapshot reads that raced a session exit', async () => {
     store.acquire('s1')
     const ws = openSocket()
-    ws.message({ type: 'init', sessionId: 's1', state: snapshotFor('s1'), entries: [] })
+    ws.message({ type: 'init', sessionId: 's1', state: ctlSnapshot('s1'), entries: [] })
     ws.message(eventFrame('s1', 'turn.start', 1, { model: 'm' }))
     ws.message(eventFrame('s1', 'status', 2, { spinning: true }))
 
@@ -374,16 +352,99 @@ describe('SessionStore', () => {
 
     // the fleet's final view still carries the busy facts at a fresh stamp
     // landing it must not resurrect them
-    respond(Response.json({ ...snapshotFor('s1'), seq: 3, running: true, spinning: true }))
+    respond(Response.json({ ...ctlSnapshot('s1'), seq: 3, running: true, spinning: true }))
     await vi.advanceTimersByTimeAsync(0)
     expect(store.peek('s1').snapshot.running).toBe(false)
     expect(store.peek('s1').snapshot.spinning).toBe(false)
 
     // the turn-end resnapshot the exit scheduled stays settled too
-    vi.mocked(fetch).mockImplementation(() => Promise.resolve(Response.json(snapshotFor('s1'))))
+    vi.mocked(fetch).mockImplementation(() => Promise.resolve(Response.json(ctlSnapshot('s1'))))
     await vi.advanceTimersByTimeAsync(300)
     expect(store.peek('s1').snapshot.spinning).toBe(false)
     expect(store.peek('s1').exitReason).toBe('sigterm')
+  })
+
+  it('tracks roster sessions and feeds the digest without views', async () => {
+    store.trackAll(['a', 'b'])
+    const ws = openSocket()
+    await vi.advanceTimersByTimeAsync(0)
+
+    const subscribes = () =>
+      sentFrames(ws).filter((f) => (f as { type: string }).type === 'subscribe')
+    expect(subscribes().map((f) => (f as { sessionId: string }).sessionId)).toEqual(['a', 'b'])
+
+    const changes: string[] = []
+    store.onDigestChange(() => changes.push('digest'))
+    ws.message(eventFrame('b', 'interaction.pending', 1, { id: 7, kind: 'confirm', prompt: '?' }))
+    expect(changes).toEqual(['digest'])
+    expect(store.peek('b').snapshot.interactions).toHaveLength(1)
+  })
+
+  it('pins tracked sessions and drops them when the roster moves on', async () => {
+    store.trackAll(['a', 'b'])
+    store.acquire('c')()
+    const ws = openSocket()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(sentFrames(ws)).toHaveLength(3) // tracked and viewed all subscribed
+
+    // roster drops 'a': unreferenced tracked entries unsubscribe entirely
+    store.trackAll(['b', 'c'])
+    const firstOut = sentFrames(ws)
+      .filter((f) => (f as { type: string }).type === 'unsubscribe')
+      .map((f) => (f as { sessionId: string }).sessionId)
+    expect(firstOut).toEqual(['a'])
+
+    // dropping 'c' too releases it despite warm-cap room
+    store.trackAll(['b'])
+    const rest = sentFrames(ws)
+      .filter((f) => (f as { type: string }).type === 'unsubscribe')
+      .map((f) => (f as { sessionId: string }).sessionId)
+    expect(rest).toEqual(['a', 'c'])
+  })
+
+  it('skips snapshot polls for tracked sessions without views', async () => {
+    store.trackAll(['s1'])
+    const ws = openSocket()
+    await vi.advanceTimersByTimeAsync(0)
+    ws.message({ type: 'init', sessionId: 's1', state: ctlSnapshot('s1'), entries: [] })
+
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockClear()
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/s1/snapshot'))).toBe(false)
+
+    // frames still apply for the digest even with no poll running
+    ws.message(eventFrame('s1', 'interaction.pending', 1, { id: 7, kind: 'confirm' }))
+    expect(store.peek('s1').snapshot.interactions).toHaveLength(1)
+  })
+
+  it('resnapshots a tracked session when a view returns', async () => {
+    store.trackAll(['s1'])
+    const ws = openSocket()
+    await vi.advanceTimersByTimeAsync(0)
+    ws.message({ type: 'init', sessionId: 's1', state: ctlSnapshot('s1'), entries: [] })
+
+    const fetchMock = vi.mocked(fetch)
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/s1/snapshot'))).toBe(false)
+
+    const release = store.acquire('s1')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/s1/snapshot'))).toBe(true)
+    release()
+  })
+
+  it('skips the first-view fetch before any init lands', async () => {
+    store.trackAll(['s1'])
+    openSocket()
+    await vi.advanceTimersByTimeAsync(0)
+
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockClear()
+    const release = store.acquire('s1')
+    await vi.advanceTimersByTimeAsync(0)
+    // the init carries everything, no snapshot poll races it
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/s1/snapshot'))).toBe(false)
+    release()
   })
 
   it('unsubscribes everything on dispose', async () => {
@@ -400,7 +461,7 @@ describe('SessionStore', () => {
   it('stops polling sessions that ended for good', async () => {
     store.acquire('s1')
     const ws = openSocket()
-    ws.message({ type: 'init', sessionId: 's1', state: snapshotFor('s1'), entries: [] })
+    ws.message({ type: 'init', sessionId: 's1', state: ctlSnapshot('s1'), entries: [] })
     ws.message({ type: 'child', sessionId: 's1', state: 'exited' })
 
     const fetchMock = vi.mocked(fetch)
@@ -412,7 +473,7 @@ describe('SessionStore', () => {
   it('stops polling sessions that went lost', async () => {
     store.acquire('s1')
     const ws = openSocket()
-    ws.message({ type: 'init', sessionId: 's1', state: snapshotFor('s1'), entries: [] })
+    ws.message({ type: 'init', sessionId: 's1', state: ctlSnapshot('s1'), entries: [] })
     ws.message({ type: 'child', sessionId: 's1', state: 'gone' })
 
     const fetchMock = vi.mocked(fetch)
@@ -422,7 +483,7 @@ describe('SessionStore', () => {
 
     // the child's return lands an init and polling resumes on its own
     ws.message({ type: 'child', sessionId: 's1', state: 'online' })
-    ws.message({ type: 'init', sessionId: 's1', state: snapshotFor('s1'), entries: [] })
+    ws.message({ type: 'init', sessionId: 's1', state: ctlSnapshot('s1'), entries: [] })
     expect(stream.sessionPhase('s1')).toBe('live')
     await vi.advanceTimersByTimeAsync(20_000)
     expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/s1/snapshot'))).toBe(true)
@@ -442,7 +503,12 @@ describe('SessionStore', () => {
     )
     expect(await store.loadOlder('s1')).toEqual({ kind: 'loaded' })
 
-    const url = String(vi.mocked(fetch).mock.calls[0]?.[0])
+    const url = String(
+      vi
+        .mocked(fetch)
+        .mock.calls.map((c) => String(c[0]))
+        .find((u) => u.includes('/entries')),
+    )
     expect(url).toBe('/api/sessions/s1/entries?before=e2&limit=200')
     expect(store.peek('s1').chain.rooted).toBe(true)
     expect(store.peek('s1').chain.oldestId).toBe('e1')

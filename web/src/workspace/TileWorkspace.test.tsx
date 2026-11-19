@@ -9,6 +9,7 @@ import { AuthProvider } from '../providers/auth'
 import { SwarmProvider } from '../providers/swarm'
 import { WorkspaceProvider } from '../providers/workspace'
 import { MockWebSocket } from '../test/mockWebSocket'
+import { ctlSnapshot } from '../test/ctlSnapshot'
 import type { AttentionRow } from '../api/types'
 
 // The tile surface renders the persisted tree as panes with tab strips,
@@ -190,7 +191,7 @@ describe('TileWorkspace', () => {
         }
         if (path === '/api/attention') return Promise.resolve(Response.json(attention))
         const snap = /\/api\/sessions\/([^/]+)\/snapshot/.exec(path)
-        if (snap) return Promise.resolve(Response.json({ session: { id: snap[1] } }))
+        if (snap) return Promise.resolve(Response.json(ctlSnapshot(snap[1])))
         if (path.endsWith('/candidates')) {
           return Promise.resolve(Response.json({ head: '', candidates: [] }))
         }
@@ -396,7 +397,7 @@ describe('TileWorkspace', () => {
         }
         if (path === '/api/attention') return Promise.resolve(Response.json([]))
         const snap = /\/api\/sessions\/([^/]+)\/snapshot/.exec(path)
-        if (snap) return Promise.resolve(Response.json({ session: { id: snap[1] } }))
+        if (snap) return Promise.resolve(Response.json(ctlSnapshot(snap[1])))
         return Promise.resolve(Response.json({}))
       }),
     )

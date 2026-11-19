@@ -10,7 +10,7 @@ import { createNotificationBridge } from './notifications'
 import type { NotificationPermission } from './notifications'
 import { useLayoutProfile } from '../workspace/layoutProfile'
 import type { LayoutProfile, TileLayout, WorkspaceMode } from '../workspace/layoutProfile'
-import { ackBodyFor, deriveItem, rankAttention } from '../workspace/attention'
+import { ackBodyFor, deriveItem, noticeEligible, rankAttention } from '../workspace/attention'
 import type { AttentionItem } from '../workspace/attention'
 
 interface WorkspaceContextValue {
@@ -105,12 +105,17 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       .catch(() => {})
   }, [bridge])
 
-  // The title bar badge and the notification bridge consume the same model:
+  // Notice surfaces dwell-gate their raise per digest commit: the tab title
+  // and the notification bridge stay quiet for dialogs younger than the
+  // dwell, while the rail and in-app badges keep live counts.
+  const notices = useMemo(() => ranked.needs.filter(noticeEligible), [ranked])
+
+  // The title badge and the notification bridge consume the same gated list:
   // the needs-input count is the single source for "something wants you".
   useEffect(() => {
-    document.title =
-      ranked.needsInputCount > 0 ? `(${ranked.needsInputCount}) ajent-swarm` : 'ajent-swarm'
-  }, [ranked.needsInputCount])
+    const count = notices.filter((i) => i.kind === 'needs-input').length
+    document.title = count > 0 ? `(${count}) ajent-swarm` : 'ajent-swarm'
+  }, [notices])
 
   // Notification clicks arrive from the OS tray, outside React's flow: focus
   // the window, then navigate, both shells route /s/:sessionId.
@@ -123,8 +128,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   )
 
   useEffect(
-    () => bridge.publish(ranked.needs, { nameFor, openSession }),
-    [bridge, ranked.needs, nameFor, openSession],
+    () => bridge.publish(notices, { nameFor, openSession }),
+    [bridge, notices, nameFor, openSession],
   )
 
   useEffect(() => {

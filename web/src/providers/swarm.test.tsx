@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { SwarmProvider, useSwarm } from './swarm'
 import { MockWebSocket } from '../test/mockWebSocket'
+import { ctlSnapshot } from '../test/ctlSnapshot'
 import type { AttentionRow, ServerFrame, SessionStatus } from '../api/types'
 import type { SocketState } from '../stream/swarmStream'
 
@@ -11,30 +12,6 @@ import type { SocketState } from '../stream/swarmStream'
 // that moves a session between queues (a dialog opening or settling, a turn
 // boundary) refreshes the digest out of band instead of waiting out the poll
 // cadence the rail would otherwise re-sort behind.
-function snapshotFor(sessionId: string) {
-  const zeroUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0 }
-  return {
-    session: { id: sessionId },
-    workspace: '',
-    cwd: '',
-    head: '',
-    model: {
-      key: '',
-      short: '',
-      window: 0,
-      caps: { reasoning: false, images: false, parallelToolCalls: false },
-    },
-    permission: '',
-    usage: { turns: 0, total: zeroUsage, child: zeroUsage, estimatedTurns: 0 },
-    context: { used: 0, window: 0, reserve: 0, compact: 0, estimated: false },
-    running: false,
-    idle: true,
-    spinning: false,
-    queued: 0,
-    queuedRows: [],
-    seat: { held: false, yours: false },
-  }
-}
 
 // Probe acquires one session so its frames land in the store, like a mounted
 // chat view would, and records the digest consumers read.
@@ -79,7 +56,7 @@ describe('SwarmProvider digest sync', () => {
         }
         if (path === '/api/sessions') return Response.json([])
         const snap = /\/api\/sessions\/([^/]+)\/snapshot/.exec(path)
-        if (snap) return Response.json(snapshotFor(snap[1]))
+        if (snap) return Response.json(ctlSnapshot(snap[1]))
         throw new Error(`unexpected fetch ${path}`)
       }),
     )
@@ -103,7 +80,7 @@ describe('SwarmProvider digest sync', () => {
       </SwarmProvider>,
     )
     const ws = openSocket()
-    ws.message({ type: 'init', sessionId: 's1', state: snapshotFor('s1'), entries: [] })
+    ws.message({ type: 'init', sessionId: 's1', state: ctlSnapshot('s1'), entries: [] })
 
     // mount tick only: no frame has moved anything yet
     expect(attentionFetches).toBe(1)
@@ -143,7 +120,7 @@ describe('SwarmProvider digest sync', () => {
       </SwarmProvider>,
     )
     const ws = openSocket()
-    ws.message({ type: 'init', sessionId: 's1', state: snapshotFor('s1'), entries: [] })
+    ws.message({ type: 'init', sessionId: 's1', state: ctlSnapshot('s1'), entries: [] })
     expect(seenAttention).toEqual([])
 
     ws.message({
@@ -170,7 +147,7 @@ describe('SwarmProvider digest sync', () => {
       </SwarmProvider>,
     )
     const ws = openSocket()
-    ws.message({ type: 'init', sessionId: 's1', state: snapshotFor('s1'), entries: [] })
+    ws.message({ type: 'init', sessionId: 's1', state: ctlSnapshot('s1'), entries: [] })
 
     act(() => {
       ws.message({
@@ -329,6 +306,78 @@ describe('SwarmProvider stale poll guards', () => {
       parkedSessions[0]([])
     })
     expect(latestCtx.sessionsLoaded).toBe(true)
+  })
+})
+
+describe('SwarmProvider roster tracking', () => {
+  // The store tracks every live roster session so attention frames land with
+  // no view mounted. Ended rows carry no actor behind them: subscribing buys
+  // a refusal loop, so tracking keeps to rows that can still serve frames.
+  let roster: SessionStatus[]
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    roster = []
+    MockWebSocket.instances = []
+    vi.stubGlobal('WebSocket', class extends MockWebSocket {})
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string | URL) => {
+        const path = String(url).split('?')[0]
+        if (path === '/api/sessions') return Response.json(roster)
+        if (path === '/api/attention') return Response.json([])
+        throw new Error(`unexpected fetch ${path}`)
+      }),
+    )
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.useRealTimers()
+  })
+
+  function row(id: string, state: SessionStatus['state']): SessionStatus {
+    return {
+      sessionId: id,
+      state,
+      seatHeld: false,
+      seatOurs: false,
+      running: false,
+      idle: true,
+      queued: 0,
+      openInteractions: 0,
+      spawnedBy: 'swarm',
+    }
+  }
+
+  // ids sent for one frame type, in order
+  function sentIds(type: string): string[] {
+    return lastSocket()
+      .sent.map((raw) => JSON.parse(raw) as { type: string; sessionId: string })
+      .filter((f) => f.type === type)
+      .map((f) => f.sessionId)
+  }
+
+  it('tracks only live rows and heals a relaunch of the same id', async () => {
+    roster = [row('live', 'online'), row('dead', 'exited')]
+    render(<SwarmProvider>{null}</SwarmProvider>)
+    const ws = lastSocket()
+    act(() => ws.open())
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0)
+    })
+
+    // the exited row serves no frames, only the live one joins the stream
+    expect(sentIds('subscribe')).toEqual(['live'])
+
+    // the live row exits, the dead one relaunches: tracking follows both, so
+    // the relaunch starts from a fresh subscribe, not a burnt retry budget
+    roster = [row('live', 'exited'), row('dead', 'online')]
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000)
+    })
+    expect(sentIds('unsubscribe')).toEqual(['live'])
+    expect(sentIds('subscribe')).toEqual(['live', 'dead'])
   })
 })
 

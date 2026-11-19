@@ -7,6 +7,8 @@ import {
   deriveItem,
   describeStop,
   headerBadgeOf,
+  noticeDwellMs,
+  noticeEligible,
   rankAttention,
   resetQueueEntries,
   sessionBadgeOf,
@@ -269,6 +271,31 @@ describe('explicit check-off', () => {
     expect(
       ackBodyFor(deriveItem(row({ sessionId: 'sw2', running: true, kind: 'working' }))),
     ).toBeUndefined()
+  })
+})
+
+describe('notice dwell', () => {
+  it('gates needs-input raises by age', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(60_000)
+
+    const young = deriveItem(row({ sessionId: 'nd', kind: 'needs-input', since: 59_000 }))
+    expect(noticeEligible(young)).toBe(false)
+
+    const old = deriveItem(
+      row({ sessionId: 'nd', kind: 'needs-input', since: 60_000 - noticeDwellMs }),
+    )
+    expect(noticeEligible(old)).toBe(true)
+  })
+
+  it('passes other kinds and unstamped rows', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(60_000)
+
+    // review rows never raise the title or tray, so the gate ignores them
+    expect(noticeEligible(deriveItem(row({ sessionId: 'nr', kind: 'needs-review' })))).toBe(true)
+    // an unstamped dialog reads as aged in, the server always stamps one
+    expect(noticeEligible(deriveItem(row({ sessionId: 'nu', kind: 'needs-input' })))).toBe(true)
   })
 })
 

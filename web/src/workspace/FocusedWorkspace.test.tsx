@@ -8,6 +8,7 @@ import { AuthProvider } from '../providers/auth'
 import { SwarmProvider } from '../providers/swarm'
 import { WorkspaceProvider } from '../providers/workspace'
 import { MockWebSocket } from '../test/mockWebSocket'
+import { ctlSnapshot } from '../test/ctlSnapshot'
 import { resetQueueEntries } from './attention'
 import type { AttentionRow } from '../api/types'
 
@@ -79,31 +80,6 @@ function sessionsList() {
   ]
 }
 
-function snapshotFor(sessionId: string) {
-  const zeroUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0 }
-  return {
-    session: { id: sessionId },
-    workspace: '',
-    cwd: '',
-    head: '',
-    model: {
-      key: '',
-      short: '',
-      window: 0,
-      caps: { reasoning: false, images: false, parallelToolCalls: false },
-    },
-    permission: '',
-    usage: { turns: 0, total: zeroUsage, child: zeroUsage, estimatedTurns: 0 },
-    context: { used: 0, window: 0, reserve: 0, compact: 0, estimated: false },
-    running: false,
-    idle: true,
-    spinning: false,
-    queued: 0,
-    queuedRows: [],
-    seat: { held: false, yours: false },
-  }
-}
-
 describe('FocusedWorkspace', () => {
   let sockets: MockWebSocket[]
   let routes: Map<string, (init?: RequestInit) => Response>
@@ -163,7 +139,7 @@ describe('FocusedWorkspace', () => {
           .replace(/^https?:\/\/[^/]+/, '')
           .split('?')[0]
         const snap = /\/api\/sessions\/([^/]+)\/snapshot/.exec(path)
-        if (snap) return Promise.resolve(Response.json(snapshotFor(snap[1])))
+        if (snap) return Promise.resolve(Response.json(ctlSnapshot(snap[1])))
         const respond = routes.get(path)
         if (!respond) throw new Error(`unexpected fetch ${path}`)
         return Promise.resolve(respond(init))
@@ -201,6 +177,13 @@ describe('FocusedWorkspace', () => {
   // data attribute to stay ordered and unambiguous.
   function railRows(): HTMLElement[] {
     return [...rail().querySelectorAll<HTMLElement>('[data-session-id]')]
+  }
+
+  // The hosted session's header label, what "opened in the main pane" means:
+  // every live session keeps a stream subscription now, so frames say nothing
+  // about selection.
+  function mainHeading(): HTMLElement {
+    return document.querySelector('.workspace-main .session-header h1')!
   }
 
   // The stream connects eagerly, opening the socket lets subscriptions fly.
@@ -292,17 +275,11 @@ describe('FocusedWorkspace', () => {
 
     const user = userEvent.setup()
     await user.click(within(rail()).getByText('dialog session'))
-    await waitFor(() => {
-      const opens = sockets[0].sent.map((raw) => JSON.parse(raw))
-      expect(opens).toEqual([{ type: 'subscribe', sessionId: DIALOG }])
-    })
+    await waitFor(() => expect(mainHeading().textContent).toContain('dialog session'))
 
-    // swapping rows keeps the old subscription warm, the new one joins
+    // swapping rows re-hosts the pane; subscriptions stay warm either way
     await user.click(within(rail()).getByText('worker session'))
-    await waitFor(() => {
-      const opens = sockets[0].sent.map((raw) => JSON.parse(raw))
-      expect(opens[1]).toEqual({ type: 'subscribe', sessionId: WORKER })
-    })
+    await waitFor(() => expect(mainHeading().textContent).toContain('worker session'))
     expect(sockets[0].sent.some((raw) => JSON.parse(raw).type === 'unsubscribe')).toBe(false)
   })
 
@@ -348,8 +325,7 @@ describe('FocusedWorkspace', () => {
       expect(screen.queryByLabelText('Mark dialog session reviewed')).not.toBeInTheDocument()
     })
     await waitFor(() => expect(screen.queryByText('allow write access?')).not.toBeInTheDocument())
-    const sent = sockets[0].sent.map((raw) => JSON.parse(raw))
-    expect(sent).not.toContainEqual({ type: 'subscribe', sessionId: DIALOG })
+    expect(screen.getByText('Select a session from the rail.')).toBeInTheDocument()
   })
 
   it('checks off from the keyboard on the button', async () => {
@@ -363,8 +339,7 @@ describe('FocusedWorkspace', () => {
     // the row's own Enter binding stands down for its inner control: the
     // native button acknowledges and nothing opens the session
     await waitFor(() => expect(screen.queryByText('allow write access?')).not.toBeInTheDocument())
-    const sent = sockets[0].sent.map((raw) => JSON.parse(raw))
-    expect(sent).not.toContainEqual({ type: 'subscribe', sessionId: DIALOG })
+    expect(screen.getByText('Select a session from the rail.')).toBeInTheDocument()
   })
 
   it('activates the focused row with Enter and Space', async () => {
@@ -378,20 +353,11 @@ describe('FocusedWorkspace', () => {
     // cursor the workspace Enter binding would answer
     railRows()[1].focus() // dialog row, while the cursor tops on review
     await user.keyboard('{Enter}')
-    await waitFor(() => {
-      const opens = sockets[0].sent.map((raw) => JSON.parse(raw))
-      expect(opens).toEqual([{ type: 'subscribe', sessionId: DIALOG }])
-    })
+    await waitFor(() => expect(mainHeading().textContent).toContain('dialog session'))
 
     railRows()[0].focus()
     await user.keyboard(' ') // Space activates like a native button
-    await waitFor(() => {
-      const opens = sockets[0].sent.map((raw) => JSON.parse(raw))
-      expect(opens).toEqual([
-        { type: 'subscribe', sessionId: DIALOG },
-        { type: 'subscribe', sessionId: REVIEW },
-      ])
-    })
+    await waitFor(() => expect(mainHeading().textContent).toContain('review session'))
   })
 
   it('drives the queue with the keyboard: j, k, Enter and r', async () => {
@@ -403,10 +369,7 @@ describe('FocusedWorkspace', () => {
     await user.keyboard('k') // back to the review row
     await user.keyboard('{Enter}') // open the review row
 
-    await waitFor(() => {
-      const opens = sockets[0].sent.map((raw) => JSON.parse(raw))
-      expect(opens).toEqual([{ type: 'subscribe', sessionId: REVIEW }])
-    })
+    await waitFor(() => expect(mainHeading().textContent).toContain('review session'))
 
     await user.keyboard('r') // mark reviewed: the reason leaves the queue
     await waitFor(() => expect(screen.queryByText('turn complete')).not.toBeInTheDocument())

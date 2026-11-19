@@ -7,6 +7,11 @@
 // the focus queue or re-tiling is instant and a resnapshot only happens on real
 // reconnects. Multiple views of one session share one store entry, one
 // subscription and one AppliedSessionState.
+//
+// The provider also tracks every live roster session: tracked entries keep
+// their subscription with no view mounted so attention frames still land for
+// the digest refresh. Tracked entries skip snapshot polls and survive warm
+// eviction until the roster drops them.
 import { applierReducer, initialSessionState } from '../state/eventApplier'
 import type { ApplierAction, AppliedSessionState } from '../state/eventApplier'
 import { describeError } from '../api/errors'
@@ -28,6 +33,7 @@ export type LoadOlderResult =
 interface StoreEntry {
   state: AppliedSessionState
   refs: number
+  pinned: boolean // roster-tracked: survives warm eviction, skips snapshot polls
   listeners: Set<() => void>
   unsub: (() => void) | null // frames subscription while the entry exists
   pollTimer: ReturnType<typeof setInterval> | null
@@ -50,7 +56,11 @@ export class SessionStore {
   // acquire registers one mounted view, the returned release is idempotent.
   acquire(sessionId: string): () => void {
     const entry = this.ensureEntry(sessionId)
+    const idle = entry.refs === 0
     entry.refs += 1
+    // refresh stale poll-only facts on re-view; a never-initialized entry
+    // skips the fetch, its init carries everything
+    if (idle && entry.initTick > 0) void this.resnapshot(sessionId)
     this.entries.delete(sessionId) // re-insert: most recently used first
     this.entries.set(sessionId, entry)
     let released = false
@@ -70,6 +80,23 @@ export class SessionStore {
   // stable identity between actions, what useSyncExternalStore needs
   peek(sessionId: string): AppliedSessionState {
     return this.entries.get(sessionId)?.state ?? emptyState
+  }
+
+  // trackAll pins one entry per live roster session so its frames keep
+  // flowing for the attention digest with no view mounted. Sessions that left
+  // the roster unpin; unreferenced ones drop their subscription entirely.
+  trackAll(sessionIds: readonly string[]): void {
+    const wanted = new Set(sessionIds)
+    for (const id of wanted) this.ensureEntry(id).pinned = true
+    for (const [id, entry] of [...this.entries]) {
+      if (!wanted.has(id)) {
+        entry.pinned = false
+        if (entry.refs === 0 && entry.listeners.size === 0) {
+          this.dropEntry(entry)
+          this.entries.delete(id)
+        }
+      }
+    }
   }
 
   // onDigestChange observes attention-relevant state changes across every
@@ -125,6 +152,7 @@ export class SessionStore {
     entry = {
       state: initialSessionState(),
       refs: 0,
+      pinned: false,
       listeners: new Set(),
       unsub: null,
       pollTimer: null,
@@ -152,8 +180,8 @@ export class SessionStore {
     if (!entry) return
     entry.refs = Math.max(0, entry.refs - 1)
     if (entry.refs > 0) return
-    // Keep recent sessions warm, evict the coldest unreferenced ones beyond cap.
-    const warm = [...this.entries].filter(([, e]) => e.refs === 0)
+    // Keep recent sessions warm, evicting the coldest; tracked entries are pinned.
+    const warm = [...this.entries].filter(([, e]) => e.refs === 0 && !e.pinned)
     const excess = Math.max(0, warm.length - maxWarm)
     for (const [id, cold] of warm.slice(0, excess)) {
       this.dropEntry(cold)
@@ -205,7 +233,8 @@ export class SessionStore {
   // that raced a stream rebuild drops: init replaced state wholesale, so the
   // response predates what the client now holds. A reply a newer request
   // superseded drops too: poll-only facts carry no stamp, so an older slow
-  // read must never land last over fresher state.
+  // read must never land last over fresher state. Tracked-only entries skip:
+  // snapshots serve views.
   private async resnapshot(sessionId: string): Promise<void> {
     if (this.disposed) return
     if (document.visibilityState === 'hidden') return
@@ -213,6 +242,7 @@ export class SessionStore {
     if (phase === 'ended' || phase === 'lost') return
     const entry = this.entries.get(sessionId)
     if (!entry) return
+    if (entry.refs === 0) return // snapshots serve views, tracked entries ride events
     const initTick = entry.initTick
     const snapTick = ++entry.snapTick
     try {

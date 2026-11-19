@@ -125,11 +125,19 @@ routes, wire types) → `state/` → `ui/` → `workspace/` and `jobs/` → `mob
   plus `SessionStore`, polling, theme), workspace (attention model, title-bar badge,
   notifications). `stream/swarmStream.ts` is the single multiplexed WebSocket:
   reference-counted subscriptions, heartbeat watchdog, backoff, resync on tab visibility.
+  The store tracks every live roster session: tracked entries keep their subscription with
+  no view mounted (so dialog and turn-end frames refresh the digest even unviewed, and a
+  hidden tab clears its notice off events instead of waiting out throttled timers) but
+  skip snapshot polling, which serves views only.
 - `workspace/attention.ts` is the one attention model, consumed by the desktop rail, tile
   badges, notifications, and the mobile switcher. Kinds, reasons and waits arrive derived
   on the `/api/attention` digest against the server-side acknowledgment ledger
   (`POST /api/attention/ack`), so every device renders one attention state; only queue-entry
-  stamping stays client-side. Cross-surface agreements are shared, never copied: attention
+  stamping stays client-side. Notice surfaces (the tab title and desktop notifications)
+  dwell-gate their raise against the digest's `since` stamp: a dialog announces only after
+  staying open past `noticeDwellMs`, and because age only grows, a raised notice holds
+  until the dialog settles or is acknowledged. In-app surfaces (rail, badges) stay live.
+  Cross-surface agreements are shared, never copied: attention
   ordering, model menus, `phaseText` for transient phases, `names.ts` display names, and the
   tools widen-only derivation.
 - `ui/overlayStack.ts` is the one overlay layer order behind ModalShell, MenuPopover and

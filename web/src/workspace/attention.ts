@@ -75,6 +75,21 @@ export function submitTurnEnd(item: AttentionItem | undefined): number {
   return item?.turnEnd ?? Date.now()
 }
 
+// --- notice dwell ---
+
+// Notice surfaces (the tab title and desktop notifications) wait out this
+// dwell before raising a dialog, so prompts auto-resolved within seconds
+// never announce. Age reads the server's since stamp and only grows, so a
+// raised dialog stays raised until it settles or is acknowledged.
+export const noticeDwellMs = 5_000
+
+// noticeEligible gates one item's raise, evaluated per digest commit. Kinds
+// other than needs-input always pass, in-app surfaces stay unfiltered.
+export function noticeEligible(item: AttentionItem): boolean {
+  if (item.kind !== 'needs-input') return true
+  return Date.now() - (item.since ?? 0) >= noticeDwellMs
+}
+
 // --- badge states ---
 
 // SessionBadge is one live session's at-a-glance badge state. The switcher

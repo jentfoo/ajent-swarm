@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { WorkspaceProvider, useWorkspace } from './workspace'
 import { AuthProvider } from './auth'
-import { SwarmProvider } from './swarm'
+import { SwarmProvider, useSwarm } from './swarm'
 import type { AttentionRow } from '../api/types'
 
 // The acknowledgment wiring at the wire boundary: a dialog acknowledgment
@@ -149,5 +149,102 @@ describe('WorkspaceProvider acknowledgments', () => {
     await vi.waitFor(() => {
       expect(ackBodies).toEqual(['{"sessionId":"ended","dialogId":5}'])
     })
+  })
+})
+
+// NoticeProbe hands the digest refresh over and records the in-app count,
+// which stays live while the tab title dwells.
+let refreshDigest: () => Promise<void> = () => Promise.resolve()
+let liveCounts: number[] = []
+
+function NoticeProbe() {
+  const { refreshAttention } = useSwarm()
+  const { needsInputCount } = useWorkspace()
+  useEffect(() => {
+    refreshDigest = refreshAttention
+  }, [refreshAttention])
+  liveCounts.push(needsInputCount)
+  return null
+}
+
+describe('WorkspaceProvider notice dwell', () => {
+  let attention: AttentionRow[]
+
+  beforeEach(() => {
+    liveCounts = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string | URL) => {
+        const path = String(url).split('?')[0]
+        if (path === '/api/me') return Response.json({ username: 'you', via: 'cookie' })
+        if (path === '/api/sessions') return Response.json([])
+        if (path === '/api/attention') return Response.json(attention)
+        throw new Error(`unexpected fetch ${path}`)
+      }),
+    )
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  async function renderNotices() {
+    render(
+      <MemoryRouter>
+        <AuthProvider>
+          <SwarmProvider>
+            <WorkspaceProvider>
+              <NoticeProbe />
+            </WorkspaceProvider>
+          </SwarmProvider>
+        </AuthProvider>
+      </MemoryRouter>,
+    )
+    await act(async () => {})
+  }
+
+  function dialog(since: number): AttentionRow {
+    return digestRow({
+      sessionId: 's1',
+      openInteractions: 1,
+      kind: 'needs-input',
+      reason: 'allow write?',
+      dialogId: 3,
+      since,
+    })
+  }
+
+  it('delays the tab notice while in-app counts stay live', async () => {
+    attention = [dialog(Date.now() - 1_000)]
+    await renderNotices()
+
+    // the dialog is one second old: the tab stays quiet, the rail counts it
+    expect(document.title).toBe('ajent-swarm')
+    expect(liveCounts.at(-1)).toBe(1)
+
+    // the same digest read seconds later raises the tab notice
+    attention = [dialog(Date.now() - 10_000)]
+    await act(async () => {
+      await refreshDigest()
+    })
+    expect(document.title).toBe('(1) ajent-swarm')
+
+    // a further digest keeps it raised while the dialog stays open
+    await act(async () => {
+      await refreshDigest()
+    })
+    expect(document.title).toBe('(1) ajent-swarm')
+  })
+
+  it('drops the tab notice once the dialog settles', async () => {
+    attention = [dialog(Date.now() - 10_000)]
+    await renderNotices()
+    expect(document.title).toBe('(1) ajent-swarm')
+
+    attention = [digestRow({ sessionId: 's1', kind: 'awaiting' })]
+    await act(async () => {
+      await refreshDigest()
+    })
+    expect(document.title).toBe('ajent-swarm')
   })
 })

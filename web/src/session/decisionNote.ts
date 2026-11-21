@@ -11,6 +11,7 @@ import type { InteractionPending, ResolveAnswer } from '../api/types'
 const allowNoteOptionMarker = 'allow with note'
 const denyOptionMarker = 'deny'
 const sessionOptionMarker = 'for session'
+const modeSwitchOptionMarker = 'switch to auto+write'
 const denyAskMarker = 'for denying'
 const allowAskMarker = 'for allowing'
 
@@ -59,6 +60,12 @@ function sessionAllowOption(label: string): boolean {
   return label.toLowerCase().includes(sessionOptionMarker)
 }
 
+// modeSwitchOption reports whether the label is ajent's auto+write jump, which
+// lifts the gate on answer, consulting no note.
+function modeSwitchOption(label: string): boolean {
+  return label.toLowerCase().includes(modeSwitchOptionMarker)
+}
+
 // PermitChoice is one rendered option button on a permit card: its label and
 // the dialog answer position it resolves.
 interface PermitChoice {
@@ -85,7 +92,8 @@ interface PermitAnswer {
 // pickPermitOption maps a picked permit option to its answer. A typed note
 // rides Allow and Deny picks: plain Allow answers as the hidden "Allow with
 // note" choice so the barrier's note ask auto-resolves, while session allows
-// answer unchanged because ajent never consults a note for them.
+// and the auto+write jump answer unchanged because ajent never consults a note
+// for them.
 export function pickPermitOption(
   options: readonly string[],
   picked: number,
@@ -95,7 +103,14 @@ export function pickPermitOption(
   if (denyAskOption(label)) return { index: picked, deny: true }
   if (allowNoteOption(label)) return { index: picked, deny: false } // defensive, hidden through the UI
   const noteIdx = options.findIndex(allowNoteOption)
-  if (note.trim() === '' || noteIdx < 0 || sessionAllowOption(label)) return { index: picked }
+  if (
+    note.trim() === '' ||
+    noteIdx < 0 ||
+    sessionAllowOption(label) ||
+    modeSwitchOption(label)
+  ) {
+    return { index: picked }
+  }
   return { index: noteIdx, deny: false } // a typed note turns Allow into allow-with-note
 }
 

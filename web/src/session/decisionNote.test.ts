@@ -26,6 +26,11 @@ describe('isPermitDialog', () => {
       want: true,
     },
     {
+      name: 'matches with the mode switch option',
+      options: ['Allow', 'Allow with note', 'Switch to auto+write and allow', 'Deny'],
+      want: true,
+    },
+    {
       name: 'matches case insensitively',
       options: ['ALLOW WITH NOTE', 'deny'],
       want: true,
@@ -60,6 +65,13 @@ describe('reasonAskDeny', () => {
 
 const plainPermit = ['Allow', 'Allow with note', 'Deny']
 const sessionPermit = ['Allow', 'Allow with note', 'Allow `rm` for session', 'Deny']
+const switchPermit = [
+  'Allow',
+  'Allow with note',
+  'Switch to auto+write and allow',
+  'Allow `rm` for session',
+  'Deny',
+]
 
 describe('permitChoices', () => {
   it('hides allow-with-note keeping answer indexes', () => {
@@ -74,6 +86,15 @@ describe('permitChoices', () => {
       { label: 'Allow', index: 0 },
       { label: 'Allow `rm` for session', index: 2 },
       { label: 'Deny', index: 3 },
+    ])
+  })
+
+  it('keeps the mode switch option in place', () => {
+    expect(permitChoices(switchPermit)).toEqual([
+      { label: 'Allow', index: 0 },
+      { label: 'Switch to auto+write and allow', index: 2 },
+      { label: 'Allow `rm` for session', index: 3 },
+      { label: 'Deny', index: 4 },
     ])
   })
 
@@ -103,6 +124,14 @@ describe('pickPermitOption', () => {
 
   it('session allow ignores a typed note', () => {
     expect(pickPermitOption(sessionPermit, 2, 'one off')).toEqual({ index: 2 })
+  })
+
+  it('mode switch ignores a typed note', () => {
+    expect(pickPermitOption(switchPermit, 2, 'only inside build/')).toEqual({ index: 2 })
+  })
+
+  it('bare mode switch answers as-is', () => {
+    expect(pickPermitOption(switchPermit, 2, '')).toEqual({ index: 2 })
   })
 
   it('answers plainly without an allow-with-note option', () => {

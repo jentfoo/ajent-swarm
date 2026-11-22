@@ -236,9 +236,12 @@ textarea {
   border-radius: var(--radius);
   padding: calc(var(--unit) * 1.5) calc(var(--unit) * 2);
 }
+/* focus tints the control's own border, no stacked outline ring over it */
 input:focus,
-select:focus {
-  outline: 1px solid var(--accent);
+select:focus,
+textarea:focus {
+  border-color: var(--accent);
+  outline: none;
 }
 
 /* touch keyboards auto-zoom any focused control under 16px, so coarse

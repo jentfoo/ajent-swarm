@@ -292,6 +292,41 @@ describe('buildSwitcherRows', () => {
     )
   })
 
+  it('moves chained rows into working below the session they wait behind', () => {
+    const chained = (sessionId: string, parent: string): AttentionItem => ({
+      ...item('awaiting'),
+      sessionId,
+      chainedOn: parent,
+      chainedOnId: 'chn_1',
+    })
+    const attentionItems = [
+      { ...item('working'), sessionId: 'parent', running: true },
+      chained('child', 'parent'),
+      chained('orphan', 'gone-parent'),
+      { ...item('working'), sessionId: 'other', running: true },
+      { ...item('awaiting'), sessionId: 'free-idle' },
+    ]
+    const rows = buildSwitcherRows(
+      attentionItems.map((i) => session({ sessionId: i.sessionId })),
+      labelFor,
+      attentionItems,
+    )
+
+    // the child ranks working with the chained badge and carries its parent
+    const child = rows.find((r) => r.sessionId === 'child')!
+    expect(child.section).toBe('working')
+    expect(child.status).toBe('chained')
+    expect(child.chainedOn).toBe('parent')
+    // the idle parent stays waiting, the orphan child keeps its ranked spot
+    expect(rows.find((r) => r.sessionId === 'free-idle')!.section).toBe('waiting')
+
+    // the Working group anchors the child directly below its parent; the
+    // other rows keep their ranked order (all entries tie here, so the
+    // session-id tiebreak places them)
+    const working = groupSwitcherRows(rows).find((g) => g.section === 'working')!
+    expect(working.rows.map((r) => r.sessionId)).toEqual(['orphan', 'other', 'parent', 'child'])
+  })
+
   it('carries the listing queue depth onto rows', () => {
     const rows = buildSwitcherRows(
       [

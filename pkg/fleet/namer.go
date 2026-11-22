@@ -19,8 +19,7 @@ import (
 // names this way, terminal-started ones included, but an existing stored
 // title wins. Titling is best effort and never retried.
 const (
-	namerWait      = 2 * time.Minute // one-shot budget: model latency dominates
-	namerPromptMax = 2000            // runes of the start prompt shown to the namer
+	namerPromptMax = 2000 // runes of the start prompt shown to the namer
 
 	titleSystem = "You name coding agent sessions. Answer with a short human-readable" +
 		" title of at most five words and nothing else. No explanation, no quotes."
@@ -29,6 +28,10 @@ const (
 	// the store's own cap is wider and clips after us anyway.
 	maxTitleLabelRunes = 48
 )
+
+// namerWait is one labeler attempt's budget: model latency dominates. A var
+// so tests can shrink it.
+var namerWait = 2 * time.Minute
 
 // maybeNameSession schedules the one titling attempt for an unnamed session
 // that just committed its first typed prompt. Terminal-started sessions name
@@ -69,16 +72,14 @@ func (m *Manager) maybeNameSessionFrom(a *sessionActor, prompt string) {
 
 // autoName runs the labeler and stores its answer as the session's display
 // title. The session's control connection is never touched: ajent names stay
-// clean for resume.
+// clean for resume. The run rides the manager context, so a stopping manager
+// cancels it instead of waiting out its budget.
 func (m *Manager) autoName(sessionID, startPrompt string) error {
-	ctx, cancel := context.WithTimeout(m.storeCtx, namerWait)
-	defer cancel()
-
-	title, err := m.sessionTitleFor(ctx, startPrompt)
+	title, err := m.sessionTitleFor(m.ctx, startPrompt)
 	if err != nil {
 		return err
 	}
-	if err := m.SetTitle(ctx, sessionID, clipRunes(title, maxTitleLabelRunes)); err != nil {
+	if err := m.SetTitle(m.ctx, sessionID, clipRunes(title, maxTitleLabelRunes)); err != nil {
 		return fmt.Errorf("title not stored: %w", err)
 	}
 	m.log.Info("session titled from its first prompt", "session", sessionID, "title", title)
@@ -133,16 +134,27 @@ func removeScratchTranscript(dir string) {
 }
 
 // runNamer executes one one-shot ajent run and sanitizes its answer, model
-// selects the labeler's model, empty meaning ajent's own default.
+// selects the labeler's model, empty meaning ajent's own default. Every
+// attempt carries its own budget, so the fallback after a failed titling
+// model never inherits a spent deadline.
 func runNamer(ctx context.Context, bin, dir, prompt, model string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, namerWait)
+	defer cancel()
 	args := []string{"-p", prompt, "--system", titleSystem, "--no-tools"}
 	if model != "" {
 		args = append(args, "--model", model)
 	}
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Dir = dir
+	// a five-word label needs no reasoning, only latency: the env layer
+	// overrides any reasoning.level the operator's config or environment sets
+	cmd.Env = append(os.Environ(), "AJENT_REASONING_LEVEL=off")
 	out, err := cmd.Output()
 	if err != nil {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) && len(ee.Stderr) > 0 {
+			return "", fmt.Errorf("namer run: %w: %s", err, digestText(string(ee.Stderr)))
+		}
 		return "", fmt.Errorf("namer run: %w", err)
 	}
 	title := sanitizeSessionTitle(string(out))

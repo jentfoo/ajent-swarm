@@ -5,6 +5,7 @@
 // always, plus every exit inside the recent window however many ran.
 import { childEnded, type SessionStatus } from '../api/types'
 import {
+  anchorChained,
   attentionQueue,
   attentionSectionTitles,
   compareAttention,
@@ -43,6 +44,7 @@ export interface SwitcherRow {
   checkOff: boolean // a row that may be acknowledged; waiting rows refuse
   workspace?: string // carried from the listing, the resume target directory
   exitedAt?: number // unix milliseconds, ended sessions
+  chainedOn?: string // the session this row waits behind, drives Working anchoring
 }
 
 // GroupedSwitcherRows is one rendered queue: its id keys and styles the
@@ -94,6 +96,7 @@ export function buildSwitcherRows(
       kind: item?.kind,
       since: item?.since,
       queuedAt: item?.queuedAt,
+      chainedOn: item?.chainedOn,
     }
     alive.push({
       ...entry,
@@ -109,6 +112,7 @@ export function buildSwitcherRows(
         queued: s.queued,
         workspace: s.workspace,
         checkOff: item !== undefined && isActionable(item.kind),
+        chainedOn: item?.chainedOn,
       },
     })
   }
@@ -146,13 +150,20 @@ export function switcherRoute(row: SwitcherRow): string {
 
 // groupSwitcherRows slices rows into rail-ordered queues for rendering,
 // keeping each queue's incoming order rather than re-sorting, so mobile and
-// desktop can never disagree. Empty queues drop out and the ended tail
-// keeps its window rule even when a producer skips it.
+// desktop can never disagree. The Working queue anchors chained rows below
+// the session they wait behind, the same shared rule the desktop rail reads.
+// Empty queues drop out and the ended tail keeps its window rule even when a
+// producer skips it.
 export function groupSwitcherRows(rows: readonly SwitcherRow[]): GroupedSwitcherRows[] {
   return sectionOrder.flatMap((section): GroupedSwitcherRows[] => {
     const matched = rows.filter((r) => r.section === section)
     // the render path enforces the ended window even when a producer skips it
-    const sectionRows = section === 'ended' ? capEnded(matched) : matched
+    const sectionRows =
+      section === 'ended'
+        ? capEnded(matched)
+        : section === 'working'
+          ? anchorChained(matched)
+          : matched
     if (sectionRows.length === 0) return []
     // only the ended tail is switcher-specific, alive headings read the
     // shared queue titles so the launcher cannot drift from the desktop rail

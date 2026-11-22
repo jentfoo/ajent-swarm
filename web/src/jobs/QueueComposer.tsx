@@ -11,7 +11,7 @@ import { FieldError, JobFactsFields } from './JobFactsFields'
 import { ModalCancelButton, ModalShell } from '../ui/ModalShell'
 
 // QueueComposer is the short form behind the Queue action: one prompt parked
-// until no session has been active for ten minutes, then run once in a fresh
+// until its provider has been quiet for a minute, then run once in a fresh
 // session that stays open for review. Launch facts render through the block
 // the job editor shares, the fixed policy reads as quiet text since the
 // server owns it.
@@ -108,7 +108,7 @@ export function QueueComposer({
         <TriggerCommandFields draft={draft} patch={patch} errors={errors} label="Pre-run command" />
 
         <p className="muted small-note">
-          Runs in a new session once no session has been active for 10 minutes; the session stays
+          Runs in a new session once its provider has been quiet for a minute; the session stays
           open afterwards. Delete the row to cancel while it waits.
         </p>
 

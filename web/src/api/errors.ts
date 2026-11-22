@@ -56,6 +56,13 @@ const errorCopy: Record<string, ErrorCopy> = {
   'not-found': detailOr('Not found.'),
   session_not_found: 'This session is no longer running.',
   job_not_found: 'This job no longer exists.',
+  chain_invalid: 'The chain fields are invalid. Check the prompts and try again.',
+  chain_conflict: detailOr(
+    'The chain conflicts with another chain or is past its edit point. Reload and try again.',
+  ),
+  chain_parent_gone: 'The parent session is no longer running, so its final prompt cannot run.',
+  chain_not_found: 'This chain no longer exists.',
+  too_many_chains: 'Too many live chains. Cancel one before chaining another.',
   conflict: detailOr('The change conflicts with what is saved. Reload and try again.'),
   name_taken: 'That name is already taken.',
   unavailable: detailOr('The session is not available right now.'),

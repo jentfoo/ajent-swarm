@@ -1,23 +1,54 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { useNavigate } from 'react-router'
 
-import { fleet } from '../api/endpoints'
-import type { AttentionAck } from '../api/types'
+import { chainsApi, fleet } from '../api/endpoints'
+import type { AttentionAck, Chain } from '../api/types'
 import { useSessionNamer } from '../session/useSessionLabel'
 import { useSwarm } from './swarm'
 import { createNotificationBridge } from './notifications'
 import type { NotificationPermission } from './notifications'
 import { useLayoutProfile } from '../workspace/layoutProfile'
 import type { LayoutProfile, TileLayout, WorkspaceMode } from '../workspace/layoutProfile'
-import { ackBodyFor, deriveItem, noticeEligible, rankAttention } from '../workspace/attention'
+import {
+  ackBodyFor,
+  deriveItem,
+  failedChainOf,
+  noticeEligible,
+  rankAttention,
+} from '../workspace/attention'
 import type { AttentionItem } from '../workspace/attention'
+
+// ChainDraft opens the chain dialog: the two sessions plus, on edit, the
+// record the strip prefills from.
+export interface ChainDraft {
+  parentId: string
+  childId: string
+  chain?: Chain
+}
+
+// QueueDraft opens the follow-up form: the parent exists, the child session
+// launches at submit with the typed start prompt as its handoff line.
+export interface QueueDraft {
+  parentId: string
+}
 
 interface WorkspaceContextValue {
   profile: LayoutProfile
   setMode: (mode: WorkspaceMode) => void
   selectFocusedSession: (sessionId: string | undefined) => void
   setTileLayout: (tile: TileLayout) => void
+
+  // The chain dialog's open state beside the chain records the workspace
+  // holds: the list backs every strip's edit affordance on any device, the
+  // digest's per-role chain ids name the records to load.
+  chainDraft: ChainDraft | null
+  setChainDraft: (draft: ChainDraft | null) => void
+  queueDraft: QueueDraft | null
+  setQueueDraft: (draft: QueueDraft | null) => void
+  rememberChain: (chain: Chain) => void
+  chainById: (id: string) => Chain | undefined
+  refreshChain: (id: string) => Promise<Chain | undefined>
 
   // One derived attention model, consumed by both modes and the badge.
   needs: AttentionItem[] // dialogs and unreviewed completions by oldest wait
@@ -51,9 +82,74 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const navigate = useNavigate()
   const [bridge] = useState(() => createNotificationBridge())
   const [permission, setPermission] = useState(bridge.permission())
+  const [chainDraft, setChainDraft] = useState<ChainDraft | null>(null)
+  const [queueDraft, setQueueDraft] = useState<QueueDraft | null>(null)
+  const [chainRecords, setChainRecords] = useState<Map<string, Chain>>(new Map())
+
+  const rememberChain = useCallback((chain: Chain) => {
+    setChainRecords((prev) => new Map(prev).set(chain.id, chain))
+  }, [])
+
+  // chainById reads one held record, the digest's per-role chain ids name them
+  const chainById = useCallback((id: string) => chainRecords.get(id), [chainRecords])
+
+  // refreshChain re-reads one record, so an edit opens from current state
+  // instead of a snapshot another device or an earlier digest may hold
+  const refreshChain = useCallback(
+    async (id: string): Promise<Chain | undefined> => {
+      try {
+        const chain = await chainsApi.get(id)
+        rememberChain(chain)
+        return chain
+      } catch {
+        return undefined
+      }
+    },
+    [rememberChain],
+  )
 
   const items = useMemo(() => attention.map(deriveItem), [attention])
   const ranked = useMemo(() => rankAttention(items), [items])
+
+  // chain ids the digest currently badges, the wanted set that drives list
+  // fetches: one request per new id, settled chains stop mattering once the
+  // digest drops their fold
+  const wantedChains = useMemo(() => {
+    const ids = new Set<string>()
+    for (const item of items) {
+      if (item.chainedOnId !== undefined) ids.add(item.chainedOnId)
+      if (item.deliveringId !== undefined) ids.add(item.deliveringId)
+    }
+    return ids
+  }, [items])
+
+  // ids one list fetch already covered, so an absent or failed row never
+  // re-triggers the request on every digest commit
+  const attemptedChains = useRef(new Set<string>())
+
+  useEffect(() => {
+    const missing: string[] = []
+    for (const id of wantedChains) {
+      if (!chainRecords.has(id) && !attemptedChains.current.has(id)) missing.push(id)
+    }
+    if (missing.length === 0) return
+    for (const id of missing) attemptedChains.current.add(id)
+    let alive = true
+    chainsApi
+      .list()
+      .then((rows) => {
+        if (!alive) return
+        setChainRecords((prev) => {
+          const next = new Map(prev)
+          for (const ch of rows) next.set(ch.id, ch)
+          return next
+        })
+      })
+      .catch(() => {}) // best effort, a later wanted id refetches the list
+    return () => {
+      alive = false
+    }
+  }, [wantedChains, chainRecords])
 
   const itemFor = useCallback(
     (sessionId: string) => items.find((i) => i.sessionId === sessionId),
@@ -132,6 +228,30 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     [bridge, notices, nameFor, openSession],
   )
 
+  // One failed chain announces once per failure: the digest's fresh failure
+  // line is the trigger, the notice names both sessions and its click opens
+  // the child, the session left without its handoff. The bridge's keyed
+  // raise is the same one-shot guard the dialog notices use; it skips the
+  // dialog dwell gate deliberately, a failure is terminal and cannot flap.
+  const failedChains = useMemo(
+    () =>
+      items.flatMap((item) => {
+        const failed = failedChainOf(item)
+        return failed === undefined ? [] : [failed]
+      }),
+    [items],
+  )
+  useEffect(() => {
+    for (const failed of failedChains) {
+      bridge.raiseOnce(`chain:${failed.chainId}`, {
+        title: `Chain into ${nameFor(failed.childId)} failed`,
+        body: `${nameFor(failed.parentId)} → ${nameFor(failed.childId)}: ${failed.reason}`,
+        tag: `chain-${failed.chainId}`,
+        onclick: () => openSession(failed.childId),
+      })
+    }
+  }, [bridge, failedChains, nameFor, openSession])
+
   useEffect(() => {
     const onVisible = () => {
       if (document.visibilityState === 'visible') bridge.dismissAll()
@@ -146,6 +266,13 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       setMode,
       selectFocusedSession,
       setTileLayout,
+      chainDraft,
+      setChainDraft,
+      queueDraft,
+      setQueueDraft,
+      rememberChain,
+      chainById,
+      refreshChain,
       needs: ranked.needs,
       waiting: ranked.waiting,
       working: ranked.working,
@@ -162,6 +289,13 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       setMode,
       selectFocusedSession,
       setTileLayout,
+      chainDraft,
+      setChainDraft,
+      queueDraft,
+      setQueueDraft,
+      rememberChain,
+      chainById,
+      refreshChain,
       ranked,
       itemFor,
       acknowledgeDialog,

@@ -1,10 +1,12 @@
-import { del, get, post, postForm, put } from './client'
+import { del, get, patch, post, postForm, put } from './client'
 import type {
   AgentsListResult,
   AgentsStopResult,
   AttachmentReply,
   AttentionAck,
   AttentionRow,
+  Chain,
+  ChainRequest,
   CtlState,
   EntriesPage,
   FilesReply,
@@ -100,6 +102,10 @@ export const sessions = {
   queue: (id: string, line: string, pendingId?: string) =>
     post<SubmitReply>(withID(id, '/queue'), { line, pendingId }),
   queueRecall: (id: string) => post<QueueRecallRow>(withID(id, '/queue/recall')),
+  // chain queues another session behind this one; only a final prompt's
+  // answer rides the child's line, the child itself starts once the parent is
+  // free of running turns and open dialogs
+  chain: (id: string, req: ChainRequest) => post<Chain>(withID(id, '/chain'), req),
   interrupt: (id: string) => post<{ stopped?: string }>(withID(id, '/interrupt')),
   // mode jumps straight to a named level, upstream's cycle stays server-side
   setMode: (id: string, mode: string) => post<ModeReply>(withID(id, '/mode'), { mode }),
@@ -170,4 +176,15 @@ export const runsApi = {
     if (jobId !== undefined) params.set('job', String(jobId))
     return get<Run[]>(`/api/runs?${params}`, { signal })
   },
+}
+
+// Session chains: the listing backs edit affordances on any device, edit
+// rewrites the prompts while the chain still waits, cancel stops it before
+// delivery.
+export const chainsApi = {
+  list: (signal?: AbortSignal) => get<Chain[]>('/api/chains', { signal }),
+  get: (id: string) => get<Chain>(`/api/chains/${encodeURIComponent(id)}`),
+  update: (id: string, req: Pick<ChainRequest, 'finalPrompt' | 'childPrompt'>) =>
+    patch<Chain>(`/api/chains/${encodeURIComponent(id)}`, req),
+  cancel: (id: string) => del<void>(`/api/chains/${encodeURIComponent(id)}`),
 }

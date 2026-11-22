@@ -7,7 +7,9 @@ import { useSessionChannel } from '../hooks/useSessionChannel'
 import { useWorkspace } from '../providers/workspace'
 import { sessionBusy } from '../state/eventApplier'
 import { submitTurnEnd } from '../workspace/attention'
+import { useSessionNamer } from '../session/useSessionLabel'
 import { Composer } from '../session/Composer'
+import { ChainStrip } from '../session/ChainStrip'
 import { endedBanner, PhaseBanner } from '../session/phases'
 import { DialogDock } from '../session/DialogDock'
 import { Notices } from '../session/Notices'
@@ -51,7 +53,8 @@ export default function SessionView({
 // session swap a remount, so local state never outlives its session.
 function SessionSurface({ sessionId, focused }: { sessionId: string; focused: boolean }) {
   const { state, phase, loadOlder, dispatch } = useSessionChannel(sessionId)
-  const { acknowledgeDialog, acknowledgeTurn, itemFor } = useWorkspace()
+  const { acknowledgeDialog, acknowledgeTurn, itemFor, setChainDraft } = useWorkspace()
+  const nameFor = useSessionNamer()
   const snap = state.snapshot
 
   const {
@@ -151,6 +154,7 @@ function SessionSurface({ sessionId, focused }: { sessionId: string; focused: bo
         onEdit={() => void recallToEdit()}
         onEditParked={() => void recallParked()}
       />
+      <ChainStrip sessionId={sessionId} />
       {showRewind && (
         <RewindDialog
           sessionId={sessionId}
@@ -178,6 +182,10 @@ function SessionSurface({ sessionId, focused }: { sessionId: string; focused: bo
         onQueueFailed={(pendingId) => dispatch({ type: 'pendingFailed', pendingId })}
         recall={recall}
         stop={working ? { onClick: interrupt, busy: stopBusy } : undefined}
+        chainInto={{
+          nameFor,
+          open: (childId) => setChainDraft({ parentId: sessionId, childId }),
+        }}
       />
 
       <StatusBar snap={snap} live={state.live} />

@@ -8,6 +8,7 @@ const focusBindings: [string, string][] = [
   ['1 – 9', 'jump by position'],
   ['Esc', 'interrupt the stream, else focus the rail'],
   ['Esc ×2', 'while idle, open the rewind picker'],
+  ['drag', 'drop a row on another to chain it after'],
   ['?', 'toggle this overlay'],
 ]
 
@@ -21,6 +22,7 @@ const tileBindings: [string, string][] = [
   ['1 – 9', 'jump to pane'],
   ['← / →', "walk a pane's tabs, Enter opens one"],
   ['drag', 'move tabs, drop on an edge to split'],
+  ['Alt+drag', 'drop on a tab to chain it after'],
   ['?', 'toggle this overlay'],
 ]
 

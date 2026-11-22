@@ -672,12 +672,12 @@ func TestScheduler(t *testing.T) {
 
 		// without the hold floor the past slot collapses the wait to zero and the
 		// loop spins two queries per round for the whole idle window
-		held := map[string]struct{}{"": {}}
+		held := map[string]time.Duration{"": idleWindow}
 		assert.Positive(t, h.sched.nextWait(held))
 		assert.LessOrEqual(t, h.sched.nextWait(held), 50*time.Millisecond)
 
 		// no held job: a past slot still means due now, exactly as before
-		assert.Zero(t, h.sched.nextWait(map[string]struct{}{}))
+		assert.Zero(t, h.sched.nextWait(map[string]time.Duration{}))
 
 		// and once the fleet quiets the wait runs out and the fire lands
 		h.runner.setBusy("", time.Now().Add(-11*time.Minute))
@@ -731,9 +731,9 @@ func TestScheduler(t *testing.T) {
 	})
 
 	t.Run("queued_jobs_drip_one_per_window", func(t *testing.T) {
-		prevIdle := idleWindow // shrink so the held job's retry stays in test time
-		idleWindow = 40 * time.Millisecond
-		t.Cleanup(func() { idleWindow = prevIdle })
+		prev := queuedIdleWindow // shrink so the held job's retry stays in test time
+		queuedIdleWindow = 40 * time.Millisecond
+		t.Cleanup(func() { queuedIdleWindow = prev })
 
 		h := newHarness(t, nil)
 		h.addQueuedJob("first", "first prompt")   // oldest slot wins the idle point
@@ -759,7 +759,7 @@ func TestScheduler(t *testing.T) {
 
 		// the loser waits out its own window instead of riding the same one
 		require.Never(h.t, func() bool { return len(prompts()) > 1 },
-			idleWindow/2, 5*time.Millisecond)
+			queuedIdleWindow/2, 5*time.Millisecond)
 		require.Eventually(h.t, func() bool { return slices.Contains(prompts(), "second prompt") },
 			settleWindow, 10*time.Millisecond)
 	})

@@ -165,6 +165,8 @@ main.content {
   background: var(--surface-2);
   color: var(--muted);
   margin-right: calc(var(--unit) * 1);
+  /* one-line chip: wrapping text collides with the pill's rounded ends */
+  white-space: nowrap;
 }
 .badge.ok {
   color: var(--ok);
@@ -1909,6 +1911,10 @@ label {
 .switch-row.pressed {
   background: var(--surface-2);
 }
+/* the lifted source row of a held touch drag toward another session */
+.switch-row.chain-source {
+  opacity: 0.55;
+}
 .switch-top {
   display: flex;
   align-items: center;
@@ -2629,4 +2635,118 @@ label {
 .header-session-id {
   margin-left: calc(var(--unit) * 2);
   font-size: var(--fs-small);
+}
+
+/* --- session chains, phase 1 --- */
+
+/* an Alt-held drag highlights the whole target tab, a rail row hovered by a
+   foreign drag highlights the whole row, and a switcher row under a held
+   touch drag does the same: all three mark a chain drop target, rail and
+   switcher drops only chain and never reorder */
+.tile-tab.chain-target,
+.rail-row.chain-target,
+.switch-row.chain-target {
+  background: color-mix(in srgb, var(--warn) 18%, transparent);
+  border: 2px dashed var(--warn);
+  border-radius: var(--radius);
+}
+/* the composer's no-modifier chain drop strip, above the prompt */
+.composer-chain-strip {
+  border: 2px dashed var(--warn);
+  border-radius: var(--radius);
+  color: var(--muted);
+  cursor: pointer;
+  margin-bottom: calc(var(--unit) * 1);
+  padding: calc(var(--unit) * 1.5) calc(var(--unit) * 2);
+  text-align: center;
+}
+/* one live chain link beside the queue chips */
+.chain-strip {
+  align-items: center;
+  display: inline-flex;
+  gap: calc(var(--unit) * 1);
+  font-size: var(--fs-small);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: calc(var(--unit) * 0.5) calc(var(--unit) * 2);
+}
+.chain-strip button {
+  padding: 0;
+}
+.chain-strip .error-text {
+  /* the strip sits inside the chips row, keep the message on its own line */
+  width: 100%;
+}
+/* the strip's edit and cancel actions sit beside the mobile composer, so
+   phones give both the shared touch-target floor */
+@media (max-width: 48rem) {
+  .chain-strip {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .chain-strip button {
+    min-height: 44px;
+    padding: 0 calc(var(--unit) * 2);
+  }
+}
+/* the chain dialog's header chips and preview */
+.chain-name-chip {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: calc(var(--unit) * 0.5) calc(var(--unit) * 2);
+}
+.chain-link {
+  color: var(--warn);
+  margin: 0 calc(var(--unit) * 1);
+}
+.chain-preview {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin: 0;
+  max-height: 12rem;
+  overflow: auto;
+  padding: calc(var(--unit) * 2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* one handed-off prompt: the child prompt leads, the parent response rides
+   collapsed behind the disclosure */
+.entry.chained {
+  border-left: 3px solid var(--warn);
+  padding-left: calc(var(--unit) * 3);
+}
+.chained-body pre {
+  margin: calc(var(--unit) * 1) 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* --- session chains, phase 2 --- */
+
+/* the shared target picker's rows, rendered inside the settings modal and
+   the mobile pushed screen alike */
+.chain-targets {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--unit) * 1);
+  margin: calc(var(--unit) * 1) 0;
+}
+.chain-target-row {
+  text-align: left;
+}
+.chain-target-row .mono {
+  font-size: var(--fs-small);
+}
+/* the chain entry point at the foot of the agent settings menu */
+.settings-chain-entry {
+  border-top: 1px solid var(--border);
+  margin-top: calc(var(--unit) * 2);
+  padding-top: calc(var(--unit) * 2);
+}
+.settings-chain-entry button {
+  display: block;
+  width: 100%;
+}
+.settings-chain-entry button + button {
+  margin-top: calc(var(--unit) * 1);
 }

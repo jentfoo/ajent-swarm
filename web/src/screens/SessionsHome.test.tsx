@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import SessionsHome from './SessionsHome'
 import { AuthProvider } from '../providers/auth'
 import { SwarmProvider } from '../providers/swarm'
+import { WorkspaceProvider } from '../providers/workspace'
 import { MockWebSocket } from '../test/mockWebSocket'
 import { ChildState, type SessionStatus } from '../api/types'
 
@@ -77,12 +78,14 @@ describe('SessionsHome', () => {
       <MemoryRouter initialEntries={['/']}>
         <AuthProvider>
           <SwarmProvider>
-            <Routes>
-              <Route path="/" element={<SessionsHome />} />
-              <Route path="/focused" element={<div>focused</div>} />
-              <Route path="/tile" element={<TileProbe />} />
-              <Route path="/s/:sessionId" element={<div>session</div>} />
-            </Routes>
+            <WorkspaceProvider>
+              <Routes>
+                <Route path="/" element={<SessionsHome />} />
+                <Route path="/focused" element={<div>focused</div>} />
+                <Route path="/tile" element={<TileProbe />} />
+                <Route path="/s/:sessionId" element={<div>session</div>} />
+              </Routes>
+            </WorkspaceProvider>
           </SwarmProvider>
         </AuthProvider>
       </MemoryRouter>,
@@ -114,6 +117,21 @@ describe('SessionsHome', () => {
 
     expect(await screen.findByText('seat: tui')).toBeInTheDocument()
     expect(screen.queryByText('seat free')).not.toBeInTheDocument()
+  })
+
+  it('badges chained sessions from the listing fields', async () => {
+    sessionsReply = [
+      session({ sessionId: '01A', chainedOn: '01B' }),
+      session({ sessionId: '01B', deliveringTo: '01A' }),
+      session({ sessionId: '01C' }),
+    ]
+    renderHome()
+
+    // both roles of a live chain badge, unlinked sessions stay quiet
+    const cards = (await screen.findAllByText(/pid|chained|swarm/, { selector: '.badge' })).filter(
+      (el) => el.textContent === 'chained',
+    )
+    expect(cards).toHaveLength(2)
   })
 
   it('summarizes the last stop in shared wording', async () => {

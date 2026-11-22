@@ -478,10 +478,10 @@ func TestRunner(t *testing.T) {
 		gate := make(chan struct{})
 		h := newHarness(t, func(o *Options) { o.MaxConcurrent = 1 })
 		h.runner.blockLaunch = gate
-		prevIdle := idleWindow // the held second job retries past a shrunken window
-		idleWindow = 20 * time.Millisecond
+		prev := queuedIdleWindow // the held second job retries past a shrunken window
+		queuedIdleWindow = 20 * time.Millisecond
 		t.Cleanup(func() {
-			idleWindow = prevIdle
+			queuedIdleWindow = prev
 			close(gate) // after start: closes before Stop unwinds
 		})
 		h.start(t.Context())

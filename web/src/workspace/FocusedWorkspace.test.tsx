@@ -1,9 +1,11 @@
-import { act, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import FocusedWorkspace from './FocusedWorkspace'
+import { ChainDialog } from './ChainDialog'
+import { QueueDialog } from './QueueDialog'
 import { AuthProvider } from '../providers/auth'
 import { SwarmProvider } from '../providers/swarm'
 import { WorkspaceProvider } from '../providers/workspace'
@@ -103,6 +105,8 @@ describe('FocusedWorkspace', () => {
       ['/api/me', () => Response.json({ username: 'you', via: 'cookie' })],
       ['/api/sessions', () => Response.json(sessionsList())],
       ['/api/attention', () => Response.json(attention)],
+      ['/api/saved-sessions', () => Response.json([])],
+      ['/api/models/options', () => Response.json([])],
       // the server settles the ack, then this device's digest re-reads settled
       [
         '/api/attention/ack',
@@ -140,6 +144,8 @@ describe('FocusedWorkspace', () => {
           .split('?')[0]
         const snap = /\/api\/sessions\/([^/]+)\/snapshot/.exec(path)
         if (snap) return Promise.resolve(Response.json(ctlSnapshot(snap[1])))
+        if (/\/api\/sessions\/[^/]+\/entries$/.test(path))
+          return Promise.resolve(Response.json({ entries: [] }))
         const respond = routes.get(path)
         if (!respond) throw new Error(`unexpected fetch ${path}`)
         return Promise.resolve(respond(init))
@@ -162,6 +168,8 @@ describe('FocusedWorkspace', () => {
                 <Route path="/focused" element={<FocusedWorkspace />} />
                 <Route path="/tile" element={<div>tile</div>} />
               </Routes>
+              <ChainDialog />
+              <QueueDialog />
             </WorkspaceProvider>
           </SwarmProvider>
         </AuthProvider>
@@ -218,6 +226,72 @@ describe('FocusedWorkspace', () => {
     expect(rows[3]).toContain('running')
     const headings = [...rail().querySelectorAll('.rail-section-title')].map((h) => h.textContent)
     expect(headings).toEqual(['Needs input (2)', 'Waiting (1)', 'Working (1)'])
+  })
+
+  it('shows a chained follow-up under Working, not Waiting', async () => {
+    // the queued follow-up session the chain pump holds: the digest row is a
+    // plain awaiting wait, but the chain fold moves it into Working with the
+    // chained badge and the queue-role line
+    attention = [
+      {
+        sessionId: '01QUEUED0000000000',
+        pid: 5,
+        openInteractions: 0,
+        running: false,
+        idle: true,
+        kind: 'awaiting',
+        reason: 'waiting for a prompt',
+        chainedOn: DIALOG,
+        chainedOnId: 'chn_1',
+      },
+    ]
+    renderFocused()
+    await waitFor(() => expect(sockets.length).toBeGreaterThan(0))
+    act(() => sockets[0].open())
+    await screen.findByText('queued behind dialog session')
+
+    const row = railRows()[0]
+    expect(row.textContent).toContain('chained')
+    expect(row.textContent).not.toContain('waiting')
+    const headings = [...rail().querySelectorAll('.rail-section-title')].map((h) => h.textContent)
+    expect(headings).toEqual(['Working (1)'])
+  })
+
+  it('lists a chained session directly below its working parent', async () => {
+    // the parent keeps a live turn, the child waits behind it: one Working
+    // section, parent first, the queued child immediately after
+    attention = [
+      {
+        sessionId: WORKER,
+        pid: 3,
+        openInteractions: 0,
+        running: true,
+        idle: false,
+        activity: 'reading main.go',
+        kind: 'working',
+        reason: 'reading main.go',
+      },
+      {
+        sessionId: '01QUEUED0000000000',
+        pid: 5,
+        openInteractions: 0,
+        running: false,
+        idle: true,
+        kind: 'awaiting',
+        reason: 'waiting for a prompt',
+        chainedOn: WORKER,
+        chainedOnId: 'chn_2',
+      },
+    ]
+    renderFocused()
+    await waitFor(() => expect(sockets.length).toBeGreaterThan(0))
+    act(() => sockets[0].open())
+    await screen.findByText('queued behind worker session')
+
+    const ids = railRows().map((row) => row.dataset.sessionId)
+    expect(ids).toEqual([WORKER, '01QUEUED0000000000'])
+    const headings = [...rail().querySelectorAll('.rail-section-title')].map((h) => h.textContent)
+    expect(headings).toEqual(['Working (2)'])
   })
 
   it('badges a parked prompt queued inside the working queue', async () => {
@@ -405,6 +479,80 @@ describe('FocusedWorkspace', () => {
     })
     // the parameter is consumed, leaving a clean URL
     await waitFor(() => expect(window.location.search).toBe(''))
+  })
+
+  // dragStub is jsdom's dataTransfer stand-in for the HTML5 gestures.
+  const dragStub = { setData: () => {}, effectAllowed: '' }
+
+  // dragEvent builds one drag-phase event jsdom cannot: DragEvent is missing
+  // there, so dataTransfer rides a plain event through defineProperty.
+  function dragEvent(name: string): Event {
+    const ev = new Event(name, { bubbles: true, cancelable: true })
+    Object.defineProperty(ev, 'dataTransfer', { value: dragStub })
+    return ev
+  }
+
+  it('chains one row onto another by drag and drop', async () => {
+    renderFocused()
+    await openSocket()
+
+    const rows = railRows()
+    const source = rows[0] // review session
+    const target = rows[1] // dialog session
+
+    act(() => {
+      source.dispatchEvent(dragEvent('dragstart'))
+    })
+    // the drag publishes through the shared context before the hover lands
+    await act(async () => {})
+    act(() => {
+      target.dispatchEvent(dragEvent('dragover'))
+    })
+    // the hovered row is the chain target: highlight, never an insert caret
+    expect(target.className).toContain('chain-target')
+
+    act(() => {
+      target.dispatchEvent(dragEvent('drop'))
+      source.dispatchEvent(new Event('dragend', { bubbles: true }))
+    })
+    // the shared chain dialog opens with the dragged session queued after
+    // the dropped-on parent
+    expect(
+      await screen.findByRole('dialog', { name: 'Chain review session after dialog session' }),
+    ).toBeInTheDocument()
+  })
+
+  it('queues a follow-up from a row right-click', async () => {
+    renderFocused()
+    await openSocket()
+
+    const target = railRows()[1] // dialog session
+    fireEvent.contextMenu(target)
+
+    await userEvent
+      .setup()
+      .click(screen.getByRole('menuitem', { name: 'Queue follow up session…' }))
+    expect(
+      await screen.findByRole('dialog', { name: 'Queue follow up session after dialog session' }),
+    ).toBeInTheDocument()
+  })
+
+  it('never starts a row drag from an inner control', async () => {
+    renderFocused()
+    await openSocket()
+
+    const check = screen.getByLabelText('Mark dialog session reviewed')
+    act(() => {
+      check.dispatchEvent(dragEvent('dragstart'))
+    })
+    // no drag published, so no row highlights and a stray drop chains nothing
+    const rows = railRows()
+    act(() => {
+      rows[0].dispatchEvent(dragEvent('dragover'))
+      rows[0].dispatchEvent(dragEvent('drop'))
+    })
+    expect(railRows().every((row) => !row.className.includes('chain-target'))).toBe(true)
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
   it('presents a switched row fresh instead of reusing the last view', async () => {

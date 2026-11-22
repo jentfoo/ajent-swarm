@@ -45,6 +45,22 @@ var (
 // a run-when-idle job on it may fire. A var so tests can shrink it.
 var idleWindow = 10 * time.Minute
 
+// queuedIdleWindow is how long a provider must have been quiet before one of
+// the Queue action's queued prompts may fire: the same window the park queue
+// uses, unlike scheduled run-when-idle jobs' longer fleet hold. A var so
+// tests can shrink it.
+var queuedIdleWindow = time.Minute
+
+// jobIdleWindow names how long a job's provider must be quiet before it may
+// fire: queued prompts wait out the park window, scheduled run-when-idle
+// jobs the longer fleet hold.
+func jobIdleWindow(j store.Job) time.Duration {
+	if j.Queued {
+		return queuedIdleWindow
+	}
+	return idleWindow
+}
+
 // Runner is the fleet surface every run goes through: spawn (or resume) a
 // serve session, drive it over the control socket and watch its stream. A
 // zero ProviderBusyAt reports a provider with no known agent activity.

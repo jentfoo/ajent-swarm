@@ -5,9 +5,10 @@ import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-rou
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import TileWorkspace from './TileWorkspace'
+import { QueueDialog } from './QueueDialog'
 import { AuthProvider } from '../providers/auth'
 import { SwarmProvider } from '../providers/swarm'
-import { WorkspaceProvider } from '../providers/workspace'
+import { WorkspaceProvider, useWorkspace } from '../providers/workspace'
 import { MockWebSocket } from '../test/mockWebSocket'
 import { ctlSnapshot } from '../test/ctlSnapshot'
 import type { AttentionRow } from '../api/types'
@@ -190,6 +191,8 @@ describe('TileWorkspace', () => {
           )
         }
         if (path === '/api/attention') return Promise.resolve(Response.json(attention))
+        if (path === '/api/saved-sessions') return Promise.resolve(Response.json([]))
+        if (path === '/api/models/options') return Promise.resolve(Response.json([]))
         const snap = /\/api\/sessions\/([^/]+)\/snapshot/.exec(path)
         if (snap) return Promise.resolve(Response.json(ctlSnapshot(snap[1])))
         if (path.endsWith('/candidates')) {
@@ -225,6 +228,7 @@ describe('TileWorkspace', () => {
                   element={<div data-testid="sessions-screen">Sessions</div>}
                 />
               </Routes>
+              <QueueDialog />
             </WorkspaceProvider>
           </SwarmProvider>
         </AuthProvider>
@@ -571,6 +575,23 @@ describe('TileWorkspace', () => {
     expect(stored.tile.focusedPaneId).toBe('p1')
   })
 
+  it('queues a follow-up from a tab right-click', async () => {
+    await renderStacked()
+
+    const tab = screen.getByRole('tab', { name: /left/ })
+    fireEvent.contextMenu(tab)
+
+    // the pointer menu's one entry lands the follow-up draft on the shared
+    // queue dialog with the right-clicked session as the parent
+    await userEvent
+      .setup()
+      .click(screen.getByRole('menuitem', { name: 'Queue follow up session…' }))
+    expect(
+      await screen.findByRole('dialog', { name: 'Queue follow up session after left' }),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('menu')).toBeNull()
+  })
+
   it('renders the strip as a tablist with a roving tab stop', async () => {
     await renderStacked()
 
@@ -826,6 +847,101 @@ describe('TileWorkspace', () => {
     flushFrame()
 
     expect(document.querySelectorAll('[data-pane-id]')).toHaveLength(1)
+    expect(storedProfile().tile.tree.kind).toBe('pane')
+  })
+
+  // chainDropStub is jsdom's dataTransfer stand-in for the HTML5 gestures.
+  const chainDropStub = { setData: () => {}, effectAllowed: '' }
+
+  // dropEvent builds a drop jsdom cannot: DragEvent is missing there, so the
+  // modifier and dataTransfer ride a plain event through defineProperty.
+  function dropEvent(name: string, opts: { altKey?: boolean } = {}): Event {
+    const ev = new Event(name, { bubbles: true, cancelable: true })
+    Object.defineProperty(ev, 'dataTransfer', { value: chainDropStub })
+    Object.defineProperty(ev, 'altKey', { value: opts.altKey === true })
+    return ev
+  }
+
+  // dragBetween drags one pane's tab and drops it over the other pane's strip.
+  async function dragBetween(from: string, ontoPane: string, opts: { altKey?: boolean } = {}) {
+    await screen.findByRole('tab', { name: new RegExp(from) })
+    const pane = document.querySelector(`[data-pane-id="${ontoPane}"]`)!
+    const source = [...document.querySelectorAll('[role="tab"]')].find((el) =>
+      el.textContent?.includes(from),
+    )!
+    act(() => {
+      source.dispatchEvent(dropEvent('dragstart'))
+      pane.querySelector('.tile-tabs')!.dispatchEvent(dropEvent('dragover', opts))
+      pane.querySelector('.tile-tabs')!.dispatchEvent(dropEvent('drop', opts))
+      source.dispatchEvent(new Event('dragend', { bubbles: true }))
+    })
+  }
+
+  it('an Alt drop chains instead of moving', async () => {
+    const seen: { draft: { parentId: string; childId: string } | null } = { draft: null }
+    function ChainProbe() {
+      const { chainDraft } = useWorkspace()
+      useEffect(() => {
+        seen.draft = chainDraft
+      }, [chainDraft])
+      return null
+    }
+    localStorage.setItem(
+      'swarm.workspace.v1',
+      JSON.stringify({ mode: 'tile', focused: {}, tile: { tree, focusedPaneId: 'p1' } }),
+    )
+    render(
+      <MemoryRouter initialEntries={['/tile']}>
+        <AuthProvider>
+          <SwarmProvider>
+            <WorkspaceProvider>
+              <ChainProbe />
+              <Routes>
+                <Route path="/tile" element={<TileWorkspace />} />
+              </Routes>
+            </WorkspaceProvider>
+          </SwarmProvider>
+        </AuthProvider>
+      </MemoryRouter>,
+    )
+
+    // the drop opens the dialog draft, the tree stays as arranged
+    await dragBetween('left', 'p2', { altKey: true })
+    // the dropped-on tab is the parent, the dragged tab queues after it
+    expect(seen.draft).toEqual({ parentId: RIGHT, childId: LEFT })
+    expect(domPaneIds()).toHaveLength(2)
+    expect(storedProfile().tile.tree).toEqual(tree)
+  })
+
+  it('a plain drop onto the strip still moves the tab', async () => {
+    localStorage.setItem(
+      'swarm.workspace.v1',
+      JSON.stringify({
+        mode: 'tile',
+        focused: {},
+        tile: {
+          tree: { kind: 'pane', id: 'p1', tabs: [LEFT, RIGHT], active: LEFT },
+          focusedPaneId: 'p1',
+        },
+      }),
+    )
+    render(
+      <MemoryRouter initialEntries={['/tile']}>
+        <AuthProvider>
+          <SwarmProvider>
+            <WorkspaceProvider>
+              <Routes>
+                <Route path="/tile" element={<TileWorkspace />} />
+              </Routes>
+            </WorkspaceProvider>
+          </SwarmProvider>
+        </AuthProvider>
+      </MemoryRouter>,
+    )
+
+    // the strip drops at the end: both tabs land in the strip's pane
+    await dragBetween('left', 'p1')
+    expect(domPaneIds()).toHaveLength(1)
     expect(storedProfile().tile.tree.kind).toBe('pane')
   })
 })

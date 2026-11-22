@@ -36,6 +36,13 @@ export interface AttentionItem {
   turnEnd?: number // present on needs-review rows; the ack watermark target
   running: boolean
   parked: boolean // a prompt waits in swarm for the session's next idle point
+  // chain facts verbatim from the digest, ids only: one id per role so a
+  // session chained in both directions keeps both links addressable
+  chainedOn?: string // a live chain delivers into this session: the parent id
+  chainedOnId?: string // that link's chain id
+  deliveringTo?: string // a live chain this session feeds: the child id
+  deliveringId?: string // that link's chain id
+  chainFailure?: string // fresh failure cause, both endpoints carry it
   queuedAt?: number // unix ms the session entered its current queue, client-stamped
 }
 
@@ -53,6 +60,11 @@ export function deriveItem(row: AttentionRow): AttentionItem {
     turnEnd: row.kind === 'needs-review' ? row.lastTurnEnd : undefined,
     running: sessionBusy(row),
     parked: (row.parked ?? 0) > 0,
+    chainedOn: row.chainedOn,
+    chainedOnId: row.chainedOnId,
+    deliveringTo: row.deliveringTo,
+    deliveringId: row.deliveringId,
+    chainFailure: row.chainFailure,
   }
 }
 
@@ -90,43 +102,93 @@ export function noticeEligible(item: AttentionItem): boolean {
   return Date.now() - (item.since ?? 0) >= noticeDwellMs
 }
 
+// --- chain failure notices ---
+
+// FailedChain names one freshly failed chain the digest surfaces on either
+// endpoint's row: both endpoints' ids and the failure cause.
+export interface FailedChain {
+  chainId: string
+  childId: string
+  parentId: string
+  reason: string
+}
+
+// failedChainOf reads one digest item as a failed chain, undefined while the
+// row carries no fresh failure. The child row names the parent link, the
+// parent row the child one, so an exited child still surfaces its failure.
+export function failedChainOf(item: AttentionItem): FailedChain | undefined {
+  if (item.chainFailure === undefined) return undefined
+  if (item.chainedOnId !== undefined && item.chainedOn !== undefined) {
+    return {
+      chainId: item.chainedOnId,
+      childId: item.sessionId,
+      parentId: item.chainedOn,
+      reason: item.chainFailure,
+    }
+  }
+  if (item.deliveringId !== undefined && item.deliveringTo !== undefined) {
+    return {
+      chainId: item.deliveringId,
+      childId: item.deliveringTo,
+      parentId: item.sessionId,
+      reason: item.chainFailure,
+    }
+  }
+  return undefined
+}
+
+// chainNoticeOf names one item's chain role for the rail and switcher lines:
+// a fresh failure leads, then the inbound link reads as queued behind and the
+// outbound as handing off. The caller's namer resolves the endpoint, so the
+// copy agrees across surfaces.
+export function chainNoticeOf(
+  item: AttentionItem,
+  nameFor: (sessionId: string) => string,
+): string | undefined {
+  if (item.chainFailure !== undefined) return `chain failed: ${item.chainFailure}`
+  if (item.chainedOn !== undefined) return `queued behind ${nameFor(item.chainedOn)}`
+  if (item.deliveringTo !== undefined) return `handing off to ${nameFor(item.deliveringTo)}`
+  return undefined
+}
+
 // --- badge states ---
 
 // SessionBadge is one live session's at-a-glance badge state. The switcher
 // rows render it directly, the session headers fold waiting into idle.
-export type SessionBadge = 'input' | 'running' | 'queued' | 'review' | 'waiting' | 'idle'
+export type SessionBadge =
+  'input' | 'running' | 'queued' | 'chained' | 'failed' | 'review' | 'waiting' | 'idle'
 
 // sessionBadgeOf ranks one session's badge state from its own busy fact plus
 // the shared attention item. A pending dialog parks the turn upstream, so
 // needs-input outranks running: the run is blocked on this human, not making
 // progress. A parked prompt outranks a live turn: the queue outlives the turn
 // and stays pending until the idle point, while the row itself sits in
-// Working through the digest kind.
-// sessionBadgeOf ranks one session's badge state from its own busy fact plus
-// the shared attention item. A pending dialog parks the turn upstream, so
-// needs-input outranks running: the run is blocked on this human, not making
-// progress. A parked prompt outranks a live turn: the queue outlives the turn
-// and stays pending until the idle point, while the row itself sits in
-// Working through the digest kind. An unreviewed turn end badges review once
+// Working through the digest kind. A fresh chain failure outranks the chain's
+// own wait and ordinary running: the sequence stopped and names its cause. An
+// unreviewed turn end badges review once
 // the run goes quiet, matching the rail's kind badge, while a locally busy
-// snapshot still leads a stale digest.
+// snapshot still leads a stale digest. A chained wait outranks plain waiting:
+// the session holds work queued behind another one.
 export function sessionBadgeOf(busy: boolean, item: AttentionItem | undefined): SessionBadge {
   if (item?.kind === 'needs-input') return 'input'
+  if (item?.chainFailure !== undefined) return 'failed'
   if (item?.parked) return 'queued'
   if (busy || (item?.running ?? false)) return 'running'
   if (item?.kind === 'needs-review') return 'review'
+  if (item?.chainedOn !== undefined || item?.deliveringTo !== undefined) return 'chained'
   if (item?.kind === 'awaiting') return 'waiting'
   return 'idle'
 }
 
 // HeaderBadge is the session headers' badge state: working, resting, queued
-// for the next idle point, blocked on a human, or holding an unreviewed turn.
-type HeaderBadge = 'input' | 'running' | 'queued' | 'review' | 'idle'
+// for the next idle point, chained onto another session, a failed chain,
+// blocked on a human, or holding an unreviewed turn.
+type HeaderBadge = 'input' | 'running' | 'queued' | 'chained' | 'failed' | 'review' | 'idle'
 
 // headerBadgeOf is the headers' coarsening of sessionBadgeOf: waiting folds
 // into idle, since the header answers working-versus-resting while the status
-// line under the transcript explains a resting agent. Review and queued stay
-// visible, they explain the wait itself.
+// line under the transcript explains a resting agent. Review, queued and a
+// failed chain stay visible, they explain the wait or its loss itself.
 export function headerBadgeOf(busy: boolean, item: AttentionItem | undefined): HeaderBadge {
   const badge = sessionBadgeOf(busy, item)
   return badge === 'waiting' ? 'idle' : badge
@@ -142,6 +204,7 @@ export interface AttentionSort {
   kind?: AttentionKind // absent shares the working class below
   since?: number // dialog wait or turn end, within-class order
   queuedAt?: number // queue entry, drives movers to the end
+  chainedOn?: string // the session this one waits behind, from the chain fold
 }
 
 // The rail renders three queues: Needs input holds every state wanting a
@@ -166,14 +229,16 @@ const attentionRanks = {
 
 // attentionRank classifies one row into its queue rank: dialogs and
 // completions collapse into needs, idle agents wait, and rows without a
-// digest share working so they never outrank actionable ones.
+// digest share working so they never outrank actionable ones. A session
+// chained behind another ranks working regardless: it holds queued chain
+// work, the same class a parked prompt waits in.
 function attentionRank(entry: AttentionSort): number {
   switch (entry.kind) {
     case 'needs-input':
     case 'needs-review':
       return attentionRanks.needs
     case 'awaiting':
-      return attentionRanks.waiting
+      return entry.chainedOn !== undefined ? attentionRanks.working : attentionRanks.waiting
     default:
       return attentionRanks.working
   }
@@ -244,8 +309,9 @@ export function resetQueueEntries(): void {
 
 // rankAttention buckets the rail's queues: needs holds dialogs and unreviewed
 // completions together by oldest wait, waiting (new and settled idle agents)
-// and working follow by queue entry so movers append. needsInputCount counts
-// open dialogs only.
+// and working follow by queue entry so movers append. Chained sessions anchor
+// directly below the session they wait behind within Working. needsInputCount
+// counts open dialogs only.
 export function rankAttention(items: readonly AttentionItem[]): {
   needs: AttentionItem[]
   waiting: AttentionItem[]
@@ -262,7 +328,41 @@ export function rankAttention(items: readonly AttentionItem[]): {
   buckets.needs.sort(compareAttention)
   buckets.waiting.sort(compareAttention)
   buckets.working.sort(compareAttention)
+  buckets.working = anchorChained(buckets.working)
   return { ...buckets, needsInputCount }
+}
+
+// anchorChained reorders one queue so each chained session sits directly
+// below the session it waits behind, when that parent shares the queue;
+// chains run deep, so a child anchors below its parent after the parent
+// itself anchored. Every other row keeps its ranked order, and a chain whose
+// parent sits in another queue stays put.
+export function anchorChained<T extends { sessionId: string; chainedOn?: string }>(
+  rows: readonly T[],
+): T[] {
+  const present = new Set(rows.map((row) => row.sessionId))
+  const children = new Map<string, T[]>() // parent id -> waiting rows, ranked order
+  const free: T[] = []
+  for (const row of rows) {
+    if (row.chainedOn !== undefined && present.has(row.chainedOn)) {
+      const list = children.get(row.chainedOn) ?? []
+      list.push(row)
+      children.set(row.chainedOn, list)
+    } else {
+      free.push(row)
+    }
+  }
+  const out: T[] = []
+  const emitted = new Set<string>()
+  const emit = (row: T) => {
+    if (emitted.has(row.sessionId)) return
+    emitted.add(row.sessionId)
+    out.push(row)
+    for (const kid of children.get(row.sessionId) ?? []) emit(kid)
+  }
+  for (const row of free) emit(row)
+  for (const row of rows) emit(row) // unreachable rows keep their ranked order
+  return out
 }
 
 // attentionKindLabels is the human vocabulary for one attention kind: the

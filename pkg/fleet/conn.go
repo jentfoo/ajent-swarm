@@ -66,6 +66,15 @@ type digestFacts struct {
 	Parked       int    `json:"parked,omitempty"`       // prompts parked for the next idle point
 	ParkedPrompt string `json:"parkedPrompt,omitempty"` // oldest one's text, one line
 	ParkedAt     int64  `json:"parkedAt,omitempty"`     // when the oldest parked, unix ms
+
+	// Chain facts folded in at read time, never actor state: the registry
+	// owns them and spans actor churn. One id per role, so a session chained
+	// in both directions keeps both links addressable.
+	ChainedOn    string `json:"chainedOn,omitempty"`    // parent session id this session waits on
+	ChainedOnID  string `json:"chainedOnId,omitempty"`  // that link's chain id
+	DeliveringTo string `json:"deliveringTo,omitempty"` // child session id this session feeds
+	DeliveringID string `json:"deliveringId,omitempty"` // that link's chain id
+	ChainFailure string `json:"chainFailure,omitempty"` // fresh failure cause, both endpoints carry it
 }
 
 // busyAt reports the session's newest busy moment: now while a turn runs

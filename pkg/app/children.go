@@ -161,3 +161,57 @@ func (a ackStore) DialogAcks(ctx context.Context) ([]fleet.DialogAck, error) {
 func (a ackStore) TurnAcks(ctx context.Context) (map[string]int64, error) {
 	return a.st.TurnAcks(ctx)
 }
+
+// chainStore adapts the SQLite store to fleet's ChainStore interface.
+type chainStore struct{ st *store.Store }
+
+func (a chainStore) SaveChain(ctx context.Context, ch fleet.Chain) error {
+	return a.st.SaveChain(ctx, chainRow(ch))
+}
+
+func (a chainStore) DeleteChain(ctx context.Context, id string) error {
+	return a.st.DeleteChain(ctx, id)
+}
+
+func (a chainStore) LoadChains(ctx context.Context) ([]fleet.Chain, error) {
+	rows, err := a.st.LoadChains(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]fleet.Chain, len(rows))
+	for i, ch := range rows {
+		out[i] = fleet.Chain{
+			ID:          ch.ID,
+			ParentID:    ch.ParentID,
+			ChildID:     ch.ChildID,
+			FinalPrompt: ch.FinalPrompt,
+			ChildPrompt: ch.ChildPrompt,
+			PendingID:   ch.PendingID,
+			FinalAt:     ch.FinalAt,
+			State:       ch.State,
+			Reason:      ch.Reason,
+			Mark:        ch.Mark,
+			CreatedAt:   ch.CreatedAt,
+			UpdatedAt:   ch.UpdatedAt,
+		}
+	}
+	return out, nil
+}
+
+// chainRow maps fleet's record onto the store row verbatim.
+func chainRow(ch fleet.Chain) store.Chain {
+	return store.Chain{
+		ID:          ch.ID,
+		ParentID:    ch.ParentID,
+		ChildID:     ch.ChildID,
+		FinalPrompt: ch.FinalPrompt,
+		ChildPrompt: ch.ChildPrompt,
+		PendingID:   ch.PendingID,
+		FinalAt:     ch.FinalAt,
+		State:       ch.State,
+		Reason:      ch.Reason,
+		Mark:        ch.Mark,
+		CreatedAt:   ch.CreatedAt,
+		UpdatedAt:   ch.UpdatedAt,
+	}
+}

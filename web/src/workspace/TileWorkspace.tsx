@@ -13,6 +13,8 @@ import { ChildState } from '../api/types'
 import type { SessionStatus } from '../api/types'
 import { useSessionNamer } from '../session/useSessionLabel'
 import { MenuPopover } from '../ui/MenuPopover'
+import { SessionContextMenu, useSessionMenu } from '../session/SessionContextMenu'
+import { sessionDrag } from '../ui/dndContext'
 import { useWorkspaceKeys } from './keys'
 import type { Direction } from './keys'
 import { ShortcutOverlay } from './ShortcutOverlay'
@@ -33,6 +35,14 @@ import type { TileNode, TilePane, SplitDirection } from './tileTree'
 
 const resizeStep = 0.05
 
+// DropHint names the hovered drop zone, chain marks an Alt-held hover that
+// chains instead of moving.
+interface DropHint {
+  paneId: string
+  zone: string
+  chain: boolean
+}
+
 // reachableSession reports whether a pane can stream the session right now:
 // connected (online) or active (reconnecting, e.g. just launched, or running).
 // The shell's Tile button tiles exactly this set.
@@ -52,13 +62,14 @@ export function reachableSession(s: SessionStatus): boolean {
 
 export default function TileWorkspace() {
   const { sessions, sessionsLoaded } = useSwarm()
-  const { profile, setTileLayout, itemFor } = useWorkspace()
+  const { profile, setTileLayout, itemFor, setChainDraft } = useWorkspace()
+  const { begin, end } = sessionDrag
   const [searchParams, setSearchParams] = useSearchParams()
   const navigate = useNavigate()
   const { tree, focusedPaneId } = profile.tile
 
   const [showShortcuts, setShowShortcuts] = useState(false)
-  const [dropHint, setDropHint] = useState<{ paneId: string; zone: string } | null>(null)
+  const [dropHint, setDropHint] = useState<DropHint | null>(null)
   const dragRef = useRef<{ sessionId: string; paneId: string } | null>(null)
   // Drop zones render only while a tab is in flight, so they never stand
   // between the pointer and the hosted views.
@@ -278,7 +289,9 @@ export default function TileWorkspace() {
   const startDrag = (ev: DragEvent, sessionId: string, paneId: string) => {
     dragRef.current = { sessionId, paneId }
     ev.dataTransfer.setData('text/plain', sessionId) // Firefox drags need data
-    ev.dataTransfer.effectAllowed = 'move'
+    // linkMove keeps the Alt-drop gesture available beside plain moves
+    ev.dataTransfer.effectAllowed = 'linkMove'
+    begin(sessionId) // cross-surface surfaces read the drag from the context
     setDragging(true)
   }
 
@@ -286,11 +299,24 @@ export default function TileWorkspace() {
     dragRef.current = null
     setDropHint(null)
     setDragging(false)
-  }, [])
+    end()
+  }, [end])
 
-  const dropOnPane = (paneId: string, zone: string) => {
+  const dropOnPane = (ev: DragEvent, paneId: string, zone: string) => {
     const drag = dragRef.current
     if (!drag || !tree) return endDrag()
+    // Alt over a tab or the strip chains instead of moving: the target is
+    // the parent that hands off, the dragged tab queues after it
+    if (ev.altKey && (zone.startsWith('tab:') || zone === 'strip')) {
+      const pane = findPane(tree, paneId)
+      const target = zone.startsWith('tab:')
+        ? pane?.tabs[Number(zone.slice(4))]
+        : (pane?.tabs.find((id) => id === pane.active) ?? pane?.tabs[0])
+      if (target !== undefined && target !== drag.sessionId) {
+        setChainDraft({ parentId: target, childId: drag.sessionId })
+      }
+      return endDrag()
+    }
     if (zone === 'strip' || zone.startsWith('tab:')) {
       const index = zone.startsWith('tab:') ? Number(zone.slice(4)) : Number.MAX_SAFE_INTEGER
       commit(moveTab(tree, drag.paneId, drag.sessionId, paneId, index), paneId)
@@ -310,7 +336,14 @@ export default function TileWorkspace() {
   const allowDrop = (ev: DragEvent, paneId: string, zone: string) => {
     ev.preventDefault()
     ev.stopPropagation()
-    setDropHint((prev) => (prev?.paneId === paneId && prev.zone === zone ? prev : { paneId, zone }))
+    if (ev.altKey && (zone.startsWith('tab:') || zone === 'strip')) {
+      ev.dataTransfer.dropEffect = 'link'
+    }
+    setDropHint((prev) =>
+      prev?.paneId === paneId && prev.zone === zone && prev.chain === ev.altKey
+        ? prev
+        : { paneId, zone, chain: ev.altKey },
+    )
   }
 
   const resizeSplit = useCallback(
@@ -355,7 +388,7 @@ interface NodeProps {
   node: TileNode
   focused: string
   dragging: boolean
-  dropHint: { paneId: string; zone: string } | null
+  dropHint: DropHint | null
   itemFor: (sessionId: string) => AttentionItem | undefined
   nameFor: (sessionId: string) => string
   onFocusPane: (paneId: string) => void
@@ -363,7 +396,7 @@ interface NodeProps {
   onCloseTab: (paneId: string, sessionId: string) => void
   onOpenSession: (sessionId: string, paneId?: string, split?: boolean) => void
   onStartDrag: (ev: DragEvent, sessionId: string, paneId: string) => void
-  onDropZone: (paneId: string, zone: string) => void
+  onDropZone: (ev: DragEvent, paneId: string, zone: string) => void
   onAllowDrop: (ev: DragEvent, paneId: string, zone: string) => void
   onDragEnd: () => void
   onResizeSplit: (splitId: string, ratio: number) => void
@@ -486,7 +519,8 @@ function Divider({
 }
 
 // PaneView is one pane: its tab strip above a hosted SessionView, with an
-// add-session picker, drop zones for tabs (strip) and edges (split).
+// add-session picker, drop zones for tabs (strip) and edges (split), and a
+// right-click menu over the tabs.
 function PaneView({
   pane,
   focused,
@@ -505,6 +539,8 @@ function PaneView({
 }: NodeProps & { pane: TilePane }) {
   const isFocused = pane.id === focused
   const hint = dropHint?.paneId === pane.id ? dropHint.zone : null
+  const chainHint = dropHint?.paneId === pane.id ? dropHint.chain : false
+  const { menu, openSessionMenu, closeSessionMenu } = useSessionMenu()
   // ids tie each tab to the pane body it selects, pane ids are unique in the
   // tree, so twin panes holding one session never collide
   const panelId = `tile-panel-${pane.id}`
@@ -557,7 +593,7 @@ function PaneView({
   const drop = (zone: string) => (ev: DragEvent) => {
     ev.preventDefault()
     ev.stopPropagation()
-    onDropZone(pane.id, zone)
+    onDropZone(ev, pane.id, zone)
   }
 
   return (
@@ -582,6 +618,10 @@ function PaneView({
           {pane.tabs.map((sessionId, index) => {
             const badge = badgeFor(sessionId)
             const selected = pane.active === sessionId
+            // a chained hover highlights the whole target tab, the move caret
+            // stands down while Alt holds
+            const chainTarget =
+              chainHint && (hint === `tab:${index}` || (hint === 'strip' && selected))
             return (
               <div
                 key={sessionId}
@@ -591,8 +631,8 @@ function PaneView({
                 aria-controls={panelId}
                 tabIndex={selected ? 0 : -1}
                 className={`tile-tab ${selected ? 'active' : ''} ${
-                  hint === `tab:${index}` ? 'drop-before' : ''
-                }`}
+                  !chainHint && hint === `tab:${index}` ? 'drop-before' : ''
+                } ${chainTarget ? 'chain-target' : ''}`}
                 draggable
                 onDragStart={(ev) => onStartDrag(ev, sessionId, pane.id)}
                 onDragEnd={onDragEnd}
@@ -600,6 +640,7 @@ function PaneView({
                 onDrop={drop(`tab:${index}`)}
                 // activation focuses the pane through its commit too
                 onClick={() => onActivateTab(pane.id, sessionId)}
+                onContextMenu={(ev) => openSessionMenu(ev, sessionId)}
                 title={nameFor(sessionId)}
               >
                 {badge !== null && (
@@ -626,6 +667,8 @@ function PaneView({
           onOpen={(sessionId, split) => onOpenSession(sessionId, pane.id, split)}
         />
       </div>
+
+      <SessionContextMenu menu={menu} onClose={closeSessionMenu} />
 
       {dragging &&
         (['top', 'bottom', 'left', 'right'] as const).map((zone) => (

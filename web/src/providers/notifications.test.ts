@@ -174,3 +174,83 @@ describe('notification bridge', () => {
     expect(instances[0].closed).toBe(true) // click-through consumes the toast
   })
 })
+
+describe('raiseOnce', () => {
+  beforeEach(() => {
+    hidden = true
+    raised = []
+    opened = []
+    names = {}
+    instances = []
+    vi.stubGlobal('Notification', StubNotification)
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+  })
+
+  function onceBridge() {
+    return createNotificationBridge({
+      hidden: () => hidden,
+      notify: (req) => {
+        const entry: Raised = { req, closed: false }
+        raised.push(entry)
+        return {
+          close() {
+            entry.closed = true
+          },
+        }
+      },
+    })
+  }
+
+  it('announces one keyed notice exactly once', () => {
+    const b = onceBridge()
+    names = { child: 'Deploy' }
+
+    b.raiseOnce('chain:chn_1', {
+      title: 'Chain into Deploy failed',
+      body: 'reason',
+      tag: 'chain-chn_1',
+      onclick: () => {},
+    })
+    b.raiseOnce('chain:chn_1', { title: 'again', body: '', tag: '', onclick: () => {} })
+    expect(raised).toHaveLength(1)
+    expect(raised[0].req.title).toBe('Chain into Deploy failed')
+
+    // a different key is its own notice
+    b.raiseOnce('chain:chn_2', { title: 'other', body: '', tag: '', onclick: () => {} })
+    expect(raised).toHaveLength(2)
+  })
+
+  it('stays quiet while visible and dismisses with everything', () => {
+    const b = onceBridge()
+
+    hidden = false
+    b.raiseOnce('k', { title: 'x', body: '', tag: '', onclick: () => {} })
+    expect(raised).toHaveLength(0)
+
+    hidden = true
+    b.raiseOnce('k', { title: 'x', body: '', tag: '', onclick: () => {} })
+    expect(raised).toHaveLength(1)
+
+    b.dismissAll()
+    expect(raised[0].closed).toBe(true)
+    // the forgetful key may announce again after a dismiss-all
+    b.raiseOnce('k', { title: 'x', body: '', tag: '', onclick: () => {} })
+    expect(raised).toHaveLength(2)
+  })
+
+  it('activating the notice runs its click-through', () => {
+    const b = onceBridge()
+    b.raiseOnce('chain:chn_1', {
+      title: 'Chain into Deploy failed',
+      body: 'reason',
+      tag: 'chain-chn_1',
+      onclick: () => opened.push('child'),
+    })
+    raised[0].req.onclick()
+    expect(opened).toEqual(['child'])
+  })
+})

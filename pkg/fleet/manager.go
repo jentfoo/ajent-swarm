@@ -47,6 +47,14 @@ type Options struct {
 	// ParkIdleWindow is how long a session's provider must be quiet before
 	// its parked prompts flush, zero takes the 1-minute default.
 	ParkIdleWindow time.Duration
+	// ChainPoll is the chain pump's tick cadence, zero takes 1 second.
+	ChainPoll time.Duration
+	// ChainMaxAge bounds one chain's whole life, past it the chain fails with
+	// "timed out". Zero takes 2 hours.
+	ChainMaxAge time.Duration
+	// ChainGrace bounds how long a restored chain waits out startup before a
+	// missing endpoint reads as an exit. Zero takes 30 seconds.
+	ChainGrace time.Duration
 
 	// Owned names sessions swarm spawned, they force-claim the seat as holder
 	// swarm at attach. External sessions observe until a write or an explicit
@@ -90,6 +98,10 @@ type Options struct {
 	// settles the row for every device and survives restarts, nil keeps every
 	// item unacknowledged and refuses writes.
 	AckStore AckStore
+
+	// ChainStore persists the chain registry, so chains survive service
+	// restarts and re-arm their pumps. nil keeps chains ephemeral.
+	ChainStore ChainStore
 }
 
 // Manager tracks every live ajent instance and owns its actors' lifecycles.
@@ -99,6 +111,9 @@ type Manager struct {
 	dialBackoffBase time.Duration
 	dialBackoffMax  time.Duration
 	parkWindow      time.Duration
+	chainPoll       time.Duration
+	chainMaxAge     time.Duration
+	chainGrace      time.Duration
 	optsOwned       func(ctl.Instance) bool
 	discover        func() ([]ctl.Instance, error)
 
@@ -115,6 +130,7 @@ type Manager struct {
 	settingStore SettingsStore
 	recallStore  RecallStore
 	ackStore     AckStore
+	chainStore   ChainStore
 
 	ctx      context.Context
 	cancel   context.CancelFunc
@@ -123,6 +139,7 @@ type Manager struct {
 	stopOnce sync.Once
 
 	mu             sync.Mutex
+	chainEditMu    sync.Mutex // serializes chain edits and cancels against pump stops
 	actors         map[actorKey]*sessionActor
 	subs           map[int64]*subscription
 	bySession      map[string]map[int64]*subscription
@@ -130,6 +147,8 @@ type Manager struct {
 	nudge          chan struct{}
 	children       map[int]*childProc // by pid, running and exited
 	childBySession map[string]*childProc
+	chains         map[string]*chainRun      // by chain id, pumps tick off-actor
+	chainSeq       uint64                    // registry insertion counter
 	externals      map[int]ChildRecord       // retained external session rows, by pid
 	named          map[string]struct{}       // sessions whose auto-name already ran
 	titles         map[string]string         // cached display titles, mirrored from TitleStore
@@ -150,6 +169,9 @@ func New(opts Options) *Manager {
 		dialBackoffBase: cmpOr(opts.BackoffBase, dialBackoffBase),
 		dialBackoffMax:  cmpOr(opts.BackoffMax, dialBackoffMax),
 		parkWindow:      cmpOr(opts.ParkIdleWindow, parkIdleWindow),
+		chainPoll:       cmpOr(opts.ChainPoll, chainDefaultPoll),
+		chainMaxAge:     cmpOr(opts.ChainMaxAge, chainMaxAgeDefault),
+		chainGrace:      cmpOr(opts.ChainGrace, chainAdoptGraceDefault),
 		optsOwned:       opts.Owned,
 		discover:        opts.Discover,
 		bin:             opts.AjentBin,
@@ -165,12 +187,14 @@ func New(opts Options) *Manager {
 		settingStore:    opts.SettingStore,
 		recallStore:     opts.RecallStore,
 		ackStore:        opts.AckStore,
+		chainStore:      opts.ChainStore,
 		actors:          make(map[actorKey]*sessionActor),
 		subs:            make(map[int64]*subscription),
 		bySession:       make(map[string]map[int64]*subscription),
 		nudge:           make(chan struct{}, 1),
 		children:        make(map[int]*childProc),
 		childBySession:  make(map[string]*childProc),
+		chains:          make(map[string]*chainRun),
 		externals:       make(map[int]ChildRecord),
 		named:           make(map[string]struct{}),
 		titles:          make(map[string]string),
@@ -220,6 +244,11 @@ func (m *Manager) Start(ctx context.Context) {
 		m.loadAcks(ctx)
 	}
 	m.adopt(ctx)
+	if m.chainStore != nil {
+		m.restoreChains(ctx)
+		m.wg.Add(1)
+		go m.watchChainRetention(m.ctx) //nolint:contextcheck // bound to the manager lifecycle, like watch
+	}
 	m.wg.Add(1)
 	go func() {
 		defer m.wg.Done()
@@ -231,7 +260,7 @@ func (m *Manager) Start(ctx context.Context) {
 // outlive it unless the operator asked for them to be taken down too.
 func (m *Manager) Stop() {
 	m.stopOnce.Do(func() {
-		m.cancel()
+		m.cancel() // chain pumps ride the manager context, they wind down here
 		m.wg.Wait()
 
 		m.mu.Lock()
@@ -710,7 +739,15 @@ func (m *Manager) Sessions() []Status {
 	for kept < len(ended) && time.Since(time.UnixMilli(ended[kept].ExitedAt)) <= endedKeepWindow {
 		kept++
 	}
-	return append(alive, ended[:kept]...)
+	out := append(alive, ended[:kept]...)
+	for _, fold := range m.chainFolds() {
+		for i := range out {
+			if out[i].SessionID == fold.sessionID {
+				foldChainFacts(&out[i].digestFacts, fold)
+			}
+		}
+	}
+	return out
 }
 
 // MaxDigestText caps one digest reason or preview, mirroring the rewind
@@ -763,14 +800,22 @@ func (m *Manager) servingStatuses() []*Status {
 // one row each, sorted by session id. Exited sessions drop out, a degraded
 // connection keeps its last known facts until tracking ends. Kind, reason and
 // wait are derived server-side against the acknowledgment ledger, so every
-// device renders one attention state.
+// device renders one attention state. Active chains fold in last, so both
+// roles badge from the digest alone.
 func (m *Manager) Attention() []Attention {
 	statuses := m.servingStatuses()
 	facts := m.ackFactsFor(statuses)
+	folds := m.chainFolds()
 
 	out := make([]Attention, 0, len(statuses))
 	for i, st := range statuses {
-		out = append(out, deriveAttention(st, facts[i]))
+		row := deriveAttention(st, facts[i])
+		for _, fold := range folds {
+			if fold.sessionID == st.SessionID {
+				foldChainFacts(&row.digestFacts, fold)
+			}
+		}
+		out = append(out, row)
 	}
 	slices.SortFunc(out, func(a, b Attention) int { return strings.Compare(a.SessionID, b.SessionID) })
 	return out

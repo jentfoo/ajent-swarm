@@ -1,6 +1,6 @@
 import { act, render } from '@testing-library/react'
 import { useEffect } from 'react'
-import { MemoryRouter } from 'react-router'
+import { MemoryRouter, Route, Routes, useParams } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { WorkspaceProvider, useWorkspace } from './workspace'
@@ -152,6 +152,17 @@ describe('WorkspaceProvider acknowledgments', () => {
   })
 })
 
+// SessionRouteProbe records the session id a notice navigation landed on.
+let locationProbe = ''
+
+function SessionRouteProbe() {
+  const { sessionId = '' } = useParams()
+  useEffect(() => {
+    locationProbe = sessionId
+  }, [sessionId])
+  return null
+}
+
 // NoticeProbe hands the digest refresh over and records the in-app count,
 // which stays live while the tab title dwells.
 let refreshDigest: () => Promise<void> = () => Promise.resolve()
@@ -179,6 +190,7 @@ describe('WorkspaceProvider notice dwell', () => {
         if (path === '/api/me') return Response.json({ username: 'you', via: 'cookie' })
         if (path === '/api/sessions') return Response.json([])
         if (path === '/api/attention') return Response.json(attention)
+        if (path === '/api/chains') return Response.json([])
         throw new Error(`unexpected fetch ${path}`)
       }),
     )
@@ -246,5 +258,129 @@ describe('WorkspaceProvider notice dwell', () => {
       await refreshDigest()
     })
     expect(document.title).toBe('ajent-swarm')
+  })
+})
+
+// One failed chain announces through the notification bridge: the digest's
+// fresh failure marker on the child row raises one keyed notice naming both
+// sessions, its click opens the child, and later digests never re-announce.
+class StubNotification {
+  static permission = 'granted'
+  closed = false
+  onclick: ((ev: Event) => void) | null = null
+  constructor(
+    public title: string,
+    public options: { body?: string; tag?: string },
+  ) {
+    chainNotices.push(this)
+  }
+  close() {
+    this.closed = true
+  }
+}
+
+let chainNotices: StubNotification[]
+
+describe('WorkspaceProvider chain failure notices', () => {
+  let attention: AttentionRow[]
+
+  beforeEach(() => {
+    chainNotices = []
+    attention = []
+    vi.stubGlobal('Notification', StubNotification)
+    Object.defineProperty(document, 'visibilityState', {
+      value: 'hidden',
+      configurable: true,
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string | URL) => {
+        const path = String(url).split('?')[0]
+        if (path === '/api/me') return Response.json({ username: 'you', via: 'cookie' })
+        if (path === '/api/sessions')
+          return Response.json([
+            { sessionId: '01CHILD0000000000B', name: 'deploy', state: 'online' },
+            { sessionId: '01PARENT0000000000A', name: 'build', state: 'online' },
+          ])
+        if (path === '/api/attention') return Response.json(attention)
+        if (path === '/api/chains') return Response.json([])
+        throw new Error(`unexpected fetch ${path}`)
+      }),
+    )
+  })
+
+  afterEach(() => {
+    Object.defineProperty(document, 'visibilityState', {
+      value: 'visible',
+      configurable: true,
+    })
+    vi.unstubAllGlobals()
+  })
+
+  function failedChainRow(): AttentionRow {
+    return digestRow({
+      sessionId: '01CHILD0000000000B',
+      kind: 'awaiting',
+      reason: 'waiting for a prompt',
+      chainFailure: 'parent exited',
+      chainedOnId: 'chn_1',
+      chainedOn: '01PARENT0000000000A',
+    })
+  }
+
+  async function renderNotices() {
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <AuthProvider>
+          <SwarmProvider>
+            <WorkspaceProvider>
+              <NoticeProbe />
+              <Routes>
+                <Route path="/" element={null} />
+                <Route path="/s/:sessionId" element={<SessionRouteProbe />} />
+              </Routes>
+            </WorkspaceProvider>
+          </SwarmProvider>
+        </AuthProvider>
+      </MemoryRouter>,
+    )
+    await act(async () => {})
+  }
+
+  it('raises once and opens the child on click', async () => {
+    attention = [failedChainRow()]
+    await renderNotices()
+
+    await vi.waitFor(() => expect(chainNotices).toHaveLength(1))
+    expect(chainNotices[0].title).toBe('Chain into deploy failed')
+    expect(chainNotices[0].options.body).toBe('build → deploy: parent exited')
+    expect(chainNotices[0].options.tag).toBe('chain-chn_1')
+
+    // a further digest carrying the same fresh failure never re-announces
+    await act(async () => {
+      await refreshDigest()
+    })
+    expect(chainNotices).toHaveLength(1)
+
+    chainNotices[0].onclick?.(new Event('click'))
+    await act(async () => {})
+    expect(locationProbe).toBe('01CHILD0000000000B')
+  })
+
+  it('stays quiet while the digest carries no failure marker', async () => {
+    attention = [
+      digestRow({
+        sessionId: '01CHILD0000000000B',
+        kind: 'awaiting',
+        reason: 'waiting for a prompt',
+        chainedOnId: 'chn_1',
+        chainedOn: '01PARENT0000000000A',
+      }),
+    ]
+    await renderNotices()
+    await act(async () => {
+      await refreshDigest()
+    })
+    expect(chainNotices).toHaveLength(0)
   })
 })

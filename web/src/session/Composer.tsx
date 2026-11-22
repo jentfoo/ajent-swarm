@@ -5,6 +5,7 @@ import { describeError } from '../api/errors'
 import { sessions as sessionAPI } from '../api/endpoints'
 import type { FileSuggestion } from '../api/types'
 import { MenuPopover } from '../ui/MenuPopover'
+import { sessionDrag, useSessionDrag } from '../ui/dndContext'
 import {
   currentMatch,
   matchOffset,
@@ -94,6 +95,11 @@ export interface ComposerProps {
   // prompt recall: the Ctrl+R history search and the arrows that browse its
   // list after an accept
   recall: ComposerRecall
+  // chainInto wires the composer's chain drop strip: another session's drag
+  // drops here to open the chain dialog with the dragged session queued
+  // after this one; nameFor labels the dragged session. Absent leaves no
+  // strip rendered.
+  chainInto?: { nameFor: (sessionId: string) => string; open: (childId: string) => void }
 }
 
 // Composer is the prompt line: autosize textarea, Enter sends on fine
@@ -119,6 +125,7 @@ export function Composer({
   onQueueFailed,
   stop,
   recall,
+  chainInto,
 }: ComposerProps) {
   const [error, setError] = useState('')
   const [uploading, setUploading] = useState(false)
@@ -747,6 +754,9 @@ export function Composer({
 
   return (
     <form className="composer" onSubmit={onFormSubmit}>
+      {/* the no-modifier chain path: dropping another session's tab here
+          opens the chain dialog with this session as the child */}
+      {chainInto !== undefined && <ChainDropStrip sessionId={sessionId} chainInto={chainInto} />}
       {error && <p className="error-text">{error}</p>}
       <div className="composer-box" ref={boxRef}>
         {/* popups portal through MenuPopover: pane clipping cannot cut them
@@ -965,4 +975,48 @@ async function readInline(file: File): Promise<string> {
   const text = await file.text()
   if (text.includes('\u0000')) throw new Error(`${file.name} is not readable text`)
   return `\`${file.name}\`:\n\`\`\`\n${text.replace(/\n$/, '')}\n\`\`\``
+}
+
+// ChainDropStrip renders the composer's chain drop target while another
+// session's drag is live, the no-modifier discovery path for chaining. A drop
+// or an Enter opens the dialog with the dragged session queued after this one.
+function ChainDropStrip({
+  sessionId,
+  chainInto,
+}: {
+  sessionId: string
+  chainInto: NonNullable<ComposerProps['chainInto']>
+}) {
+  const { dragging } = useSessionDrag()
+  if (dragging === null || dragging === sessionId) return null
+  const open = () => {
+    chainInto.open(dragging)
+    sessionDrag.end()
+  }
+  return (
+    <div
+      className="composer-chain-strip"
+      role="button"
+      tabIndex={0}
+      aria-label={`Drop to chain ${chainInto.nameFor(dragging)} after ${chainInto.nameFor(sessionId)}`}
+      onDragOver={(ev) => {
+        ev.preventDefault()
+        ev.stopPropagation()
+        ev.dataTransfer.dropEffect = 'link'
+      }}
+      onDrop={(ev) => {
+        ev.preventDefault()
+        ev.stopPropagation()
+        open()
+      }}
+      onKeyDown={(ev) => {
+        if (ev.key === 'Enter' || ev.key === ' ') {
+          ev.preventDefault()
+          open()
+        }
+      }}
+    >
+      Drop to chain <strong>{chainInto.nameFor(dragging)}</strong> after this session
+    </div>
+  )
 }

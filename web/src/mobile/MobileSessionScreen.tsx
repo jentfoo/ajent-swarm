@@ -4,6 +4,7 @@ import { Link, useParams } from 'react-router'
 
 import { sessionBusy } from '../state/eventApplier'
 import { headerBadgeOf, submitTurnEnd } from '../workspace/attention'
+import { ChainStrip } from '../session/ChainStrip'
 import { Composer } from '../session/Composer'
 import { SeatBadge } from '../session/SeatBadge'
 import { Notices } from '../session/Notices'
@@ -16,7 +17,7 @@ import { TranscriptView } from '../session/TranscriptView'
 import { useAgentJobs } from '../session/useAgentJobs'
 import { useInterruptStream } from '../session/useInterruptStream'
 import { useSessionCompose } from '../session/useSessionCompose'
-import { useSessionLabel } from '../session/useSessionLabel'
+import { useSessionLabel, useSessionNamer } from '../session/useSessionLabel'
 import { Toasts } from '../hooks/Toasts'
 import { useSessionChannel } from '../hooks/useSessionChannel'
 import { ModelMenu } from '../ui/ModelMenu'
@@ -48,7 +49,8 @@ export default function MobileSessionScreen(): ReactElement {
 // makes a session swap a remount, so local state never outlives its session.
 function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElement {
   const { state, phase, loadOlder, dispatch } = useSessionChannel(sessionId)
-  const { acknowledgeDialog, acknowledgeTurn, itemFor } = useWorkspace()
+  const { acknowledgeDialog, acknowledgeTurn, itemFor, setChainDraft } = useWorkspace()
+  const nameFor = useSessionNamer()
   const snap = state.snapshot
 
   const {
@@ -145,6 +147,7 @@ function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElemen
         onEdit={() => void recallToEdit()}
         onEditParked={() => void recallParked()}
       />
+      <ChainStrip sessionId={sessionId} />
       <Composer
         sessionId={sessionId}
         value={draft}
@@ -163,6 +166,10 @@ function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElemen
         onQueueFailed={(pendingId) => dispatch({ type: 'pendingFailed', pendingId })}
         recall={recall}
         stop={working ? { onClick: interrupt, busy: stopBusy } : undefined}
+        chainInto={{
+          nameFor,
+          open: (childId) => setChainDraft({ parentId: sessionId, childId }),
+        }}
       />
       <StatusBar snap={snap} live={state.live} />
 

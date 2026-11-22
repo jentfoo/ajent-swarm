@@ -3,7 +3,8 @@
 // never re-announced until the item settles and rises again. A settled dialog
 // closes its notification on the next digest, so the tray only holds live
 // wants, and returning to the tab dismisses everything anyway: the workspace
-// is the single source.
+// is the single source. raiseOnce extends the same one-shot guard to keyed
+// notices beyond the digest rows, the chain failure notice today.
 import type { AttentionItem } from '../workspace/attention'
 
 export type NotificationPermission = 'default' | 'granted' | 'denied' | 'unsupported'
@@ -39,6 +40,10 @@ export interface NotificationBridge {
   // publish raises notifications for new needs-input items while hidden and
   // closes the ones whose dialog has settled.
   publish(items: readonly AttentionItem[], host: BridgeHost): void
+  // raiseOnce announces one keyed notice, a key already raised stays quiet
+  // until the bridge forgets it, the one-shot guard behind chain failure
+  // notices. The same hidden and permission gates as publish apply.
+  raiseOnce(key: string, req: NotificationRequest): void
   // dismissAll closes everything this bridge raised.
   dismissAll(): void
 }
@@ -68,7 +73,10 @@ export function createNotificationBridge(options: BridgeOptions = {}): Notificat
   const notify = options.notify ?? defaultNotify
   // Raised notifications keyed by announce key, a present key marks its item
   // announced, so it stays one notification per item until it settles.
+  // dialogKeys tracks the keys publish raised, so settling closes only its
+  // own notices and keyed raiseOnce notices outlive digest churn.
   const raised = new Map<string, DisposableNotification>()
+  const dialogKeys = new Set<string>()
 
   const supported = (): boolean => 'Notification' in window && Notification !== undefined
 
@@ -84,11 +92,15 @@ export function createNotificationBridge(options: BridgeOptions = {}): Notificat
   // notification now rather than waiting for the tab to become visible.
   const closeSettled = (items: readonly AttentionItem[]): void => {
     const live = new Set(items.filter((i) => i.kind === 'needs-input').map((i) => announceKey(i)))
-    for (const [key, n] of raised) {
+    for (const key of dialogKeys) {
       if (live.has(key)) continue
+      const n = raised.get(key)
+      if (n === undefined) continue
       closeQuietly(n)
       raised.delete(key)
     }
+    dialogKeys.clear()
+    for (const key of live) dialogKeys.add(key)
   }
 
   return {
@@ -125,9 +137,20 @@ export function createNotificationBridge(options: BridgeOptions = {}): Notificat
               onclick: () => host.openSession(item.sessionId),
             }),
           )
+          dialogKeys.add(key)
         } catch {
           // construction can fail, the unset key lets a later digest retry
         }
+      }
+    },
+
+    raiseOnce(key, req) {
+      if (!supported() || Notification.permission !== 'granted' || !hidden()) return
+      if (raised.has(key)) return
+      try {
+        raised.set(key, notify(req))
+      } catch {
+        // construction can fail, the unset key lets a later digest retry
       }
     },
 

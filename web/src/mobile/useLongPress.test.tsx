@@ -1,15 +1,18 @@
 import { act, render, renderHook, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { useLongPress } from './useLongPress'
+import { pointAt } from '../test/elementFromPoint'
 import type { PointerEvent as ReactPointerEvent } from 'react'
 
-// The hold-to-rename gesture: fires only after the threshold, and any early
-// release, drag past the movement slop, pointer leaving or unmount cancels it.
-// A fired hold also suppresses the tap its release synthesizes wherever that
-// click retargets, so these tests run against a small fixture wiring the row
-// gesture inside an ancestor with its own click handler, like a switcher row
-// opening on tap.
+// The hold-to-open gesture: fires only after the threshold, and any early
+// release, drag past the movement slop, pointer leaving or unmount cancels
+// it. A fired hold also suppresses the tap its release synthesizes wherever
+// that click retargets, so these tests run against a small fixture wiring
+// the row gesture inside an ancestor with its own click handler, like a
+// switcher row opening on tap. With a drag config the same machine extends
+// past the hold: movement lifts the row into a drag whose target is the
+// [data-session-id] row under the pointer, releasing over one drops.
 
 function pointerEvent(isPrimary = true, x = 0, y = 0): ReactPointerEvent {
   return {
@@ -82,6 +85,21 @@ describe('useLongPress', () => {
       })
       expect(onLongPress).toHaveBeenCalledTimes(1)
       expect(result.current.pressed).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('fires at the press point', async () => {
+    vi.useFakeTimers()
+    try {
+      const onLongPress = vi.fn()
+      const { result } = renderHook(() => useLongPress(onLongPress))
+      await act(async () => {
+        result.current.onPointerDown(pointerEvent(true, 12, 34))
+        await vi.advanceTimersByTimeAsync(500)
+      })
+      expect(onLongPress).toHaveBeenCalledWith(12, 34)
     } finally {
       vi.useRealTimers()
     }
@@ -399,6 +417,229 @@ describe('useLongPress', () => {
       })
       tap(row)
       expect(onTap).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+// DragHarness wires the gesture with a drop config over two rows: the source
+// carries the handlers, the neighbour stands in as the row a mocked
+// elementFromPoint reports under the finger.
+function DragHarness({
+  onLongPress,
+  onTapTarget,
+  onDragStart,
+  onDragTarget,
+  onDrop,
+  onDragEnd,
+}: {
+  onLongPress: () => void
+  onTapTarget: () => void
+  onDragStart: () => void
+  onDragTarget: (sessionId: string | null) => void
+  onDrop: (sessionId: string) => void
+  onDragEnd: () => void
+}) {
+  const handlers = useLongPress(onLongPress, {
+    canDrop: (id) => id === 'B',
+    onDragStart,
+    onDragTarget,
+    onDrop,
+    onDragEnd,
+  })
+  return (
+    <div>
+      <div data-testid="row" data-session-id="A" {...handlers}>
+        source
+      </div>
+      <div data-testid="target" data-session-id="B" onClick={onTapTarget}>
+        target
+      </div>
+    </div>
+  )
+}
+
+describe('useLongPress drag', () => {
+  const dragCallbacks = () => ({
+    onDragStart: vi.fn(),
+    onDragTarget: vi.fn(),
+    onDrop: vi.fn(),
+    onDragEnd: vi.fn(),
+  })
+
+  // elementFromPoint answers nothing until a test names the row beneath
+  let under: ReturnType<typeof pointAt>
+  beforeEach(() => {
+    under = pointAt(null)
+  })
+  afterEach(() => {
+    under.restore()
+  })
+
+  // holdLift presses past the threshold (the hold fires), then moves the
+  // pointer onto the neighbour without releasing
+  async function holdLift(row: Element) {
+    act(() => {
+      row.dispatchEvent(
+        new PointerEvent('pointerdown', {
+          bubbles: true,
+          isPrimary: true,
+          pointerId: 1,
+          clientX: 0,
+          clientY: 0,
+        }),
+      )
+    })
+    await act(() => vi.advanceTimersByTimeAsync(500))
+    act(() => {
+      row.dispatchEvent(
+        new PointerEvent('pointermove', {
+          bubbles: true,
+          isPrimary: true,
+          pointerId: 1,
+          clientX: 40,
+          clientY: 0,
+        }),
+      )
+    })
+  }
+
+  function release(row: Element) {
+    act(() => {
+      row.dispatchEvent(
+        new PointerEvent('pointerup', {
+          bubbles: true,
+          isPrimary: true,
+          pointerId: 1,
+          clientX: 40,
+          clientY: 0,
+        }),
+      )
+    })
+  }
+
+  it('lifts a moved hold into a drag and drops on the row under it', async () => {
+    vi.useFakeTimers()
+    try {
+      const drag = dragCallbacks()
+      const onLongPress = vi.fn()
+      render(<DragHarness onLongPress={onLongPress} onTapTarget={() => {}} {...drag} />)
+      const row = screen.getByTestId('row')
+      const target = screen.getByTestId('target')
+      under.set(target)
+
+      await holdLift(row)
+      // the hold fired first (its menu opens), then the movement converted
+      // the same gesture into a drag reporting its target
+      expect(onLongPress).toHaveBeenCalledTimes(1)
+      expect(drag.onDragStart).toHaveBeenCalledTimes(1)
+      expect(drag.onDragTarget).toHaveBeenCalledWith('B')
+
+      release(row)
+      expect(drag.onDrop).toHaveBeenCalledWith('B')
+      expect(drag.onDragEnd).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('ends the drag without a drop over refused ground', async () => {
+    vi.useFakeTimers()
+    try {
+      const drag = dragCallbacks()
+      render(<DragHarness onLongPress={vi.fn()} onTapTarget={() => {}} {...drag} />)
+      const row = screen.getByTestId('row')
+
+      await holdLift(row)
+      // no droppable row under the pointer: the target reads null
+      expect(drag.onDragTarget).toHaveBeenCalledWith(null)
+
+      release(row)
+      expect(drag.onDrop).not.toHaveBeenCalled()
+      expect(drag.onDragEnd).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('never lifts without the hold firing', async () => {
+    vi.useFakeTimers()
+    try {
+      const drag = dragCallbacks()
+      render(<DragHarness onLongPress={vi.fn()} onTapTarget={() => {}} {...drag} />)
+      const row = screen.getByTestId('row')
+
+      // a plain press-drag past the slop scrolls: no hold fires, no drag
+      // begins, and the release tap lands like any other
+      act(() => {
+        row.dispatchEvent(
+          new PointerEvent('pointerdown', {
+            bubbles: true,
+            isPrimary: true,
+            pointerId: 1,
+            clientX: 0,
+            clientY: 0,
+          }),
+        )
+        row.dispatchEvent(
+          new PointerEvent('pointermove', {
+            bubbles: true,
+            isPrimary: true,
+            pointerId: 1,
+            clientX: 40,
+            clientY: 0,
+          }),
+        )
+      })
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(600)
+        row.dispatchEvent(
+          new PointerEvent('pointerup', { bubbles: true, isPrimary: true, pointerId: 1 }),
+        )
+      })
+      expect(drag.onDragStart).not.toHaveBeenCalled()
+      expect(drag.onDrop).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('cancels the drag when the platform steals the pointer', async () => {
+    vi.useFakeTimers()
+    try {
+      const drag = dragCallbacks()
+      render(<DragHarness onLongPress={vi.fn()} onTapTarget={() => {}} {...drag} />)
+      const row = screen.getByTestId('row')
+
+      await holdLift(row)
+      act(() => {
+        row.dispatchEvent(
+          new PointerEvent('pointercancel', { bubbles: true, isPrimary: true, pointerId: 1 }),
+        )
+      })
+      expect(drag.onDrop).not.toHaveBeenCalled()
+      expect(drag.onDragEnd).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('suppresses the tap a drag release synthesizes', async () => {
+    vi.useFakeTimers()
+    try {
+      const drag = dragCallbacks()
+      const onTapTarget = vi.fn()
+      render(<DragHarness onLongPress={vi.fn()} onTapTarget={onTapTarget} {...drag} />)
+      const row = screen.getByTestId('row')
+      const target = screen.getByTestId('target')
+
+      // the release over the target row would otherwise open that row
+      under.set(target)
+      await holdLift(row)
+      release(row)
+      tap(target)
+      expect(onTapTarget).not.toHaveBeenCalled()
     } finally {
       vi.useRealTimers()
     }

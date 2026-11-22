@@ -138,8 +138,10 @@ func (s *Scheduler) loop() {
 	nextSweep := s.sweep()
 	// held tracks the providers with jobs still waiting for a quiet fleet:
 	// such a job keeps its past slot, so the earliest-slot hint would collapse
-	// every later wait to zero and spin the loop for the whole hold
-	held := make(map[string]struct{})
+	// every later wait to zero and spin the loop for the whole hold. Each
+	// entry carries the shortest idle window among that provider's held jobs,
+	// so the sleep targets the earliest release any class could see
+	held := make(map[string]time.Duration)
 	for s.baseCtx.Err() == nil {
 		select {
 		case <-s.baseCtx.Done():
@@ -157,7 +159,10 @@ func (s *Scheduler) loop() {
 		clear(held)
 		for _, j := range due {
 			if s.fireDue(j, now) {
-				held[jobProvider(j)] = struct{}{}
+				provider, window := jobProvider(j), jobIdleWindow(j)
+				if prev, ok := held[provider]; !ok || window < prev {
+					held[provider] = window
+				}
 			}
 		}
 
@@ -171,11 +176,11 @@ func (s *Scheduler) loop() {
 // clamped to the tick. A pass that held jobs for a quiet fleet bounds the
 // wait by those providers' quiet moments instead, so slots left in the past
 // never spin the loop while they wait.
-func (s *Scheduler) nextWait(held map[string]struct{}) time.Duration {
+func (s *Scheduler) nextWait(held map[string]time.Duration) time.Duration {
 	if len(held) > 0 {
 		wait := s.opts.Tick
-		for provider := range held {
-			quiet := max(time.Until(s.runner.ProviderBusyAt(provider).Add(idleWindow)), 0)
+		for provider, window := range held {
+			quiet := max(time.Until(s.runner.ProviderBusyAt(provider).Add(window)), 0)
 			wait = min(wait, quiet)
 		}
 		return wait
@@ -205,7 +210,7 @@ func (s *Scheduler) fireDue(j store.Job, now time.Time) bool {
 	provider := jobProvider(j)
 
 	lastBusy := s.runner.ProviderBusyAt(provider)
-	if j.RunWhenIdle && !lastBusy.IsZero() && now.Sub(lastBusy) < idleWindow {
+	if j.RunWhenIdle && !lastBusy.IsZero() && now.Sub(lastBusy) < jobIdleWindow(j) {
 		maxDelay := time.Duration(j.IdleMaxDelaySeconds) * time.Second
 		waited := now.Sub(slot)
 		if maxDelay <= 0 || waited < maxDelay {
@@ -217,7 +222,7 @@ func (s *Scheduler) fireDue(j store.Job, now time.Time) bool {
 	}
 	// one quiet moment serves one release: a lost claim re-arms behind the
 	// winner instead of firing into the same idle point
-	if j.RunWhenIdle && !s.runner.ClaimRelease(provider, idleWindow) {
+	if j.RunWhenIdle && !s.runner.ClaimRelease(provider, jobIdleWindow(j)) {
 		return true // stay due, the winner's release holds the provider for us too
 	}
 

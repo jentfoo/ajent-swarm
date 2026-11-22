@@ -13,7 +13,9 @@ import { useResume } from '../hooks/useResume'
 import { useSwarm } from '../providers/swarm'
 import { useAuth } from '../providers/auth'
 import { AgentSettingsMenu } from '../session/AgentSettingsMenu'
+import { SessionContextMenu, useSessionMenu } from '../session/SessionContextMenu'
 import { RenameControl } from '../session/RenameControl'
+import { StatusBadge } from '../session/StatusBadge'
 import { displayName, shortID } from '../session/names'
 import { describeStop, instanceKey } from '../workspace/attention'
 import { ModelSelect, WorkspaceSelect } from '../ui/LaunchFormFields'
@@ -136,8 +138,13 @@ function SessionCard({
   const tail = s.workspace?.split('/').filter(Boolean).pop()
   const facts = [s.model, tail].filter(Boolean).join(' · ')
 
+  const { menu, openSessionMenu, closeSessionMenu } = useSessionMenu()
+
   return (
-    <div className={`card session-card ${ended ? 'ended' : ''}`}>
+    <div
+      className={`card session-card ${ended ? 'ended' : ''}`}
+      onContextMenu={(ev) => openSessionMenu(ev, s.sessionId)}
+    >
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.4em' }}>
         <input
           type="checkbox"
@@ -175,6 +182,11 @@ function SessionCard({
         ) : s.idle && s.state === ChildState.Online ? (
           <span className="badge">idle</span>
         ) : null}
+        {/* chain links ride the listing fields, so a card badges without the
+            digest, through the shared badge copy */}
+        {(s.chainedOn !== undefined || s.deliveringTo !== undefined) && (
+          <StatusBadge status="chained" />
+        )}
       </div>
       {facts && (
         <p className="muted" style={{ margin: '0.2em 0' }}>
@@ -188,6 +200,7 @@ function SessionCard({
         </p>
       )}
       <ActionsBar status={s} />
+      <SessionContextMenu menu={menu} onClose={closeSessionMenu} />
     </div>
   )
 }

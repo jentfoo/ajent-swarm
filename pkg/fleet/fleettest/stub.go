@@ -26,6 +26,10 @@ type Entry = session.Entry
 // stubWorkspace is where every stub claims to run.
 const stubWorkspace = "/repo"
 
+// defaultTranscript is the recording every stub serves unless Options names
+// its own.
+const defaultTranscript = "transcript.jsonl"
+
 // Options configures one stub at creation.
 type Options struct {
 	SessionID string
@@ -33,6 +37,9 @@ type Options struct {
 	Token     string // writer token, a fixed default when empty
 	PID       int    // hello pid override, this process when zero
 	Refuses   bool   // attach with control always refuses, seat-held
+	// Transcript names this stub's transcript file inside home, distinct
+	// names keep sibling stubs from truncating each other's recordings.
+	Transcript string
 }
 
 // RecordedRequest is one request the stub received beside its raw params.
@@ -77,7 +84,10 @@ func New(t *testing.T, home string, opts Options) *Stub {
 	if opts.Token == "" {
 		opts.Token = "token1234"
 	}
-	recordTo := filepath.Join(home, "transcript.jsonl") // serve mode always records
+	recordTo := filepath.Join(home, defaultTranscript)
+	if opts.Transcript != "" {
+		recordTo = filepath.Join(home, opts.Transcript)
+	}
 	if err := os.WriteFile(recordTo, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +169,9 @@ func (f *Stub) SetSnapshot(snap ctl.State) {
 // WriteTranscript records entries to the stub's file and moves the head there.
 func (f *Stub) WriteTranscript(t *testing.T, entries ...Entry) {
 	t.Helper()
-	path := filepath.Join(f.home, "transcript.jsonl")
+	f.mu.Lock()
+	path := f.recordTo
+	f.mu.Unlock()
 	var buf []byte
 	for _, e := range entries {
 		line, err := json.Marshal(e)

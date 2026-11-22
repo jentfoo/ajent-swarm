@@ -21,6 +21,8 @@ function EntryBlockImpl({ block }: { block: DerivedBlock }) {
           <ImageRow images={block.images} />
         </div>
       )
+    case 'chained':
+      return <ChainedEntry block={block} />
     case 'injected':
       return <InjectedEntry block={block} />
     case 'assistant': {
@@ -94,6 +96,33 @@ function EntryBlockImpl({ block }: { block: DerivedBlock }) {
         </div>
       )
   }
+}
+
+// ChainedEntry paints one handed-off prompt: the child's prompt leads as the
+// message, the parent's response rides collapsed behind a disclosure so the
+// transcript never opens on a wall of quoted text. The body renders as plain
+// monospace like injected context, never through the markdown renderer.
+function ChainedEntry({ block }: { block: Extract<DerivedBlock, { kind: 'chained' }> }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="entry chained" data-entry-id={block.id}>
+      <span className="block-role">
+        chained from prior session
+        {block.truncated ? ' · last 8000 chars' : ''}
+      </span>
+      <MarkdownBlock text={block.prompt} />
+      {block.body !== '' && (
+        <details
+          className="chained-body"
+          open={open}
+          onToggle={(ev) => setOpen(ev.currentTarget.open)}
+        >
+          <summary>parent response</summary>
+          <pre className="mono">{block.body}</pre>
+        </details>
+      )}
+    </div>
+  )
 }
 
 // Bodies past this many lines collapse behind a head-plus-disclosure, ajent's

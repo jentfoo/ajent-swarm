@@ -3,9 +3,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AttentionRow } from '../api/types'
 import {
   ackBodyFor,
+  anchorChained,
+  chainNoticeOf,
   compareAttention,
   deriveItem,
   describeStop,
+  failedChainOf,
   headerBadgeOf,
   noticeDwellMs,
   noticeEligible,
@@ -14,7 +17,7 @@ import {
   sessionBadgeOf,
   submitTurnEnd,
 } from './attention'
-import type { AttentionSort } from './attention'
+import type { AttentionItem, AttentionSort } from './attention'
 
 // row builds one digest row the way the server derives it: kind, reason and
 // wait arrive ready-made, ack facts ride beside them.
@@ -148,6 +151,50 @@ describe('attention ranking', () => {
     const third = rankAttention([idle('aaa-settled'), idle('zzz-mover')])
     expect(third.waiting.map((i) => i.sessionId)).toEqual(['zzz-mover', 'aaa-settled'])
   })
+
+  it('ranks chained sessions into working below the session they wait behind', () => {
+    vi.useFakeTimers()
+    const chained = (sessionId: string, parent: string) =>
+      deriveItem(row({ sessionId, chainedOn: parent, chainedOnId: 'chn_1' }))
+
+    vi.setSystemTime(1000)
+    const ranked = rankAttention([
+      deriveItem(row({ sessionId: 'busy-parent', running: true, idle: false, kind: 'working' })),
+      chained('queued-child', 'busy-parent'),
+      chained('late-child', 'busy-parent'),
+      deriveItem(row({ sessionId: 'other-worker', running: true, idle: false, kind: 'working' })),
+      chained('orphan-child', 'gone-parent'),
+    ])
+
+    // the whole chain lands in Working, each link directly below the session
+    // it waits behind, and a chain whose parent is absent keeps its ranked
+    // spot (the tail keeps the session-id tiebreak of the ranked order)
+    expect(ranked.working.map((i) => i.sessionId)).toEqual([
+      'busy-parent',
+      'late-child',
+      'queued-child',
+      'orphan-child',
+      'other-worker',
+    ])
+    expect(ranked.waiting).toEqual([])
+    vi.useRealTimers()
+  })
+
+  it('anchors deep chains below their parent through every hop', () => {
+    const anchored = anchorChained([
+      { sessionId: 'c', chainedOn: 'b' },
+      { sessionId: 'a' },
+      { sessionId: 'b', chainedOn: 'a' },
+    ])
+    expect(anchored.map((r) => r.sessionId)).toEqual(['a', 'b', 'c'])
+
+    // a parent in another queue never drags the child across sections
+    const mixed = anchorChained([
+      { sessionId: 'child', chainedOn: 'needs-parent' },
+      { sessionId: 'free' },
+    ])
+    expect(mixed.map((r) => r.sessionId)).toEqual(['child', 'free'])
+  })
 })
 
 describe('session badge states', () => {
@@ -221,6 +268,63 @@ describe('session badge states', () => {
     // no digest at all reads the same as a resting session
     expect(sessionBadgeOf(false, undefined)).toBe('idle')
     expect(headerBadgeOf(false, undefined)).toBe('idle')
+  })
+
+  it('marks chained ahead of waiting and maps the digest chain fields', () => {
+    const child = deriveItem(
+      row({
+        sessionId: '01C',
+        kind: 'awaiting',
+        reason: 'waiting for a prompt',
+        chainedOnId: 'chn_1',
+        chainedOn: '01P',
+      }),
+    )
+    expect(child.chainedOn).toBe('01P')
+    expect(child.chainedOnId).toBe('chn_1')
+    expect(child.reason).toBe('waiting for a prompt') // chain facts never touch it
+    expect(sessionBadgeOf(false, child)).toBe('chained')
+    expect(headerBadgeOf(false, child)).toBe('chained')
+
+    // a chained session behind a live turn or a dialog keeps that badge: the
+    // chain stays visible through the fields instead
+    expect(sessionBadgeOf(true, child)).toBe('running')
+
+    const parent = deriveItem(
+      row({
+        sessionId: '01P',
+        kind: 'awaiting',
+        deliveringId: 'chn_1',
+        deliveringTo: '01C',
+      }),
+    )
+    expect(parent.deliveringTo).toBe('01C')
+    expect(parent.deliveringId).toBe('chn_1')
+    expect(sessionBadgeOf(false, parent)).toBe('chained')
+  })
+
+  it('names the chain role for the rail and switcher lines', () => {
+    const namer = (id: string) => (id === '01P' ? 'parent' : 'child')
+    const child = deriveItem(row({ sessionId: '01C', chainedOn: '01P', chainedOnId: 'chn_1' }))
+    expect(chainNoticeOf(child, namer)).toBe('queued behind parent')
+
+    const parent = deriveItem(row({ sessionId: '01P', deliveringTo: '01C', deliveringId: 'chn_1' }))
+    expect(chainNoticeOf(parent, namer)).toBe('handing off to child')
+
+    // the failure leads its own line: the live role never masks the loss
+    const failed = deriveItem(
+      row({
+        sessionId: '01C',
+        chainedOn: '01P',
+        chainedOnId: 'chn_1',
+        chainFailure: 'child exited',
+      }),
+    )
+    expect(chainNoticeOf(failed, namer)).toBe('chain failed: child exited')
+    expect(sessionBadgeOf(false, failed)).toBe('failed')
+    expect(headerBadgeOf(false, failed)).toBe('failed')
+
+    expect(chainNoticeOf(deriveItem(row({ sessionId: '01X' })), namer)).toBeUndefined()
   })
 })
 
@@ -315,5 +419,56 @@ describe('submit-path turn acks', () => {
     expect(
       submitTurnEnd(deriveItem(row({ sessionId: 'st', running: true, kind: 'working' }))),
     ).toBe(9_000)
+  })
+})
+
+describe('failedChainOf', () => {
+  const item = (over: Partial<AttentionItem>): AttentionItem => ({
+    sessionId: '01C',
+    kind: 'awaiting',
+    reason: '',
+    since: 0,
+    pid: 1,
+    running: false,
+    parked: false,
+    ...over,
+  })
+
+  it('reads the child row failure into both endpoint ids', () => {
+    const failed = failedChainOf(
+      item({
+        chainedOnId: 'chn_1',
+        chainedOn: '01P',
+        chainFailure: 'parent exited',
+      }),
+    )
+    expect(failed).toEqual({
+      chainId: 'chn_1',
+      childId: '01C',
+      parentId: '01P',
+      reason: 'parent exited',
+    })
+  })
+
+  it('reads the parent row failure, an exited child still announces', () => {
+    const failed = failedChainOf(
+      item({
+        sessionId: '01P',
+        deliveringId: 'chn_1',
+        deliveringTo: '01C',
+        chainFailure: 'child exited',
+      }),
+    )
+    expect(failed).toEqual({
+      chainId: 'chn_1',
+      childId: '01C',
+      parentId: '01P',
+      reason: 'child exited',
+    })
+  })
+
+  it('ignores live waits and id-less rows', () => {
+    expect(failedChainOf(item({ chainedOnId: 'chn_1', chainedOn: '01P' }))).toBeUndefined()
+    expect(failedChainOf(item({ chainFailure: 'parent exited' }))).toBeUndefined()
   })
 })

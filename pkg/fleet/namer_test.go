@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -251,6 +252,59 @@ func TestNamer(t *testing.T) {
 
 		assert.Empty(t, store.snapshot()) // no configured binary, nothing to run
 	})
+
+	t.Run("namer_runs_reasoning_off", func(t *testing.T) {
+		store := newTitleMemStore()
+		bin, level := reasoningRecordingNamerBin(t)
+		m, home := newTestFleetWithTitlesAndBin(t, store, bin, nil)
+
+		f := fleettest.New(t, home, fleettest.Options{SessionID: "01NOREASON00000000"})
+		f.WriteTranscript(t, adoptedTranscript(true)...)
+		f.WriteRegistry(t, os.Getpid(), time.Now())
+		waitForState(t, m, f.SessionID(), ChildOnline)
+
+		require.Eventually(t, func() bool {
+			return store.snapshot()[f.SessionID()] == "Fix login flow"
+		}, 2*time.Second, testPoll)
+		assert.Equal(t, "off", level()) // a label never earns its reasoning spend
+	})
+
+	t.Run("fallback_gets_fresh_budget", func(t *testing.T) {
+		store := newTitleMemStore()
+		settings := newSettingsMemStore()
+		require.NoError(t, settings.SetSetting(t.Context(), SettingKeyTitleModel, "slow-model"))
+		bin, slow, fast := slowModelNamerBin(t)
+		home := testutil.IsolateHome(t)
+
+		prev := namerWait // the first attempt must burn its own budget alone
+		namerWait = 250 * time.Millisecond
+		t.Cleanup(func() { namerWait = prev })
+
+		m := New(Options{
+			Log:            testLogger(),
+			PollInterval:   testPoll,
+			BackoffBase:    testBackoff,
+			BackoffMax:     testBackoffHi,
+			AjentBin:       bin,
+			TitleStore:     store,
+			SettingStore:   settings,
+			ParkIdleWindow: time.Hour,
+		})
+		m.Start(t.Context())
+		t.Cleanup(m.Stop)
+
+		f := fleettest.New(t, home, fleettest.Options{SessionID: "01FRESHBUDGET0000001"})
+		f.WriteTranscript(t, adoptedTranscript(true)...)
+		f.WriteRegistry(t, os.Getpid(), time.Now())
+		waitForState(t, m, f.SessionID(), ChildOnline)
+
+		require.Eventually(t, func() bool {
+			return store.snapshot()[f.SessionID()] == "Fix login flow"
+		}, 3*time.Second, testPoll)
+		assert.Equal(t, 1, slow())
+		assert.Equal(t, 1, fast())
+		assert.Empty(t, settings.snapshot()[SettingKeyTitleModel]) // unusable model dropped
+	})
 }
 
 func fakeNamerBin(t *testing.T) (string, func() int) {
@@ -267,6 +321,53 @@ func fakeNamerBin(t *testing.T) (string, func() int) {
 		}
 		return bytes.Count(b, []byte{'\n'})
 	}
+}
+
+// reasoningRecordingNamerBin answers like fakeNamerBin and records the
+// reasoning level its child ran with.
+func reasoningRecordingNamerBin(t *testing.T) (string, func() string) {
+	t.Helper()
+	dir := t.TempDir()
+	out := filepath.Join(dir, "reasoning")
+	path := filepath.Join(dir, "ajent-fake")
+	script := "#!/bin/sh\necho \"$AJENT_REASONING_LEVEL\" > " + out + "\necho 'Fix login flow'\n"
+	require.NoError(t, os.WriteFile(path, []byte(script), 0o700))
+	return path, func() string {
+		b, err := os.ReadFile(out)
+		if err != nil { // never ran
+			return ""
+		}
+		return strings.TrimSpace(string(b))
+	}
+}
+
+// slowModelNamerBin times out past any shrunk budget when the args name
+// slow-model (exec keeps the killed attempt from leaving pipe holders
+// behind), answers at once otherwise. Each path counts its own runs.
+func slowModelNamerBin(t *testing.T) (string, func() int, func() int) {
+	t.Helper()
+	dir := t.TempDir()
+	slowMarker := filepath.Join(dir, "slow-runs")
+	fastMarker := filepath.Join(dir, "fast-runs")
+	path := filepath.Join(dir, "ajent-fake")
+	script := "#!/bin/sh\n" +
+		"for a in \"$@\"; do\n" +
+		"  if [ \"$a\" = \"slow-model\" ]; then\n" +
+		"    echo run >> " + slowMarker + "\n    exec sleep 5\n  fi\n" +
+		"done\n" +
+		"echo 'Fix login flow'\n" +
+		"echo run >> " + fastMarker + "\n"
+	require.NoError(t, os.WriteFile(path, []byte(script), 0o700))
+	counter := func(marker string) func() int {
+		return func() int {
+			b, err := os.ReadFile(marker)
+			if err != nil { // never ran
+				return 0
+			}
+			return bytes.Count(b, []byte{'\n'})
+		}
+	}
+	return path, counter(slowMarker), counter(fastMarker)
 }
 
 func adoptedTranscript(prompt bool) []fleettest.Entry {

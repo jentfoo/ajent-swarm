@@ -19,7 +19,7 @@ func TestMigrate(t *testing.T) {
 		require.NoError(t, err)
 		for _, want := range []string{
 			"users", "auth_sessions", "api_tokens",
-			"children", "jobs", "runs",
+			"children", "jobs", "runs", "chains",
 			"session_titles", "app_settings", "recall_lines",
 			"attention_dialog_acks", "attention_turn_acks",
 		} {

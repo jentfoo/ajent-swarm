@@ -73,9 +73,25 @@ wiring layer, and the frontend starts at `web/src/main.tsx` → `App.tsx` → pr
   one-shot auto-namer (never touches ajent's own session names), the server-side attention
   ledger and digest kinds (any device's check-off settles every device), parked prompts (the
   composer's Queue action holds them until the session model's provider has been quiet for 1
-  minute through the same per-provider gate as jobs' run-when-idle 10-minute hold, releasing one
-  line per idle point; a reconnect re-arms it), saved-transcript
-  browsing, the rewind picker, model/tool unions, and composer `@`-file completion.
+  minute through the same per-provider gate as jobs' run-when-idle hold, releasing one line per
+  idle point; a reconnect re-arms it), chained handoffs (one pump per chain runs an optional
+  final prompt on the parent and hands only that prompt's answer to the child as a
+  "Prior session last message:" header block, without one the child runs its prompt alone; both forms wait
+  for the parent's completed-turn review point, and gates are session-based, open dialogs,
+  tool barriers, queued and parked prompts included, so the parent reads as in review before
+  the child starts; one parent runs one chain's final prompt at a time, and the whole chain
+  fails past a 2h age bound; a confirmed endpoint stop fails the chain component touching it
+  rather than letting a stopped parent hand off; a link stacked behind another holds until
+  that link delivers,
+  and a link that dies without delivering (failed, canceled, timed out) cascades the break to
+  every link stacked behind it, restored rows reconcile the same cascade so a restart never
+  re-arms a tail over a handoff that never landed; edits and cancels wait out the pump's
+  in-flight tick before mutating; records
+  persist in SQLite, re-arm after a restart, and read over `GET /api/chains`; the digest carries
+  one chain id per role beside a fresh failure line on both endpoints, so any device can edit,
+  cancel and notice them),
+  saved-transcript browsing, the rewind picker, model/tool unions, and composer `@`-file
+  completion.
   `fleettest/` provides a stub control-socket server for tests.
 - `pkg/sched`: one trigger goroutine claims due jobs, applies an optional shell trigger
   gate, launches through the `Runner` interface (satisfied by `*fleet.Manager`), applies
@@ -189,6 +205,7 @@ Reach for stdlib `slices`/`maps`/`strings` and `github.com/go-analyze/bulk` befo
 ## Testing
 
 Structure and conventions:
+
 - One `_test.go` file per implementation file that requires testing
 - One `func Test<FunctionName>` per target function, using table-driven tests or `t.Run` cases
 - Test case names should be at most 3 to 5 words and in lower case with underscores
@@ -198,16 +215,19 @@ Structure and conventions:
 - Cleanup actions should be done with t.Cleanup, not defer
 
 Assertions and validation:
+
 - Assertions rely on `testify` (`require` for setup, `assert` for assertions)
 - Don't include assertion messages unless the message provides context outside of the test point
 - Do NOT use time.Sleep for tests, instead use require.Eventually or deterministic triggers
 - Check returned errors with `require.NoError` / `assert.NoError` whenever `*testing.T` is in scope. Exceptions: `t.Cleanup` and goroutines.
 
 Test helpers:
+
 - `pkg/testutil.IsolateHome(t)` pins `AJENT_HOME` so tests never touch the real ajent home
 - `web/src/test/mockWebSocket.ts` is the shared WebSocket test double
 - `web/tests/setup.ts` fixes element geometry so the virtualizer is deterministic in jsdom
 - `resetDrafts()` resets localStorage-backed state between tests
 
 Verification:
+
 - Verify with `make test-all` and `make lint` (frontend: `make web-check`) before considering a change complete

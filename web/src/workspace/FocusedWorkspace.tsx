@@ -10,22 +10,30 @@ import { RenameControl } from '../session/RenameControl'
 import { tildePath } from '../session/names'
 import { relativeTime } from '../session/rewind'
 import { useSessionNamer } from '../session/useSessionLabel'
+import { sessionDrag, useSessionDrag } from '../ui/dndContext'
+import { SessionContextMenu, useSessionMenu } from '../session/SessionContextMenu'
 import { useWorkspaceKeys } from './keys'
 import { ShortcutOverlay } from './ShortcutOverlay'
-import { attentionSectionTitles, isActionable } from './attention'
+import { StatusBadge } from '../session/StatusBadge'
+import { attentionSectionTitles, chainNoticeOf, isActionable, sessionBadgeOf } from './attention'
 import type { AttentionItem } from './attention'
 
 // FocusedWorkspace answers "what needs me right now": a ranked rail split
 // in three queues (states wanting a human answer above, idle agents
 // waiting below them, busy sessions last) beside exactly one SessionView.
 // Rows are tabbable buttons with an inline check-off on actionable ones,
-// matching the j/k shortcuts and mobile's switcher rows. The selected
-// session persists in the layout profile, recently viewed sessions stay
-// warm in the store, so swapping rows is instant.
+// matching the j/k shortcuts and mobile's switcher rows. Dragging one row
+// onto another chains them: the dragged row queues after the target and
+// receives its handoff, the rail never reorders. The selected session
+// persists in the layout
+// profile, recently viewed sessions stay warm in the store, so swapping
+// rows is instant.
 export default function FocusedWorkspace() {
   const { sessions } = useSwarm()
   const auth = useAuth()
-  const { needs, waiting, working, acknowledgeItem, profile, selectFocusedSession } = useWorkspace()
+  const { needs, waiting, working, acknowledgeItem, profile, selectFocusedSession, setChainDraft } =
+    useWorkspace()
+  const { dragging } = useSessionDrag()
 
   const [searchParams, setSearchParams] = useSearchParams()
   const selected = profile.focused.selectedSessionId
@@ -54,6 +62,8 @@ export default function FocusedWorkspace() {
 
   const railRef = useRef<HTMLDivElement>(null)
   const [showShortcuts, setShowShortcuts] = useState(false)
+  const [chainOver, setChainOver] = useState<string | null>(null)
+  const { menu, openSessionMenu, closeSessionMenu } = useSessionMenu()
   const now = useNow(15_000)
 
   const open = useCallback(
@@ -108,15 +118,55 @@ export default function FocusedWorkspace() {
     // muted text so long titles keep the whole line
     const row = sessions.find((s) => s.sessionId === item.sessionId)
     const label = nameFor(item.sessionId)
+    const chainable = dragging !== null && dragging !== item.sessionId
     return (
       <div
         key={`${item.sessionId}:${item.pid}`}
         role="button"
         tabIndex={0}
-        className={`rail-row kind-${item.kind} ${isSelected ? 'selected' : ''}`}
+        className={`rail-row kind-${item.kind} ${isSelected ? 'selected' : ''} ${
+          chainOver === item.sessionId ? 'chain-target' : ''
+        }`}
         data-cursor={isCursor || undefined}
         data-session-id={item.sessionId}
+        draggable
+        onDragStart={(ev) => {
+          // inner controls own their gestures: a rename or check-off press
+          // never starts a row drag
+          if (ev.target !== ev.currentTarget) return
+          ev.dataTransfer.setData('text/plain', item.sessionId) // Firefox drags need data
+          ev.dataTransfer.effectAllowed = 'link'
+          sessionDrag.begin(item.sessionId)
+        }}
+        onDragEnd={() => {
+          setChainOver(null)
+          sessionDrag.end()
+        }}
+        onDragOver={(ev) => {
+          // rail drops only chain, they never reorder, so every foreign row
+          // highlights as a target while a drag flies
+          if (!chainable) return
+          ev.preventDefault()
+          ev.dataTransfer.dropEffect = 'link'
+          setChainOver(item.sessionId)
+        }}
+        onDragLeave={(ev) => {
+          // leaving for a child control is not leaving the row, the highlight
+          // holds while the pointer crosses inner buttons
+          if (ev.currentTarget.contains(ev.relatedTarget as Node)) return
+          if (chainOver === item.sessionId) setChainOver(null)
+        }}
+        onDrop={(ev) => {
+          if (!chainable) return
+          ev.preventDefault()
+          // the dropped-on row is the parent that hands off, the dragged row
+          // queues after it
+          setChainDraft({ parentId: item.sessionId, childId: dragging })
+          setChainOver(null)
+          sessionDrag.end()
+        }}
         onClick={() => open(item.sessionId)}
+        onContextMenu={(ev) => openSessionMenu(ev, item.sessionId)}
         onKeyDown={(ev) => {
           // a tabbable row activates itself like the native button it imitates
           // preventDefault stands the global Enter binding down, inner controls
@@ -131,17 +181,9 @@ export default function FocusedWorkspace() {
           <span className="rail-name">{label}</span>
           <RenameControl sessionId={item.sessionId} label={label} />
           <span className="rail-meta">
-            {item.kind === 'needs-input' && <span className="badge danger">input</span>}
-            {item.kind === 'needs-review' && <span className="badge warn">review</span>}
-            {item.kind === 'awaiting' && <span className="badge">waiting</span>}
-            {item.kind === 'working' &&
-              (item.parked ? (
-                <span className="badge warn">queued</span>
-              ) : item.running ? (
-                <span className="badge accent">running</span>
-              ) : (
-                <span className="badge">idle</span>
-              ))}
+            {/* the shared badge derivation: a chained wait outranks plain
+                waiting, so queued follow-up sessions never read as idle */}
+            <StatusBadge status={sessionBadgeOf(item.running, item)} />
             {/* since=0 is a row without a wait stamp */}
             {item.since > 0 && (
               <span className="muted rail-wait">
@@ -159,7 +201,8 @@ export default function FocusedWorkspace() {
             settled on every device */}
         <span className="rail-bottom">
           <span className="rail-reason">
-            {item.reason || (item.kind === 'working' ? 'working…' : '')}
+            {(chainNoticeOf(item, nameFor) ?? item.reason) ||
+              (item.kind === 'working' ? 'working…' : '')}
           </span>
           {isActionable(item.kind) && (
             <button
@@ -209,6 +252,7 @@ export default function FocusedWorkspace() {
       </div>
 
       {showShortcuts && <ShortcutOverlay mode="focused" onClose={() => setShowShortcuts(false)} />}
+      <SessionContextMenu menu={menu} onClose={closeSessionMenu} />
     </div>
   )
 }

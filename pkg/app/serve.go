@@ -121,6 +121,7 @@ func serve(opts Options, stderr io.Writer) int {
 		SettingStore: settingsStore{st: st},
 		RecallStore:  recallStore{st: st},
 		AckStore:     ackStore{st: st},
+		ChainStore:   chainStore{st: st},
 		KillOnExit:   opts.KillChildren,
 		NoNaming:     opts.NoSessionNaming,
 	})

@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest'
 
-import { deriveBlocks, maxRecallPrompts, mergeRecallSources, recallPrompts } from './derive'
+import {
+  chainLineHeader,
+  composeChainedLine,
+  deriveBlocks,
+  maxRecallPrompts,
+  mergeRecallSources,
+  recallPrompts,
+  splitChained,
+} from './derive'
 import type { DerivedBlock, RecallPrompt, ToolCallInfo } from './derive'
 import type { Entry } from '../api/types'
 
@@ -394,5 +402,59 @@ describe('mergeRecallSources', () => {
       'earlier typed',
       'recorded',
     ])
+  })
+})
+
+// chainedEntry builds one composed chain line the pump submits, through the
+// shared template so tests and the wire format cannot drift.
+function chainedEntry(id: string, body: string, prompt: string): Entry {
+  return messageEntry(id, undefined, 'user', [textBlock(composeChainedLine(body, prompt))])
+}
+
+describe('deriveBlocks chained lines', () => {
+  it('derives a chained block with the body and child prompt', () => {
+    const [block] = blocks([chainedEntry('01X', 'the answer tail', 'continue it')])
+    expect(block).toMatchObject({
+      kind: 'chained',
+      id: '01X',
+      body: 'the answer tail',
+      prompt: 'continue it',
+    })
+  })
+
+  it('never recalls a chained line as a typed prompt', () => {
+    const entries = [
+      chainedEntry('01X', 'tail', 'continue it'),
+      messageEntry('01U', undefined, 'user', [textBlock('typed prompt')]),
+    ]
+    const prompts = recallPrompts(
+      entries.map((e) => e.id),
+      new Map(entries.map((e) => [e.id, e])),
+    )
+    expect(prompts.map((p) => p.text)).toEqual(['typed prompt'])
+  })
+
+  it('leaves malformed sentinels as plain user messages', () => {
+    const [block] = blocks([
+      messageEntry('01X', undefined, 'user', [textBlock(`${chainLineHeader}\nno separator`)]),
+    ])
+    expect(block).toMatchObject({ kind: 'user' })
+  })
+
+  it('parses a rule quoted inside the answer without splitting early', () => {
+    // the last separator wins, the answer may quote the rule itself
+    const line = composeChainedLine('step 1\n\n----\n\nstep 2', 'go')
+    const parsed = splitChained(line)
+    expect(parsed).toMatchObject({
+      body: 'step 1\n\n----\n\nstep 2',
+      prompt: 'go',
+    })
+  })
+
+  it('marks only cap-length bodies as truncated', () => {
+    const plain = splitChained(composeChainedLine('short', 'go'))
+    expect(plain?.truncated).toBe(false)
+    const capped = splitChained(composeChainedLine('x'.repeat(8000), 'go'))
+    expect(capped?.truncated).toBe(true)
   })
 })

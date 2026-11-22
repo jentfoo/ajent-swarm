@@ -350,7 +350,21 @@ func (m *Manager) publishChildEvent(sessionID string, frame ChildFrame) {
 // through /exit alone, since swarm never signals a process it did not spawn.
 // ctx bounds only the control calls. Stopping an already-exited session
 // succeeds quietly, no other path tears children down (KillOnExit excepted).
-func (m *Manager) StopSession(ctx context.Context, sessionID string) error {
+func (m *Manager) StopSession(ctx context.Context, sessionID string) (err error) {
+	// a confirmed stop settles its chains, a refused one leaves them armed:
+	// the pumps park first so no handoff races the stop itself
+	paused := m.pauseChainsForSession(sessionID)
+	defer func() {
+		if err == nil {
+			m.landPausedChains(paused, sessionID)
+			return
+		}
+		m.resumePausedChains(paused)
+	}()
+	return m.stopSession(ctx, sessionID)
+}
+
+func (m *Manager) stopSession(ctx context.Context, sessionID string) error {
 	a := m.route(sessionID)
 	pid := 0
 	m.mu.Lock()

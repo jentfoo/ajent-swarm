@@ -1,22 +1,26 @@
-import { act, render, screen } from '@testing-library/react'
+import { act, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes, useParams } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { SwitcherRows } from './SwitcherRows'
+import { ChainEditorScreen } from './ChainScreens'
+import { QueueScreen } from './QueueScreens'
+import { pointAt } from '../test/elementFromPoint'
 import type { SwitcherRow } from './switcher'
 import { AuthProvider } from '../providers/auth'
 import { SwarmProvider } from '../providers/swarm'
 import { WorkspaceProvider } from '../providers/workspace'
 
 // The switcher's interactive contract at its breakpoint: rows group under
-// muted desktop-rail headings, rename via long-press or the explicit action
-// shares one editor that writes swarm storage and suppresses the tap,
-// awaiting rows never offer a check-off, live needs-input rows offer one
-// backed by the digest, stop arms before it fires and holds across listing
-// polls of the same instance (a relaunch swaps the row), and the trailing
-// actions hit their endpoints and rebind a single pushed settings screen
-// without tripping the row's own gestures.
+// muted desktop-rail headings, long-press opens the shared session menu
+// (queue follow-up, rename, stop) whose rename shares one editor with the
+// explicit action that writes swarm storage and suppresses the tap, a held
+// drag chains one row onto another, awaiting rows never offer a check-off,
+// live needs-input rows offer one backed by the digest, stop arms before it
+// fires and holds across listing polls of the same instance (a relaunch
+// swaps the row), and the trailing actions hit their endpoints and rebind a
+// single pushed settings screen without tripping the row's own gestures.
 
 function row(overrides: Partial<SwitcherRow> = {}): SwitcherRow {
   return {
@@ -92,9 +96,17 @@ const settledDialog = () => [
 ]
 
 describe('SwitcherRows', () => {
+  // live rows carry a drag config, so any stray move resolves the element
+  // under the pointer: answer nothing until a drag test names a row
+  const under = pointAt(null)
+
   beforeEach(() => {
     localStorage.clear()
     attention = needsInputDialog()
+  })
+
+  afterEach(() => {
+    under.set(null)
   })
 
   afterEach(() => {
@@ -114,6 +126,8 @@ describe('SwitcherRows', () => {
                 <Route path="/" element={<SwitcherRows rows={rows} onOpen={onOpen} />} />
                 <Route path="/s/:sessionId" element={<SessionProbe />} />
               </Routes>
+              <ChainEditorScreen />
+              <QueueScreen />
             </WorkspaceProvider>
           </SwarmProvider>
         </AuthProvider>
@@ -137,16 +151,23 @@ describe('SwitcherRows', () => {
     return null
   }
 
-  // pressLong holds the row past the rename threshold on fake timers, then
+  // pressLong holds the row past the hold threshold on fake timers, then
   // releases the way a finger would: pointerup, and a click retargeted to the
-  // rows container because the row itself was replaced mid-hold.
+  // rows container because the row itself was replaced mid-hold. The hold
+  // opens the session menu anchored at the press point.
   async function pressLong(element: Element) {
     const user = userEvent.setup()
     const container = element.closest('.switcher-rows')!
     vi.useFakeTimers()
     act(() => {
       element.dispatchEvent(
-        new PointerEvent('pointerdown', { bubbles: true, isPrimary: true, pointerId: 1 }),
+        new PointerEvent('pointerdown', {
+          bubbles: true,
+          isPrimary: true,
+          pointerId: 1,
+          clientX: 20,
+          clientY: 30,
+        }),
       )
     })
     await act(() => vi.advanceTimersByTimeAsync(500))
@@ -158,6 +179,49 @@ describe('SwitcherRows', () => {
     return user
   }
 
+  // dragChain holds one row onto its threshold, moves the pointer (the hold
+  // converts into a drag) and releases over the row a mocked elementFromPoint
+  // reports under the finger.
+  async function dragChain(source: Element, target: Element | null) {
+    vi.useFakeTimers()
+    act(() => {
+      source.dispatchEvent(
+        new PointerEvent('pointerdown', {
+          bubbles: true,
+          isPrimary: true,
+          pointerId: 1,
+          clientX: 0,
+          clientY: 0,
+        }),
+      )
+    })
+    await act(() => vi.advanceTimersByTimeAsync(500))
+    under.set(target)
+    act(() => {
+      source.dispatchEvent(
+        new PointerEvent('pointermove', {
+          bubbles: true,
+          isPrimary: true,
+          pointerId: 1,
+          clientX: 40,
+          clientY: 0,
+        }),
+      )
+    })
+    vi.useRealTimers()
+    act(() => {
+      source.dispatchEvent(
+        new PointerEvent('pointerup', {
+          bubbles: true,
+          isPrimary: true,
+          pointerId: 1,
+          clientX: 40,
+          clientY: 0,
+        }),
+      )
+    })
+  }
+
   // fetchSpyCalled reads the current stub, whichever test installed it.
   function fetchSpyCalled(path: string): boolean {
     return (fetch as ReturnType<typeof vi.fn>).mock.calls.some(
@@ -165,7 +229,7 @@ describe('SwitcherRows', () => {
     )
   }
 
-  it('renames through long-press into swarm storage', async () => {
+  it('renames through the long-press menu into swarm storage', async () => {
     const fetchSpy = vi.fn(async (url: string | URL, _init?: RequestInit) => {
       if (String(url).endsWith('/title')) {
         return new Response(null, { status: 204 })
@@ -179,12 +243,12 @@ describe('SwitcherRows', () => {
     renderRows([row()], onOpen)
     await pressLong(screen.getByRole('listitem'))
 
-    // the hold opened the editor and suppressed the tap that opens the session
+    // the hold opened the menu (not the row) and suppressed the release tap
+    const user = await pressLongMenu('project')
+    expect(onOpen).not.toHaveBeenCalled()
     const input = await screen.findByDisplayValue('project')
     expect(screen.getByTestId('rename-01A')).toBeInTheDocument()
-    expect(onOpen).not.toHaveBeenCalled()
 
-    const user = userEvent.setup()
     await user.clear(input)
     await user.type(input, 'couch reading')
     await user.click(screen.getByRole('button', { name: 'Save' }))
@@ -196,7 +260,47 @@ describe('SwitcherRows', () => {
     })
   })
 
-  it('rename action opens the same editor as long-press', async () => {
+  // pressLongMenu taps the rename entry of the menu a pressLong opened over
+  // the named row, returning the user for the editor it opens.
+  async function pressLongMenu(label: string) {
+    const menu = screen.getByRole('menu')
+    const user = userEvent.setup()
+    await user.click(within(menu).getByRole('menuitem', { name: 'Rename…' }))
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+    expect(screen.getByText(label)).toBeInTheDocument()
+    return user
+  }
+
+  it('queues a follow-up from the long-press menu', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string | URL) => {
+        const path = String(url).split('?')[0]
+        if (path === '/api/me')
+          return Response.json({ username: 'you', home: '/home/you', via: 'cookie' })
+        if (path === '/api/sessions')
+          return Response.json([{ sessionId: '01A', name: 'project', state: 'online' }])
+        return Response.json([])
+      }),
+    )
+    renderRows([row()])
+    await screen.findByText('project')
+
+    await pressLong(screen.getByRole('listitem'))
+    const menu = screen.getByRole('menu')
+    // the desktop right-click entries all ride the held menu
+    expect(within(menu).getByRole('menuitem', { name: 'Queue follow up session…' }))
+    expect(within(menu).getByRole('menuitem', { name: 'Rename…' }))
+    expect(within(menu).getByRole('menuitem', { name: 'Stop session' }))
+
+    const user = userEvent.setup()
+    await user.click(within(menu).getByRole('menuitem', { name: 'Queue follow up session…' }))
+    expect(
+      await screen.findByRole('dialog', { name: 'Queue follow up after project' }),
+    ).toBeInTheDocument()
+  })
+
+  it('rename action opens the same editor as the long-press menu', async () => {
     stubFacts()
     renderRows([row()])
     await screen.findByText('project')
@@ -204,7 +308,8 @@ describe('SwitcherRows', () => {
     const user = userEvent.setup()
     await user.click(screen.getByRole('button', { name: 'Rename' }))
 
-    // the same keyed editor a long-press opens, seeded with the row's label
+    // the same keyed editor the menu's rename entry opens, seeded with the
+    // row's label
     expect(await screen.findByTestId('rename-01A')).toBeInTheDocument()
     expect(screen.getByDisplayValue('project')).toBeInTheDocument()
   })
@@ -588,6 +693,246 @@ describe('SwitcherRows', () => {
     expect(screen.queryByRole('dialog', { name: 'Agent settings' })).not.toBeInTheDocument()
   })
 
+  it('chains after a row through the pushed picker and editor', async () => {
+    const fetchSpy = vi.fn(async (url: string | URL) => {
+      const path = String(url).split('?')[0]
+      if (path === '/api/me')
+        return Response.json({ username: 'you', home: '/home/you', via: 'cookie' })
+      if (path === '/api/sessions')
+        return Response.json([
+          { sessionId: '01A', name: 'project', state: 'online' },
+          { sessionId: '01B', name: 'other', state: 'online' },
+        ])
+      if (path === '/api/attention') return Response.json(attention)
+      if (path.endsWith('/entries')) return Response.json({ entries: [] })
+      return Response.json([])
+    })
+    vi.stubGlobal('fetch', fetchSpy)
+    renderRows([row(), row({ sessionId: '01B', label: 'other' })])
+    await screen.findByText('project')
+
+    const user = userEvent.setup()
+    // the chain action rides every live row beside Settings
+    await user.click(screen.getAllByRole('button', { name: 'Chain after…' })[0]!)
+
+    // the target picker pushes as its own screen, the new-session row first
+    // and the existing targets excluding the parent row behind it
+    const picker = await screen.findByRole('dialog', { name: 'Chain after this session' })
+    const targets = within(picker).getAllByRole('listitem')
+    expect(targets).toHaveLength(2)
+    expect(targets[0]).toHaveTextContent('Start a new session…')
+    expect(targets[1]).toHaveTextContent('other')
+
+    await user.click(targets[1]) // the existing 'other' row, not the new-session entry
+    // picking lands the draft and the editor screen takes over
+    const editor = await screen.findByRole('dialog', { name: 'Chain other after project' })
+    expect(
+      screen.queryByRole('dialog', { name: 'Chain after this session' }),
+    ).not.toBeInTheDocument()
+
+    // typed prompts never drop silently: back asks first, discard closes
+    await user.type(within(editor).getByLabelText(/Prompt for other/), 'typed')
+    await user.click(screen.getByRole('button', { name: '← Back' }))
+    const confirm = await screen.findByRole('dialog', { name: 'Discard changes?' })
+    await user.click(within(confirm).getByRole('button', { name: 'Keep editing' }))
+    expect(screen.getByRole('dialog', { name: 'Chain other after project' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '← Back' }))
+    await user.click(
+      within(await screen.findByRole('dialog', { name: 'Discard changes?' })).getByRole('button', {
+        name: 'Discard',
+      }),
+    )
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('queues a follow-up from the picker screen', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string | URL) => {
+        const path = String(url).split('?')[0]
+        if (path === '/api/me')
+          return Response.json({ username: 'you', home: '/home/you', via: 'cookie' })
+        if (path === '/api/sessions')
+          return Response.json([{ sessionId: '01A', name: 'project', state: 'online' }])
+        return Response.json([])
+      }),
+    )
+    renderRows([row(), row({ sessionId: '01B', label: 'other' })])
+    await screen.findByText('project')
+
+    const user = userEvent.setup()
+    await user.click(screen.getAllByRole('button', { name: 'Chain after…' })[0]!)
+    const picker = await screen.findByRole('dialog', { name: 'Chain after this session' })
+
+    // the leading row skips target picking: it opens the shared follow-up
+    // form with this row as the parent
+    await user.click(within(picker).getByText('Start a new session…'))
+    expect(
+      screen.queryByRole('dialog', { name: 'Chain after this session' }),
+    ).not.toBeInTheDocument()
+    expect(
+      await screen.findByRole('dialog', { name: 'Queue follow up after project' }),
+    ).toBeInTheDocument()
+  })
+
+  it('chains one row onto another by held drag', async () => {
+    const fetchSpy = vi.fn(async (url: string | URL) => {
+      const path = String(url).split('?')[0]
+      if (path === '/api/me')
+        return Response.json({ username: 'you', home: '/home/you', via: 'cookie' })
+      if (path === '/api/sessions')
+        return Response.json([
+          { sessionId: '01A', name: 'project', state: 'online' },
+          { sessionId: '01B', name: 'other', state: 'online' },
+        ])
+      if (path === '/api/attention') return Response.json(attention)
+      if (path.endsWith('/entries')) return Response.json({ entries: [] })
+      return Response.json([])
+    })
+    vi.stubGlobal('fetch', fetchSpy)
+    renderRows([row(), row({ sessionId: '01B', label: 'other' })])
+    await screen.findByText('project')
+
+    const source = document.querySelector('[data-session-id="01A"]')!
+    const target = document.querySelector('[data-session-id="01B"]')!
+    vi.useFakeTimers()
+    act(() => {
+      source.dispatchEvent(
+        new PointerEvent('pointerdown', {
+          bubbles: true,
+          isPrimary: true,
+          pointerId: 1,
+          clientX: 0,
+          clientY: 0,
+        }),
+      )
+    })
+    await act(() => vi.advanceTimersByTimeAsync(500))
+    // the hold opened the menu, movement converts the same press into a drag
+    expect(screen.getByRole('menu')).toBeInTheDocument()
+    under.set(target)
+    act(() => {
+      source.dispatchEvent(
+        new PointerEvent('pointermove', {
+          bubbles: true,
+          isPrimary: true,
+          pointerId: 1,
+          clientX: 40,
+          clientY: 0,
+        }),
+      )
+    })
+    expect(screen.queryByRole('menu')).toBeNull()
+    expect(target).toHaveClass('chain-target')
+    expect(source).toHaveClass('chain-source')
+
+    vi.useRealTimers()
+    act(() => {
+      source.dispatchEvent(
+        new PointerEvent('pointerup', {
+          bubbles: true,
+          isPrimary: true,
+          pointerId: 1,
+          clientX: 40,
+          clientY: 0,
+        }),
+      )
+    })
+
+    // the dropped-on row is the parent, the dragged row queues after it, the
+    // same drop the desktop rail takes
+    expect(await screen.findByRole('dialog', { name: 'Chain project after other' }))
+    expect(target).not.toHaveClass('chain-target')
+  })
+
+  it('refuses a held-drag drop onto ended rows', async () => {
+    stubFacts()
+    renderRows([row(), endedRow({ sessionId: '01C', label: 'old' })])
+    await screen.findByText('project')
+
+    const source = document.querySelector('[data-session-id="01A"]')!
+    const ended = document.querySelector('[data-session-id="01C"]')!
+    await dragChain(source, ended)
+
+    // the Recent tail never chains: no highlight while over it, no draft after
+    expect(ended).not.toHaveClass('chain-target')
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('ends the drag when its row leaves the listing', async () => {
+    stubFacts()
+    const view = renderRows([row(), row({ sessionId: '01B', label: 'other' })])
+    await screen.findByText('project')
+
+    const source = document.querySelector('[data-session-id="01A"]')!
+    const target = document.querySelector('[data-session-id="01B"]')!
+    vi.useFakeTimers()
+    act(() => {
+      source.dispatchEvent(
+        new PointerEvent('pointerdown', {
+          bubbles: true,
+          isPrimary: true,
+          pointerId: 1,
+          clientX: 0,
+          clientY: 0,
+        }),
+      )
+    })
+    await act(() => vi.advanceTimersByTimeAsync(500))
+    under.set(target)
+    act(() => {
+      source.dispatchEvent(
+        new PointerEvent('pointermove', {
+          bubbles: true,
+          isPrimary: true,
+          pointerId: 1,
+          clientX: 40,
+          clientY: 0,
+        }),
+      )
+    })
+    vi.useRealTimers()
+    expect(target).toHaveClass('chain-target')
+
+    // the dragged session drops off the listing mid-gesture: its unmount
+    // ends the drag instead of stranding the target's highlight
+    view.rerender(tree([row({ sessionId: '01B', label: 'other' })]))
+    expect(document.querySelector('[data-session-id="01B"]')).not.toHaveClass('chain-target')
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('shows a chained row queue role instead of the plain reason', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string | URL) => {
+        const path = String(url).split('?')[0]
+        if (path === '/api/me')
+          return Response.json({ username: 'you', home: '/home/you', via: 'cookie' })
+        if (path === '/api/sessions')
+          return Response.json([{ sessionId: '01A', name: 'project', state: 'online' }])
+        if (path === '/api/attention')
+          return Response.json([
+            {
+              sessionId: '01A',
+              pid: 1,
+              openInteractions: 0,
+              running: false,
+              idle: true,
+              kind: 'awaiting',
+              reason: 'waiting for a prompt',
+              chainedOn: '01P',
+              chainedOnId: 'chn_1',
+            },
+          ])
+        return Response.json([])
+      }),
+    )
+    renderRows([row({ sessionId: '01A', status: 'chained' })])
+    await screen.findByText('project')
+    await screen.findByText('queued behind 01P')
+  })
+
   it('tapping an action never opens the row', async () => {
     const fetchSpy = vi.fn(async (url: string | URL, init?: RequestInit) => {
       const path = String(url).split('?')[0]
@@ -612,7 +957,7 @@ describe('SwitcherRows', () => {
     expect(onOpen).not.toHaveBeenCalled()
   })
 
-  it('holding an action never opens rename', async () => {
+  it('holding an action never opens the menu', async () => {
     stubFacts()
     const onOpen = vi.fn()
     renderRows([row()], onOpen)
@@ -621,6 +966,8 @@ describe('SwitcherRows', () => {
     await pressLong(screen.getByRole('button', { name: 'Stop' }))
     await pressLong(screen.getByRole('button', { name: 'Rename' }))
 
+    // the actions swallow the pointerdown, so no hold ever fires
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
     expect(screen.queryByDisplayValue('project')).not.toBeInTheDocument()
     expect(onOpen).not.toHaveBeenCalled()
   })

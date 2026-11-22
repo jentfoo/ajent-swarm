@@ -46,6 +46,13 @@ export type AssistantPart = { kind: 'text'; text: string } | { kind: 'call'; cal
 export type DerivedBlock =
   | { kind: 'user'; id: string; text: string; images: ImageView[] }
   | {
+      kind: 'chained'
+      id: string
+      body: string // the handed-off response tail
+      truncated: boolean
+      prompt: string // the child prompt beneath the header
+    }
+  | {
       kind: 'injected'
       id: string
       replayed: boolean
@@ -65,6 +72,38 @@ export type DerivedBlock =
   | { kind: 'compaction'; id: string }
   | { kind: 'notice'; id: string; level: 'info' | 'warn' | 'error'; text: string }
   | { kind: 'unknown'; id: string; type: string }
+
+// chainLineHeader/chainLineSep mirror pkg/fleet/chain.go's composed line
+// markers.
+export const chainLineHeader = 'Prior session last message:'
+const chainLineSep = '\n\n----\n\n'
+
+// composeChainedLine builds one chained line exactly as the server composes
+// it, the single template shared by the pump's wire format, the dialog's
+// preview and the tests.
+export function composeChainedLine(body: string, prompt: string): string {
+  return `${chainLineHeader}\n${body}${chainLineSep}${prompt}`
+}
+
+// splitChained parses one chained user message: the header line names the
+// prior session's last message, the child prompt follows the rule separator.
+// The last separator wins, a quoted rule inside the answer cannot split the
+// line early. Undefined means the text is not a chained line.
+export function splitChained(
+  text: string,
+): { body: string; truncated: boolean; prompt: string } | undefined {
+  if (!text.startsWith(chainLineHeader + '\n')) return undefined
+  const sepAt = text.lastIndexOf(chainLineSep)
+  if (sepAt === -1) return undefined
+  const body = text.slice(chainLineHeader.length + 1, sepAt)
+  return {
+    body,
+    // the server keeps the response's tail at 8000 runes, only a body that
+    // hits the cap reads as cut
+    truncated: Array.from(body).length >= 8000,
+    prompt: text.slice(sepAt + chainLineSep.length),
+  }
+}
 
 export function deriveBlocks(
   chainIds: readonly string[],
@@ -236,6 +275,10 @@ function deriveMessage(
     }
   }
 
+  const chained = splitChained(text)
+  if (chained !== undefined) {
+    return { kind: 'chained', id: entry.id, ...chained }
+  }
   return { kind: 'user', id: entry.id, text, images: collectImages(blocks) }
 }
 

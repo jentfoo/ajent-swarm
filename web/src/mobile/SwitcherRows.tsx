@@ -1,4 +1,4 @@
-import { Fragment, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactElement } from 'react'
 
 import { describeError } from '../api/errors'
@@ -8,11 +8,14 @@ import { useAuth } from '../providers/auth'
 import { useResume } from '../hooks/useResume'
 import { RenameEditorModal } from '../session/RenameControl'
 import { tildePath } from '../session/names'
+import { SessionContextMenu, useSessionMenu } from '../session/SessionContextMenu'
 import { StatusBadge } from '../session/StatusBadge'
+import { useSessionNamer } from '../session/useSessionLabel'
 import { useSwarm } from '../providers/swarm'
 import { useWorkspace } from '../providers/workspace'
-import { instanceKey, isActionable } from '../workspace/attention'
+import { chainNoticeOf, instanceKey, isActionable } from '../workspace/attention'
 import { SettingsScreen } from './SettingsScreen'
+import { ChainPickerScreen } from './ChainScreens'
 import { useLongPress } from './useLongPress'
 import { useOverlayBack } from '../ui/useOverlayBack'
 import { groupSwitcherRows } from './switcher'
@@ -24,8 +27,10 @@ import type { SwitcherRow } from './switcher'
 // row, a queued-prompt count when prompts wait, a
 // check-off on actionable attention states (never on neutral waiting or ended
 // rows), a trailing actions area mirroring the desktop card bar minus Open
-// plus an explicit Rename, and long-press rename opening the same editor.
-// Both rename paths edit the stored swarm title rather than ajent's own
+// plus an explicit Rename, and a long-press menu (queue follow-up, rename,
+// stop) anchored at the press. A held drag lifts its row and chains it onto
+// the row released under the finger, the same drop the desktop rail takes;
+// both rename paths edit the stored swarm title rather than ajent's own
 // session names, and platform back peels the editor alone, leaving the rows
 // beneath intact.
 export function SwitcherRows({
@@ -39,6 +44,16 @@ export function SwitcherRows({
   // editor with a lookup miss
   const [renaming, setRenaming] = useState<SwitcherRow | null>(null)
   const [settingsId, setSettingsId] = useState<string | null>(null)
+  const [chainParent, setChainParent] = useState<SwitcherRow | null>(null)
+  // the live held drag across rows: its source row and the row under the
+  // finger, lifted state so every row can highlight itself as the target
+  const [drag, setDrag] = useState<{ childId: string; target: string | null } | null>(null)
+  const { setChainDraft, setQueueDraft } = useWorkspace()
+  // only alive rows chain, the same reachable set the desktop picker offers
+  const chainableIds = useMemo(
+    () => new Set(rows.filter((r) => r.status !== 'ended').map((r) => r.sessionId)),
+    [rows],
+  )
 
   if (rows.length === 0) {
     return <p className="muted rows-empty">No sessions yet. Launch one below.</p>
@@ -55,9 +70,19 @@ export function SwitcherRows({
             <SwitchRow
               key={instanceKey(row.sessionId, row.pid)}
               row={row}
+              drag={drag}
+              chainableIds={chainableIds}
               onOpen={onOpen}
               onRename={() => setRenaming(row)}
               onSettings={() => setSettingsId(row.sessionId)}
+              onChain={() => setChainParent(row)}
+              onDragStart={() => setDrag({ childId: row.sessionId, target: null })}
+              onDragTarget={(target) => setDrag((cur) => (cur === null ? cur : { ...cur, target }))}
+              onDragEnd={() => setDrag(null)}
+              onDrop={(parentId) => {
+                setDrag(null)
+                setChainDraft({ parentId, childId: row.sessionId })
+              }}
             />
           ))}
         </Fragment>
@@ -69,6 +94,23 @@ export function SwitcherRows({
       {/* one pushed settings screen, rebound to whichever row was tapped */}
       {settingsId !== null && (
         <SettingsScreen sessionId={settingsId} open onClose={() => setSettingsId(null)} />
+      )}
+      {/* the chain target picker rides above the rows as its own pushed
+          screen, picking one lands the shared draft and the editor screen
+          takes over */}
+      {chainParent !== null && (
+        <ChainPickerScreen
+          parentId={chainParent.sessionId}
+          onClose={() => setChainParent(null)}
+          onPick={(childId) => {
+            setChainParent(null)
+            setChainDraft({ parentId: chainParent.sessionId, childId })
+          }}
+          onQueueNew={() => {
+            setChainParent(null)
+            setQueueDraft({ parentId: chainParent.sessionId })
+          }}
+        />
       )}
     </div>
   )
@@ -84,27 +126,74 @@ function RenameLayer({ row, onDone }: { row: SwitcherRow; onDone: () => void }):
 
 function SwitchRow({
   row,
+  drag,
+  chainableIds,
   onOpen,
   onRename,
   onSettings,
+  onChain,
+  onDragStart,
+  onDragTarget,
+  onDragEnd,
+  onDrop,
 }: {
   row: SwitcherRow
+  drag: { childId: string; target: string | null } | null
+  chainableIds: ReadonlySet<string>
   onOpen: (row: SwitcherRow) => void
   onRename: () => void
   onSettings: () => void
+  onChain: () => void
+  onDragStart: () => void
+  onDragTarget: (sessionId: string | null) => void
+  onDragEnd: () => void
+  onDrop: (parentId: string) => void
 }) {
   const { itemFor, acknowledgeItem } = useWorkspace()
   const auth = useAuth()
-  // pressed styles the row, the handlers spread without it
-  const { pressed, ...pressProps } = useLongPress(onRename)
+  const nameFor = useSessionNamer()
+  const { menu, openSessionMenuAt, closeSessionMenu } = useSessionMenu()
+  const ended = row.status === 'ended'
+  // pressed styles the row, the handlers spread without it; the hold opens
+  // the shared session menu at the press point, and on live rows the same
+  // held press converts into a chain drag once it moves
+  const { pressed, dragging, ...pressProps } = useLongPress(
+    (x, y) => openSessionMenuAt(x, y, row.sessionId),
+    ended
+      ? undefined
+      : {
+          canDrop: (id) => id !== row.sessionId && chainableIds.has(id),
+          // the drag takes over the held press, its menu closes and the
+          // launcher learns the live drag it highlights targets under
+          onDragStart: () => {
+            closeSessionMenu()
+            onDragStart()
+          },
+          onDragTarget,
+          onDrop,
+          onDragEnd,
+        },
+  )
   // the check-off resolves live from the digest so a settled row never offers one
   const item = itemFor(row.sessionId)
   const canCheckOff = row.checkOff && item !== undefined && isActionable(item.kind)
+  // a row the listing drops mid-drag still ends it, no row keeps a stale
+  // target highlight; the ref keeps the once-registered cleanup current
+  const endDragRef = useRef(onDragEnd)
+  useEffect(() => {
+    endDragRef.current = onDragEnd
+  })
+  useEffect(() => () => endDragRef.current(), [])
+  // the chain role leads the reason line: a queued follow-up names its parent,
+  // the shared derivation the desktop rail reads too
+  const chain = item !== undefined ? chainNoticeOf(item, nameFor) : undefined
 
   return (
     <div
       role="listitem"
-      className={`switch-row ${pressed ? 'pressed' : ''} status-${row.status}`}
+      className={`switch-row ${pressed ? 'pressed' : ''} status-${row.status} ${
+        dragging ? 'chain-source' : ''
+      } ${drag?.target === row.sessionId ? 'chain-target' : ''}`}
       data-session-id={row.sessionId}
       onClick={() => onOpen(row)}
       {...pressProps}
@@ -122,7 +211,11 @@ function SwitchRow({
         </span>
       )}
       <span className="switch-bottom">
-        {row.reason !== '' ? <span className="muted switch-reason">{row.reason}</span> : null}
+        {chain !== undefined ? (
+          <span className="muted switch-reason">{chain}</span>
+        ) : (
+          row.reason !== '' && <span className="muted switch-reason">{row.reason}</span>
+        )}
         {canCheckOff && (
           <button
             type="button"
@@ -137,27 +230,30 @@ function SwitchRow({
           </button>
         )}
       </span>
-      <RowActions row={row} onRename={onRename} onSettings={onSettings} />
+      <RowActions row={row} onRename={onRename} onSettings={onSettings} onChain={onChain} />
+      <SessionContextMenu menu={menu} onClose={closeSessionMenu} onRename={onRename} />
     </div>
   )
 }
 
 // RowActions is the row's trailing action area, mirroring the desktop card's
-// bar minus Open (the row itself opens): Rename on every row, Settings and
-// Stop for live rows, Resume for ended ones with a recorded workspace. Stop
-// carries the shared danger variant and arm/confirm guard, like the desktop
-// card it holds across listing polls, while a relaunch resets it by remounting
-// this row under a fresh instance key. It swallows clicks and
-// pointer-downs so tapping or holding an action never reads as the row's own
-// open or long-press gestures.
+// bar minus Open (the row itself opens): Rename on every row, Settings,
+// Chain after… and Stop for live rows, Resume for ended ones with a recorded
+// workspace. Stop carries the shared danger variant and arm/confirm guard,
+// like the desktop card it holds across listing polls, while a relaunch
+// resets it by remounting this row under a fresh instance key. It swallows
+// clicks and pointer-downs so tapping or holding an action never reads as
+// the row's own open or long-press gestures.
 function RowActions({
   row,
   onRename,
   onSettings,
+  onChain,
 }: {
   row: SwitcherRow
   onRename: () => void
   onSettings: () => void
+  onChain: () => void
 }) {
   const [busy, setBusy] = useState(false)
   const [stopError, setStopError] = useState('')
@@ -206,6 +302,9 @@ function RowActions({
         <>
           <button type="button" onClick={onSettings}>
             Settings
+          </button>
+          <button type="button" onClick={onChain}>
+            Chain after…
           </button>
           <button
             type="button"

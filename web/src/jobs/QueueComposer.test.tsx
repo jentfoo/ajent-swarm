@@ -173,7 +173,7 @@ describe('QueueComposer', () => {
   it('states the fixed policy as text instead of controls', () => {
     renderComposer()
 
-    expect(screen.getByText(/no session has been active for 10 minutes/)).toBeInTheDocument()
+    expect(screen.getByText(/its provider has been quiet for a minute/)).toBeInTheDocument()
     expect(screen.getByText(/session stays open afterwards/)).toBeInTheDocument()
     // nothing the queue pins may pose as an editable control here
     expect(screen.queryByRole('checkbox', { name: 'Run when idle' })).not.toBeInTheDocument()

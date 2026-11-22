@@ -103,12 +103,7 @@ export function pickPermitOption(
   if (denyAskOption(label)) return { index: picked, deny: true }
   if (allowNoteOption(label)) return { index: picked, deny: false } // defensive, hidden through the UI
   const noteIdx = options.findIndex(allowNoteOption)
-  if (
-    note.trim() === '' ||
-    noteIdx < 0 ||
-    sessionAllowOption(label) ||
-    modeSwitchOption(label)
-  ) {
+  if (note.trim() === '' || noteIdx < 0 || sessionAllowOption(label) || modeSwitchOption(label)) {
     return { index: picked }
   }
   return { index: noteIdx, deny: false } // a typed note turns Allow into allow-with-note

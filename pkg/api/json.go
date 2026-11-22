@@ -19,6 +19,13 @@ const (
 	codeJobNotFound     = "job_not_found"
 	codeSessionNotFound = "session_not_found"
 
+	// chain codes, clients branch on them for the dialog's error copy
+	codeChainInvalid    = "chain_invalid"
+	codeChainConflict   = "chain_conflict"
+	codeChainParentGone = "chain_parent_gone"
+	codeChainNotFound   = "chain_not_found"
+	codeTooManyChains   = "too_many_chains"
+
 	// codeFrameBadRequest is the stream frame counterpart of invalid_request.
 	codeFrameBadRequest = "bad_request"
 )

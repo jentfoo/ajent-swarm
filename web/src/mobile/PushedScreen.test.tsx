@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 import type { ReactElement } from 'react'
@@ -25,9 +25,11 @@ beforeEach(() => {
 // open and close paths answer to the element that opened it
 function FocusHarness({
   onClose,
+  dirty,
   children,
 }: {
   onClose?: () => void
+  dirty?: boolean
   children: ReactElement
 }): ReactElement {
   const [open, setOpen] = useState(false)
@@ -42,7 +44,7 @@ function FocusHarness({
         opener
       </button>
       {open && (
-        <PushedScreen title="Tools" onClose={close}>
+        <PushedScreen title="Tools" dirty={dirty} onClose={close}>
           {children}
         </PushedScreen>
       )}
@@ -245,5 +247,57 @@ describe('PushedScreen', () => {
     rerender(<></>)
     expect(back).toHaveBeenCalledTimes(1)
     window.dispatchEvent(new PopStateEvent('popstate')) // settle the consume
+  })
+})
+
+describe('PushedScreen dirty guard', () => {
+  // a consume queued by the previous test's cleanup never navigated in jsdom
+  // drain its pending pop event so it cannot swallow this test's own
+  beforeEach(() => {
+    window.dispatchEvent(new PopStateEvent('popstate'))
+    window.dispatchEvent(new PopStateEvent('popstate'))
+    window.history.replaceState(null, '', window.location.href)
+  })
+
+  it('asks before discarding typed content, keep editing stays open', async () => {
+    const user = userEvent.setup()
+    render(
+      <FocusHarness dirty>
+        <input aria-label="draft" />
+      </FocusHarness>,
+    )
+    await user.click(screen.getByRole('button', { name: 'opener' }))
+    await user.type(screen.getByLabelText('draft'), 'typed')
+
+    await user.click(screen.getByRole('button', { name: '← Back' }))
+    const confirm = await screen.findByRole('dialog', { name: 'Discard changes?' })
+    await user.click(within(confirm).getByRole('button', { name: 'Keep editing' }))
+    expect(screen.getByRole('dialog', { name: 'Tools' })).toBeInTheDocument()
+  })
+
+  it('discards on confirm, escape asks the same question', async () => {
+    const user = userEvent.setup()
+    render(
+      <FocusHarness dirty>
+        <input aria-label="draft" />
+      </FocusHarness>,
+    )
+    await user.click(screen.getByRole('button', { name: 'opener' }))
+    fireEvent.keyDown(window, { key: 'Escape' })
+    const confirm = await screen.findByRole('dialog', { name: 'Discard changes?' })
+    await user.click(within(confirm).getByRole('button', { name: 'Discard' }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('closes clean without the guard while not dirty', async () => {
+    const user = userEvent.setup()
+    render(
+      <FocusHarness dirty={false}>
+        <input aria-label="draft" />
+      </FocusHarness>,
+    )
+    await user.click(screen.getByRole('button', { name: 'opener' }))
+    await user.click(screen.getByRole('button', { name: '← Back' }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 })

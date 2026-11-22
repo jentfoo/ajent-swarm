@@ -204,6 +204,12 @@ export interface SessionStatus {
   parked?: number // prompts parked in swarm for the session's next idle point
   parkedPrompt?: string // oldest parked prompt, one line
   parkedAt?: number // unix ms the oldest parked
+  // chain facts folded in at read time, present while a chain links sessions
+  chainedOn?: string // a live chain delivers into this session: the parent id
+  chainedOnId?: string // that link's chain id
+  deliveringTo?: string // a live chain this session feeds: the child id
+  deliveringId?: string // that link's chain id
+  chainFailure?: string // fresh failure cause, both endpoints carry it
   openInteractions: number
   lastTurnEnd?: number // unix milliseconds
   lastStop?: string // stop reason of the last finished turn
@@ -243,6 +249,13 @@ export interface AttentionRow {
   parkedAt?: number // unix ms the oldest parked
   ackedDialog?: boolean // the oldest open dialog is settled already
   ackedTurn?: number // the session's acknowledged turn end, unix milliseconds
+  // chain facts folded in beside the derivation, ids only: clients name the
+  // peer session locally and cancel through the per-role chain ids
+  chainedOn?: string // a live chain delivers into this session: the parent id
+  chainedOnId?: string // that link's chain id
+  deliveringTo?: string // a live chain this session feeds: the child id
+  deliveringId?: string // that link's chain id
+  chainFailure?: string // fresh failure cause, both endpoints carry it
   kind: AttentionKind
   reason?: string // one line: the dialog prompt or the turn's stop summary
   since?: number // unix ms the state started; drives waits and ranking
@@ -310,6 +323,51 @@ export interface RecallRow {
 export interface QueueRecallRow {
   queued?: boolean
   line?: string
+  pendingId?: string
+}
+
+// ChainState mirrors pkg/fleet/chain.go's states: waiting through delivering
+// are live and carry a pump, the rest terminal.
+export type ChainState =
+  'waiting' | 'final' | 'handoff' | 'delivering' | 'done' | 'failed' | 'canceled'
+
+// liveChainStates is the shared editability gate: only waiting and final
+// chains accept prompt edits, every live state accepts cancel.
+export const liveChainStates: ReadonlySet<ChainState> = new Set([
+  'waiting',
+  'final',
+  'handoff',
+  'delivering',
+])
+
+// chainEditable reports whether a chain state still accepts prompt edits.
+export function chainEditable(state: ChainState): boolean {
+  return state === 'waiting' || state === 'final'
+}
+
+// Chain is one queued parent-to-child handoff: an optional final prompt runs
+// on the parent, its response rides the child's prompt once both sides are
+// quiet. Records persist server-side and re-arm after a service restart.
+export interface Chain {
+  id: string
+  parentId: string
+  childId: string
+  finalPrompt?: string // empty skips the parent turn
+  childPrompt: string
+  pendingId?: string // rides the child submit, optimistic rows resolve by it
+  state: ChainState
+  reason?: string // failure cause
+  mark?: string // the final prompt's committed entry id, collection bound
+  createdAt: number // unix milliseconds
+  updatedAt: number // unix milliseconds
+}
+
+// ChainRequest is the POST /api/sessions/{id}/chain body: the path names the
+// parent, pendingId is optional and minted server-side when omitted.
+export interface ChainRequest {
+  childId: string
+  finalPrompt?: string
+  childPrompt: string
   pendingId?: string
 }
 

@@ -243,4 +243,44 @@ describe('SessionContextMenu', () => {
     expect(onRename).toHaveBeenCalledTimes(1)
     expect(screen.queryByRole('menu')).toBeNull()
   })
+
+  it('pins and unpins as the leading entry', async () => {
+    localStorage.clear()
+    stubFetch()
+    const user = userEvent.setup()
+    render(
+      <MemoryRouter>
+        <AuthProvider>
+          <SwarmProvider>
+            <WorkspaceProvider>
+              <MenuProbe />
+            </WorkspaceProvider>
+          </SwarmProvider>
+        </AuthProvider>
+      </MemoryRouter>,
+    )
+
+    fireEvent.contextMenu(screen.getByTestId('row'), { clientX: 30, clientY: 40 })
+
+    // the pin entry leads the menu and flips into the layout profile
+    const pin = screen.getAllByRole('menuitem')[0]
+    expect(pin).toHaveTextContent('Pin')
+    expect(pin).not.toHaveTextContent('Unpin')
+    await user.click(pin)
+    expect(screen.queryByRole('menu')).toBeNull()
+    await waitFor(() => {
+      const stored = JSON.parse(localStorage.getItem('swarm.workspace.v1')!)
+      expect(stored.focused.pinnedSessionIds).toEqual([SESSION])
+    })
+
+    // reopening on the pinned session reads the undo wording
+    fireEvent.contextMenu(screen.getByTestId('row'), { clientX: 30, clientY: 40 })
+    expect(screen.getAllByRole('menuitem')[0]).toHaveTextContent('Unpin')
+    await user.click(screen.getByRole('menuitem', { name: 'Unpin' }))
+    expect(screen.queryByRole('menu')).toBeNull()
+    await waitFor(() => {
+      const stored = JSON.parse(localStorage.getItem('swarm.workspace.v1')!)
+      expect(stored.focused.pinnedSessionIds).toEqual([])
+    })
+  })
 })

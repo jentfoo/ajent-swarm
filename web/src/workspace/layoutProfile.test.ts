@@ -153,4 +153,42 @@ describe('layout profile', () => {
 
     expect(JSON.parse(localStorage.getItem('swarm.workspace.v1')!).mode).toBe('tile')
   })
+
+  it('toggles pins in pin order and round-trips them', () => {
+    const { result } = renderHook(() => useLayoutProfile())
+    act(() => result.current.togglePinnedSession('s2'))
+    act(() => result.current.togglePinnedSession('s1'))
+    expect(result.current.profile.focused.pinnedSessionIds).toEqual(['s2', 's1'])
+
+    act(() => {
+      vi.advanceTimersByTime(saveSettleMs)
+    })
+    expect(
+      JSON.parse(localStorage.getItem('swarm.workspace.v1')!).focused.pinnedSessionIds,
+    ).toEqual(['s2', 's1'])
+
+    // unpinning removes just that id, the rest keep their pin order
+    act(() => result.current.togglePinnedSession('s2'))
+    expect(result.current.profile.focused.pinnedSessionIds).toEqual(['s1'])
+    act(() => {
+      vi.advanceTimersByTime(saveSettleMs)
+    })
+    expect(
+      JSON.parse(localStorage.getItem('swarm.workspace.v1')!).focused.pinnedSessionIds,
+    ).toEqual(['s1'])
+  })
+
+  it('repairs corrupt pin lists to the empty default', () => {
+    localStorage.setItem(
+      'swarm.workspace.v1',
+      JSON.stringify({ focused: { pinnedSessionIds: ['ok', 7, null, 'also-ok'] } }),
+    )
+    expect(loadProfile().focused.pinnedSessionIds).toEqual(['ok', 'also-ok'])
+
+    localStorage.setItem(
+      'swarm.workspace.v1',
+      JSON.stringify({ focused: { pinnedSessionIds: 'nope' } }),
+    )
+    expect(loadProfile().focused.pinnedSessionIds).toEqual([])
+  })
 })

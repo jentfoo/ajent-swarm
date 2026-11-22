@@ -766,6 +766,11 @@ label {
 .menu button:hover {
   background: var(--surface-2);
 }
+/* menu items carrying an inline glyph keep it on the text baseline */
+.menu button svg {
+  vertical-align: -0.15em;
+  margin-right: calc(var(--unit) * 1.5);
+}
 .usage-card {
   position: absolute;
   z-index: 20;

@@ -537,6 +537,51 @@ describe('FocusedWorkspace', () => {
     ).toBeInTheDocument()
   })
 
+  it('pins a row into a leading Pinned section from the menu', async () => {
+    attention = [...attentionRows(), waitingRow()]
+    renderFocused()
+    await openSocket()
+
+    // pin the busy worker: it leaves Working and tops the rail in its own
+    // section, and the queues re-count without it
+    fireEvent.contextMenu(railRows()[3])
+    await userEvent.setup().click(screen.getByRole('menuitem', { name: 'Pin' }))
+
+    await waitFor(() => {
+      expect(railRows()[0].dataset.sessionId).toBe(WORKER)
+    })
+    const headings = [...rail().querySelectorAll('.rail-section-title')].map((h) => h.textContent)
+    expect(headings).toEqual(['Pinned (1)', 'Needs input (2)', 'Waiting (1)'])
+
+    // unpinning restores the row to its own queue at the tail
+    fireEvent.contextMenu(railRows()[0])
+    await userEvent.setup().click(screen.getByRole('menuitem', { name: 'Unpin' }))
+    await waitFor(() => {
+      const ids = railRows().map((row) => row.dataset.sessionId)
+      expect(ids[ids.length - 1]).toBe(WORKER)
+    })
+    const restored = [...rail().querySelectorAll('.rail-section-title')].map((h) => h.textContent)
+    expect(restored).toEqual(['Needs input (2)', 'Waiting (1)', 'Working (1)'])
+  })
+
+  it('keeps pins across a reload in pin order', async () => {
+    localStorage.setItem(
+      'swarm.workspace.v1',
+      JSON.stringify({ focused: { pinnedSessionIds: [WORKER, REVIEW] } }),
+    )
+    attention = [...attentionRows()]
+    renderFocused()
+    await openSocket()
+
+    // both pinned sessions top the rail in pin order whatever their state,
+    // the keyboard cursor starts on the first of them
+    const ids = railRows().map((row) => row.dataset.sessionId)
+    expect(ids).toEqual([WORKER, REVIEW, DIALOG])
+    expect(railRows()[0].getAttribute('data-cursor')).toBe('true')
+    const headings = [...rail().querySelectorAll('.rail-section-title')].map((h) => h.textContent)
+    expect(headings).toEqual(['Pinned (2)', 'Needs input (1)'])
+  })
+
   it('never starts a row drag from an inner control', async () => {
     renderFocused()
     await openSocket()

@@ -50,7 +50,9 @@ export function useSessionMenu(): {
 // pointer lands in an invisible zero-size span the menu anchors beside, so
 // MenuPopover keeps its viewport flipping and overlay-stack dismissal. The
 // body remounts per open (the epoch key), so the armed stop resets between
-// opens. One entry queues a fresh follow-up session behind this one, landing
+// opens. The pin entry leads: it flips the session's focus-rail pin, reading
+// Pin or Unpin by the state it is about to leave. One entry queues a fresh
+// follow-up session behind this one, landing
 // the workspace provider's queue draft on the shared form shells, an optional
 // chain entry (mobile rows) opens the pushed target picker; queue and chain
 // show only while the session runs, an optional rename entry covers surfaces
@@ -79,6 +81,26 @@ export function SessionContextMenu({
   )
 }
 
+// PinIcon is the menu pin entry's glyph, the shared stroke-icon dialect.
+function PinIcon(): ReactElement {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M12 17v5" />
+      <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1z" />
+    </svg>
+  )
+}
+
 function MenuBody({
   menu,
   onClose,
@@ -91,7 +113,7 @@ function MenuBody({
   onChain?: () => void
 }): ReactElement {
   const { sessions } = useSwarm()
-  const { setQueueDraft } = useWorkspace()
+  const { pinnedSessionIds, togglePinnedSession, setQueueDraft } = useWorkspace()
   const anchorRef = useRef<HTMLSpanElement>(null)
   const [stopping, setStopping] = useState(false)
   const [error, setError] = useState('')
@@ -122,6 +144,20 @@ function MenuBody({
         style={{ position: 'fixed', left: menu.x, top: menu.y, width: 0, height: 0 }}
       />
       <MenuPopover anchorRef={anchorRef} className="menu card" role="menu" onClose={onClose}>
+        {/* pin leads the menu; the wording reads the state the flip leaves
+            behind, and ended sessions keep it for their next live run */}
+        <button
+          type="button"
+          role="menuitem"
+          onClick={(ev) => {
+            ev.stopPropagation()
+            togglePinnedSession(menu.sessionId)
+            onClose()
+          }}
+        >
+          <PinIcon />
+          {pinnedSessionIds.includes(menu.sessionId) ? 'Unpin' : 'Pin'}
+        </button>
         {/* the portal bubbles clicks through the React tree into the row that
             opened the menu, every item stands that leak down */}
         {/* a stopped session has no next review point to hand off at, so

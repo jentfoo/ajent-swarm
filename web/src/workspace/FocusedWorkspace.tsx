@@ -21,8 +21,10 @@ import type { AttentionItem } from './attention'
 // FocusedWorkspace answers "what needs me right now": a ranked rail split
 // in three queues (states wanting a human answer above, idle agents
 // waiting below them, busy sessions last) beside exactly one SessionView.
-// Rows are tabbable buttons with an inline check-off on actionable ones,
-// matching the j/k shortcuts and mobile's switcher rows. Dragging one row
+// Pinned sessions top the rail under their own Pinned section, in pin order
+// whatever their live state. Rows are tabbable buttons with an inline
+// check-off on actionable ones, matching the j/k shortcuts and mobile's
+// switcher rows. Dragging one row
 // onto another chains them: the dragged row queues after the target and
 // receives its handoff, the rail never reorders. The selected session
 // persists in the layout
@@ -31,8 +33,16 @@ import type { AttentionItem } from './attention'
 export default function FocusedWorkspace() {
   const { sessions } = useSwarm()
   const auth = useAuth()
-  const { needs, waiting, working, acknowledgeItem, profile, selectFocusedSession, setChainDraft } =
-    useWorkspace()
+  const {
+    needs,
+    waiting,
+    working,
+    acknowledgeItem,
+    profile,
+    selectFocusedSession,
+    setChainDraft,
+    pinnedSessionIds,
+  } = useWorkspace()
   const { dragging } = useSessionDrag()
 
   const [searchParams, setSearchParams] = useSearchParams()
@@ -46,7 +56,25 @@ export default function FocusedWorkspace() {
     setSearchParams({}, { replace: true })
   }, [searchParams, selectFocusedSession, setSearchParams])
 
-  const rows = useMemo(() => [...needs, ...waiting, ...working], [needs, waiting, working])
+  // Pinned sessions lead the rail in pin order whatever their live state;
+  // the queues below keep only the unpinned rest.
+  const pinnedRows = useMemo(() => {
+    const live = [...needs, ...waiting, ...working].filter((item) =>
+      pinnedSessionIds.includes(item.sessionId),
+    )
+    return live.sort(
+      (a, b) => pinnedSessionIds.indexOf(a.sessionId) - pinnedSessionIds.indexOf(b.sessionId),
+    )
+  }, [needs, waiting, working, pinnedSessionIds])
+  const unpinned = useMemo(() => {
+    const keep = (rows: AttentionItem[]) =>
+      rows.filter((item) => !pinnedSessionIds.includes(item.sessionId))
+    return { needs: keep(needs), waiting: keep(waiting), working: keep(working) }
+  }, [needs, waiting, working, pinnedSessionIds])
+  const rows = useMemo(
+    () => [...pinnedRows, ...unpinned.needs, ...unpinned.waiting, ...unpinned.working],
+    [pinnedRows, unpinned],
+  )
   const [cursorId, setCursorId] = useState<string | null>(selected ?? rows[0]?.sessionId ?? null)
 
   // The cursor follows reality: a row that leaves the queue snaps to the
@@ -100,14 +128,15 @@ export default function FocusedWorkspace() {
       ?.scrollIntoView({ block: 'nearest' })
   }, [cursor])
 
-  // The rail's three queues in display order, titled from the shared model.
-  // Rows badge their own kind, so a queue never encodes state, empty queues
-  // render no section at all.
+  // The rail's sections in display order, the three queues titled from the
+  // shared model. Rows badge their own kind, so a queue never encodes state,
+  // empty sections render no title at all.
   const railSections = (
     [
-      { queue: 'needs', rows: needs },
-      { queue: 'waiting', rows: waiting },
-      { queue: 'working', rows: working },
+      { id: 'pinned', title: 'Pinned', rows: pinnedRows },
+      { id: 'needs', title: attentionSectionTitles.needs, rows: unpinned.needs },
+      { id: 'waiting', title: attentionSectionTitles.waiting, rows: unpinned.waiting },
+      { id: 'working', title: attentionSectionTitles.working, rows: unpinned.working },
     ] as const
   ).filter((section) => section.rows.length > 0)
 
@@ -229,10 +258,9 @@ export default function FocusedWorkspace() {
           <p className="muted">No sessions running</p>
         ) : (
           railSections.map((section) => (
-            <div className="rail-section" key={section.queue}>
+            <div className="rail-section" key={section.id}>
               <div className="rail-section-title">
-                {attentionSectionTitles[section.queue]}{' '}
-                <span className="muted">({section.rows.length})</span>
+                {section.title} <span className="muted">({section.rows.length})</span>
               </div>
               {section.rows.map((item) => renderRow(item))}
             </div>

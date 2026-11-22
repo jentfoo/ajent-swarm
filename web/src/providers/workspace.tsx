@@ -37,6 +37,10 @@ interface WorkspaceContextValue {
   profile: LayoutProfile
   setMode: (mode: WorkspaceMode) => void
   selectFocusedSession: (sessionId: string | undefined) => void
+  // focus-rail pins, per browser: pinned sessions top the focused view under
+  // Pinned whatever their live state
+  pinnedSessionIds: string[]
+  togglePinnedSession: (sessionId: string) => void
   setTileLayout: (tile: TileLayout) => void
 
   // The chain dialog's open state beside the chain records the workspace
@@ -77,7 +81,8 @@ const WorkspaceContext = createContext<WorkspaceContextValue | null>(null)
 // notification bridge.
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const { attention, refreshAttention } = useSwarm()
-  const { profile, setMode, selectFocusedSession, setTileLayout } = useLayoutProfile()
+  const { profile, setMode, selectFocusedSession, togglePinnedSession, setTileLayout } =
+    useLayoutProfile()
   const nameFor = useSessionNamer()
   const navigate = useNavigate()
   const [bridge] = useState(() => createNotificationBridge())
@@ -265,6 +270,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       profile,
       setMode,
       selectFocusedSession,
+      pinnedSessionIds: profile.focused.pinnedSessionIds,
+      togglePinnedSession,
       setTileLayout,
       chainDraft,
       setChainDraft,
@@ -288,6 +295,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       profile,
       setMode,
       selectFocusedSession,
+      togglePinnedSession,
       setTileLayout,
       chainDraft,
       setChainDraft,

@@ -10,6 +10,7 @@ export type WorkspaceMode = 'focused' | 'tile'
 
 interface FocusedLayout {
   selectedSessionId?: string
+  pinnedSessionIds: string[] // focus-rail pins in pin order, per browser
 }
 
 export interface TileLayout {
@@ -31,8 +32,14 @@ export const saveSettleMs = 250
 
 const defaultProfile: LayoutProfile = {
   mode: 'focused',
-  focused: {},
+  focused: { pinnedSessionIds: [] },
   tile: { tree: null },
+}
+
+// parsePinned keeps the string ids in pin order, dropping anything else
+function parsePinned(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value.filter((id): id is string => typeof id === 'string')
 }
 
 export function loadProfile(): LayoutProfile {
@@ -48,6 +55,7 @@ export function loadProfile(): LayoutProfile {
           typeof parsed.focused?.selectedSessionId === 'string'
             ? parsed.focused.selectedSessionId
             : undefined,
+        pinnedSessionIds: parsePinned(parsed.focused?.pinnedSessionIds),
       },
       tile: {
         tree: parseTree(parsed.tile?.tree),
@@ -76,6 +84,7 @@ export function useLayoutProfile(): {
   profile: LayoutProfile
   setMode: (mode: WorkspaceMode) => void
   selectFocusedSession: (sessionId: string | undefined) => void
+  togglePinnedSession: (sessionId: string) => void
   setTileLayout: (tile: TileLayout) => void
 } {
   const [profile, setProfile] = useState<LayoutProfile>(loadProfile)
@@ -124,10 +133,21 @@ export function useLayoutProfile(): {
       update((prev) => ({ ...prev, focused: { ...prev.focused, selectedSessionId: sessionId } })),
     [update],
   )
+  const togglePinnedSession = useCallback(
+    (sessionId: string) =>
+      update((prev) => {
+        const pinned = prev.focused.pinnedSessionIds
+        const next = pinned.includes(sessionId)
+          ? pinned.filter((id) => id !== sessionId)
+          : [...pinned, sessionId]
+        return { ...prev, focused: { ...prev.focused, pinnedSessionIds: next } }
+      }),
+    [update],
+  )
   const setTileLayout = useCallback(
     (tile: TileLayout) => update((prev) => ({ ...prev, tile })),
     [update],
   )
 
-  return { profile, setMode, selectFocusedSession, setTileLayout }
+  return { profile, setMode, selectFocusedSession, togglePinnedSession, setTileLayout }
 }

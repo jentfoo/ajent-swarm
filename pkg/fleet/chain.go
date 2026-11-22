@@ -87,7 +87,7 @@ type Chain struct {
 	FinalPrompt string `json:"finalPrompt,omitempty"` // empty runs the child prompt alone
 	ChildPrompt string `json:"childPrompt"`
 	PendingID   string `json:"pendingId,omitempty"` // rides the child submit
-	FinalAt     int64  `json:"finalAt,omitempty"`   // unix ms the final submit landed
+	FinalAt     int64  `json:"finalAt,omitempty"`   // unix ms the final submit was issued
 	State       string `json:"state"`
 	Reason      string `json:"reason,omitempty"` // failure cause
 	Mark        string `json:"mark,omitempty"`   // the final prompt's committed entry id
@@ -827,8 +827,8 @@ func (m *Manager) sessionProvider(sessionID string) string {
 
 // chainInReview reports whether one endpoint sits at a completed-turn review
 // point: no work is owed and a turn ended. For a final prompt the turn must
-// have ended after that submit landed, so a stale prior review never releases
-// the chain while the final turn is still starting.
+// have ended after that submit was issued, so a stale prior review never
+// releases the chain while the final turn is still starting.
 func chainInReview(st *Status, since int64) bool {
 	return !chainHeld(st) && st.LastTurnEnd > 0 && st.LastTurnEnd >= since
 }
@@ -904,6 +904,9 @@ func (m *Manager) chainWaiting(ctx context.Context, snap *chainSnap) bool {
 	if m.chainSiblingHeld(ch.ParentID, ch.ID) {
 		return true // a sibling's final turn owns the parent
 	}
+	// stamped before the submit: the turn end this submit starts must never
+	// read as older than the review point it owes
+	at := time.Now().UnixMilli()
 	err := m.SubmitTracked(ctx, ch.ParentID, ctl.SubmitParams{
 		Line: ch.FinalPrompt, PendingID: chainFinalPendingID(ch.ID),
 	})
@@ -918,14 +921,15 @@ func (m *Manager) chainWaiting(ctx context.Context, snap *chainSnap) bool {
 	// the final turn is provider activity until its facts land, so the other
 	// idle gates see it
 	m.NoteRelease(m.sessionProvider(ch.ParentID))
-	m.chainFinalSubmitted(snap)
+	m.chainFinalSubmitted(snap, at)
 	return true
 }
 
-// chainFinalSubmitted records the final submit's landing moment and waits out
-// that turn's review point.
-func (m *Manager) chainFinalSubmitted(snap *chainSnap) {
-	at := time.Now().UnixMilli()
+// chainFinalSubmitted records the final submit's moment and waits out that
+// turn's review point. The stamp is the submit's initiation, not its return:
+// the actor can process the started turn's own end before the submit call
+// returns, and a later stamp would then hold the review point forever.
+func (m *Manager) chainFinalSubmitted(snap *chainSnap, at int64) {
 	m.mu.Lock()
 	if run := m.chains[snap.ch.ID]; run != nil && chainLive(run.ch.State) {
 		run.ch.FinalAt = at

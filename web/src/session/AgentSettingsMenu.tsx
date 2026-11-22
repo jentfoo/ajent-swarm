@@ -2,7 +2,9 @@ import { useState } from 'react'
 import type { ReactElement, ReactNode } from 'react'
 
 import { ModalShell } from '../ui/ModalShell'
+import { childEnded } from '../api/types'
 import { ChainTargets } from '../workspace/ChainPicker'
+import { useSwarm } from '../providers/swarm'
 import { useWorkspace } from '../providers/workspace'
 import { SettingsMenu } from './SettingsMenu'
 
@@ -46,12 +48,17 @@ export function HamburgerDialog({
 // plus the keyboard routes into chaining. "Queue follow up session" lands a
 // fresh-session draft with this session as the parent, "Chain after this
 // session" swaps the modal into a target picker, picking one hands the draft
-// to the shared chain dialog with this session as the parent. It lives in the
-// chat header and on session cards, so a session is always the context for
-// its agent settings, never a picker elsewhere.
+// to the shared chain dialog with this session as the parent. Both entries
+// stand down once the session ends: nothing runs to hand off from. It lives
+// in the chat header and on session cards, so a session is always the
+// context for its agent settings, never a picker elsewhere.
 export function AgentSettingsMenu({ sessionId }: { sessionId: string }): ReactElement {
+  const { sessions } = useSwarm()
   const { setChainDraft, setQueueDraft } = useWorkspace()
   const [picking, setPicking] = useState(false)
+  // the listing is the state of record, a session missing from it reads live
+  // until proven otherwise
+  const ended = childEnded(sessions.find((s) => s.sessionId === sessionId)?.state ?? '')
 
   return (
     <HamburgerDialog label="Agent settings" title="Agent settings for this session">
@@ -69,14 +76,16 @@ export function AgentSettingsMenu({ sessionId }: { sessionId: string }): ReactEl
       ) : (
         <>
           <SettingsMenu sessionId={sessionId} />
-          <div className="settings-chain-entry">
-            <button type="button" onClick={() => setQueueDraft({ parentId: sessionId })}>
-              Queue follow up session…
-            </button>
-            <button type="button" onClick={() => setPicking(true)}>
-              Chain after this session…
-            </button>
-          </div>
+          {!ended && (
+            <div className="settings-chain-entry">
+              <button type="button" onClick={() => setQueueDraft({ parentId: sessionId })}>
+                Queue follow up session…
+              </button>
+              <button type="button" onClick={() => setPicking(true)}>
+                Chain after this session…
+              </button>
+            </div>
+          )}
         </>
       )}
     </HamburgerDialog>

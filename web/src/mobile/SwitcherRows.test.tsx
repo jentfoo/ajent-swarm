@@ -14,8 +14,8 @@ import { WorkspaceProvider } from '../providers/workspace'
 
 // The switcher's interactive contract at its breakpoint: rows group under
 // muted desktop-rail headings, long-press opens the shared session menu
-// (queue follow-up, rename, stop) whose rename shares one editor with the
-// explicit action that writes swarm storage and suppresses the tap, a held
+// (queue follow-up, chain after, rename, stop) carrying the row's rename and
+// chain actions, and the hold suppresses its release tap, a held
 // drag chains one row onto another, awaiting rows never offer a check-off,
 // live needs-input rows offer one backed by the digest, stop arms before it
 // fires and holds across listing polls of the same instance (a relaunch
@@ -290,6 +290,7 @@ describe('SwitcherRows', () => {
     const menu = screen.getByRole('menu')
     // the desktop right-click entries all ride the held menu
     expect(within(menu).getByRole('menuitem', { name: 'Queue follow up session…' }))
+    expect(within(menu).getByRole('menuitem', { name: 'Chain after…' }))
     expect(within(menu).getByRole('menuitem', { name: 'Rename…' }))
     expect(within(menu).getByRole('menuitem', { name: 'Stop session' }))
 
@@ -300,28 +301,16 @@ describe('SwitcherRows', () => {
     ).toBeInTheDocument()
   })
 
-  it('rename action opens the same editor as the long-press menu', async () => {
-    stubFacts()
-    renderRows([row()])
-    await screen.findByText('project')
-
-    const user = userEvent.setup()
-    await user.click(screen.getByRole('button', { name: 'Rename' }))
-
-    // the same keyed editor the menu's rename entry opens, seeded with the
-    // row's label
-    expect(await screen.findByTestId('rename-01A')).toBeInTheDocument()
-    expect(screen.getByDisplayValue('project')).toBeInTheDocument()
-  })
-
   it('back closes the rename editor alone', async () => {
     const back = vi.spyOn(window.history, 'back').mockImplementation(() => {})
     stubFacts()
     renderRows([row()])
     await screen.findByText('project')
 
-    const user = userEvent.setup()
-    await user.click(screen.getByRole('button', { name: 'Rename' }))
+    // the menu's rename entry opens the same keyed editor, seeded with the
+    // row's label
+    await pressLong(screen.getByRole('listitem'))
+    await pressLongMenu('project')
     expect(await screen.findByTestId('rename-01A')).toBeInTheDocument()
 
     // the platform back gesture peels the editor, rows intact, and its
@@ -633,9 +622,8 @@ describe('SwitcherRows', () => {
     await screen.findByText('project')
 
     // the live row acts, the recorded ended row resumes, the workspace-less
-    // one offers nothing, rename needs neither seat state nor a workspace, so
-    // it lands on every row
-    expect(screen.getAllByRole('button', { name: 'Rename' })).toHaveLength(3)
+    // one offers nothing, rename and chaining live in the long-press menu
+    expect(screen.queryByRole('button', { name: 'Rename' })).not.toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: 'Settings' })).toHaveLength(1)
     expect(screen.getAllByRole('button', { name: 'Stop' })).toHaveLength(1)
     expect(screen.getAllByRole('button', { name: 'Resume' })).toHaveLength(1)
@@ -712,8 +700,11 @@ describe('SwitcherRows', () => {
     await screen.findByText('project')
 
     const user = userEvent.setup()
-    // the chain action rides every live row beside Settings
-    await user.click(screen.getAllByRole('button', { name: 'Chain after…' })[0]!)
+    // the chain action rides the long-press menu on every live row
+    await pressLong(screen.getAllByRole('listitem')[0]!)
+    await user.click(
+      within(screen.getByRole('menu')).getByRole('menuitem', { name: 'Chain after…' }),
+    )
 
     // the target picker pushes as its own screen, the new-session row first
     // and the existing targets excluding the parent row behind it
@@ -761,8 +752,11 @@ describe('SwitcherRows', () => {
     renderRows([row(), row({ sessionId: '01B', label: 'other' })])
     await screen.findByText('project')
 
+    await pressLong(screen.getAllByRole('listitem')[0]!)
     const user = userEvent.setup()
-    await user.click(screen.getAllByRole('button', { name: 'Chain after…' })[0]!)
+    await user.click(
+      within(screen.getByRole('menu')).getByRole('menuitem', { name: 'Chain after…' }),
+    )
     const picker = await screen.findByRole('dialog', { name: 'Chain after this session' })
 
     // the leading row skips target picking: it opens the shared follow-up
@@ -951,7 +945,6 @@ describe('SwitcherRows', () => {
     const user = userEvent.setup()
     await user.click(screen.getByRole('button', { name: 'Settings' }))
     await user.click(screen.getByRole('button', { name: 'Stop' }))
-    await user.click(screen.getAllByRole('button', { name: 'Rename' })[0]!)
     await user.click(screen.getByRole('button', { name: 'Resume' }))
 
     expect(onOpen).not.toHaveBeenCalled()
@@ -964,7 +957,6 @@ describe('SwitcherRows', () => {
     await screen.findByText('project')
 
     await pressLong(screen.getByRole('button', { name: 'Stop' }))
-    await pressLong(screen.getByRole('button', { name: 'Rename' }))
 
     // the actions swallow the pointerdown, so no hold ever fires
     expect(screen.queryByRole('menu')).not.toBeInTheDocument()

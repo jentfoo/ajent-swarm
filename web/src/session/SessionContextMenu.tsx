@@ -51,30 +51,44 @@ export function useSessionMenu(): {
 // MenuPopover keeps its viewport flipping and overlay-stack dismissal. The
 // body remounts per open (the epoch key), so the armed stop resets between
 // opens. One entry queues a fresh follow-up session behind this one, landing
-// the workspace provider's queue draft on the shared form shells; an optional
-// rename entry covers surfaces without an inline pencil (mobile rows); the
-// armed stop is the same guard the cards' stop buttons carry.
+// the workspace provider's queue draft on the shared form shells, an optional
+// chain entry (mobile rows) opens the pushed target picker; queue and chain
+// show only while the session runs, an optional rename entry covers surfaces
+// without an inline pencil (mobile rows), and the armed stop is the same
+// guard the cards' stop buttons carry.
 export function SessionContextMenu({
   menu,
   onClose,
   onRename,
+  onChain,
 }: {
   menu: SessionMenuPoint | null
   onClose: () => void
   onRename?: () => void
+  onChain?: () => void
 }): ReactElement | null {
   if (menu === null) return null
-  return <MenuBody key={menu.epoch} menu={menu} onClose={onClose} onRename={onRename} />
+  return (
+    <MenuBody
+      key={menu.epoch}
+      menu={menu}
+      onClose={onClose}
+      onRename={onRename}
+      onChain={onChain}
+    />
+  )
 }
 
 function MenuBody({
   menu,
   onClose,
   onRename,
+  onChain,
 }: {
   menu: SessionMenuPoint
   onClose: () => void
   onRename?: () => void
+  onChain?: () => void
 }): ReactElement {
   const { sessions } = useSwarm()
   const { setQueueDraft } = useWorkspace()
@@ -110,17 +124,34 @@ function MenuBody({
       <MenuPopover anchorRef={anchorRef} className="menu card" role="menu" onClose={onClose}>
         {/* the portal bubbles clicks through the React tree into the row that
             opened the menu, every item stands that leak down */}
-        <button
-          type="button"
-          role="menuitem"
-          onClick={(ev) => {
-            ev.stopPropagation()
-            setQueueDraft({ parentId: menu.sessionId })
-            onClose()
-          }}
-        >
-          Queue follow up session…
-        </button>
+        {/* a stopped session has no next review point to hand off at, so
+            queue and chain stand down for it */}
+        {!ended && (
+          <button
+            type="button"
+            role="menuitem"
+            onClick={(ev) => {
+              ev.stopPropagation()
+              setQueueDraft({ parentId: menu.sessionId })
+              onClose()
+            }}
+          >
+            Queue follow up session…
+          </button>
+        )}
+        {!ended && onChain && (
+          <button
+            type="button"
+            role="menuitem"
+            onClick={(ev) => {
+              ev.stopPropagation()
+              onChain()
+              onClose()
+            }}
+          >
+            Chain after…
+          </button>
+        )}
         {onRename && (
           <button
             type="button"

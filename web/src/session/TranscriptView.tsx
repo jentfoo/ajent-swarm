@@ -18,12 +18,18 @@ const stickGap = 60
 // history before the mobile pull-to-latest gesture fires.
 const pullDownPx = 64
 
+// How long after a user scroll input a scroll event still counts as theirs.
+const userScrollWindowMs = 250
+
+// Keys whose press means "scroll away from the latest row".
+const scrollAwayKeys = new Set(['ArrowUp', 'PageUp', 'Home'])
+
 // TranscriptView renders the committed chain as a virtualized block list keyed
 // by entry id, with each anchored diff riding its block's row, unanchored ones
 // trailing beneath, and the pinned live stream at the bottom. Stick-to-bottom
-// autoscroll disengages on scroll-up, a pill jumps back to the latest. A
-// sessionId change (swapping sessions inside one hosted view) re-lands on the
-// latest too.
+// autoscroll disengages only on a user scroll up, a pill jumps back to the
+// latest. A sessionId change (swapping sessions inside one hosted view)
+// re-lands on the latest too.
 export function TranscriptView({
   sessionId,
   state,
@@ -46,6 +52,9 @@ export function TranscriptView({
   const stuckRef = useRef(true)
   const anchorRef = useRef<string | null>(null) // block id kept in view across a prepend
   const lastTopRef = useRef(0) // previous scrollTop, for the direction check
+  const userScrollAtRef = useRef(-Infinity) // last user scroll input, perf.now()
+  const gutterDragRef = useRef(false) // pointer held down on the scrollbar
+  const lastTouchYRef = useRef<number | null>(null) // touch drag direction
   const [showPill, setShowPill] = useState(false)
   // Why the last load-older attempt failed, a retry that answers clears it.
   const [loadError, setLoadError] = useState('')
@@ -124,16 +133,75 @@ export function TranscriptView({
     return () => ro.disconnect()
   }, [])
 
+  // Only a genuine user scroll disengages autoscroll: the virtualizer's
+  // measurement corrections (and this view's own re-pins) also write scrollTop,
+  // and a correction can land below the pinned tail mid-burst, which reads as
+  // an upward scroll no user made. Wheel-up, a downward finger drag, the
+  // scroll-away keys and a classic scrollbar drag mark the scroll events that
+  // follow as user-driven. Overlay scrollbar drags (WebKit) fire nothing the
+  // page can see, wheel and keys still cover those readers.
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const arm = () => {
+      userScrollAtRef.current = performance.now()
+    }
+    const onWheel = (ev: WheelEvent) => {
+      if (ev.deltaY < 0) arm()
+    }
+    const onTouchStart = (ev: TouchEvent) => {
+      lastTouchYRef.current = ev.touches[0]?.clientY ?? null
+    }
+    const onTouchMove = (ev: TouchEvent) => {
+      const y = ev.touches[0]?.clientY
+      if (y === undefined) return
+      if (lastTouchYRef.current !== null && y > lastTouchYRef.current) arm()
+      lastTouchYRef.current = y
+    }
+    const onKey = (ev: KeyboardEvent) => {
+      if (scrollAwayKeys.has(ev.key)) arm()
+    }
+    const onPointerDown = (ev: PointerEvent) => {
+      // a scrollbar drag never wheels: classic gutters hit-test into the
+      // element, overlay ones are 0 wide and stay uncovered here
+      const gutter = el.offsetWidth - el.clientWidth
+      if (gutter <= 0) return
+      const rect = el.getBoundingClientRect()
+      if (ev.clientX < rect.right - gutter) return
+      gutterDragRef.current = true
+      arm()
+    }
+    const onPointerUp = () => {
+      gutterDragRef.current = false
+    }
+    el.addEventListener('wheel', onWheel, { passive: true })
+    el.addEventListener('touchstart', onTouchStart, { passive: true })
+    el.addEventListener('touchmove', onTouchMove, { passive: true })
+    el.addEventListener('keydown', onKey)
+    el.addEventListener('pointerdown', onPointerDown)
+    window.addEventListener('pointerup', onPointerUp)
+    window.addEventListener('pointercancel', onPointerUp)
+    return () => {
+      el.removeEventListener('wheel', onWheel)
+      el.removeEventListener('touchstart', onTouchStart)
+      el.removeEventListener('touchmove', onTouchMove)
+      el.removeEventListener('keydown', onKey)
+      el.removeEventListener('pointerdown', onPointerDown)
+      window.removeEventListener('pointerup', onPointerUp)
+      window.removeEventListener('pointercancel', onPointerUp)
+    }
+  }, [])
+
   const onScroll = useCallback(() => {
     const el = scrollRef.current
     if (!el) return
+    // scroll events while the thumb is held keep the drag's intent fresh
+    if (gutterDragRef.current) userScrollAtRef.current = performance.now()
+    const userScrolled = performance.now() - userScrollAtRef.current < userScrollWindowMs
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < stickGap
-    // Only a genuine upward scroll disengages autoscroll: programmatic
-    // adjustments (thinking blocks expanding and collapsing, the virtualizer
-    // compensating) also move scrollTop above the gap without user intent.
     if (atBottom) {
       setStuck(true)
-    } else if (el.scrollTop < lastTopRef.current) {
+    } else if (userScrolled && el.scrollTop < lastTopRef.current) {
       setStuck(false)
     }
     lastTopRef.current = el.scrollTop

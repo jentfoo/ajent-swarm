@@ -10,20 +10,21 @@ import { SwarmProvider } from '../providers/swarm'
 import { WorkspaceProvider } from '../providers/workspace'
 
 // The right-click menu's contract: opening pins the menu to the pointer and
-// its one entry lands the follow-up draft on the shared queue dialog. Held
-// touches open the same menu through a press point, and the optional rename
-// entry reports back for surfaces without an inline pencil.
+// its queue entry lands the follow-up draft on the shared queue dialog while
+// the session runs, standing down once it ends. Held touches open the same
+// menu through a press point, and the optional rename and chain entries
+// report back for surfaces without inline controls.
 
 const SESSION = '01TARGETSESSION0000C'
 
 // MenuProbe carries a session row whose context menu a test opens like a
 // right-click on a tab, rail row or card does.
-function MenuProbe() {
+function MenuProbe({ onChain }: { onChain?: () => void }) {
   const { menu, openSessionMenu, closeSessionMenu } = useSessionMenu()
   return (
     <>
       <div data-testid="row" onContextMenu={(ev) => openSessionMenu(ev, SESSION)} />
-      <SessionContextMenu menu={menu} onClose={closeSessionMenu} />
+      <SessionContextMenu menu={menu} onClose={closeSessionMenu} onChain={onChain} />
     </>
   )
 }
@@ -164,7 +165,32 @@ describe('SessionContextMenu', () => {
     })
   })
 
-  it('hides stop for an ended session', async () => {
+  it('offers chain after through the menu while running', async () => {
+    stubFetch()
+    const onChain = vi.fn()
+    const user = userEvent.setup()
+    render(
+      <MemoryRouter>
+        <AuthProvider>
+          <SwarmProvider>
+            <WorkspaceProvider>
+              <MenuProbe onChain={onChain} />
+            </WorkspaceProvider>
+          </SwarmProvider>
+        </AuthProvider>
+      </MemoryRouter>,
+    )
+
+    fireEvent.contextMenu(screen.getByTestId('row'), { clientX: 30, clientY: 40 })
+
+    await user.click(screen.getByRole('menuitem', { name: 'Chain after…' }))
+
+    // the entry reports back and the menu closes behind it
+    expect(onChain).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('menu')).toBeNull()
+  })
+
+  it('hides queue, chain and stop for an ended session', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string | URL) => {
@@ -180,7 +206,7 @@ describe('SessionContextMenu', () => {
         <AuthProvider>
           <SwarmProvider>
             <WorkspaceProvider>
-              <MenuProbe />
+              <MenuProbe onChain={vi.fn()} />
             </WorkspaceProvider>
           </SwarmProvider>
         </AuthProvider>
@@ -188,7 +214,9 @@ describe('SessionContextMenu', () => {
     )
 
     fireEvent.contextMenu(screen.getByTestId('row'), { clientX: 30, clientY: 40 })
-    await screen.findByRole('menuitem', { name: 'Queue follow up session…' })
+    expect(await screen.findByRole('menu')).toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: 'Queue follow up session…' })).toBeNull()
+    expect(screen.queryByRole('menuitem', { name: 'Chain after…' })).toBeNull()
     expect(screen.queryByRole('menuitem', { name: 'Stop session' })).toBeNull()
   })
 

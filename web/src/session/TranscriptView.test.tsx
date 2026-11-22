@@ -34,11 +34,13 @@ function renderTranscript(): HTMLElement {
   return el
 }
 
-// showPill disengages autoscroll with one upward scroll away from the bottom,
-// so the ↓ latest button marks both where a jump may fire and that one did.
-// It leaves the scroller at rest at the top, where the pull gesture lives.
+// showPill disengages autoscroll with one user-driven upward scroll away from
+// the bottom, so the ↓ latest button marks both where a jump may fire and that
+// one did. It leaves the scroller at rest at the top, where the pull gesture
+// lives.
 function showPill(el: HTMLElement) {
   act(() => {
+    fireEvent.wheel(el, { deltaY: -120 }) // the user's upward scroll input
     el.scrollTop = 500
     el.dispatchEvent(new Event('scroll'))
     el.scrollTop = 0
@@ -90,6 +92,101 @@ describe('TranscriptView pull to latest', () => {
     fireEvent.touchStart(el, { touches: [{ clientY: 300 }, { clientY: 340 }] })
     fireEvent.touchMove(el, { touches: [{ clientY: 380 }, { clientY: 500 }] })
 
+    expect(screen.getByText('↓ latest')).toBeInTheDocument()
+  })
+})
+
+// The stick fence: while following the tail the virtualizer's measurement
+// corrections write scrollTop too, and one can land below the pinned tail
+// mid-burst (its offsets lag the re-pins, and the live tail sits below the
+// list it compensates for). Such a scroll event must never read as the user
+// scrolling up: the pill stays hidden and growth keeps pinning the bottom,
+// while wheel, touch and key scrolls still disengage.
+describe('TranscriptView autoscroll intent', () => {
+  // jsdom ships no observer, so every ResizeObserver under this render is
+  // recorded and fired together, like one real resize batch
+  function recordingRO() {
+    const fireAll: (() => void)[] = []
+    class RecordingRO {
+      constructor(cb: ResizeObserverCallback) {
+        fireAll.push(() => cb([] as unknown as ResizeObserverEntry[], null as never))
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+    const real = globalThis.ResizeObserver
+    globalThis.ResizeObserver = RecordingRO as unknown as typeof ResizeObserver
+    return {
+      fire: () => act(() => fireAll.forEach((fire) => fire())),
+      restore: () => {
+        globalThis.ResizeObserver = real
+      },
+    }
+  }
+
+  // the landing pin and its scroll event, so the direction check has a floor
+  const landed = (el: HTMLElement) =>
+    act(() => {
+      el.scrollTop = el.scrollHeight
+      el.dispatchEvent(new Event('scroll'))
+    })
+
+  it('keeps stick through a backward correction', () => {
+    const ro = recordingRO()
+    try {
+      const el = renderTranscript()
+      landed(el)
+      expect(el.scrollTop).toBe(2000) // on the latest, stuck
+
+      // a virtualizer correction writes scrollTop below the pinned tail: the
+      // view is hundreds of px from the bottom it was just pinned to
+      el.scrollTop = 1200
+      act(() => {
+        el.dispatchEvent(new Event('scroll'))
+      })
+      expect(screen.queryByText('↓ latest')).not.toBeInTheDocument()
+
+      // growth after the correction still pins the stuck view to the new tail
+      Object.defineProperty(el, 'scrollHeight', { configurable: true, value: 2600 })
+      ro.fire()
+      expect(el.scrollTop).toBe(2600)
+    } finally {
+      ro.restore()
+    }
+  })
+
+  it('disengages on a user wheel scroll', () => {
+    const el = renderTranscript()
+    landed(el)
+    act(() => {
+      fireEvent.wheel(el, { deltaY: -120 })
+      el.scrollTop = 500
+      el.dispatchEvent(new Event('scroll'))
+    })
+    expect(screen.getByText('↓ latest')).toBeInTheDocument()
+  })
+
+  it('disengages on a user touch drag', () => {
+    const el = renderTranscript()
+    landed(el)
+    act(() => {
+      fireEvent.touchStart(el, { touches: [{ clientY: 300 }] })
+      fireEvent.touchMove(el, { touches: [{ clientY: 380 }] }) // finger down
+      el.scrollTop = 500
+      el.dispatchEvent(new Event('scroll'))
+    })
+    expect(screen.getByText('↓ latest')).toBeInTheDocument()
+  })
+
+  it('disengages on a scroll-away key', () => {
+    const el = renderTranscript()
+    landed(el)
+    act(() => {
+      fireEvent.keyDown(el, { key: 'PageUp' })
+      el.scrollTop = 500
+      el.dispatchEvent(new Event('scroll'))
+    })
     expect(screen.getByText('↓ latest')).toBeInTheDocument()
   })
 })

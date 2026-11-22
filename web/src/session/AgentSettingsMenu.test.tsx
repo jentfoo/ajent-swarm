@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -173,5 +173,24 @@ describe('AgentSettingsMenu', () => {
       name: 'Queue follow up session after source',
     })
     expect(dialog).toBeInTheDocument()
+  })
+
+  it('stands down queue and chain once the session ends', async () => {
+    stubFetch({
+      '/api/me': { username: 'you', via: 'cookie' },
+      '/api/sessions': [{ sessionId: '01SOURCE000000000A', name: 'source', state: 'exited' }],
+      '/api/attention': [],
+      '/settings': { rows: [] },
+    })
+    render(tree(<AgentSettingsMenu sessionId="01SOURCE000000000A" />))
+
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Agent settings' }))
+    const dialog = screen.getByRole('dialog', { name: 'Agent settings' })
+
+    // nothing runs to hand off from, so both entries leave the menu
+    await vi.waitFor(() => {
+      expect(within(dialog).queryByRole('button', { name: 'Queue follow up session…' })).toBeNull()
+      expect(within(dialog).queryByRole('button', { name: 'Chain after this session…' })).toBeNull()
+    })
   })
 })

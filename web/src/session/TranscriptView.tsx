@@ -300,7 +300,7 @@ export function TranscriptView({
       {!state.chain.rooted && state.chain.ids.length > 0 && (
         <>
           <p>
-            <button type="button" onClick={() => void loadOlderAnchored()}>
+            <button type="button" className="load-older" onClick={() => void loadOlderAnchored()}>
               Load older history
             </button>
           </p>

@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -67,6 +67,18 @@ describe('HistorySearchOverlay', () => {
 
     const options = screen.getAllByRole('option')
     await user.click(options[1]!)
+    expect(onAccept).toHaveBeenCalledOnce()
+    expect(onAccept.mock.calls[0]![0]).toBe('ship v2')
+  })
+
+  it('touch_tap_accepts_once', () => {
+    const { onAccept } = renderOverlay(narrowed(items, 'ship'))
+
+    // the prevented pointerdown plus one click, the composer's single
+    // activation path: no compatibility double fires
+    const row = screen.getAllByRole('option')[1]!
+    fireEvent.pointerDown(row, { pointerType: 'touch', pointerId: 1, isPrimary: true })
+    fireEvent.click(row)
     expect(onAccept).toHaveBeenCalledOnce()
     expect(onAccept.mock.calls[0]![0]).toBe('ship v2')
   })

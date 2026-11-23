@@ -772,6 +772,10 @@ export function Composer({
             onClose={() => setDismissed(tokenKey)}
           >
             <ul className="at-menu" role="listbox" aria-label="Path suggestions">
+              {/* one activation path per row: the prevented pointerdown keeps
+                  the textarea's caret, click accepts exactly once for touch
+                  and mouse, and the keyboard stays owned by the textarea's
+                  key rules */}
               {items.map((item, i) => (
                 <li key={item.path}>
                   <button
@@ -779,10 +783,8 @@ export function Composer({
                     role="option"
                     aria-selected={i === highlight}
                     className={i === highlight ? 'active' : ''}
-                    onMouseDown={(ev) => {
-                      ev.preventDefault() // the textarea keeps focus
-                      accept(item)
-                    }}
+                    onPointerDown={(ev) => ev.preventDefault()}
+                    onClick={() => accept(item)}
                     onMouseEnter={() => setPick({ key: tokenKey, index: i, moved: true })}
                   >
                     {item.path}
@@ -809,10 +811,8 @@ export function Composer({
                     aria-selected={i === highlight}
                     className={i === highlight ? 'active' : ''}
                     ref={i === highlight ? activeCommandRef : undefined}
-                    onMouseDown={(ev) => {
-                      ev.preventDefault() // the textarea keeps focus
-                      acceptCommand(cmd)
-                    }}
+                    onPointerDown={(ev) => ev.preventDefault()}
+                    onClick={() => acceptCommand(cmd)}
                     onMouseEnter={() => setPick({ key: slashKey, index: i, moved: true })}
                   >
                     <span className="slash-name">/{cmd.name}</span>
@@ -824,7 +824,7 @@ export function Composer({
           </MenuPopover>
         )}
         {search !== null && (
-          // rows keep the caret through prevented mousedown, so blur only
+          // rows keep the caret through prevented pointerdown, so blur only
           // fires when focus truly left the composer
           <MenuPopover
             anchorRef={boxRef}

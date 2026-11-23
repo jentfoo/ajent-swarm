@@ -53,6 +53,8 @@ export function HistorySearchOverlay({
       )}
       {search.matches.length > 0 && (
         <ul className="search-list" role="listbox" aria-label="Matching prompts">
+          {/* the composer's one activation path: the prevented pointerdown
+              keeps the caret, click accepts exactly once (Composer.tsx) */}
           {search.matches.map((text, i) => (
             <li key={text}>
               <button
@@ -61,10 +63,8 @@ export function HistorySearchOverlay({
                 role="option"
                 aria-selected={i === search.cursor}
                 className={i === search.cursor ? 'active' : ''}
-                onMouseDown={(ev) => {
-                  ev.preventDefault() // the textarea keeps focus
-                  onAccept(text)
-                }}
+                onPointerDown={(ev) => ev.preventDefault()}
+                onClick={() => onAccept(text)}
                 onMouseEnter={() => onHighlight(i - search.cursor)}
               >
                 <HighlightRow text={text} query={search.query} />

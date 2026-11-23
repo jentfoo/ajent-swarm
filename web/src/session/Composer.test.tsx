@@ -260,6 +260,82 @@ describe('Composer @-completion', () => {
   })
 })
 
+describe('Composer result activation', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  // touchTap plays a touch press plus the compatibility click, a sequence
+  // jsdom never synthesizes on its own: click must activate exactly once.
+  function touchTap(row: HTMLElement) {
+    fireEvent.pointerDown(row, { pointerType: 'touch', pointerId: 1, isPrimary: true })
+    fireEvent.click(row)
+  }
+
+  it('touch_tap_accepts_path_once', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('fetch', filesFetch({ ma: [{ path: 'src/main.go' }] }))
+    const onSubmit = vi.fn()
+    render(Harness({ component: await coarseComposer(), onSubmit }))
+
+    const box = screen.getByLabelText('Prompt') as HTMLTextAreaElement
+    await user.type(box, 'look at @ma')
+    touchTap(await screen.findByRole('option', { name: 'src/main.go' }))
+
+    expect(box.value).toBe('look at @src/main.go ')
+    expect(box).toHaveFocus() // the prevented pointerdown never blurred
+    expect(box.selectionStart).toBe(box.value.length)
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
+    expect(onSubmit).not.toHaveBeenCalled()
+  })
+
+  it('touch_tap_accepts_command_once', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('fetch', filesFetch({}))
+    render(Harness({ component: await coarseComposer() }))
+
+    const box = screen.getByLabelText('Prompt') as HTMLTextAreaElement
+    await user.type(box, '/he')
+    const options = screen.getAllByRole('option')
+    expect(options).toHaveLength(1)
+    touchTap(options[0]!)
+
+    expect(box).toHaveValue('/help ')
+    expect(box).toHaveFocus()
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
+  })
+
+  it('touch_tap_accepts_history_once', async () => {
+    const user = userEvent.setup()
+    render(Harness({ component: await coarseComposer(), ...recallHarness(['fix the retry loop']) }))
+
+    const box = screen.getByLabelText('Prompt') as HTMLTextAreaElement
+    await user.click(screen.getByRole('button', { name: 'Search prompt history' }))
+    await user.keyboard('retry')
+    touchTap(await screen.findByRole('option'))
+
+    expect(box.value).toBe('fix the retry loop')
+    expect(box).toHaveFocus() // focus never left, so the blur close cannot race
+    expect(screen.queryByText(/reverse-i-search/)).not.toBeInTheDocument()
+  })
+
+  it('mouse_click_accepts_once', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('fetch', filesFetch({ ma: [{ path: 'src/main.go' }] }))
+    const onSubmit = vi.fn()
+    render(Harness({ onSubmit }))
+
+    const box = screen.getByLabelText('Prompt') as HTMLTextAreaElement
+    await user.type(box, 'look at @ma')
+    await user.click(await screen.findByRole('option', { name: 'src/main.go' }))
+
+    expect(box.value).toBe('look at @src/main.go ')
+    expect(box).toHaveFocus()
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
+    expect(onSubmit).not.toHaveBeenCalled()
+  })
+})
+
 describe('Composer caret and completion keys', () => {
   it('drops_the_caret_after_an_accepted_token', async () => {
     const user = userEvent.setup()

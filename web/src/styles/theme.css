@@ -427,8 +427,10 @@ label {
 }
 
 @media (max-width: 48rem) {
-  /* the pill is the only way back to the live tail on a phone */
-  .jump-latest {
+  /* the pill and the older-history button are a phone's only ways back
+     through the transcript, so both meet the touch floor */
+  .jump-latest,
+  .load-older {
     min-height: 44px;
   }
 }
@@ -623,6 +625,17 @@ label {
   margin-top: calc(var(--unit) * 1);
 }
 
+@media (max-width: 48rem) {
+  /* transcript disclosures answer taps: expansion headers, thinking panels
+     and injected-output toggles meet the touch floor, and the transcript's
+     dynamic row measurement absorbs the taller rows */
+  .tool-header,
+  .thinking summary,
+  .injected-toggle {
+    min-height: 44px;
+  }
+}
+
 /* live stream */
 .live-block {
   border-left: 3px solid var(--accent);
@@ -730,8 +743,26 @@ label {
 .composer-queue {
   width: 100%;
 }
-@media (max-width: 48rem) {
-  /* phones meet the theme's touch floor while desktop keeps its density */
+/* coarse pointers stack the prompt above one action row, so typing keeps the
+   full width and every control meets the touch floor; fine pointers keep the
+   compact side-by-side composer even in narrow desktop panes. The popups'
+   anchor stays .composer-box, which still spans textarea and actions */
+@media (pointer: coarse) {
+  .composer-box {
+    flex-wrap: wrap;
+  }
+  .composer-side {
+    flex-direction: row;
+    align-items: center;
+    width: 100%;
+  }
+  .composer-actions {
+    flex: 1;
+    justify-content: flex-end;
+  }
+  .composer-queue {
+    width: auto;
+  }
   .composer-side button {
     min-height: 44px;
     min-width: 44px;
@@ -1276,11 +1307,12 @@ label {
 }
 
 @media (max-width: 48rem) {
-  /* the popups open from touch too, so their rows and close button meet the
-     theme's touch floor */
+  /* the popups open from touch too, so their rows, the shared menu items
+     (session actions included) and the close button meet the touch floor */
   .at-menu button,
   .search-list button,
-  .search-close {
+  .search-close,
+  .menu button {
     min-height: 44px;
   }
 }
@@ -1640,6 +1672,17 @@ label {
   border-bottom: 2px solid var(--accent);
 }
 
+@media (max-width: 48rem) {
+  /* the jobs pages' fixed chrome is tap-driven on phones: the sub-nav and
+     the top-level action links meet the touch floor */
+  .job-tabs a,
+  .session-header .btn {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+  }
+}
+
 .runs-filter {
   display: inline-flex;
   align-items: center;
@@ -1702,6 +1745,14 @@ label {
   display: flex;
   gap: calc(var(--unit) * 2);
   margin-top: calc(var(--unit) * 4);
+}
+
+@media (max-width: 48rem) {
+  /* the footer submit answers a tap: the pushed chain/queue screens and the
+     mobile job editor share the action row */
+  .editor-actions button {
+    min-height: 44px;
+  }
 }
 
 /* phone layout swaps the jobs and runs tables for stacked cards over the same

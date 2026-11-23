@@ -434,6 +434,43 @@ describe('FocusedWorkspace', () => {
     await waitFor(() => expect(mainHeading().textContent).toContain('review session'))
   })
 
+  it('hands focus to the opened session on keyboard activation', async () => {
+    renderFocused()
+    await openSocket()
+
+    // Enter opens with a handoff: once the selected view can hold a caret,
+    // the prompt textarea takes it, never left behind in the rail. The view
+    // mounts while its stream connects, so bring that stream live first
+    const user = userEvent.setup()
+    railRows()[1].focus() // dialog row
+    await user.keyboard('{Enter}')
+
+    // the shared stream carries the view's subscribe; a live init answers it
+    act(() => {
+      sockets[0].message({
+        type: 'init',
+        sessionId: DIALOG,
+        state: ctlSnapshot(DIALOG),
+        entries: [],
+      })
+    })
+
+    await waitFor(() => expect(screen.getByRole('textbox', { name: 'Prompt' })).toHaveFocus())
+  })
+
+  it('leaves focus alone on a pointer selection', async () => {
+    renderFocused()
+    await openSocket()
+
+    const user = userEvent.setup()
+    await user.click(within(rail()).getByText('dialog session'))
+    await waitFor(() => expect(mainHeading().textContent).toContain('dialog session'))
+
+    // pointer selection need not force focus: the click stays on the row and
+    // the composer never takes the caret
+    expect(screen.getByRole('textbox', { name: 'Prompt' })).not.toHaveFocus()
+  })
+
   it('drives the queue with the keyboard: j, k, Enter and r', async () => {
     renderFocused()
     await openSocket()

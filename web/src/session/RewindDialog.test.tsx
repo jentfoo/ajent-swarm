@@ -1,3 +1,4 @@
+import { act } from 'react'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -123,6 +124,8 @@ describe('RewindDialog', () => {
 
     await user.keyboard('k')
     expect(rowFor("It's not done, but updated")).toHaveAttribute('data-cursor', 'true')
+    // arrows move DOM focus with the cursor, so activation stays native
+    expect(rowFor("It's not done, but updated")).toHaveFocus()
 
     await user.keyboard('{Enter}')
     await vi.waitFor(() => expect(bodies.at(-1)).toEqual({ head: '01C2' }))
@@ -181,13 +184,47 @@ describe('RewindDialog', () => {
     )
   })
 
+  it('tabs into the rows and rewinds from a focused row', async () => {
+    const user = userEvent.setup()
+    const bodies = stubAPI(() => Response.json(tree))
+    const { onClose } = renderDialog()
+    await screen.findByText('create system monitor')
+
+    // the trap's first stop is the list's first row, a real button now, and
+    // its own Enter activation rewinds exactly once -- never double-firing
+    // against the cursor pick
+    await user.tab()
+    expect(rowFor('create system monitor')).toHaveFocus()
+    await user.keyboard('{Enter}')
+
+    await vi.waitFor(() => expect(bodies).toEqual([{ head: '01C1' }]))
+    expect(onClose).toHaveBeenCalled()
+  })
+
+  it('activates the focused row with Space', async () => {
+    const user = userEvent.setup()
+    const bodies = stubAPI(() => Response.json(tree))
+    renderDialog()
+    await screen.findByText("It's not done, but updated")
+
+    // the row's cursor sync fires from its own focus handler, so focus moves
+    // inside act like any other state update
+    act(() => {
+      rowFor("It's not done, but updated").focus()
+    })
+    await user.keyboard(' ')
+
+    await vi.waitFor(() => expect(bodies).toEqual([{ head: '01C2' }]))
+  })
+
   it('leaves Enter to a focused footer button', async () => {
     const user = userEvent.setup()
     const bodies = stubAPI(() => Response.json(tree))
     const { onClose } = renderDialog()
     await screen.findByText('create system monitor')
 
-    await user.tab() // ModalShell walks focus onto the footer button
+    // the footer keeps its own activation, and a press there never rewinds
+    screen.getByRole('button', { name: 'Keep current history' }).focus()
     await user.keyboard('{Enter}')
 
     expect(onClose).toHaveBeenCalled()

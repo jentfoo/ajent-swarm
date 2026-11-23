@@ -54,7 +54,13 @@ export function ModeMenu({
 
   // one item list feeds either surface's popover
   const items = permissionModes.map((m) => (
-    <button key={m} type="button" role="menuitem" onClick={() => void pick(m)}>
+    <button
+      key={m}
+      type="button"
+      role="menuitem"
+      aria-current={m === mode ? 'true' : undefined}
+      onClick={() => void pick(m)}
+    >
       {m}
       {m === mode && <span className="badge ok">current</span>}
     </button>

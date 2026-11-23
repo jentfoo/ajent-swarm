@@ -35,6 +35,10 @@ function ModelMenuTree({ models, active, currentKey, onPick }: ModelMenuProps): 
   const [query, setQuery] = useState('')
   const filterRef = useRef<HTMLInputElement>(null)
 
+  // the listing's active key or the snapshot's model marks the menu's current
+  // item, both for the badge and keyboard-open focus
+  const isCurrent = (key: string): boolean => key === active || key === currentKey
+
   // the caret lands in the filter without scrolling: MenuPopover places its
   // layer only after a measure, so a plain focus would scroll to the unplaced
   // menu's flow position instead
@@ -57,7 +61,7 @@ function ModelMenuTree({ models, active, currentKey, onPick }: ModelMenuProps): 
   const noneMatch = groups.length === 0 && loose.length === 0
 
   const badge = (key: string): ReactElement | null =>
-    key === active || key === currentKey ? <span className="badge ok">current</span> : null
+    isCurrent(key) ? <span className="badge ok">current</span> : null
   return (
     <>
       <div className="menu-filter-row">
@@ -85,6 +89,7 @@ function ModelMenuTree({ models, active, currentKey, onPick }: ModelMenuProps): 
                   key={m.key}
                   type="button"
                   role="menuitem"
+                  aria-current={isCurrent(m.key) ? 'true' : undefined}
                   title={itemTitle(m)}
                   onClick={() => onPick(m.key)}
                 >
@@ -99,6 +104,7 @@ function ModelMenuTree({ models, active, currentKey, onPick }: ModelMenuProps): 
               key={m.key}
               type="button"
               role="menuitem"
+              aria-current={isCurrent(m.key) ? 'true' : undefined}
               title={itemTitle(m)}
               onClick={() => onPick(m.key)}
             >

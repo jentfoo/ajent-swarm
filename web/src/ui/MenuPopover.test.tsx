@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -255,6 +255,9 @@ describe('MenuPopover', () => {
     expect(screen.queryByRole('menu')).not.toBeInTheDocument()
     // the close never dragged focus back to the trigger
     expect(aside).toHaveFocus()
+
+    // scratch tabs must not leak into later keyboard walks' tab order
+    aside.remove()
   })
 
   it('repositions when the window scrolls while open', () => {
@@ -310,6 +313,207 @@ describe('MenuPopover', () => {
     await user.click(screen.getByText('trigger'))
     // the press lands on the anchor, which toggles, no outside-close fights it
     expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+  })
+})
+
+// ItemsHost mounts a closed role=menu layer over its trigger, with named
+// items and an optional marked-current label, native-disabled item and filter
+// row -- the shapes the shared key behavior must tell apart.
+function ItemsHost({
+  labels,
+  current,
+  disabled,
+  filter,
+}: {
+  labels: string[]
+  current?: string
+  disabled?: string
+  filter?: boolean
+}) {
+  const [open, setOpen] = useState(false)
+  const anchorRef = useRef<HTMLButtonElement>(null)
+  return (
+    <>
+      <button
+        ref={anchorRef}
+        type="button"
+        className="popover-anchor"
+        onClick={() => setOpen((v) => !v)}
+      >
+        trigger
+      </button>
+      {open && (
+        <MenuPopover
+          anchorRef={anchorRef}
+          role="menu"
+          aria-label="items menu"
+          className="popover-menu"
+          onClose={() => setOpen(false)}
+        >
+          {filter && (
+            <div className="menu-filter-row">
+              <input type="search" autoFocus aria-label="Filter models" />
+            </div>
+          )}
+          {labels.map((label) => (
+            <button
+              key={label}
+              type="button"
+              role="menuitem"
+              disabled={label === disabled || undefined}
+              aria-current={label === current ? 'true' : undefined}
+              onClick={() => setOpen(false)}
+            >
+              {label}
+            </button>
+          ))}
+        </MenuPopover>
+      )}
+    </>
+  )
+}
+
+// openWithKeyboard presses the trigger like a keyboard user would: one tab to
+// reach it, Enter to open -- the key press that lets MenuPopover tell
+// keyboard opens from pointer taps.
+async function openWithKeyboard(user: ReturnType<typeof userEvent.setup>) {
+  await user.tab()
+  await user.keyboard('{Enter}')
+  return await screen.findByRole('menu', { name: 'items menu' })
+}
+
+describe('MenuPopover menu keys', () => {
+  it('keyboard opening focuses the first item', async () => {
+    const user = userEvent.setup()
+    render(<ItemsHost labels={['first', 'second']} />)
+    await openWithKeyboard(user)
+
+    expect(screen.getByRole('menuitem', { name: 'first' })).toHaveFocus()
+  })
+
+  it('keyboard opening prefers the current item', async () => {
+    const user = userEvent.setup()
+    render(<ItemsHost labels={['plain', 'marked']} current="marked" />)
+    await openWithKeyboard(user)
+
+    expect(screen.getByRole('menuitem', { name: 'marked' })).toHaveFocus()
+  })
+
+  it('keyboard opening skips a disabled first item', async () => {
+    const user = userEvent.setup()
+    render(<ItemsHost labels={['out', 'next']} disabled="out" />)
+    await openWithKeyboard(user)
+
+    expect(screen.getByRole('menuitem', { name: 'next' })).toHaveFocus()
+  })
+
+  it('content autofocus keeps the caret over item focus', async () => {
+    // the model menu's filter: its own mount focus wins, items never steal
+    const user = userEvent.setup()
+    render(<ItemsHost labels={['first']} filter />)
+    await openWithKeyboard(user)
+
+    expect(screen.getByRole('menuitem', { name: 'first' })).not.toHaveFocus()
+    expect(screen.getByLabelText('Filter models')).toHaveFocus()
+  })
+
+  it('pointer opening leaves focus on the trigger', async () => {
+    const user = userEvent.setup()
+    render(<ItemsHost labels={['first']} />)
+    await user.click(screen.getByRole('button', { name: 'trigger' }))
+    expect(await screen.findByRole('menu', { name: 'items menu' })).toBeInTheDocument()
+
+    expect(screen.getByRole('menuitem', { name: 'first' })).not.toHaveFocus()
+    expect(screen.getByRole('button', { name: 'trigger' })).toHaveFocus()
+  })
+
+  it('arrows walk enabled items with wrap-around', async () => {
+    const user = userEvent.setup()
+    render(<ItemsHost labels={['a', 'skipped', 'c']} disabled="skipped" />)
+    const menu = await openWithKeyboard(user)
+    expect(within(menu).getByRole('menuitem', { name: 'a' })).toHaveFocus()
+
+    // down from the top lands past the disabled entry, and wrapping carries
+    // past both ends without ever escaping the menu
+    await user.keyboard('{ArrowDown}')
+    expect(within(menu).getByRole('menuitem', { name: 'c' })).toHaveFocus()
+    await user.keyboard('{ArrowDown}')
+    expect(within(menu).getByRole('menuitem', { name: 'a' })).toHaveFocus()
+    await user.keyboard('{ArrowUp}')
+    expect(within(menu).getByRole('menuitem', { name: 'c' })).toHaveFocus()
+  })
+
+  it('home and end jump to the enabled ends', async () => {
+    const user = userEvent.setup()
+    render(<ItemsHost labels={['a', 'skipped', 'c']} disabled="skipped" />)
+    const menu = await openWithKeyboard(user)
+
+    await user.keyboard('{End}')
+    expect(within(menu).getByRole('menuitem', { name: 'c' })).toHaveFocus()
+    await user.keyboard('{Home}')
+    expect(within(menu).getByRole('menuitem', { name: 'a' })).toHaveFocus()
+  })
+
+  it('arrows answer the trigger on a pointer-open menu', async () => {
+    const user = userEvent.setup()
+    render(<ItemsHost labels={['first']} />)
+    await user.click(screen.getByRole('button', { name: 'trigger' }))
+    await screen.findByRole('menu', { name: 'items menu' })
+
+    await user.keyboard('{ArrowDown}')
+    expect(screen.getByRole('menuitem', { name: 'first' })).toHaveFocus()
+  })
+
+  it('leaves a caret in the filter alone', async () => {
+    const user = userEvent.setup()
+    render(<ItemsHost labels={['first']} filter />)
+    await openWithKeyboard(user)
+
+    await user.keyboard('{ArrowDown}')
+    expect(screen.getByLabelText('Filter models')).toHaveFocus()
+  })
+
+  it('enter activates the focused item', async () => {
+    const user = userEvent.setup()
+    render(<ItemsHost labels={['first']} />)
+    await openWithKeyboard(user)
+
+    await user.keyboard('{Enter}')
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+  })
+
+  it('space activates the focused item', async () => {
+    const user = userEvent.setup()
+    render(<ItemsHost labels={['first']} />)
+    await openWithKeyboard(user)
+
+    await user.keyboard(' ')
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+  })
+
+  it('tab closes and restores the trigger', async () => {
+    const user = userEvent.setup()
+    render(<ItemsHost labels={['first']} />)
+    await openWithKeyboard(user)
+
+    // no preventDefault: closing hands focus back to the trigger, then the
+    // browser's own walk continues from there
+    fireEvent.keyDown(screen.getByRole('menuitem', { name: 'first' }), { key: 'Tab' })
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'trigger' })).toHaveFocus()
+  })
+
+  it('tab closes a pointer-open menu too', async () => {
+    const user = userEvent.setup()
+    render(<ItemsHost labels={['first']} />)
+    await user.click(screen.getByRole('button', { name: 'trigger' }))
+    await screen.findByRole('menu', { name: 'items menu' })
+
+    // the layer never outlives the focus walk: closing restores the trigger
+    // it opened from, then the walk continues from there
+    fireEvent.keyDown(document.body, { key: 'Tab' })
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'trigger' })).toHaveFocus()
   })
 })
 

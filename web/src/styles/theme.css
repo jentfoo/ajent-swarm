@@ -80,6 +80,15 @@ pre {
   font-size: var(--fs-small);
 }
 
+/* keyboard focus reads on every interactive control: the accent ring holds
+   contrast over bg, surface and surface-2 in both themes, and :focus-visible
+   keeps ordinary pointer activation ring-free. The inset offset stays inside
+   row borders so clipping parents never cut it */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
 /* --- layout chrome --- */
 
 /* definite height so inner regions own their scrolling: the workspace rail
@@ -236,12 +245,12 @@ textarea {
   border-radius: var(--radius);
   padding: calc(var(--unit) * 1.5) calc(var(--unit) * 2);
 }
-/* focus tints the control's own border, no stacked outline ring over it */
+/* focus tints the control's own border, keeping pointer treatment quiet; the
+   shared :focus-visible ring above covers keyboard focus on text fields */
 input:focus,
 select:focus,
 textarea:focus {
   border-color: var(--accent);
-  outline: none;
 }
 
 /* touch keyboards auto-zoom any focused control under 16px, so coarse
@@ -1277,7 +1286,9 @@ label {
 }
 
 /* rewind picker rows: one grid row per candidate, columns shared through
-   subgrid so guide, tag, label and detail line up down the whole tree */
+   subgrid so guide, tag, label and detail line up down the whole tree. Rows
+   are real buttons -- Tab reaches them, Enter and Space activate natively --
+   so the reset strips the UA chrome the div never had */
 .rewind-list {
   display: grid;
   grid-template-columns: max-content max-content minmax(0, 1fr) max-content;
@@ -1296,11 +1307,15 @@ label {
   align-items: center;
   min-height: calc(var(--unit) * 8);
   padding: 0 calc(var(--unit) * 2);
+  border: none;
+  background: none;
   border-radius: var(--radius);
   text-align: left;
   white-space: nowrap;
   cursor: pointer;
   user-select: none;
+  font: inherit;
+  color: inherit;
 }
 .rewind-row:not([aria-disabled='true']):hover,
 .rewind-row[data-cursor='true'] {
@@ -1469,9 +1484,6 @@ label {
 }
 .tile-tab.drop-before {
   box-shadow: -2px 0 0 var(--accent);
-}
-.tile-tab:focus-visible {
-  outline: 1px solid var(--accent);
 }
 .tab-name {
   overflow: hidden;

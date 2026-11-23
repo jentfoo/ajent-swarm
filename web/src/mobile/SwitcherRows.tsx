@@ -26,9 +26,10 @@ import type { SwitcherRow } from './switcher'
 // beside each label with the workspace path beneath like the desktop rail
 // row, a queued-prompt count when prompts wait, a
 // check-off on actionable attention states (never on neutral waiting or ended
-// rows), a trailing actions area mirroring the desktop card bar minus Open,
-// and a long-press menu (queue follow-up, chain after, rename, stop)
-// anchored at the press. A held drag lifts its row and chains it onto
+// rows), a trailing actions area carrying native Open, Settings/Stop or
+// Resume and an ⋯ trigger for the long-press menu (queue follow-up, chain
+// after, rename, stop) anchored at the press or the button. A held drag lifts
+// its row and chains it onto
 // the row released under the finger, the same drop the desktop rail takes;
 // rename edits the stored swarm title rather than ajent's own
 // session names, and platform back peels the editor alone, leaving the rows
@@ -124,6 +125,11 @@ function RenameLayer({ row, onDone }: { row: SwitcherRow; onDone: () => void }):
   return <RenameEditorModal sessionId={row.sessionId} initial={row.label} onDone={onDone} />
 }
 
+// SwitchRow renders one launcher row: the row itself opens on tap while a
+// native Open button inside gives keyboard users the same activation, and the
+// trailing actions area pairs Settings and Stop or Resume with an ⋯ trigger
+// opening the shared session menu at the button, so Rename, Queue follow-up
+// and Chain never depend on a long press.
 function SwitchRow({
   row,
   drag,
@@ -230,7 +236,12 @@ function SwitchRow({
           </button>
         )}
       </span>
-      <RowActions row={row} onSettings={onSettings} />
+      <RowActions
+        row={row}
+        onOpen={() => onOpen(row)}
+        onSettings={onSettings}
+        onMenuAt={(x, y) => openSessionMenuAt(x, y, row.sessionId)}
+      />
       <SessionContextMenu
         menu={menu}
         onClose={closeSessionMenu}
@@ -241,16 +252,26 @@ function SwitchRow({
   )
 }
 
-// RowActions is the row's trailing action area, mirroring the desktop card's
-// bar minus Open (the row itself opens): Settings and Stop for live rows,
-// Resume for ended ones with a recorded workspace. Rename and chaining ride
-// the long-press menu instead of explicit buttons. Stop carries the shared
-// danger variant and arm/confirm guard, like the desktop card it holds
-// across listing polls, while a relaunch resets it by remounting this row
-// under a fresh instance key. It swallows clicks and pointer-downs so tapping
-// or holding an action never reads as the row's own open or long-press
+// RowActions is the row's trailing action area: a native Open control, then
+// Settings and Stop for live rows, Resume for ended ones with a recorded
+// workspace, and an ⋯ trigger opening the long-press menu at the button so
+// its rename and chain entries never depend on a held gesture. Stop carries
+// the shared danger variant and arm/confirm guard, like the desktop card it
+// holds across listing polls, while a relaunch resets it by remounting this
+// row under a fresh instance key. It swallows clicks and pointer-downs so
+// tapping or holding an action never reads as the row's own open or long-press
 // gestures.
-function RowActions({ row, onSettings }: { row: SwitcherRow; onSettings: () => void }) {
+function RowActions({
+  row,
+  onOpen,
+  onSettings,
+  onMenuAt,
+}: {
+  row: SwitcherRow
+  onOpen: () => void
+  onSettings: () => void
+  onMenuAt: (x: number, y: number) => void
+}) {
   const [busy, setBusy] = useState(false)
   const [stopError, setStopError] = useState('')
   const { refreshSessions } = useSwarm()
@@ -281,6 +302,9 @@ function RowActions({ row, onSettings }: { row: SwitcherRow; onSettings: () => v
       onClick={(ev) => ev.stopPropagation()}
       onPointerDown={(ev) => ev.stopPropagation()}
     >
+      <button type="button" onClick={onOpen}>
+        Open
+      </button>
       {ended ? (
         row.workspace && (
           <button
@@ -307,6 +331,19 @@ function RowActions({ row, onSettings }: { row: SwitcherRow; onSettings: () => v
           </button>
         </>
       )}
+      <button
+        type="button"
+        aria-label={`More actions for ${row.label}`}
+        aria-haspopup="menu"
+        onClick={(ev) => {
+          // the menu anchors at the button's foot like a long press does at
+          // the finger, placeMenu adding its own gap and viewport flips
+          const box = ev.currentTarget.getBoundingClientRect()
+          onMenuAt(box.left, box.bottom)
+        }}
+      >
+        ⋯
+      </button>
       {(error || stopError) && <span className="error-text">{error || stopError}</span>}
     </div>
   )

@@ -927,6 +927,46 @@ describe('SwitcherRows', () => {
     await screen.findByText('queued behind 01P')
   })
 
+  it('opens through the native Open control', async () => {
+    stubFacts()
+    const onOpen = vi.fn()
+    renderRows([row()], onOpen)
+    await screen.findByText('project')
+
+    // the row's own keyboard path: focus the visible control, press Enter,
+    // one open -- never the tap handler double-firing
+    const openButton = within(screen.getByRole('listitem')).getByRole('button', { name: 'Open' })
+    act(() => {
+      openButton.focus()
+    })
+    await userEvent.setup().keyboard('{Enter}')
+
+    expect(onOpen).toHaveBeenCalledTimes(1)
+    expect((onOpen.mock.calls[0]![0] as SwitcherRow).sessionId).toBe('01A')
+  })
+
+  it('offers menu actions without a long press', async () => {
+    stubFacts()
+    renderRows([row()])
+    await screen.findByText('project')
+
+    // the ⋯ trigger opens the shared session menu at the button, so rename,
+    // queue follow-up and chain are reachable with a keyboard alone
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'More actions for project' }))
+
+    const menu = screen.getByRole('menu')
+    expect(within(menu).getByRole('menuitem', { name: 'Rename…' })).toBeInTheDocument()
+    expect(
+      within(menu).getByRole('menuitem', { name: 'Queue follow up session…' }),
+    ).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: 'Chain after…' })).toBeInTheDocument()
+
+    // the rename entry still lands the same keyed editor the long press opens
+    await user.click(within(menu).getByRole('menuitem', { name: 'Rename…' }))
+    expect(await screen.findByTestId('rename-01A')).toBeInTheDocument()
+  })
+
   it('tapping an action never opens the row', async () => {
     const fetchSpy = vi.fn(async (url: string | URL, init?: RequestInit) => {
       const path = String(url).split('?')[0]

@@ -11,9 +11,11 @@ import { absoluteTime, kindClass, kindLabel, relativeTime } from './rewind'
 // every kind lists in the server's tree order with no cap, and one pick
 // rewinds, toasts success, prefills a prompt for an edit (warning first when
 // its text arrived truncated) and closes. At most one rewind is on the wire;
-// repeats inside one commit window stand down. `keyboard` runs the desktop
-// cursor: arrows or j/k move it, Enter picks beneath it, sheets stay
-// touch-driven.
+// repeats inside one commit window stand down. Rows are real buttons, so
+// Tab reaches them and Enter or Space activates natively without ever
+// double-firing the cursor pick. `keyboard` runs the desktop cursor:
+// arrows or j/k move it with DOM focus riding along, sheets stay
+// touch-driven but their rows remain focusable controls.
 export function RewindList({
   sessionId,
   keyboard = false,
@@ -86,16 +88,26 @@ export function RewindList({
   // rebinds per render so the handler always reads the live cursor
   useEffect(() => {
     if (!keyboard) return
+    const move = (index: number) => {
+      const id = pickable[Math.max(0, Math.min(index, pickable.length - 1))]?.id ?? ''
+      setCursorId(id)
+      // arrows move DOM focus with the cursor, so Enter and Space activate
+      // through the row's own native behavior
+      if (id !== '') {
+        listRef.current?.querySelector<HTMLElement>(`[data-testid="rewind-${id}"]`)?.focus()
+      }
+    }
     const onKey = (ev: KeyboardEvent) => {
       if (ev.ctrlKey || ev.metaKey || ev.altKey) return
       if (ev.key === 'ArrowDown' || ev.key === 'j') {
         ev.preventDefault()
-        setCursorId(pickable[Math.min(cursorIndex + 1, pickable.length - 1)]?.id ?? '')
+        move(cursorIndex + 1)
       } else if (ev.key === 'ArrowUp' || ev.key === 'k') {
         ev.preventDefault()
-        setCursorId(pickable[Math.max(cursorIndex - 1, 0)]?.id ?? '')
+        move(cursorIndex - 1)
       } else if (ev.key === 'Enter') {
-        // a focused control answers its own Enter, e.g. the footer button
+        // a focused control answers its own Enter -- rows natively, the footer
+        // button closes -- so one press never rewinds twice
         const owns =
           ev.target instanceof HTMLElement &&
           ['A', 'BUTTON', 'INPUT', 'SELECT', 'TEXTAREA'].includes(ev.target.tagName)
@@ -126,16 +138,16 @@ export function RewindList({
         <p className="muted">Nothing rewirable yet: no prompts, replies or compactions.</p>
       )}
       {rows.map((c) => (
-        <div
+        <button
           key={c.id}
-          role="button"
-          tabIndex={-1}
+          type="button"
           aria-disabled={c.isHead || busyId !== '' || undefined}
           data-cursor={keyboard && c.id === cursor ? true : undefined}
           data-testid={`rewind-${c.id}`}
           className={`rewind-row ${c.isHead ? 'head' : ''} ${c.active ? '' : 'off'}`}
           title={`${kindLabel(c.kind)} · ${c.isHead ? 'current head' : absoluteTime(c.ts)}`}
           onClick={() => void pick(c)}
+          onFocus={keyboard ? () => setCursorId(c.id) : undefined}
         >
           <span className="rewind-guide" aria-hidden="true">
             {c.guide ?? ''}
@@ -147,7 +159,7 @@ export function RewindList({
             {c.isHead ? 'current' : relativeTime(c.ts)}
             {c.truncated ? ' · truncated' : ''}
           </span>
-        </div>
+        </button>
       ))}
     </div>
   )

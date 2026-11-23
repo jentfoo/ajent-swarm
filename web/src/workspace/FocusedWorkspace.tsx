@@ -89,15 +89,73 @@ export default function FocusedWorkspace() {
   const nameFor = useSessionNamer()
 
   const railRef = useRef<HTMLDivElement>(null)
+  const mainRef = useRef<HTMLDivElement>(null)
   const [showShortcuts, setShowShortcuts] = useState(false)
   const [chainOver, setChainOver] = useState<string | null>(null)
   const { menu, openSessionMenu, closeSessionMenu } = useSessionMenu()
   const now = useNow(15_000)
 
+  // focusOpenSession hands the caret to the viewed session: its docked
+  // dialog's first answer control when one is up, else the prompt textarea.
+  // The selectors stay owned by DialogDock and Composer, and the card scope
+  // keeps transient resolved chips from taking the caret. Reports whether
+  // the move landed -- a composer disabled while its stream connects takes
+  // none.
+  const focusOpenSession = useCallback((): boolean => {
+    const main = mainRef.current
+    if (main === null) return false
+    const dialog = main
+      .querySelector<HTMLElement>('[aria-label="Open dialogs"] .dialog-card')
+      ?.querySelector<HTMLElement>('button:not([disabled]), input:not([disabled])')
+    const target = dialog ?? main.querySelector<HTMLElement>('.composer textarea')
+    if (target === null) return false
+    target.focus()
+    return document.activeElement === target
+  }, [])
+
+  // the keyboard-open handoff: Enter or Space on a row arms this one-shot and
+  // every attempt runs through the effect below. The selected view commits
+  // while its stream still connects, so nothing can take focus yet -- the
+  // effect then watches for the first target appearing or enabling in the DOM
+  // and lands the caret exactly then. Deterministic triggers throughout,
+  // never a timeout; pointer selections clear any pending handoff.
+  const pendingFocusRef = useRef<string | null>(null)
+  const [handoffTick, setHandoffTick] = useState(0)
+  useEffect(() => {
+    const wanted = pendingFocusRef.current
+    if (wanted === null || selected !== wanted) return
+    if (focusOpenSession()) {
+      pendingFocusRef.current = null
+      return
+    }
+    const main = mainRef.current
+    if (main === null) return
+    const observer = new MutationObserver(() => {
+      if (pendingFocusRef.current !== wanted || !focusOpenSession()) return
+      pendingFocusRef.current = null
+      observer.disconnect()
+    })
+    observer.observe(main, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: ['disabled'],
+    })
+    return () => observer.disconnect()
+  }, [handoffTick, selected, focusOpenSession])
+
   const open = useCallback(
-    (sessionId: string) => {
+    (sessionId: string, keyboard = false) => {
       selectFocusedSession(sessionId)
       setCursorId(sessionId)
+      if (!keyboard) {
+        pendingFocusRef.current = null // pointer selection never moves focus
+        return
+      }
+      pendingFocusRef.current = sessionId
+      // re-arming on every keyboard open, same row included, so the effect
+      // above owns each attempt
+      setHandoffTick((t) => t + 1)
     },
     [selectFocusedSession],
   )
@@ -105,8 +163,9 @@ export default function FocusedWorkspace() {
   useWorkspaceKeys({
     onNext: () => setCursorId(rows[Math.min(cursorIndex + 1, rows.length - 1)]?.sessionId ?? null),
     onPrevious: () => setCursorId(rows[Math.max(cursorIndex - 1, 0)]?.sessionId ?? null),
+    // the workspace Enter is keyboard activation: it hands focus over too
     onOpen: () => {
-      if (cursor) open(cursor)
+      if (cursor) open(cursor, true)
     },
     onReview: () => {
       const item = rows[cursorIndex]
@@ -199,11 +258,11 @@ export default function FocusedWorkspace() {
         onKeyDown={(ev) => {
           // a tabbable row activates itself like the native button it imitates
           // preventDefault stands the global Enter binding down, inner controls
-          // keep their own activation
+          // keep their own activation; keyboard activation hands focus over
           if (ev.target !== ev.currentTarget) return
           if (ev.key !== 'Enter' && ev.key !== ' ') return
           ev.preventDefault()
-          open(item.sessionId)
+          open(item.sessionId, true)
         }}
       >
         <span className="rail-top">
@@ -268,7 +327,7 @@ export default function FocusedWorkspace() {
         )}
       </div>
 
-      <div className="workspace-main">
+      <div className="workspace-main" ref={mainRef}>
         {selected ? (
           <SessionView sessionId={selected} />
         ) : (

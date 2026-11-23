@@ -9,6 +9,26 @@ const anchorGap = 4
 // Viewport margin a clamped menu always keeps.
 const edgeMargin = 8
 
+// One shared answer to "was the last input a key press": a menu opened with
+// Enter may move focus into its items, one opened by a tap never steals the
+// pointer. Capture listeners track it, so every press counts wherever it
+// lands, claimed or not.
+let lastInputWasKeyboard = false
+window.addEventListener(
+  'keydown',
+  () => {
+    lastInputWasKeyboard = true
+  },
+  true,
+)
+window.addEventListener(
+  'pointerdown',
+  () => {
+    lastInputWasKeyboard = false
+  },
+  true,
+)
+
 interface Placement {
   left: number
   top: number
@@ -66,6 +86,14 @@ type MenuPopoverProps = {
   restoreFocus?: boolean
 } & Omit<HTMLAttributes<HTMLDivElement>, 'onClose'>
 
+// enabledItems lists a menu layer's role=menuitem elements in DOM order,
+// disabled entries excluded; headings and filter rows never carry the role.
+function enabledItems(menu: HTMLElement): HTMLElement[] {
+  return Array.from(menu.querySelectorAll<HTMLElement>('[role="menuitem"]')).filter(
+    (el) => !el.hasAttribute('disabled') && el.getAttribute('aria-disabled') !== 'true',
+  )
+}
+
 // MenuPopover portals children into document.body as a fixed layer anchored to
 // the trigger in `anchorRef`, so no ancestor's overflow clipping can cut it
 // off. It flips above or clamps to stay in the viewport, follows the trigger
@@ -73,14 +101,19 @@ type MenuPopoverProps = {
 // ui/overlayStack for its lifetime, and
 // closes on a plain Escape or an outside pointerdown: only the topmost of
 // stacked popovers answers Escape, presses another listener already claimed
-// are left alone. Children keep their own menu markup, only placement lives
-// here.
+// are left alone. Closing returns focus to the element focused at open.
+// Layers carrying role="menu" also drive their items: keyboard opens move
+// focus to the current or first enabled item (pointer opens never steal),
+// arrows and Home/End walk among enabled items, and Tab closes so focus
+// cannot strand behind the visible menu. Children keep their own menu markup,
+// only placement and these keys live here.
 export function MenuPopover({
   anchorRef,
   onClose,
   align = 'left',
   matchWidth = false,
   restoreFocus = true,
+  role,
   children,
   ...rest
 }: MenuPopoverProps) {
@@ -166,6 +199,21 @@ export function MenuPopover({
     closeRef.current = onClose
   })
 
+  const isMenu = role === 'menu'
+
+  // A keyboard-opened menu takes the caret: the marked current item when one
+  // exists, else the first enabled one. Runs once placed (a hidden layer
+  // cannot take focus), skips when content already focused itself -- the model
+  // filter's autofocus keeps its caret -- and pointer opens never steal.
+  useLayoutEffect(() => {
+    if (!isMenu || placement === null || !lastInputWasKeyboard) return
+    const menu = menuRef.current
+    if (menu === null || menu.contains(document.activeElement)) return
+    const items = enabledItems(menu)
+    const current = items.find((el) => el.getAttribute('aria-current') === 'true')
+    ;(current ?? items[0])?.focus({ preventScroll: true })
+  }, [isMenu, placement])
+
   useEffect(() => {
     const menu = menuRef.current
     if (!menu) return
@@ -175,7 +223,13 @@ export function MenuPopover({
       if (!overlayTopmost(menu) || ev.defaultPrevented) return
       if (ev.isComposing) return // an IME mid-composition keeps its keys
       // chords like Ctrl+Escape belong to the platform, never to a layer
-      if (ev.key === 'Escape' && !ev.ctrlKey && !ev.metaKey && !ev.altKey) closeRef.current()
+      const plain = !ev.ctrlKey && !ev.metaKey && !ev.altKey
+      if (plain && ev.key === 'Escape') {
+        closeRef.current()
+        return
+      }
+      if (!isMenu || !plain) return
+      onMenuKey(ev, menu, anchorRef.current, () => closeRef.current())
     }
     const onPointerDown = (ev: PointerEvent) => {
       const target = ev.target as Node
@@ -193,12 +247,13 @@ export function MenuPopover({
       document.removeEventListener('pointerdown', onPointerDown)
       if (restoreTarget !== null && restoreTarget.isConnected) restoreTarget.focus()
     }
-  }, [anchorRef, restoreTarget])
+  }, [anchorRef, isMenu, restoreTarget])
 
   // hidden until the first measure, so an unplaced layer never flashes at (0,0)
   return createPortal(
     <div
       ref={menuRef}
+      role={role}
       {...rest}
       style={{
         ...rest.style,
@@ -213,4 +268,56 @@ export function MenuPopover({
     </div>,
     document.body,
   )
+}
+
+// onMenuKey drives a role=menu layer's roving focus: arrows walk the enabled
+// items with wrap-around, Home and End jump to the ends, and any plain Tab
+// closes so the browser's focus walk never strands behind the visible menu.
+// Presses in editable content keep their native meaning, and strangers'
+// carets are left alone -- only items and the trigger answer.
+function onMenuKey(
+  ev: KeyboardEvent,
+  menu: HTMLElement,
+  anchor: HTMLElement | null,
+  close: () => void,
+): void {
+  // presses in a text field keep their native meaning: the model menu's
+  // filter drives results, not item focus
+  const target = ev.target
+  if (
+    target instanceof HTMLElement &&
+    (target.isContentEditable || target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')
+  ) {
+    return
+  }
+  const active = document.activeElement
+  if (ev.key === 'Tab') {
+    // closing restores the opener, then the walk continues from there
+    close()
+    return
+  }
+  const items = enabledItems(menu)
+  let at = items.indexOf(active as HTMLElement)
+  if (at < 0 && active !== anchor) return // a caret elsewhere keeps its keys
+  switch (ev.key) {
+    case 'ArrowDown':
+      ev.preventDefault() // page scroll never escapes the menu
+      at = at < 0 ? 0 : (at + 1) % items.length
+      break
+    case 'ArrowUp':
+      ev.preventDefault()
+      at = at < 0 ? items.length - 1 : (at - 1 + items.length) % items.length
+      break
+    case 'Home':
+      ev.preventDefault()
+      at = 0
+      break
+    case 'End':
+      ev.preventDefault()
+      at = items.length - 1
+      break
+    default:
+      return // Enter and Space activate the focused native item themselves
+  }
+  items[at]?.focus()
 }

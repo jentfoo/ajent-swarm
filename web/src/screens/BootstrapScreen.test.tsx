@@ -69,8 +69,8 @@ describe('BootstrapScreen', () => {
     const user = userEvent.setup()
     await fillPasswords(user, 'hunter2')
 
-    expect(
-      await screen.findByText('Too many attempts. Try again in 10 seconds.'),
-    ).toBeInTheDocument()
+    const wait = 'Too many attempts. Try again in 10 seconds.'
+    expect(await screen.findByText(wait)).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent(wait)
   })
 })

@@ -168,8 +168,9 @@ describe('QueueComposer', () => {
     expect(await screen.findByText(/name is required/)).toBeInTheDocument()
     expect(onQueued).not.toHaveBeenCalled()
     expect(screen.getByRole('dialog', { name: 'Queue a prompt' })).toBeInTheDocument()
-    // the refusal renders in the scroll body above the action footer, where a
-    // sticky mobile bar can never cover it
+    // the refusal reads as an alert and renders in the scroll body above the
+    // action footer, where a sticky mobile bar can never cover it
+    expect(screen.getByRole('alert')).toHaveTextContent(/name is required/)
     expect(document.querySelector('.editor-scroll')).toContainElement(
       screen.getByText(/name is required/),
     )

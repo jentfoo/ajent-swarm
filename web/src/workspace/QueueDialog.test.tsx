@@ -250,6 +250,8 @@ describe('QueueDialog', () => {
       { timeout: 4000 },
     )
     expect(screen.getByRole('dialog')).toBeInTheDocument()
+    // the refusal reads as an alert, not silent small print
+    expect(screen.getByRole('alert')).toHaveTextContent(/no longer running/)
     // the launched child never chains, so the failure path stops it instead
     const stop = bodies.find((b) => b.url === `/api/sessions/${CHILD}/stop`)
     expect(stop).toBeDefined()

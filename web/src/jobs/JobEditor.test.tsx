@@ -223,6 +223,34 @@ describe('JobEditor', () => {
     expect(savedRoutes[0]).toMatchObject({ path: '/api/jobs' })
   })
 
+  it('surfaces a refused save as an alert', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string | URL | Request, init?: RequestInit) => {
+        const path = String(url)
+          .replace(/^https?:\/\/[^/]+/, '')
+          .split('?')[0]
+        if (path === '/api/jobs' && init?.method === 'POST') {
+          return Promise.resolve(
+            Response.json({ error: 'invalid_request', message: 'bad cron' }, { status: 400 }),
+          )
+        }
+        if (path === '/api/jobs/preview') return Promise.resolve(Response.json({ times: [] }))
+        throw new Error(`unexpected fetch ${init?.method ?? 'GET'} ${path}`)
+      }),
+    )
+    const user = userEvent.setup()
+    renderEditor()
+
+    await user.type(screen.getByRole('textbox', { name: /^Name/ }), 'nightly')
+    await user.type(screen.getByLabelText(/Workspace directory/), '/repo')
+    await user.click(screen.getByRole('button', { name: 'Create job' }))
+
+    expect(await screen.findByText(/bad cron/)).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent(/bad cron/)
+    expect(screen.getByRole('dialog', { name: 'New job' })).toBeInTheDocument()
+  })
+
   it('offers no command prefix field', () => {
     renderEditor({ job: { ...storedJob, commandPrefix: 'timeout 300' } })
 

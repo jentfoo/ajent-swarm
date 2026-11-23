@@ -141,7 +141,8 @@ describe('AgentSettingsMenu', () => {
     expect(targets).toHaveLength(1)
     expect(targets[0]).toHaveTextContent('target')
 
-    await user.click(targets[0])
+    // each row keeps a native button, the wrapper carries only the list item
+    await user.click(within(targets[0]).getByRole('button'))
     const dialog = await screen.findByRole('dialog', { name: 'Chain target after source' })
     expect(dialog).toBeInTheDocument()
     expect(screen.queryByText('Pick the session that runs after this one:')).not.toBeInTheDocument()

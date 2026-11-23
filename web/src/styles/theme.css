@@ -8,7 +8,7 @@
   /* one compact density scale; no cozy variant anymore */
   --unit: 3px;
   --fs-body: 13px;
-  --fs-small: 11.5px;
+  --fs-small: 12px;
 
   /* spinner states mirror ajent's TUI glyph colors */
   --spin-idle: var(--muted);
@@ -2410,9 +2410,16 @@ label {
 }
 
 /* touch dialogs: full-width stacked cards, big answer buttons; every
-   tappable button in a card meets the 44px floor */
+   tappable button in a card meets the 44px floor. The dock caps against its
+   flex space instead of a fixed px the keyboard cannot see: min-height 0
+   lets flex shrink it before the transcript (whose 0 basis never yields),
+   and the viewport ceiling keeps a free dock from filling the screen. Short
+   prompts never scroll, auto overflow engages only past the cap */
 .dialog-dock.touch {
   padding: calc(var(--unit) * 2) calc(var(--unit) * 3);
+  min-height: 0;
+  max-height: min(60vh, 100%);
+  overflow-y: auto;
 }
 .dialog-card.touch button {
   min-height: 44px;
@@ -2962,6 +2969,9 @@ label {
 }
 .chain-target-row {
   text-align: left;
+  /* role=listitem wraps each row, so the button stretches through its
+     wrapper and keeps the full-width column a direct flex child had */
+  width: 100%;
 }
 .chain-target-row .mono {
   font-size: var(--fs-small);

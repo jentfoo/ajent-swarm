@@ -27,6 +27,12 @@ describe('theme focus rules', () => {
   })
 })
 
+describe('theme typography scale', () => {
+  it('keeps the small text token readable', () => {
+    expect(css).toContain('--fs-small: 12px;')
+  })
+})
+
 describe('theme touch layout rules', () => {
   // each pointer:coarse block ends at the first '} }' pair: inner rules are
   // always followed by another selector, only the block's own close doubles
@@ -61,5 +67,26 @@ describe('theme touch layout rules', () => {
     )
     expect(css).toContain('.job-tabs a, .session-header .btn {')
     expect(css).toContain('.editor-actions button { min-height: 44px;')
+  })
+})
+
+describe('theme dialog dock bounds', () => {
+  const touchDock = css.match(/\.dialog-dock\.touch \{[^}]*\}/)![0]
+
+  it('caps the touch dock against flex space, not a fixed pixel', () => {
+    // min-height 0 lets flex shrink the dock before the transcript, the
+    // viewport ceiling keeps a free dock from filling the screen
+    expect(touchDock).toContain('min-height: 0;')
+    expect(touchDock).toContain('max-height: min(60vh, 100%);')
+  })
+
+  it('scrolls only past the cap so short answers keep one container', () => {
+    expect(touchDock).toContain('overflow-y: auto;')
+  })
+
+  it('leaves the desktop dock uncapped', () => {
+    const base = css.match(/\.dialog-dock \{[^}]*\}/)![0]
+    expect(base).not.toContain('max-height')
+    expect(base).not.toContain('overflow')
   })
 })

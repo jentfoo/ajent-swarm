@@ -29,6 +29,16 @@ function stubFetch(reply: Record<string, unknown>) {
   return bodies
 }
 
+// stubErrorResponse answers every post with a refusal, so resolve errors render.
+function stubErrorResponse() {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () =>
+      Response.json({ error: 'unexpected', message: 'mid-run fault' }, { status: 500 }),
+    ),
+  )
+}
+
 afterEach(() => {
   vi.unstubAllGlobals()
 })
@@ -181,6 +191,41 @@ describe('DialogCardBody permit note ride', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Allow' }))
     expect(bodies.at(-1)).toEqual({ dialogId: 42, index: 0 })
     expect(onNoteIntent).not.toHaveBeenCalled()
+  })
+})
+
+// Durable names and asserted failures: the optional note input keeps a real
+// accessible name in both arrangements, and a refused resolve reads as an
+// alert instead of silent text.
+describe('DialogCardBody names and alerts', () => {
+  const permitDialog = base({
+    kind: 'decision',
+    prompt: 'Allow `rm` tool call?',
+    options: ['Allow', 'Allow with note', 'Deny'],
+  })
+
+  it.each(layouts)('names the %s note input', (layout) => {
+    renderBody(permitDialog, layout)
+
+    const note = screen.getByRole('textbox', { name: 'Note for the agent (optional)' })
+    expect(note).toHaveAttribute('placeholder', 'Note for the agent (optional)')
+  })
+
+  it.each(layouts)('announces a %s resolve refusal as an alert', async (layout) => {
+    stubErrorResponse()
+    renderBody(base({ options: ['allow', 'deny'] }), layout)
+
+    await userEvent.click(screen.getByRole('button', { name: 'deny' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('mid-run fault')
+  })
+
+  it('announces a touch secret refusal as an alert', async () => {
+    stubErrorResponse()
+    renderBody(base({ text: true, secret: true }), 'touch')
+
+    await userEvent.type(screen.getByLabelText('Secret answer'), 's3cret')
+    await userEvent.click(screen.getByRole('button', { name: 'Answer' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('mid-run fault')
   })
 })
 

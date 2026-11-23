@@ -30,9 +30,13 @@ function DraftProbe() {
 
 describe('ChainDialog', () => {
   const bodies: { url: string; body?: string }[] = []
+  // create calls fail while the counter holds, then succeed, so a refusal can
+  // exercise the error surface without breaking the other cases
+  let chainFails = 0
 
   beforeEach(() => {
     bodies.length = 0
+    chainFails = 0
     const names: { sessionId: string; name?: string }[] = [
       { sessionId: PARENT, name: 'left' },
       { sessionId: CHILD, name: 'right' },
@@ -63,6 +67,10 @@ describe('ChainDialog', () => {
           return Response.json({ entries: [entry] })
         }
         if (path === `/api/sessions/${PARENT}/chain`) {
+          if (chainFails > 0) {
+            chainFails--
+            return Response.json({ error: 'chain_conflict', message: 'gone' }, { status: 409 })
+          }
           return Response.json(
             {
               id: 'chn_1',
@@ -173,6 +181,25 @@ describe('ChainDialog', () => {
     expect(screen.getByText(/Discard unsaved changes?/i)).toBeTruthy()
     const discard = screen.getAllByRole('button').find((b) => b.textContent === 'Discard')
     await user.click(discard!)
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).toBeNull()
+    })
+  })
+
+  it('surfaces a refused create as an alert', async () => {
+    const user = userEvent.setup()
+    chainFails = 1
+    renderDialog()
+    await open()
+
+    await user.click(screen.getByRole('button', { name: 'Chain sessions' }))
+
+    // the dialog stays open and the refusal reads as an alert
+    expect(await screen.findByRole('alert')).toHaveTextContent('gone')
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+
+    // a retry succeeds once the refusal clears
+    await user.click(screen.getByRole('button', { name: 'Chain sessions' }))
     await waitFor(() => {
       expect(screen.queryByRole('dialog')).toBeNull()
     })

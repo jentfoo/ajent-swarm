@@ -67,7 +67,11 @@ export default function BootstrapScreen() {
             onChange={(ev) => setConfirm(ev.target.value)}
           />
         </label>
-        {error && <p className="error-text">{error}</p>}
+        {error && (
+          <p className="error-text" role="alert">
+            {error}
+          </p>
+        )}
         <button className="primary" type="submit" disabled={busy}>
           Save password
         </button>

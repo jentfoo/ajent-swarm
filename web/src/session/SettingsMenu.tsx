@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useId, useState } from 'react'
 import type { ReactElement } from 'react'
 
 import { describeError } from '../api/errors'
@@ -51,7 +51,11 @@ export function SettingsMenu({ sessionId }: { sessionId: string }): ReactElement
   return (
     <div className="settings-menu" aria-label="Agent settings">
       {loading && <p className="muted">Reading settings…</p>}
-      {error && <p className="error-text">{error}</p>}
+      {error && (
+        <p className="error-text" role="alert">
+          {error}
+        </p>
+      )}
       {!loading &&
         rows
           .filter((row) => !hiddenSettingKeys.has(row.key ?? ''))
@@ -72,7 +76,8 @@ export function SettingsMenu({ sessionId }: { sessionId: string }): ReactElement
 // SettingEditor renders one row by its value's shape: booleans toggle in
 // place, the model picks from the session's own registry, everything else
 // edits as text with an Apply button. Uneditable rows render their reason
-// instead of a control.
+// instead of a control. Every editable control takes its name from the
+// visible label through aria-labelledby.
 function SettingEditor({
   row,
   sessionId,
@@ -83,6 +88,7 @@ function SettingEditor({
   onApply: (row: SettingRow, value: unknown) => Promise<void>
 }): ReactElement {
   const [draft, setDraft] = useState(() => stringify(row.value))
+  const labelId = useId()
 
   if (!row.editable) {
     return (
@@ -99,11 +105,14 @@ function SettingEditor({
   if (typeof row.value === 'boolean') {
     return (
       <div className="setting-row" data-setting-key={row.key}>
-        <span className="setting-label">{row.label}</span>
+        <span className="setting-label" id={labelId}>
+          {row.label}
+        </span>
         <button
           type="button"
           onClick={() => void onApply(row, !row.value)}
           aria-pressed={row.value}
+          aria-labelledby={labelId}
         >
           {row.value ? 'on' : 'off'}
         </button>
@@ -112,7 +121,15 @@ function SettingEditor({
   }
 
   if (row.key === modelSettingKey) {
-    return <ModelSettingRow row={row} sessionId={sessionId} draft={draft} onApply={onApply} />
+    return (
+      <ModelSettingRow
+        row={row}
+        sessionId={sessionId}
+        draft={draft}
+        labelId={labelId}
+        onApply={onApply}
+      />
+    )
   }
 
   return (
@@ -124,8 +141,10 @@ function SettingEditor({
         void onApply(row, parseValue(draft))
       }}
     >
-      <span className="setting-label">{row.label}</span>
-      <input value={draft} onChange={(ev) => setDraft(ev.target.value)} />
+      <span className="setting-label" id={labelId}>
+        {row.label}
+      </span>
+      <input value={draft} aria-labelledby={labelId} onChange={(ev) => setDraft(ev.target.value)} />
       {draft !== stringify(row.value) && <button type="submit">Apply</button>}
     </form>
   )
@@ -143,11 +162,13 @@ function ModelSettingRow({
   row,
   sessionId,
   draft,
+  labelId,
   onApply,
 }: {
   row: SettingRow
   sessionId: string
   draft: string
+  labelId: string
   onApply: (row: SettingRow, value: unknown) => Promise<void>
 }): ReactElement {
   const [registry, setRegistry] = useState<ModelState[]>([])
@@ -165,10 +186,12 @@ function ModelSettingRow({
 
   return (
     <div className="setting-row text" data-setting-key={row.key}>
-      <span className="setting-label">{row.label}</span>
+      <span className="setting-label" id={labelId}>
+        {row.label}
+      </span>
       <select
         value={draft}
-        aria-label={row.label}
+        aria-labelledby={labelId}
         onChange={(ev) => void onApply(row, ev.target.value)}
       >
         {!registry.some((m) => m.key === draft) && draft !== '' && (

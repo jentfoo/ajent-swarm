@@ -268,7 +268,7 @@ describe('MobileSessionScreen', () => {
     })
 
     // the resting dim glyph answers "is it working" with nothing else to report
-    expect(await screen.findByLabelText('idle')).toBeInTheDocument()
+    expect(await screen.findByText('idle', { selector: '.spinner .sr-only' })).toBeInTheDocument()
     expect(document.querySelector('.status-bar')).toBeInTheDocument()
     expect(document.querySelector('.status-strip')).not.toBeInTheDocument()
   })
@@ -823,7 +823,9 @@ describe('MobileSessionScreen', () => {
     act(() => {
       ws.message(wireEvent('turn.end', 1))
     })
-    expect(await screen.findByText('idle')).toBeInTheDocument()
+    expect(
+      await screen.findByText('idle', { selector: '.mobile-session-header .badge' }),
+    ).toBeInTheDocument()
     expect(screen.queryByText('running')).not.toBeInTheDocument()
   })
 

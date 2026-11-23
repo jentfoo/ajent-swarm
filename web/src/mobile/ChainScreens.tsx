@@ -28,9 +28,12 @@ export function ChainPickerScreen({
         <p className="muted">{chainPickerIntro}</p>
         {onQueueNew && (
           <div className="chain-targets" role="list" aria-label="Chain target sessions">
-            <button type="button" role="listitem" className="chain-target-row" onClick={onQueueNew}>
-              <span className="rail-name">Start a new session…</span>
-            </button>
+            {/* role=listitem rides a wrapper so the button keeps native semantics */}
+            <div role="listitem">
+              <button type="button" className="chain-target-row" onClick={onQueueNew}>
+                <span className="rail-name">Start a new session…</span>
+              </button>
+            </div>
           </div>
         )}
         <ChainTargets parentId={parentId} onPick={onPick} showEmpty={onQueueNew === undefined} />

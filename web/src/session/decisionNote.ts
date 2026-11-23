@@ -19,6 +19,10 @@ const allowAskMarker = 'for allowing'
 // renders for hand answering instead of consuming a stale decision.
 const intentTtlMs = 10_000
 
+// permitNoteLabel names the optional note input on a permit card, its
+// accessible name and placeholder share one string so neither drifts.
+export const permitNoteLabel = 'Note for the agent (optional)'
+
 // isPermitDialog reports whether dialog is one of ajent's tool approval
 // prompts, keyed by its option labels rather than the kind hint.
 export function isPermitDialog(dialog: InteractionPending): boolean {

@@ -178,16 +178,18 @@ describe('StatusBar segments', () => {
     expect(screen.getByText('subagents: unclear')).toBeInTheDocument()
   })
 
+  // the glyph span leads the bar, its class carries the color state
+  const spinnerOf = (container: HTMLElement) =>
+    container.querySelector('.status-bar .spinner')!.className
+
   it('leads with the working glyph colored by the turn state', () => {
     const idle = render(<StatusBar snap={snapFor()} />)
-    let bar = idle.container.querySelector('.status-bar')!
-    expect(bar.firstElementChild?.className).toBe('spinner idle')
+    expect(spinnerOf(idle.container)).toBe('spinner idle')
     idle.unmount()
 
     // a turn in flight with nothing streaming back yet is the wait color
     const waiting = render(<StatusBar snap={snapFor({ spinning: true, idle: false })} />)
-    bar = waiting.container.querySelector('.status-bar')!
-    expect(bar.firstElementChild?.className).toBe('spinner wait')
+    expect(spinnerOf(waiting.container)).toBe('spinner wait')
     waiting.unmount()
 
     // a live tool call outranks streaming text, like the TUI's glyph
@@ -200,8 +202,7 @@ describe('StatusBar segments', () => {
       tools: [{ id: 'c1', name: 'read_file', outputs: [] }],
     }
     const tooling = render(<StatusBar snap={snapFor({ spinning: true })} live={live} />)
-    bar = tooling.container.querySelector('.status-bar')!
-    expect(bar.firstElementChild?.className).toBe('spinner tool')
+    expect(spinnerOf(tooling.container)).toBe('spinner tool')
   })
 
   it('rests idle on snapshot facts despite stale live residue', () => {
@@ -217,8 +218,7 @@ describe('StatusBar segments', () => {
     const settled = render(
       <StatusBar snap={snapFor({ running: false, spinning: false })} live={residue} />,
     )
-    const bar = settled.container.querySelector('.status-bar')!
-    expect(bar.firstElementChild?.className).toBe('spinner idle')
+    expect(spinnerOf(settled.container)).toBe('spinner idle')
   })
 
   it('renders the context meter against the compaction budget', () => {
@@ -311,6 +311,43 @@ describe('StatusBar segments', () => {
       'title',
       '12,000 in / 5,000 out\ncache 8,000 read / 0 write\n900 reasoning\nsub-agents 4,000 in / 2,000 out',
     )
+  })
+})
+
+// Announcements: the rapidly changing bar is no catch-all live region, one
+// sr-only polite region speaks only the idle/working transitions.
+describe('StatusBar announcements', () => {
+  const region = (container: HTMLElement) =>
+    container.querySelector<HTMLElement>('[aria-live="polite"]')!
+
+  it('keeps the changing bar outside any live region', () => {
+    const { container } = render(<StatusBar snap={snapFor({ spinning: true, idle: false })} />)
+
+    const bar = container.querySelector('.status-bar')!
+    expect(bar).not.toHaveAttribute('role')
+    expect(region(container)).toBeInTheDocument()
+    expect(region(container)).toBeEmptyDOMElement()
+  })
+
+  it('announces the idle and working transitions once', () => {
+    const view = render(<StatusBar snap={snapFor()} />)
+    view.rerender(<StatusBar snap={snapFor({ spinning: true, idle: false })} />)
+    expect(region(view.container)).toHaveTextContent('Agent working')
+
+    // more streamed activity never re-announces the state
+    view.rerender(
+      <StatusBar
+        snap={snapFor({
+          spinning: true,
+          idle: false,
+          activity: [{ key: 'step', text: 'reading files', rank: 0 }],
+        })}
+      />,
+    )
+    expect(region(view.container)).toHaveTextContent('Agent working')
+
+    view.rerender(<StatusBar snap={snapFor()} />)
+    expect(region(view.container)).toHaveTextContent('Agent idle')
   })
 })
 

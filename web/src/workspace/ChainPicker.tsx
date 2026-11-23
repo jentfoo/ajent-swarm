@@ -32,16 +32,13 @@ export function ChainTargets({
   return (
     <div className="chain-targets" role="list" aria-label="Chain target sessions">
       {targets.map((s) => (
-        <button
-          type="button"
-          role="listitem"
-          key={`${s.sessionId}:${s.pid ?? 0}`}
-          className="chain-target-row"
-          onClick={() => onPick(s.sessionId)}
-        >
-          <span className="rail-name">{nameFor(s.sessionId)}</span>
-          <span className="muted mono">{s.workspace ? ` · ${s.workspace}` : ''}</span>
-        </button>
+        // role=listitem rides a wrapper so the button keeps native semantics
+        <div role="listitem" key={`${s.sessionId}:${s.pid ?? 0}`}>
+          <button type="button" className="chain-target-row" onClick={() => onPick(s.sessionId)}>
+            <span className="rail-name">{nameFor(s.sessionId)}</span>
+            <span className="muted mono">{s.workspace ? ` · ${s.workspace}` : ''}</span>
+          </button>
+        </div>
       ))}
     </div>
   )

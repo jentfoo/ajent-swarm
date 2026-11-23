@@ -118,7 +118,11 @@ export function QueueComposer({
             open afterwards. Delete the row to cancel while it waits.
           </p>
 
-          {saveError && <p className="error-text">{saveError}</p>}
+          {saveError && (
+            <p className="error-text" role="alert">
+              {saveError}
+            </p>
+          )}
         </div>
 
         <div className="editor-actions">

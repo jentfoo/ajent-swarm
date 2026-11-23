@@ -56,9 +56,11 @@ describe('SettingsMenu', () => {
 
     // uneditable rows show their reason instead of a control
     expect(screen.getByText(/no layer sets it yet/)).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'on' })).toBeInTheDocument() // only the editable boolean
+    // the toggle names its setting, the state rides aria-pressed
+    const toggle = screen.getByRole('button', { name: 'Verbose output' })
+    expect(toggle).toHaveAttribute('aria-pressed', 'true')
 
-    await user.click(screen.getByRole('button', { name: 'on' }))
+    await user.click(toggle)
     await vi.waitFor(() => {
       const calls = fetchSpy.mock.calls.filter(([u]) => String(u).endsWith('/setting'))
       expect(calls).toHaveLength(1)
@@ -67,7 +69,8 @@ describe('SettingsMenu', () => {
     })
 
     // the row re-renders from the reply
-    expect(await screen.findByRole('button', { name: 'off' })).toBeInTheDocument()
+    const applied = await screen.findByRole('button', { name: 'Verbose output' })
+    expect(applied).toHaveAttribute('aria-pressed', 'false')
   })
 
   it('edits text values through Apply with parsed JSON shapes', async () => {
@@ -87,7 +90,7 @@ describe('SettingsMenu', () => {
     vi.stubGlobal('fetch', fetchSpy)
 
     render(<SettingsMenu sessionId="01S" />)
-    const input = await screen.findByDisplayValue('2')
+    const input = await screen.findByRole('textbox', { name: 'Reasoning effort' })
     const userEdit = userEvent.setup()
     await userEdit.clear(input)
     await userEdit.type(input, '3')
@@ -114,6 +117,24 @@ describe('SettingsMenu', () => {
     expect(await screen.findByText('Verbose output')).toBeInTheDocument()
     expect(screen.queryByText('Tools')).not.toBeInTheDocument() // /tools buttons own it
     expect(screen.queryByText('Permissions mode')).not.toBeInTheDocument() // the dropdown owns it
+  })
+
+  it('announces a refused change as an alert', async () => {
+    const fetchSpy = vi.fn(async (url: string | URL) => {
+      if (String(url).endsWith('/settings')) return Response.json(ROWS)
+      if (String(url).endsWith('/setting')) {
+        return Response.json({ error: 'invalid_request', message: 'read only' }, { status: 400 })
+      }
+      throw new Error(`unexpected fetch ${String(url)}`)
+    })
+    vi.stubGlobal('fetch', fetchSpy)
+
+    render(<SettingsMenu sessionId="01S" />)
+    await screen.findByText('Verbose output')
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Verbose output' }))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('read only')
   })
 
   it('edits the model row as a registry selection, not free text', async () => {

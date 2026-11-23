@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import type { ReactElement } from 'react'
 
+import { useMediaQuery } from '../hooks/useMediaQuery'
+
 import type { CtlState } from '../api/types'
 import { sessionBusy } from '../state/eventApplier'
 import type { LiveTurn } from '../state/eventApplier'
@@ -9,6 +11,7 @@ import type { LiveTurn } from '../state/eventApplier'
 // both surfaces read as one product.
 const frames = ['⠦', '⠧', '⠇', '⠏', '⠋', '⠙', '⠹', '⠸', '⠼', '⠴']
 const frameMs = 90
+const reducedMotionQuery = '(prefers-reduced-motion: reduce)'
 
 type SpinState = 'idle' | 'wait' | 'stream' | 'tool'
 
@@ -26,23 +29,26 @@ export function spinnerState(snap: CtlState, live?: LiveTurn | null): SpinState 
 
 // Spinner is the working glyph: first element of the status line on both
 // surfaces, animating only while work is in flight and resting static dim
-// when idle, exactly like ajent's own status bar.
+// when idle, exactly like ajent's own status bar. Reduced motion holds the
+// first frame and stops the interval, live with the media preference.
+// The changing glyph is aria-hidden decoration; a stable sr-only state word
+// is the one accessible name, so no frame ever re-announces.
 export function Spinner({ state }: { state: SpinState }): ReactElement {
+  const reduced = useMediaQuery(reducedMotionQuery)
   const [frame, setFrame] = useState(0)
 
   useEffect(() => {
-    if (state === 'idle') return
+    if (state === 'idle' || reduced) return
     const timer = setInterval(() => setFrame((f) => f + 1), frameMs)
     return () => clearInterval(timer)
-  }, [state])
+  }, [state, reduced])
 
   return (
-    <span
-      className={`spinner ${state}`}
-      role="img"
-      aria-label={state === 'idle' ? 'idle' : 'working'}
-    >
-      {state === 'idle' ? frames[0] : frames[frame % frames.length]}
+    <span className={`spinner ${state}`}>
+      <span aria-hidden="true">
+        {state === 'idle' || reduced ? frames[0] : frames[frame % frames.length]}
+      </span>
+      <span className="sr-only">{state === 'idle' ? 'idle' : 'working'}</span>
     </span>
   )
 }

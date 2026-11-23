@@ -128,6 +128,7 @@ describe('LoginScreen', () => {
     await signIn(user)
 
     expect(await screen.findByText('Wrong username or password.')).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent('Wrong username or password.')
     expect(screen.getByRole('button', { name: 'Sign in' })).toBeEnabled()
   })
 

@@ -5,7 +5,7 @@ import type { InteractionPending } from '../api/types'
 import { MultiPickList, TextAnswer, useMultiPick } from './DialogBodies'
 import { answerDigitCount, useDialogAnswerKeys } from './dialogKeys'
 import { useDialogResolve } from './dialogResolve'
-import { isPermitDialog, pickPermitOption, permitChoices } from './decisionNote'
+import { isPermitDialog, permitNoteLabel, pickPermitOption, permitChoices } from './decisionNote'
 import { useSubmitPress } from './submitPress'
 
 // DialogCardLayout picks a card's control arrangement: compact one-row answers
@@ -157,7 +157,8 @@ function StandardDialogBody({
         {permit && (
           <input
             className="dialog-note"
-            placeholder="Note for the agent (optional)"
+            placeholder={permitNoteLabel}
+            aria-label={permitNoteLabel}
             value={note}
             autoFocus={mayFocus}
             onChange={(ev) => setNote(ev.target.value)}
@@ -197,7 +198,12 @@ function StandardDialogBody({
             <button type="button" disabled={busy} onClick={() => void resolve({ cancel: true })}>
               Cancel
             </button>
-            {error && <span className="error-text"> {error}</span>}
+            {error && (
+              <span className="error-text" role="alert">
+                {' '}
+                {error}
+              </span>
+            )}
           </div>
         </div>
       </div>
@@ -216,7 +222,8 @@ function StandardDialogBody({
       {permit && (
         <input
           className="dialog-note"
-          placeholder="Note for the agent (optional)"
+          placeholder={permitNoteLabel}
+          aria-label={permitNoteLabel}
           value={note}
           onChange={(ev) => setNote(ev.target.value)}
         />
@@ -258,7 +265,12 @@ function StandardDialogBody({
         <button type="button" disabled={busy} onClick={() => void resolve({ cancel: true })}>
           Cancel
         </button>
-        {error && <span className="error-text"> {error}</span>}
+        {error && (
+          <span className="error-text" role="alert">
+            {' '}
+            {error}
+          </span>
+        )}
       </div>
     </div>
   )
@@ -352,7 +364,11 @@ function SecretDialogScreen({
           {show ? 'Hide' : 'Show'}
         </button>
       </div>
-      {error && <p className="error-text">{error}</p>}
+      {error && (
+        <p className="error-text" role="alert">
+          {error}
+        </p>
+      )}
       <div className="dialog-actions">
         <button
           className={press.keyboardDismiss ? 'primary keyboard-dismiss' : 'primary'}

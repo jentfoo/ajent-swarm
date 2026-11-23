@@ -714,7 +714,7 @@ describe('SwitcherRows', () => {
     expect(targets[0]).toHaveTextContent('Start a new session…')
     expect(targets[1]).toHaveTextContent('other')
 
-    await user.click(targets[1]) // the existing 'other' row, not the new-session entry
+    await user.click(within(targets[1]).getByRole('button')) // the existing 'other' row
     // picking lands the draft and the editor screen takes over
     const editor = await screen.findByRole('dialog', { name: 'Chain other after project' })
     expect(

@@ -72,7 +72,11 @@ export function ChainFields({
         queued prompts, and open dialogs, so it always sits in review first.
       </p>
 
-      {form.error && <p className="error-text">{form.error}</p>}
+      {form.error && (
+        <p className="error-text" role="alert">
+          {form.error}
+        </p>
+      )}
       {footer}
     </form>
   )

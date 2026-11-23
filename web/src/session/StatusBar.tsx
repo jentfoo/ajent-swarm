@@ -1,4 +1,7 @@
+import { useEffect, useRef, useState } from 'react'
+
 import type { ActivityRow, CtlState, Segment } from '../api/types'
+import { sessionBusy } from '../state/eventApplier'
 import { Spinner, spinnerState } from './Spinner'
 import { barActivity, subAgentTally } from './subAgents'
 import { contextCount, contextLevel, contextPct, contextTitle, usageTitle } from './statusMeter'
@@ -28,13 +31,30 @@ function visibleSegments(segments: Segment[] | undefined): Segment[] {
 // context meter with its token count, queue depth and the current activity
 // rows. Model and permission mode live in the header, the upstream
 // permissions segment never renders here.
+//
+// The bar itself is no live region: segments, activity rows and the meter
+// change far too fast to narrate. One sr-only polite region announces only
+// the idle/working transition, mounted empty so the first flip mutates live
+// content instead of inserting a region already carrying text.
 export function StatusBar({ snap, live }: { snap: CtlState; live?: LiveTurn | null }) {
+  const busy = sessionBusy(snap)
+  const [announce, setAnnounce] = useState('')
+  const prevBusy = useRef(busy)
+  useEffect(() => {
+    if (prevBusy.current === busy) return
+    prevBusy.current = busy
+    setAnnounce(busy ? 'Agent working' : 'Agent idle')
+  }, [busy])
+
   const segments = visibleSegments(snap.status?.segments)
   const activity = barActivity(snap.activity)
   const pct = contextPct(snap.context)
 
   return (
-    <div className="status-bar" role="status" aria-label="Session status">
+    <div className="status-bar">
+      <span className="sr-only" aria-live="polite">
+        {announce}
+      </span>
       <Spinner state={spinnerState(snap, live)} />
       {activity.rows.length > 0 && (
         <>

@@ -162,6 +162,9 @@ export interface AppliedSessionState {
 
   lastTurnEndAt: number // wall clock of the last applied turn close, drives resnapshot
   healTick: number // bumped when a branch change left the chain incomplete
+  // bumped when transcript content arrives (committed blocks, live output,
+  // diffs, prints), the monotonic revision the view's unread marking rides
+  contentRev: number
 }
 
 export type ApplierAction =
@@ -208,6 +211,7 @@ export function initialSessionState(): AppliedSessionState {
     ownDialogs: new Set(),
     lastTurnEndAt: 0,
     healTick: 0,
+    contentRev: 0,
   }
 }
 
@@ -344,6 +348,9 @@ export function applierReducer(
 function applyInit(prev: AppliedSessionState, frame: InitFrame): AppliedSessionState {
   const next = initialSessionState()
   next.snapshot = frame.state
+  // the revision rides rebuilds: a resync replays the same transcript, it is
+  // not new output
+  next.contentRev = prev.contentRev
   for (const entry of frame.entries) {
     insertEntry(next, entry)
   }
@@ -388,9 +395,10 @@ function applyEvent(state: AppliedSessionState, ev: WireEvent): AppliedSessionSt
       if (!isValidEntry(entry)) return next
       // The head follows the committed family wherever it lands.
       next.snapshot = { ...next.snapshot, head: entry.id }
-      insertEntry(next, entry)
+      const added = insertEntry(next, entry)
       drainLiveCoveredBy(next, entry)
       recomputeChain(next)
+      if (added) next.contentRev += 1
       return next
     }
 
@@ -493,6 +501,7 @@ function applyEvent(state: AppliedSessionState, ev: WireEvent): AppliedSessionSt
       const live = next.live!
       if (ev.event === 'text.delta') {
         next.live = { ...live, text: live.text + delta }
+        next.contentRev += 1
         return next
       }
       // A fresh stream mounts expanded again unless the user owns the panel,
@@ -500,6 +509,7 @@ function applyEvent(state: AppliedSessionState, ev: WireEvent): AppliedSessionSt
       const thinkingOpen =
         live.thinking === '' && !live.thinkingUserToggled ? true : live.thinkingOpen
       next.live = { ...live, thinking: live.thinking + delta, thinkingOpen }
+      next.contentRev += 1
       return next
     }
 
@@ -520,7 +530,7 @@ function applyEvent(state: AppliedSessionState, ev: WireEvent): AppliedSessionSt
     case 'tool.output':
     case 'tool.progress':
     case 'tool.result':
-      return applyToolEvent(next, ev)
+      return applyToolEvent(next, ev, ev.event !== 'tool.progress')
 
     case 'diff': {
       const d = decode<{ path?: string; before?: string; after?: string }>(ev.data)
@@ -535,6 +545,7 @@ function applyEvent(state: AppliedSessionState, ev: WireEvent): AppliedSessionSt
         },
         maxDiffs,
       )
+      next.contentRev += 1
       return next
     }
 
@@ -562,6 +573,7 @@ function applyEvent(state: AppliedSessionState, ev: WireEvent): AppliedSessionSt
       const markdown = decode<{ markdown?: string }>(ev.data)?.markdown
       if (!markdown) return next
       next.prints = boundedAppend(next.prints, { id: ev.seq, markdown }, maxPrints)
+      next.contentRev += 1
       return next
     }
 
@@ -738,7 +750,13 @@ function applyStatus(next: AppliedSessionState, ev: WireEvent): AppliedSessionSt
   return next
 }
 
-function applyToolEvent(next: AppliedSessionState, ev: WireEvent): AppliedSessionState {
+// applyToolEvent paints one live tool event, bumping the content revision when
+// the event carried output: starts, deltas and results do, progress does not.
+function applyToolEvent(
+  next: AppliedSessionState,
+  ev: WireEvent,
+  counts: boolean,
+): AppliedSessionState {
   ensureLive(next)
   const live = next.live!
 
@@ -763,22 +781,28 @@ function applyToolEvent(next: AppliedSessionState, ev: WireEvent): AppliedSessio
       const shells = tools.filter((t) => t.shell)
       if (shells.length > maxShellCards) {
         const drop = new Set(shells.slice(0, shells.length - maxShellCards).map((t) => t.id))
-        return withLive(
-          next,
-          tools.filter((t) => !drop.has(t.id)),
+        return markOutput(
+          withLive(
+            next,
+            tools.filter((t) => !drop.has(t.id)),
+          ),
+          counts,
         )
       }
-      return withLive(next, tools)
+      return markOutput(withLive(next, tools), counts)
     }
     case 'tool.output': {
       const d = decode<{ id?: string; delta?: string }>(ev.data)
       if (!isValidId(d?.id) || !d.delta) return next
-      return withLive(
-        next,
-        upsertTool(live.tools, d.id!, (t) => ({
-          ...t,
-          outputs: [...t.outputs, d.delta!],
-        })),
+      return markOutput(
+        withLive(
+          next,
+          upsertTool(live.tools, d.id!, (t) => ({
+            ...t,
+            outputs: [...t.outputs, d.delta!],
+          })),
+        ),
+        counts,
       )
     }
     case 'tool.progress': {
@@ -819,18 +843,28 @@ function applyToolEvent(next: AppliedSessionState, ev: WireEvent): AppliedSessio
         )
         if (fault !== undefined) result.fault = fault.text
       }
-      return withLive(
-        next,
-        upsertTool(live.tools, d.id!, (t) => ({
-          ...t,
-          name: t.name || d.name || '',
-          result,
-        })),
+      return markOutput(
+        withLive(
+          next,
+          upsertTool(live.tools, d.id!, (t) => ({
+            ...t,
+            name: t.name || d.name || '',
+            result,
+          })),
+        ),
+        counts,
       )
     }
     default:
       return next
   }
+}
+
+// markOutput rides the content revision onto a mutated state when the event
+// carried output.
+function markOutput(state: AppliedSessionState, counts: boolean): AppliedSessionState {
+  if (counts) state.contentRev += 1
+  return state
 }
 
 // applyResnapshot merges one REST snapshot. Poll-only facts (workspace, cwd,

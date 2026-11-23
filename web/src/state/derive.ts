@@ -68,7 +68,7 @@ export type DerivedBlock =
       stop?: string
     }
   | { kind: 'tool-results'; id: string; results: ToolResultView[] }
-  | { kind: 'system'; id: string; entry: Entry }
+  | { kind: 'system'; id: string; label: string }
   | { kind: 'compaction'; id: string }
   | { kind: 'notice'; id: string; level: 'info' | 'warn' | 'error'; text: string }
   | { kind: 'unknown'; id: string; type: string }
@@ -130,7 +130,11 @@ export function deriveBlocks(
         break
       default:
         if (isSystemType(entry.type)) {
-          blocks.push({ kind: 'system', id: entry.id, entry })
+          blocks.push({
+            kind: 'system',
+            id: entry.id,
+            label: systemLabel(entry.type, (entry.data ?? {}) as Record<string, unknown>),
+          })
         } else {
           blocks.push({ kind: 'unknown', id: entry.id, type: entry.type })
         }
@@ -228,6 +232,25 @@ function isSystemType(type: string): boolean {
       return true
     default:
       return false
+  }
+}
+
+// systemLabel composes a system entry's chip text. Exported for the transcript
+// search, which matches the same visible labels.
+export function systemLabel(type: string, d: Record<string, unknown>): string {
+  switch (type) {
+    case 'session':
+      return `session · cwd ${str(d.cwd)}${d.model ? ` · model ${str(d.model)}` : ''}`
+    case 'model_change':
+      return `model changed to ${str(d.model)}${d.reason ? ` (${str(d.reason)})` : ''}`
+    case 'setting_change':
+      return `setting ${str(d.key)} = ${JSON.stringify(d.value)}`
+    case 'session_name':
+      return `renamed to ${str(d.name)}`
+    case 'custom':
+      return `custom: ${str(d.customType)}`
+    default:
+      return `[${type}]`
   }
 }
 

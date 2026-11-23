@@ -69,14 +69,12 @@ function EntryBlockImpl({ block }: { block: DerivedBlock }) {
           ))}
         </div>
       )
-    case 'system': {
-      const d = (block.entry.data ?? {}) as Record<string, unknown>
+    case 'system':
       return (
         <div className="entry system" data-entry-id={block.id}>
-          <span className="badge">{systemText(block.entry.type, d)}</span>
+          <span className="badge">{block.label}</span>
         </div>
       )
-    }
     case 'compaction':
       return (
         <div className="entry compaction-divider" data-entry-id={block.id} role="separator">
@@ -181,27 +179,4 @@ function ImageRow({ images }: { images: ImageView[] }) {
       )}
     </div>
   )
-}
-
-// systemText renders the familiar types as chips, unknown payload fields
-// round-trip upstream, so anything missing reads generically.
-function systemText(type: string, d: Record<string, unknown>): string {
-  switch (type) {
-    case 'session':
-      return `session · cwd ${str(d.cwd)}${d.model ? ` · model ${str(d.model)}` : ''}`
-    case 'model_change':
-      return `model changed to ${str(d.model)}${d.reason ? ` (${str(d.reason)})` : ''}`
-    case 'setting_change':
-      return `setting ${str(d.key)} = ${JSON.stringify(d.value)}`
-    case 'session_name':
-      return `renamed to ${str(d.name)}`
-    case 'custom':
-      return `custom: ${str(d.customType)}`
-    default:
-      return `[${type}]`
-  }
-}
-
-function str(v: unknown): string {
-  return typeof v === 'string' ? v : '?'
 }

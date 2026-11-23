@@ -952,6 +952,54 @@ describe('applierReducer mid-turn exit', () => {
   })
 })
 
+describe('applierReducer content revision', () => {
+  it('bumps for committed blocks, live output, diffs and prints', () => {
+    let s = apply(initialSessionState(), ev('turn.start', 1, { model: 'm' }))
+    expect(s.contentRev).toBe(0) // the pinned row mounting is not output
+    s = apply(s, ev('text.delta', 2, { delta: 'x' }))
+    expect(s.contentRev).toBe(1)
+    s = apply(s, ev('thinking.delta', 3, { delta: 'h' }))
+    expect(s.contentRev).toBe(2)
+    s = apply(s, ev('tool.start', 4, { id: 'c1', name: 'bash' }))
+    expect(s.contentRev).toBe(3)
+    s = apply(s, ev('tool.progress', 5, { id: 'c1', bytes: 10 }))
+    expect(s.contentRev).toBe(3) // a size readout is not output
+    s = apply(s, ev('tool.output', 6, { id: 'c1', delta: 'out' }))
+    expect(s.contentRev).toBe(4)
+    s = apply(s, ev('tool.result', 7, { id: 'c1', output: 'done' }))
+    expect(s.contentRev).toBe(5)
+    s = apply(s, ev('diff', 8, { path: 'a.go', before: 'x', after: 'y' }))
+    expect(s.contentRev).toBe(6)
+    s = apply(s, ev('print', 9, { markdown: 'hi' }))
+    expect(s.contentRev).toBe(7)
+
+    // a rebuild replays the same transcript, the revision rides across it
+    const root = messageEntry('01A', undefined, 'user', 'hello')
+    s = apply(s, { type: 'init', frame: initFrame(snap({ head: '01A' }), [root]) })
+    expect(s.contentRev).toBe(7)
+
+    // a committed append marks, its deduped replay does not
+    s = apply(s, ev('entry.append', 10, { entry: messageEntry('01B', '01A', 'assistant', 'b') }))
+    expect(s.contentRev).toBe(8)
+    s = apply(s, ev('entry.append', 11, { entry: messageEntry('01B', '01A', 'assistant', 'b') }))
+    expect(s.contentRev).toBe(8)
+  })
+
+  it('stays flat for snapshots, backfill and non-content events', () => {
+    const root = messageEntry('01A', undefined, 'user', 'hello')
+    let s = apply(initialSessionState(), {
+      type: 'init',
+      frame: initFrame(snap({ head: '01A' }), [root]),
+    })
+    s = apply(s, { type: 'snapshot', state: snap({ seq: 5 }) })
+    s = apply(s, { type: 'backfill', entries: [messageEntry('01OLD', '01A', 'user', 'old')] })
+    s = apply(s, ev('idle', 1, { idle: false }))
+    s = apply(s, ev('branch.changed', 2, { head: '01A', cause: 'rewind' }))
+    s = apply(s, ev('notice', 3, { text: 'transient' }))
+    expect(s.contentRev).toBe(0)
+  })
+})
+
 describe('applierReducer tool card state', () => {
   it('force-closes running cards at turn.end instead of discarding them', () => {
     let s = apply(

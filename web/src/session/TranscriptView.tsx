@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 
 import { EntryBlock } from './EntryBlock'
+import { FindBar } from './FindBar'
 import { LiveStreamBlock } from './LiveStreamBlock'
 import { DiffCard } from './DiffCard'
 import { MarkdownBlock } from './MarkdownBlock'
@@ -9,6 +10,14 @@ import type { AgentJobs } from './useAgentJobs'
 import type { AppliedSessionState, DiffView } from '../state/eventApplier'
 import type { LoadOlderResult } from '../stream/sessionStore'
 import { deriveBlocks } from '../state/derive'
+import {
+  buildSearchIndex,
+  matchBlocks,
+  nearestFrom,
+  nearestFromAnchor,
+  sameMatch,
+} from './transcriptSearch'
+import type { TranscriptMatch } from './transcriptSearch'
 
 // Bottom gap still counting as "at the latest row", scrolling above it
 // disengages autoscroll and shows the jump pill.
@@ -28,8 +37,10 @@ const scrollAwayKeys = new Set(['ArrowUp', 'PageUp', 'Home'])
 // by entry id, with each anchored diff riding its block's row, unanchored ones
 // trailing beneath, and the pinned live stream at the bottom. Stick-to-bottom
 // autoscroll disengages only on a user scroll up, a pill jumps back to the
-// latest. A sessionId change (swapping sessions inside one hosted view)
-// re-lands on the latest too.
+// latest, relabeling `↓ New output` when transcript content arrived while the
+// view sat unstuck. The session-local Find surface scrolls committed rows into
+// view and marks the active hit's row. A sessionId change (swapping sessions
+// inside one hosted view) re-lands on the latest too and resets both.
 export function TranscriptView({
   sessionId,
   state,
@@ -58,10 +69,16 @@ export function TranscriptView({
   const [showPill, setShowPill] = useState(false)
   // Why the last load-older attempt failed, a retry that answers clears it.
   const [loadError, setLoadError] = useState('')
+  // unread marks transcript content that arrived while the view sat unstuck.
+  // It rides the applier's content revision, so snapshots, older-history
+  // prepends and measurement churn can never raise it; sticking back clears.
+  const [unread, setUnread] = useState(false)
+  const revRef = useRef(state.contentRev)
 
   const setStuck = useCallback((stuck: boolean) => {
     stuckRef.current = stuck
     setShowPill(!stuck)
+    if (stuck) setUnread(false) // back at the tail, nothing stays unread
   }, [])
 
   // Calls still painting live hide their committed twins until a carrier's
@@ -113,6 +130,79 @@ export function TranscriptView({
     overscan: 8,
     getItemKey: (i) => blocks[i].id,
   })
+
+  // --- transcript find ---
+
+  // findQuery holds the open find surface's query, null while closed. Opening
+  // never moves the reading position and closing preserves it.
+  const [findQuery, setFindQuery] = useState<string | null>(null)
+  const [activeMatch, setActiveMatch] = useState<TranscriptMatch | null>(null)
+  // The find index exists only while find is open: extraction walks the whole
+  // transcript, so settled streaming turns never pay for it.
+  const index = useMemo(
+    () => (findQuery === null ? [] : buildSearchIndex(blocks, diffsByAnchor)),
+    [blocks, diffsByAnchor, findQuery],
+  )
+  const matches = useMemo(
+    () => (findQuery === null ? [] : matchBlocks(index, findQuery)),
+    [index, findQuery],
+  )
+  const activeIdx = activeMatch === null ? -1 : matches.findIndex((m) => sameMatch(m, activeMatch))
+
+  // Keeps the selection honest without moving the reader: a query change
+  // (open, type, close) resets deterministically to the match nearest the
+  // reading position, and reconciliation keeps the active match or its
+  // nearest survivor so live updates only ever refresh the count. Render-time
+  // adjustment, the useHiddenToolIds pattern, so selection never lags input.
+  const lastQueryRef = useRef<string | null>(null)
+  if (findQuery !== lastQueryRef.current) {
+    lastQueryRef.current = findQuery
+    if (findQuery === null || matches.length === 0) {
+      if (activeMatch !== null) setActiveMatch(null)
+    } else {
+      const anchor = virtualizer.getVirtualItems()[0]?.index ?? 0
+      setActiveMatch(matches[nearestFromAnchor(matches, anchor)])
+    }
+  } else if (findQuery !== null && matches.length > 0 && activeIdx === -1) {
+    // the active match vanished through reconciliation, or matches refilled
+    // under a held query: the nearest survivor keeps the count truthful
+    const refIdx = activeMatch === null ? -1 : blocks.findIndex((b) => b.id === activeMatch.blockId)
+    setActiveMatch(matches[nearestFrom(matches, activeMatch ?? { region: 0, at: -1 }, refIdx)])
+  }
+
+  // lastFindScroll dedupes the scroll a stable match would repeat: stepping
+  // between hits in one row retargets nothing, and reconciliation that keeps
+  // the same hit never moves the reader.
+  const lastFindScrollRef = useRef('')
+  useEffect(() => {
+    if (activeIdx < 0) return
+    const match = matches[activeIdx]
+    const key = `${lastQueryRef.current}\n${match.blockId}`
+    if (key === lastFindScrollRef.current) return
+    lastFindScrollRef.current = key
+    const idx = blocks.findIndex((b) => b.id === match.blockId)
+    if (idx < 0) return
+    // navigating off the tail disengages autoscroll; onScroll re-sticks when
+    // a target lands back at the bottom
+    setStuck(false)
+    virtualizer.scrollToIndex(idx, { align: 'center' })
+  }, [activeIdx, matches, blocks, virtualizer, setStuck])
+
+  const stepFind = useCallback(
+    (delta: 1 | -1) => {
+      if (findQuery === null || matches.length === 0) return
+      setActiveMatch((prev) => {
+        const at = prev === null ? -1 : matches.findIndex((m) => sameMatch(m, prev))
+        return matches[at < 0 ? 0 : (at + delta + matches.length) % matches.length]
+      })
+    },
+    [findQuery, matches],
+  )
+
+  const closeFind = useCallback(() => {
+    setFindQuery(null)
+    lastFindScrollRef.current = '' // reopening rescrolls its first target
+  }, [])
 
   // One ResizeObserver over the content wrapper and the scroller keeps
   // autoscroll honest through dynamic row measurement, live text growth and
@@ -241,14 +331,25 @@ export function TranscriptView({
 
   // A hosted view swaps sessions in place, the new session's transcript
   // always opens on its latest, never wherever the previous one sat. Local
-  // control state resets with it, so no old failure reason carries over.
+  // control state resets with it, so no old failure reason, find surface or
+  // unread mark carries over.
   const lastSessionRef = useRef(sessionId)
   useEffect(() => {
     if (lastSessionRef.current === sessionId) return
     lastSessionRef.current = sessionId
+    revRef.current = state.contentRev // the new session re-bases the revision
     setLoadError('')
+    closeFind()
     jumpToLatest()
-  }, [sessionId, jumpToLatest])
+  }, [sessionId, state.contentRev, jumpToLatest, closeFind])
+
+  // Declared after the swap effect, so the re-base lands before this compare
+  // and a hosted session swap can never read as new output.
+  useEffect(() => {
+    if (state.contentRev === revRef.current) return
+    revRef.current = state.contentRev
+    if (!stuckRef.current) setUnread(true)
+  }, [state.contentRev])
 
   // Pull-to-latest: while already at the top of history, dragging further down
   // is dead overscroll, exactly where a gesture cannot fight scrolling. The
@@ -318,6 +419,11 @@ export function TranscriptView({
                     key={item.key}
                     data-index={item.index}
                     ref={virtualizer.measureElement}
+                    className={
+                      activeIdx >= 0 && matches[activeIdx].blockId === block.id
+                        ? 'find-target'
+                        : undefined
+                    }
                     style={{
                       position: 'absolute',
                       top: 0,
@@ -363,8 +469,29 @@ export function TranscriptView({
       </div>
       {showPill && (
         <button type="button" className="jump-latest" onClick={jumpToLatest}>
-          ↓ latest
+          {unread ? '↓ New output' : '↓ latest'}
         </button>
+      )}
+      {findQuery === null ? (
+        <button
+          type="button"
+          className="find-open"
+          onClick={() => setFindQuery('')}
+          aria-label="Find in transcript"
+          title="Search the committed history loaded in this view"
+        >
+          Find
+        </button>
+      ) : (
+        <FindBar
+          query={findQuery}
+          count={matches.length}
+          active={activeIdx}
+          activeMatch={activeIdx >= 0 ? matches[activeIdx] : null}
+          onQuery={setFindQuery}
+          onStep={stepFind}
+          onClose={closeFind}
+        />
       )}
     </div>
   )

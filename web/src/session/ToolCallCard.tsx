@@ -7,6 +7,7 @@ import { EditOpDiff, splitRows } from './DiffCard'
 import { parseEditInput } from './editInput'
 import { progressText } from './progressText'
 import { agentJobStatusClass, cardSubAgentRow, formatElapsed, stoppableJob } from './subAgents'
+import { prettyInput } from './toolInput'
 import type { AgentJobs } from './useAgentJobs'
 
 // ToolCardView is what a card renders: a committed call's info or the live
@@ -258,18 +259,6 @@ function ToolImage({ image }: { image: ImageView }) {
   }
   // Bodies are base64 media the transcript already vetted as an image type.
   return <img alt="" src={`data:${image.mediaType};base64,${image.data}`} className="entry-image" />
-}
-
-// prettyInput renders arguments readably: strings verbatim, objects and arrays
-// two-space indented. A value JSON cannot express (cyclic) degrades to String.
-function prettyInput(input: unknown): string {
-  if (typeof input === 'string') return input
-  try {
-    const text = JSON.stringify(input, null, 2)
-    return text === undefined ? String(input) : text
-  } catch {
-    return String(input)
-  }
 }
 
 function oneLine(text: string): string {

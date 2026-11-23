@@ -48,6 +48,72 @@ function showPill(el: HTMLElement) {
   })
 }
 
+// mountTranscript hosts one view over a mutable state slot, so tests apply
+// reducer actions between renders the way the live channel does.
+function mountTranscript(initial: AppliedSessionState, sessionId = '01TESTSESSION0000') {
+  let current = initial
+  let id = sessionId
+  const draw = () => (
+    <TranscriptView
+      sessionId={id}
+      state={current}
+      loadOlder={async () => ({ kind: 'dry' })}
+      onThinkingToggle={() => {}}
+    />
+  )
+  const view = render(draw())
+  const el = document.querySelector('.transcript-scroll') as HTMLElement
+  // a deep scroller: the virtualizer clamps its writes by the element's own
+  // scrollHeight, which jsdom keeps at zero without an override
+  Object.defineProperty(el, 'scrollHeight', { configurable: true, value: 20000 })
+  Object.defineProperty(el, 'clientHeight', { configurable: true, value: 300 })
+  // jsdom ships no Element.scrollTo, the write tanstack's elementScroll goes
+  // through; mirror the browser's write so find navigation is exercisable
+  Object.defineProperty(el, 'scrollTo', {
+    configurable: true,
+    value: (box: { top?: number }) => {
+      if (box?.top !== undefined) el.scrollTop = box.top
+    },
+  })
+  return {
+    el,
+    apply(next: AppliedSessionState) {
+      current = next
+      view.rerender(draw())
+    },
+    swap(nextId: string, next: AppliedSessionState) {
+      id = nextId
+      current = next
+      view.rerender(draw())
+    },
+  }
+}
+
+// chainOf builds one rooted chain of count committed prompts and replies.
+function chainOf(count: number): AppliedSessionState {
+  const entries = Array.from({ length: count }, (_, i) =>
+    messageEntry(
+      `e${i}`,
+      i === 0 ? undefined : `e${i - 1}`,
+      i % 2 === 0 ? 'user' : 'assistant',
+      `body ${i}`,
+    ),
+  )
+  return applierReducer(initialSessionState(), {
+    type: 'init',
+    frame: initFrame(testState({ head: `e${count - 1}` }), entries),
+  })
+}
+
+function openFind() {
+  fireEvent.click(screen.getByRole('button', { name: 'Find in transcript' }))
+  return screen.getByLabelText('Find query') as HTMLInputElement
+}
+
+function typeInto(box: HTMLInputElement, query: string) {
+  fireEvent.change(box, { target: { value: query } })
+}
+
 describe('TranscriptView pull to latest', () => {
   it('jumps to latest past the threshold', () => {
     const el = renderTranscript()
@@ -417,5 +483,247 @@ describe('TranscriptView streaming burst', () => {
     expect(screen.getByText('auto allowed')).toBeInTheDocument()
     expect(screen.getByText('done')).toBeInTheDocument()
     expect(screen.queryByText('live')).not.toBeInTheDocument()
+  })
+})
+
+// The session-local find surface: counting, wrapping, empty state, scrolling
+// unmounted virtual rows into view, and leaving the reader where they were
+// when it closes. The pill's stuck state and the reader's location are the
+// invariants a live transcript keeps touching.
+describe('TranscriptView find', () => {
+  it('exposes the Find control for touch surfaces', () => {
+    render(
+      <TranscriptView
+        sessionId="01TESTSESSION0000"
+        state={initialSessionState()}
+        loadOlder={async () => ({ kind: 'dry' })}
+        pullDownToLatest
+        onThinkingToggle={() => {}}
+      />,
+    )
+    expect(screen.getByRole('button', { name: 'Find in transcript' })).toBeInTheDocument()
+  })
+
+  it('opens, counts, steps and wraps', () => {
+    mountTranscript(chainOf(2))
+    const box = openFind()
+    typeInto(box, 'body')
+    expect(screen.getByText('1/2')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByLabelText('Next match'))
+    expect(screen.getByText('2/2')).toBeInTheDocument()
+    fireEvent.click(screen.getByLabelText('Next match'))
+    expect(screen.getByText('1/2')).toBeInTheDocument() // the end wraps to the first
+    fireEvent.click(screen.getByLabelText('Previous match'))
+    expect(screen.getByText('2/2')).toBeInTheDocument() // so does the start, backwards
+  })
+
+  it('keeps repeated hits in one row distinct', () => {
+    const echoed = [
+      messageEntry('e0', undefined, 'user', 'echo echo'),
+      messageEntry('e1', 'e0', 'assistant', 'done'),
+    ]
+    mountTranscript(
+      applierReducer(initialSessionState(), {
+        type: 'init',
+        frame: initFrame(testState({ head: 'e1' }), echoed),
+      }),
+    )
+    const box = openFind()
+    typeInto(box, 'echo')
+    expect(screen.getByText('1/2')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByLabelText('Next match'))
+    expect(screen.getByText('2/2')).toBeInTheDocument()
+    // both hits share the row, distinct positions still shown
+    expect(document.querySelector('[data-entry-id="e0"]')?.closest('.find-target')).not.toBeNull()
+  })
+
+  it('shows the empty-match state and resets on a query change', () => {
+    mountTranscript(chainOf(2))
+    const box = openFind()
+    typeInto(box, 'zzz')
+    expect(screen.getByText('no matches')).toBeInTheDocument()
+    expect(screen.getByLabelText('Next match')).toBeDisabled()
+
+    typeInto(box, 'body 1')
+    expect(screen.getByText('1/1')).toBeInTheDocument()
+    expect(screen.getByLabelText('Next match')).toBeEnabled()
+  })
+
+  it('navigates to an unmounted virtual row and marks it', async () => {
+    const { el } = mountTranscript(chainOf(60))
+    const box = openFind()
+    typeInto(box, 'body 59')
+    expect(screen.getByText('1/1')).toBeInTheDocument()
+    expect(el.scrollTop).toBeGreaterThan(0) // the virtualizer wrote the scroll
+
+    // jsdom fires no scroll event for the programmatic write, the browser
+    // does: dispatch it so the window remounts around the target row
+    act(() => {
+      fireEvent.scroll(el)
+    })
+    await waitFor(() => expect(document.querySelector('[data-entry-id="e59"]')).not.toBeNull())
+    expect(document.querySelector('[data-entry-id="e59"]')?.closest('.find-target')).not.toBeNull()
+  })
+
+  it('opening leaves the stuck state and closing keeps the reading spot', () => {
+    const { el } = mountTranscript(chainOf(60))
+    showPill(el)
+    expect(screen.getByText('↓ latest')).toBeInTheDocument()
+
+    const box = openFind()
+    typeInto(box, 'body 59')
+    expect(el.scrollTop).toBeGreaterThan(0)
+    // navigating to the hit disengaged autoscroll honestly
+    expect(screen.getByText('↓ latest')).toBeInTheDocument()
+
+    const at = el.scrollTop
+    fireEvent.click(screen.getByLabelText('Close find'))
+    expect(screen.getByRole('button', { name: 'Find in transcript' })).toBeInTheDocument()
+    expect(el.scrollTop).toBe(at) // closing preserved the reading location
+  })
+
+  it('live reconciliation keeps the reader on the active match', () => {
+    const { apply } = mountTranscript(chainOf(2))
+    const box = openFind()
+    typeInto(box, 'body')
+    expect(screen.getByText('1/2')).toBeInTheDocument()
+
+    // a committed append joins the chain: the count refreshes truthfully and
+    // the active match survives by identity, moving nobody
+    const before = document.querySelector('.transcript-scroll')?.scrollTop ?? 0
+    apply(
+      applierReducer(chainOf(2), {
+        type: 'event',
+        event: ev('entry.append', 10, { entry: messageEntry('e2x', 'e1', 'user', 'body two') }),
+      }),
+    )
+    expect(screen.getByText('1/3')).toBeInTheDocument()
+    expect(document.querySelector('.transcript-scroll')?.scrollTop).toBe(before)
+  })
+
+  it('clears the selection when reconciliation empties the matches', () => {
+    const { apply } = mountTranscript(chainOf(2))
+    const box = openFind()
+    typeInto(box, 'body 1')
+    expect(screen.getByText('1/1')).toBeInTheDocument()
+
+    // a rewind drops the matched row entirely: the surface shows its empty
+    // state instead of holding a dead hit
+    apply(
+      applierReducer(chainOf(2), {
+        type: 'event',
+        event: ev('branch.changed', 10, { from: 'e1', head: 'e0', cause: 'rewind' }),
+      }),
+    )
+    expect(screen.getByText('no matches')).toBeInTheDocument()
+  })
+
+  it('moves to the nearest survivor when a rewind drops the active hit', () => {
+    const { apply } = mountTranscript(chainOf(3))
+    const box = openFind()
+    typeInto(box, 'body')
+    fireEvent.click(screen.getByLabelText('Next match'))
+    fireEvent.click(screen.getByLabelText('Next match'))
+    expect(screen.getByText('3/3')).toBeInTheDocument()
+
+    // the rewind drops e2, the active hit: the nearest survivor takes over
+    // and the count stays truthful
+    apply(
+      applierReducer(chainOf(3), {
+        type: 'event',
+        event: ev('branch.changed', 10, { from: 'e2', head: 'e1', cause: 'rewind' }),
+      }),
+    )
+    expect(screen.getByText('1/2')).toBeInTheDocument()
+    expect(document.querySelector('[data-entry-id="e2"]')).toBeNull()
+  })
+
+  it('closes an open find on a session swap', () => {
+    const { swap } = mountTranscript(chainOf(2))
+    typeInto(openFind(), 'body')
+    expect(screen.getByText('1/2')).toBeInTheDocument()
+
+    swap('01OTHERSESSION0', chainOf(2))
+    expect(screen.queryByLabelText('Find query')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Find in transcript' })).toBeInTheDocument()
+  })
+})
+
+// Unread output: only real transcript content arriving while the view sits
+// unstuck may raise the pill's label. Prepends, snapshots, measurement churn
+// and stuck-view arrivals never do; sticking back and session swaps clear it.
+describe('TranscriptView unread output', () => {
+  function seeded(): AppliedSessionState {
+    const e1 = messageEntry('e1', undefined, 'user', 'hello there')
+    return applierReducer(initialSessionState(), {
+      type: 'init',
+      frame: initFrame(testState({ head: 'e1' }), [e1]),
+    })
+  }
+
+  const withDelta = (): AppliedSessionState =>
+    applierReducer(seeded(), { type: 'event', event: ev('text.delta', 1, { delta: 'streaming' }) })
+
+  it('marks tail content while unstuck and clears on jump', () => {
+    const { el, apply } = mountTranscript(seeded())
+    showPill(el)
+    expect(screen.getByText('↓ latest')).toBeInTheDocument()
+
+    apply(withDelta())
+    expect(screen.getByText('↓ New output')).toBeInTheDocument()
+
+    // jumping home hides the pill; scrolling away again shows the tail pill
+    // with no unread mark
+    fireEvent.click(screen.getByText('↓ New output'))
+    expect(screen.queryByText(/↓ /)).not.toBeInTheDocument()
+    showPill(el)
+    expect(screen.getByText('↓ latest')).toBeInTheDocument()
+  })
+
+  it('ignores prepends and snapshot churn', () => {
+    const s0 = applierReducer(initialSessionState(), {
+      type: 'init',
+      frame: initFrame(testState({ head: 'e2' }), [
+        entry('e2', 'e1', 'notice', { message: 'tail' }),
+      ]),
+    })
+    const prepended = applierReducer(s0, {
+      type: 'backfill',
+      entries: [messageEntry('e1', undefined, 'user', 'older history')],
+    })
+    const snapshotted = applierReducer(prepended, {
+      type: 'snapshot',
+      state: testState({ seq: 50 }),
+    })
+    const { el, apply } = mountTranscript(s0)
+    showPill(el)
+
+    apply(prepended)
+    expect(screen.getByText('↓ latest')).toBeInTheDocument()
+    apply(snapshotted)
+    expect(screen.getByText('↓ latest')).toBeInTheDocument()
+  })
+
+  it('stays quiet while stuck', () => {
+    const { el, apply } = mountTranscript(seeded())
+    apply(withDelta()) // stuck: the pill stays hidden, nothing is unread
+    expect(screen.queryByText('↓ New output')).not.toBeInTheDocument()
+
+    showPill(el)
+    expect(screen.getByText('↓ latest')).toBeInTheDocument()
+  })
+
+  it('resets on a session swap', () => {
+    const { el, apply, swap } = mountTranscript(seeded())
+    showPill(el)
+    apply(withDelta())
+    expect(screen.getByText('↓ New output')).toBeInTheDocument()
+
+    swap('01OTHERSESSION0', seeded())
+    expect(screen.queryByText(/↓ /)).not.toBeInTheDocument()
+    showPill(el)
+    expect(screen.getByText('↓ latest')).toBeInTheDocument()
   })
 })

@@ -426,11 +426,86 @@ label {
   box-shadow: 0 2px 8px rgb(0 0 0 / 35%);
 }
 
+/* transcript find: a floating trigger over the transcript's top right that
+   swaps for the compact find surface while it is open, mirroring the jump
+   pill's chrome role */
+.find-open,
+.find-bar {
+  position: absolute;
+  top: calc(var(--unit) * 2);
+  right: calc(var(--unit) * 2);
+  z-index: 1;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 35%);
+}
+.find-bar {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--unit) * 1);
+  width: min(24rem, 92vw);
+  padding: calc(var(--unit) * 1);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.find-row {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--unit) * 1);
+}
+.find-row input {
+  flex: 1;
+  min-width: 0;
+}
+.find-row button {
+  flex-shrink: 0;
+  padding: 0 calc(var(--unit) * 1.5);
+}
+.find-count {
+  flex-shrink: 0;
+  font-size: var(--fs-small);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.find-snippet {
+  display: flex;
+  gap: calc(var(--unit) * 2);
+  margin: 0;
+  font-size: var(--fs-small);
+  color: var(--muted);
+  overflow: hidden;
+  white-space: nowrap;
+}
+.find-region {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+}
+.find-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.find-text mark {
+  background: color-mix(in srgb, var(--accent) 35%, transparent);
+  color: inherit;
+  border-radius: 2px;
+}
+/* the active match's landing row: a temporary marker, content untouched */
+.find-target {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius);
+}
+
 @media (max-width: 48rem) {
   /* the pill and the older-history button are a phone's only ways back
      through the transcript, so both meet the touch floor */
   .jump-latest,
   .load-older {
+    min-height: 44px;
+  }
+  /* find rides the same corner, its trigger and stepping controls too */
+  .find-open,
+  .find-row button {
     min-height: 44px;
   }
 }

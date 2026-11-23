@@ -69,6 +69,10 @@ export function TranscriptView({
   const [showPill, setShowPill] = useState(false)
   // Why the last load-older attempt failed, a retry that answers clears it.
   const [loadError, setLoadError] = useState('')
+  // The in-flight older-page read, gated synchronously so a rapid double
+  // activation cannot request the same cursor twice.
+  const [loadPending, setLoadPending] = useState(false)
+  const loadPendingRef = useRef(false)
   // unread marks transcript content that arrived while the view sat unstuck.
   // It rides the applier's content revision, so snapshots, older-history
   // prepends and measurement churn can never raise it; sticking back clears.
@@ -301,16 +305,22 @@ export function TranscriptView({
   // the view does not jump, and disengage autoscroll while reading. A dry or
   // failed page drops the anchor instead of letting it fire later.
   const loadOlderAnchored = useCallback(async () => {
+    if (loadPendingRef.current) return
+    loadPendingRef.current = true
+    setLoadPending(true)
     anchorRef.current = blocks[0]?.id ?? null
     setStuck(false)
-    const result = await loadOlder()
-    if (result.kind !== 'loaded') {
-      // no page is landing, a failure paints its reason until a retry answers
-      anchorRef.current = null
+    try {
+      const result = await loadOlder()
+      if (result.kind !== 'loaded') {
+        // no page is landing, a failure paints its reason until a retry answers
+        anchorRef.current = null
+      }
       setLoadError(result.kind === 'failed' ? result.message : '')
-      return
+    } finally {
+      loadPendingRef.current = false
+      setLoadPending(false)
     }
-    setLoadError('')
   }, [blocks, loadOlder, setStuck])
 
   useEffect(() => {
@@ -339,6 +349,9 @@ export function TranscriptView({
     lastSessionRef.current = sessionId
     revRef.current = state.contentRev // the new session re-bases the revision
     setLoadError('')
+    loadPendingRef.current = false
+    setLoadPending(false)
+    anchorRef.current = null
     closeFind()
     jumpToLatest()
   }, [sessionId, state.contentRev, jumpToLatest, closeFind])
@@ -401,8 +414,13 @@ export function TranscriptView({
       {!state.chain.rooted && state.chain.ids.length > 0 && (
         <>
           <p>
-            <button type="button" className="load-older" onClick={() => void loadOlderAnchored()}>
-              Load older history
+            <button
+              type="button"
+              className="load-older"
+              onClick={() => void loadOlderAnchored()}
+              disabled={loadPending}
+            >
+              {loadPending ? 'Loading older history…' : 'Load older history'}
             </button>
           </p>
           {loadError !== '' && <p className="error-text">{loadError}</p>}

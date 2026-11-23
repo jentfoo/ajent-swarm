@@ -1962,13 +1962,15 @@ label {
   word-break: break-word;
 }
 
-/* recorded transcript inside run history */
+/* recorded transcript: the hosting surface bounds it, never a height cap here.
+   The run-detail modal scrolls its whole card, and the mobile ended screen
+   stretches the preview as the screen's one scroller, so this scroll port
+   only ever engages inside .ended-screen's flex box */
 .transcript-preview {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--bg);
   padding: calc(var(--unit) * 2) calc(var(--unit) * 3);
-  max-height: 55vh;
   overflow-y: auto;
 }
 
@@ -2475,6 +2477,17 @@ label {
    and must not double it */
 .pushed-screen > .pushed-header {
   padding-top: calc(env(safe-area-inset-top, 0px) + var(--unit) * 2);
+}
+/* the ended session reads as a bounded flex screen like .mobile-session: the
+   header stands still and the recorded transcript is the one scroller */
+.ended-screen {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.ended-screen .transcript-preview {
+  flex: 1;
+  min-height: 0;
 }
 .tools-hint {
   padding-left: calc(var(--unit) * 3);

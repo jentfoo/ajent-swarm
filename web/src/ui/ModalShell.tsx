@@ -1,5 +1,5 @@
 import { createContext, useCallback, useEffect, useContext, useRef, useState } from 'react'
-import type { ReactElement, ReactNode } from 'react'
+import type { ReactElement, ReactNode, RefObject } from 'react'
 
 import { overlayTopmost, useOverlayDismiss } from './overlayStack'
 import { useFocusTrap } from './useFocusTrap'
@@ -34,12 +34,15 @@ const RequestCloseContext = createContext<(() => void) | null>(null)
 // lifetime, so platform back reaches that same guard instead of unmounting the
 // form behind it. Content Cancel buttons ride that guard through
 // ModalCancelButton. Omit `dirty` to close on every affordance directly.
+// `cardRef` hands the card element to the caller, for content that must know
+// its scroll owner (the run detail's recorded transcript).
 export function ModalShell({
   label,
   className,
   showClose = false,
   onKey,
   dirty,
+  cardRef,
   onClose,
   children,
 }: {
@@ -49,10 +52,12 @@ export function ModalShell({
   onKey?: (ev: KeyboardEvent) => void
   // any value mounts the history guard; true makes close requests ask first
   dirty?: boolean
+  cardRef?: RefObject<HTMLDivElement | null>
   onClose: () => void
   children: ReactNode
 }): ReactElement {
-  const cardRef = useRef<HTMLDivElement>(null)
+  const localCardRef = useRef<HTMLDivElement>(null)
+  const card = cardRef ?? localCardRef
 
   const [confirming, setConfirming] = useState(false)
   // remount key for the shield: a back-initiated request lands off the dialog's
@@ -106,18 +111,18 @@ export function ModalShell({
   // the shared layer contract: useOverlayDismiss owns stack order, Escape
   // and the focus restore on close, useFocusTrap owns Tab containment and
   // focus recapture while this shell is the topmost layer
-  useOverlayDismiss(cardRef, requestClose)
-  useFocusTrap(cardRef)
+  useOverlayDismiss(card, requestClose)
+  useFocusTrap(card)
 
   // onKey receives the plain keydowns neither the dismiss nor the trap
   // listener owns, only while this shell is the topmost layer
   useEffect(() => {
-    const card = cardRef.current
-    if (card === null) return
+    const panel = card.current
+    if (panel === null) return
 
     const onWindowKey = (ev: KeyboardEvent) => {
       // only the topmost layer answers, and never a press claimed elsewhere
-      if (!overlayTopmost(card) || ev.defaultPrevented) return
+      if (!overlayTopmost(panel) || ev.defaultPrevented) return
       // chords like Ctrl+X belong to the platform, never to a layer
       // Shift stays free because keys like ? arrive shifted
       if (ev.ctrlKey || ev.metaKey || ev.altKey) return
@@ -127,14 +132,14 @@ export function ModalShell({
 
     window.addEventListener('keydown', onWindowKey)
     return () => window.removeEventListener('keydown', onWindowKey)
-  }, [])
+  }, [card])
 
   return (
     <>
       {dirty !== undefined && <HistoryShield key={shieldEpoch} onClose={backRequested} />}
       <div className="modal-backdrop" role="presentation" onClick={requestClose}>
         <div
-          ref={cardRef}
+          ref={card}
           className={className === undefined ? 'card modal' : `card modal ${className}`}
           role="dialog"
           aria-modal="true"

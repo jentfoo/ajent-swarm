@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
+import type { RefObject } from 'react'
 import { Link } from 'react-router'
 
 import { childEnded, type Run, type SessionStatus } from '../api/types'
@@ -12,10 +13,19 @@ import { ModalShell } from '../ui/ModalShell'
 // finished ones render their recorded transcript right here.
 export function RunDetail({ run, onClose }: { run: Run; onClose: () => void }) {
   const [showLiveTranscript, setShowLiveTranscript] = useState(false)
+  // the modal card owns vertical scrolling, the recorded transcript flows
+  // uncapped inside it, so the detail never nests a second scroller
+  const scrollRef = useRef<HTMLDivElement>(null)
   const status = useSwarm().sessions.find((s) => s.sessionId === run.sessionId)
 
   return (
-    <ModalShell label={`Run ${run.id}`} className="run-detail" showClose onClose={onClose}>
+    <ModalShell
+      label={`Run ${run.id}`}
+      className="run-detail"
+      showClose
+      cardRef={scrollRef}
+      onClose={onClose}
+    >
       <h2 style={{ marginTop: 0, fontSize: 'inherit' }}>
         Run #{run.id}{' '}
         <span className={runStatusClass(run.status)} data-testid="detail-status">
@@ -43,6 +53,7 @@ export function RunDetail({ run, onClose }: { run: Run; onClose: () => void }) {
         <RunSessionFacts
           run={run}
           status={status}
+          scrollOwner={scrollRef}
           showTranscript={showLiveTranscript}
           onShowTranscript={() => setShowLiveTranscript(true)}
         />
@@ -71,11 +82,13 @@ function RunFacts({ run }: { run: Run }) {
 function RunSessionFacts({
   run,
   status,
+  scrollOwner,
   showTranscript,
   onShowTranscript,
 }: {
   run: Run
   status?: SessionStatus
+  scrollOwner: RefObject<HTMLDivElement | null>
   showTranscript: boolean
   onShowTranscript: () => void
 }) {
@@ -97,7 +110,9 @@ function RunSessionFacts({
           </button>
         </p>
       )}
-      {(!live || showTranscript) && <TranscriptPreview sessionId={run.sessionId!} />}
+      {(!live || showTranscript) && (
+        <TranscriptPreview sessionId={run.sessionId!} scrollOwner={scrollOwner} />
+      )}
     </>
   )
 }

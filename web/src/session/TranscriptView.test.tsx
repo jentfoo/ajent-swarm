@@ -326,6 +326,59 @@ describe('TranscriptView load older failures', () => {
   })
 })
 
+// The pending fence: one in-flight read disables the control with a progress
+// label, a same-tick second activation cannot double-fire the cursor, and a
+// settled read hands the control back for retries.
+describe('TranscriptView load older pending', () => {
+  function renderPending(loadOlder: () => Promise<LoadOlderResult>) {
+    render(
+      <TranscriptView
+        sessionId="01TESTSESSION0000"
+        state={unrootedState()}
+        loadOlder={loadOlder}
+        onThinkingToggle={() => {}}
+      />,
+    )
+  }
+
+  it('disables and reports progress while pending', async () => {
+    let settle: ((result: LoadOlderResult) => void) | undefined
+    let calls = 0
+    renderPending(() => {
+      calls++
+      return new Promise<LoadOlderResult>((resolve) => {
+        settle = resolve
+      })
+    })
+
+    const idle = screen.getByRole('button', { name: 'Load older history' })
+    fireEvent.click(idle)
+    fireEvent.click(idle) // the synchronous guard keeps one request
+    expect(calls).toBe(1)
+    expect(screen.getByRole('button', { name: 'Loading older history…' })).toBeDisabled()
+
+    settle?.({ kind: 'loaded' })
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Load older history' })).toBeEnabled()
+    })
+  })
+
+  it('hands the control back when a read fails', async () => {
+    let settle: ((result: LoadOlderResult) => void) | undefined
+    renderPending(
+      () =>
+        new Promise<LoadOlderResult>((resolve) => {
+          settle = resolve
+        }),
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Load older history' }))
+
+    settle?.({ kind: 'failed', message: 'network down' })
+    expect(await screen.findByText('network down')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Load older history' })).toBeEnabled()
+  })
+})
+
 // The phone keyboard shrinks the scroller step by step while the inset lifts
 // the composer, and WebKit's focus reveal pass can leave the stuck tail
 // anywhere along the way: each resize re-pins a stuck view and leaves a

@@ -59,6 +59,9 @@ cat > "$HOME_DIR/models.json" <<EOF
   }
 }
 EOF
+cat > "$HOME_DIR/config.json" <<EOF
+{"control":{"enabled":true}}
+EOF
 
 echo "==> starting fake provider"
 node scripts/fake-provider.mjs &

@@ -105,6 +105,10 @@ func serve(opts Options, stderr io.Writer) int {
 		return fail(err)
 	}
 
+	if err = checkControlEnabled(); err != nil {
+		return fail(err)
+	}
+
 	bin, version, err := locateAjent(ctx, opts.AjentBin)
 	if err != nil {
 		return fail(err)

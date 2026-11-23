@@ -34,6 +34,14 @@ import (
 // itself so daemon mode runs against a real binary.
 const moduleRootPackage = "github.com/jentfoo/ajent-swarm"
 
+// enableControl writes the ajent config daemon startup now gates on: without
+// it the control socket defaults off and serve refuses to start.
+func enableControl(t *testing.T, home string) {
+	t.Helper()
+	require.NoError(t, os.WriteFile(filepath.Join(home, "config.json"),
+		[]byte(`{"control":{"enabled":true}}`), 0o600))
+}
+
 func TestDaemon(t *testing.T) {
 	t.Run("password_handoff", func(t *testing.T) {
 		switch runtime.GOOS {
@@ -53,6 +61,7 @@ func TestDaemon(t *testing.T) {
 			[]byte("#!/bin/sh\necho 'ajent version v0.0.0-stub'\n"), 0o755))
 		port := freeTCPPort(t)
 		home := t.TempDir()
+		enableControl(t, home)
 		const loginPW = "handoff-secret"
 
 		t.Run("parent_hands_off_environment_value", func(t *testing.T) {
@@ -125,6 +134,7 @@ func TestDaemon(t *testing.T) {
 		ctx := t.Context()
 
 		home := t.TempDir()
+		enableControl(t, home)
 		port := freeTCPPort(t)
 		// registered once the daemon is up, so a failed subtest never leaks it
 		parent := t
@@ -181,6 +191,7 @@ func TestDaemon(t *testing.T) {
 			bin := buildSwarm(t)
 			ctx := t.Context()
 			home := t.TempDir()
+			enableControl(t, home)
 			port := freeTCPPort(t)
 			base := "http://127.0.0.1:" + port
 			pidPath := filepath.Join(home, swarmDirName, pidFileName)

@@ -757,11 +757,30 @@ func TestScheduler(t *testing.T) {
 			settleWindow, 10*time.Millisecond)
 		assert.Equal(h.t, []string{"first prompt"}, prompts())
 
-		// the loser waits out its own window instead of riding the same one
-		require.Never(h.t, func() bool { return len(prompts()) > 1 },
-			queuedIdleWindow/2, 5*time.Millisecond)
-		require.Eventually(h.t, func() bool { return slices.Contains(prompts(), "second prompt") },
-			settleWindow, 10*time.Millisecond)
+		require.Eventually(h.t, func() bool {
+			return slices.Contains(prompts(), "second prompt")
+		}, settleWindow, 10*time.Millisecond)
+
+		// the loser waits out its own window instead of riding the same one,
+		// checked on recorded starts so observation lag cannot flake the assert
+		rows, err := h.store.Runs(h.t.Context(), 0, 100)
+		require.NoError(t, err)
+		var firstAt, secondAt time.Time
+		for _, r := range rows {
+			if r.Status != store.RunOK {
+				continue
+			}
+			switch r.Prompt {
+			case "first prompt":
+				firstAt = r.StartedAt
+			case "second prompt":
+				secondAt = r.StartedAt
+			}
+		}
+		require.False(t, firstAt.IsZero())
+		require.False(t, secondAt.IsZero())
+		// the slack absorbs unix-milli truncation of the persisted start stamps
+		assert.GreaterOrEqual(t, secondAt.Sub(firstAt), queuedIdleWindow-5*time.Millisecond)
 	})
 
 	t.Run("startup_sweeps_abandoned_queued", func(t *testing.T) {

@@ -1,6 +1,14 @@
 import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter, Route, Routes } from 'react-router'
+import type { ReactElement } from 'react'
+import {
+  MemoryRouter,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+  useNavigationType,
+} from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import RunsHistory from './RunsHistory'
@@ -12,8 +20,9 @@ import { formatTimestamp, relativeTimestamp } from '../jobs/schedule'
 import type { Job, Run } from '../api/types'
 
 // Run history renders over the real provider stack: rows join job names,
-// filters narrow through the backend's ?job= and client-side status, a
-// first load paints a loading line instead of a blank panel, a run's detail
+// filters narrow through the backend's ?job= and client-side status, the
+// filters live in the URL so deep links and history navigation restore them,
+// a first load paints a loading line instead of a blank panel, a run's detail
 // routes to its session view when live or its recorded transcript when not,
 // an open detail tracks each poll instead of a frozen snapshot, only the
 // newest load may commit over an in-flight one, and platform back peels the
@@ -101,6 +110,39 @@ const savedPage = {
 let runsReply: Run[]
 const requested: string[] = []
 
+// NavProbe exposes the current search string and the last navigation type, so
+// filter tests can observe the URL and the replace-vs-push choice without
+// reaching into the router.
+function NavProbe(): ReactElement {
+  const navType = useNavigationType()
+  return (
+    <div data-testid="probe">
+      <span data-testid="search">{useLocation().search}</span>
+      <span data-testid="nav-type">{navType}</span>
+    </div>
+  )
+}
+
+// NavButton and BackButton drive MemoryRouter between URLs directly, standing
+// in for the browser navigation that keeps one RunsHistory instance mounted.
+function NavButton({ to, children }: { to: string; children: string }): ReactElement {
+  const navigate = useNavigate()
+  return (
+    <button type="button" onClick={() => navigate(to)}>
+      {children}
+    </button>
+  )
+}
+
+function BackButton({ children }: { children: string }): ReactElement {
+  const navigate = useNavigate()
+  return (
+    <button type="button" onClick={() => navigate(-1)}>
+      {children}
+    </button>
+  )
+}
+
 describe('RunsHistory', () => {
   let sockets: MockWebSocket[]
 
@@ -173,13 +215,22 @@ describe('RunsHistory', () => {
     vi.unstubAllGlobals()
   })
 
-  function renderRuns(initialEntry = '/jobs/runs') {
+  function renderRuns(initialEntry = '/jobs/runs', nav?: ReactElement) {
     return render(
       <MemoryRouter initialEntries={[initialEntry]}>
         <AuthProvider>
           <SwarmProvider>
+            {nav}
             <Routes>
-              <Route path="/jobs/runs" element={<RunsHistory />} />
+              <Route
+                path="/jobs/runs"
+                element={
+                  <>
+                    <NavProbe />
+                    <RunsHistory />
+                  </>
+                }
+              />
               <Route path="*" element={<div>elsewhere</div>} />
             </Routes>
           </SwarmProvider>
@@ -187,6 +238,8 @@ describe('RunsHistory', () => {
       </MemoryRouter>,
     )
   }
+
+  const runsFetches = () => requested.filter((u) => u.startsWith('/api/runs'))
 
   it('renders rows joined with job names, durations and errors', async () => {
     renderRuns()
@@ -427,6 +480,102 @@ describe('RunsHistory', () => {
       expect(screen.queryByTestId('run-11')).not.toBeInTheDocument()
       expect(screen.getByTestId('run-12')).toBeInTheDocument()
     })
+  })
+
+  it('initializes filters from a deep-linked URL', async () => {
+    renderRuns('/jobs/runs?job=6&status=failed')
+
+    // the first fetch already carries the filter, no all-jobs request runs first
+    expect(runsFetches()).toHaveLength(1)
+    expect(runsFetches()[0]).toContain('job=6')
+    expect(await screen.findByTestId('run-12')).toBeInTheDocument()
+    expect(screen.queryByTestId('run-11')).not.toBeInTheDocument()
+    expect(screen.getByLabelText(/Job/)).toHaveValue('6')
+    expect(screen.getByLabelText(/^Status/)).toHaveValue('failed')
+  })
+
+  it('replaces URL parameters on filter changes', async () => {
+    renderRuns()
+    const user = userEvent.setup()
+    await screen.findByTestId('run-11')
+    expect(runsFetches()).toHaveLength(1)
+
+    await user.selectOptions(screen.getByLabelText(/Job/), '6')
+    await waitFor(() => expect(runsFetches()).toHaveLength(2))
+    expect(runsFetches().at(-1)).toContain('job=6')
+    expect(screen.getByTestId('search')).toHaveTextContent('?job=6')
+    // replace keeps the poll's filter edits out of the browser-back trail
+    expect(screen.getByTestId('nav-type')).toHaveTextContent('REPLACE')
+
+    // status is client-side: it rewrites the URL without another fetch
+    await user.selectOptions(screen.getByLabelText(/^Status/), 'failed')
+    expect(screen.getByTestId('search')).toHaveTextContent('?job=6&status=failed')
+    expect(runsFetches()).toHaveLength(2)
+    expect(screen.queryByTestId('run-11')).not.toBeInTheDocument()
+
+    // clearing both leaves the plain route: only non-defaults serialize
+    await user.selectOptions(screen.getByLabelText(/Job/), '')
+    await waitFor(() => expect(runsFetches()).toHaveLength(3))
+    await user.selectOptions(screen.getByLabelText(/^Status/), '')
+    expect(await screen.findByTestId('run-11')).toBeInTheDocument()
+    expect(screen.getByTestId('search').textContent).toBe('')
+  })
+
+  it('follows back and forward onto changed URLs', async () => {
+    renderRuns(
+      '/jobs/runs',
+      <>
+        <NavButton to="/jobs/runs?job=6">to weekly</NavButton>
+        <BackButton>back one</BackButton>
+      </>,
+    )
+    await screen.findByTestId('run-11')
+    const user = userEvent.setup()
+
+    // navigation onto a filtered URL reloads under that filter, the same
+    // instance stays mounted
+    await user.click(screen.getByRole('button', { name: 'to weekly' }))
+    expect(await screen.findByTestId('run-12')).toBeInTheDocument()
+    expect(screen.queryByTestId('run-11')).not.toBeInTheDocument()
+    expect(screen.getByLabelText(/Job/)).toHaveValue('6')
+
+    // back restores the plain URL and its rows through exactly one reload
+    await user.click(screen.getByRole('button', { name: 'back one' }))
+    expect(await screen.findByTestId('run-11')).toBeInTheDocument()
+    expect(screen.getByLabelText(/Job/)).toHaveValue('')
+    expect(runsFetches()).toHaveLength(3)
+  })
+
+  it.each(['abc', '0', '-5', '5.5', ''])('treats job param %s as All', async (raw) => {
+    renderRuns(`/jobs/runs?job=${raw}`)
+
+    // no NaN ever reaches the API, the validated id falls back to All
+    expect(runsFetches()).toHaveLength(1)
+    expect(runsFetches()[0]).not.toContain('job=')
+    expect(await screen.findByTestId('run-13')).toBeInTheDocument()
+    expect(screen.getByLabelText(/Job/)).toHaveValue('')
+  })
+
+  it.each(['bogus', 'FAILED'])('treats status param %s as All', async (raw) => {
+    renderRuns(`/jobs/runs?status=${raw}`)
+
+    // an unknown status falls back to All, every row still shows
+    expect(await screen.findByTestId('run-11')).toBeInTheDocument()
+    expect(screen.getByTestId('run-13')).toBeInTheDocument()
+    expect(screen.getByLabelText(/^Status/)).toHaveValue('')
+  })
+
+  it('keeps a deep-linked deleted job visible', async () => {
+    renderRuns('/jobs/runs?job=999')
+
+    // the select holds the id while the names load, then names it gone
+    await waitFor(() =>
+      expect(screen.getByRole('option', { name: '#999 (deleted)' })).toBeInTheDocument(),
+    )
+    expect(screen.getByLabelText(/Job/)).toHaveValue('999')
+    expect(
+      screen.getByText('No runs for this job yet. Fire it or wait for its schedule.'),
+    ).toBeInTheDocument()
   })
 
   it('links a live run to its session view', async () => {

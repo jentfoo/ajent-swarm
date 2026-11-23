@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactElement } from 'react'
+import { useSearchParams } from 'react-router'
 import { describeError } from '../api/errors'
 import { jobsApi, runsApi } from '../api/endpoints'
 import type { Job, Run, RunStatus } from '../api/types'
@@ -20,19 +21,25 @@ import { useOverlayBack } from '../ui/useOverlayBack'
 const pollRunsMs = 10_000
 
 // RunsHistory is the filterable history over /api/runs: by job through the
-// backend's ?job= parameter, by status client-side. Each row's display data
-// derives once and renders twice: the desktop table above the shared 48rem
+// backend's ?job= parameter, by status client-side. Both filters live in the
+// URL search parameters, so a filtered view reloads, bookmarks and shares, and
+// a job row's Last run cell deep-links straight into it. Each row's display
+// data derives once and renders twice: the desktop table above the shared 48rem
 // breakpoint (hooks/useMediaQuery.mobileLayout), stacked cards below it.
 // Clicking a row explains what happened without opening logs. The detail modal
 // resolves its run from the latest list, so each poll refreshes it in place.
 export default function RunsHistory() {
   const mobile = useMediaQuery(mobileLayout)
+  const [searchParams, setSearchParams] = useSearchParams()
   const [jobs, setJobs] = useState<Job[]>([])
+  const [jobsLoaded, setJobsLoaded] = useState(false)
   const [runs, setRuns] = useState<Run[] | null>(null)
   const [error, setError] = useState('')
-  const [jobFilter, setJobFilter] = useState<number | ''>('')
-  const [statusFilter, setStatusFilter] = useState<'' | RunStatus>('')
   const [selectedId, setSelectedId] = useState<number | undefined>(undefined)
+  // the URL is the filter state, validated once so a hand-edited link can
+  // neither request NaN nor filter on an unknown status
+  const jobFilter = parseJobFilter(searchParams.get('job'))
+  const statusFilter = parseStatusFilter(searchParams.get('status'))
 
   // Each load aborts its predecessor and only the newest may commit state:
   // a poll tick racing a filter change would otherwise let last-resolved win
@@ -41,11 +48,10 @@ export default function RunsHistory() {
   const abortRef = useRef<AbortController | null>(null)
   useEffect(() => () => abortRef.current?.abort(), [])
 
-  // The explicit job filter takes the value so a change reloads at once, the
-  // poll's initial tick covers the mount-time load and later cadence ticks
-  // read the latest filter through the callback ref. History is the primary
-  // read and job names auxiliary: one failing never masks the other, each
-  // branch applies only after the recency check.
+  // History is the primary read and job names auxiliary: one failing never
+  // masks the other, each branch applies only after the recency check. Loads
+  // pass the job filter explicitly so a change reloads under its own value,
+  // the poll reads the latest filter through the callback ref.
   const load = useCallback(
     async (jobId: number | '' = jobFilter) => {
       const seq = ++loadSeq.current
@@ -65,10 +71,37 @@ export default function RunsHistory() {
       }
       // a refused names read keeps the current labels, rows stay on their dash
       // until the next poll lands it
-      if (jobsRes.status === 'fulfilled') setJobs(jobsRes.value ?? [])
+      if (jobsRes.status === 'fulfilled') {
+        setJobs(jobsRes.value ?? [])
+        setJobsLoaded(true)
+      }
     },
     [jobFilter],
   )
+
+  // setFilters rewrites the two params with replace: only non-defaults
+  // serialize so the plain route stays clean, and filter edits never grow the
+  // browser-back trail under the poll. The route defines no other parameters.
+  const setFilters = useCallback(
+    (job: number | '', status: '' | RunStatus) => {
+      const next = new URLSearchParams()
+      if (job !== '') next.set('job', String(job))
+      if (status !== '') next.set('status', status)
+      setSearchParams(next, { replace: true })
+    },
+    [setSearchParams],
+  )
+
+  // One path reloads on every actual job change, select edits and history
+  // navigation alike, while the poll's initial tick covers the mount-time load
+  // (this ref is seeded at mount) and later cadence ticks read the latest
+  // filter through the callback ref.
+  const loadedJobRef = useRef(jobFilter)
+  useEffect(() => {
+    if (loadedJobRef.current === jobFilter) return
+    loadedJobRef.current = jobFilter
+    void load(jobFilter)
+  }, [jobFilter, load])
 
   usePoll(() => void load(), pollRunsMs)
 
@@ -111,11 +144,7 @@ export default function RunsHistory() {
           Job{' '}
           <select
             value={jobFilter}
-            onChange={(ev) => {
-              const v = ev.target.value === '' ? ('' as const) : Number(ev.target.value)
-              setJobFilter(v)
-              void load(v)
-            }}
+            onChange={(ev) => setFilters(parseJobFilter(ev.target.value), statusFilter)}
           >
             <option value="">All jobs</option>
             {jobs.map((j) => (
@@ -123,13 +152,20 @@ export default function RunsHistory() {
                 {j.name}
               </option>
             ))}
+            {/* a deep-linked id keeps its slot: bare until the names load,
+                then a truthful gone label instead of silently reading All */}
+            {jobFilter !== '' && !jobs.some((j) => j.id === jobFilter) && (
+              <option value={jobFilter}>
+                {jobsLoaded ? `#${jobFilter} (deleted)` : `#${jobFilter}`}
+              </option>
+            )}
           </select>
         </label>
         <label className="runs-filter">
           Status{' '}
           <select
             value={statusFilter}
-            onChange={(ev) => setStatusFilter(ev.target.value as '' | RunStatus)}
+            onChange={(ev) => setFilters(jobFilter, parseStatusFilter(ev.target.value))}
           >
             <option value="">All</option>
             {runStatuses.map((s) => (
@@ -191,6 +227,20 @@ export default function RunsHistory() {
       {selected && <RunDetailLayer run={selected} onClose={() => setSelectedId(undefined)} />}
     </div>
   )
+}
+
+// parseJobFilter validates a ?job= value onto a job id: ids are positive
+// integers, so any other spelling reads as All and never requests NaN.
+function parseJobFilter(raw: string | null): number | '' {
+  if (raw === null) return ''
+  const n = Number(raw)
+  return Number.isInteger(n) && n > 0 ? n : ''
+}
+
+// parseStatusFilter validates ?status= onto the stored status union, unknown
+// values fall back to All rather than a filter nothing can match.
+function parseStatusFilter(raw: string | null): '' | RunStatus {
+  return raw !== null && (runStatuses as readonly string[]).includes(raw) ? (raw as RunStatus) : ''
 }
 
 // runEmptyCopy names the empty scope: global absence, one job's history, or a

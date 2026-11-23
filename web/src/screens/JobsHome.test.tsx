@@ -308,6 +308,32 @@ describe('JobsHome', () => {
     expect(row.textContent).not.toContain('failed')
   })
 
+  it('links the last-run cell to the job-filtered history', async () => {
+    renderJobs()
+    await screen.findByText('nightly sweep')
+
+    const link = within(screen.getByTestId('job-5')).getByRole('link', {
+      name: 'Run history for nightly sweep',
+    })
+    expect(link).toHaveAttribute('href', '/jobs/runs?job=5')
+    expect(within(link).getByText('failed')).toBeInTheDocument()
+
+    // the link opens run history alone: no row action rides along into it
+    await userEvent.setup().click(link)
+    expect(screen.getByText('runs')).toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: 'Edit “nightly sweep”' })).not.toBeInTheDocument()
+  })
+
+  it('links the card status badge to the job-filtered history', async () => {
+    stubPhoneLayout()
+    renderJobs()
+    const card = await screen.findByTestId('job-5')
+
+    const link = within(card).getByRole('link', { name: 'Run history for nightly sweep' })
+    expect(link).toHaveAttribute('href', '/jobs/runs?job=5')
+    expect(within(link).getByText('failed')).toBeInTheDocument()
+  })
+
   it('shows the empty state', async () => {
     jobsReply = { rows: [] }
     renderJobs()
@@ -466,10 +492,11 @@ describe('JobsHome', () => {
     expect(
       screen.getByText('Run history unavailable, last-run facts may be stale.'),
     ).toBeInTheDocument()
-    // the Last run cell falls back to its dash
+    // the Last run cell falls back to its dash, without a history link
     const row = screen.getByTestId('job-5')
     expect(row.textContent).toContain('every 30 minutes')
     expect(screen.queryByText('failed')).not.toBeInTheDocument()
+    expect(within(row).queryByRole('link', { name: /Run history/ })).not.toBeInTheDocument()
 
     // a later successful read clears the notice
     vi.stubGlobal(

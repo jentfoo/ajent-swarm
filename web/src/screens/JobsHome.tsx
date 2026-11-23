@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 
 import { describeError } from '../api/errors'
@@ -29,7 +30,8 @@ const lastRunsWarning = 'Run history unavailable, last-run facts may be stale.'
 type JobStateFilter = 'all' | 'enabled' | 'disabled'
 
 // JobsHome lists scheduled jobs over /api/jobs: plain-language schedules,
-// next fire times, an optimistic enabled toggle and manual fires. Each row's
+// next fire times, an optimistic enabled toggle and manual fires, with the
+// Last run facts linking into the job-filtered run history. Each row's
 // display data derives once and renders twice: the desktop table above the
 // shared 48rem breakpoint (hooks/useMediaQuery.mobileLayout), stacked cards
 // below it. The editor rides the same route tree (/jobs/new, /jobs/:id) as a
@@ -527,12 +529,12 @@ function JobTableRow({ job, facts, firing, onToggle, onFire }: JobRowProps) {
         {facts.lastStatus === undefined ? (
           '—'
         ) : (
-          <>
+          <LastRunLink job={job}>
             <span className={facts.lastStatus.className}>{facts.lastStatus.label}</span>
             {facts.errorExcerpt && (
               <JobExcerpt className="run-error-excerpt" excerpt={facts.errorExcerpt} />
             )}
-          </>
+          </LastRunLink>
         )}
       </td>
       <td>
@@ -558,6 +560,17 @@ function JobTableRow({ job, facts, firing, onToggle, onFire }: JobRowProps) {
   )
 }
 
+// LastRunLink carries the Last run facts into the job-filtered history for
+// both layouts, job-only so later history stays visible. The dash has no run
+// to inspect and stays plain text.
+function LastRunLink({ job, children }: { job: Job; children: ReactNode }) {
+  return (
+    <Link to={`/jobs/runs?job=${job.id}`} aria-label={`Run history for ${job.name}`}>
+      {children}
+    </Link>
+  )
+}
+
 // JobCard is the phone presentation: one stacked card per job wearing the
 // switcher rows' touch language (last-run status beside the label, 44px
 // action floors) with labeled lines standing in for the table headers.
@@ -567,7 +580,9 @@ function JobCard({ job, facts, firing, onToggle, onFire }: JobRowProps) {
       <span className="switch-top">
         <span className="switch-name">{job.name}</span>
         {facts.lastStatus && (
-          <span className={facts.lastStatus.className}>{facts.lastStatus.label}</span>
+          <LastRunLink job={job}>
+            <span className={facts.lastStatus.className}>{facts.lastStatus.label}</span>
+          </LastRunLink>
         )}
       </span>
       <div className="muted small-note">{facts.path}</div>

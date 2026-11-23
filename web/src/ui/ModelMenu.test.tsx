@@ -227,6 +227,35 @@ describe('ModelMenu', () => {
     window.history.replaceState(null, '', window.location.href)
   })
 
+  it('opens the touch menu without summoning the keyboard', async () => {
+    // the coarse-pointer branch renders through OverlayMenu, and its filter
+    // must not grab the caret: that would bounce the software keyboard open
+    // on every menu open. Tapping Filter models stays deliberate.
+    stubCoarsePointer()
+    const user = userEvent.setup()
+    stubFetch((url) => {
+      if (url === '/api/sessions/01S/models') {
+        return Response.json({
+          active: 'anthropic/claude-sonnet',
+          models: [{ key: 'anthropic/claude-sonnet', short: 'sonnet' }],
+        })
+      }
+      throw new Error(`unexpected fetch ${url}`)
+    })
+
+    render(<ModelMenu sessionId="01S" snap={snapFor()} onToast={() => {}} />)
+    await user.click(screen.getByRole('button', { name: /sonnet/ }))
+    expect(await screen.findByRole('menuitem', { name: /sonnet/ })).toBeInTheDocument()
+    expect(screen.getByRole('searchbox')).not.toHaveFocus()
+
+    // settle the queued consume and leave unstamped ground behind, like the
+    // platform-back test; act wraps the close the popstate drives
+    act(() => {
+      window.dispatchEvent(new PopStateEvent('popstate'))
+    })
+    window.history.replaceState(null, '', window.location.href)
+  })
+
   it('fetches the listing fresh on each open', async () => {
     const user = userEvent.setup()
     stubFetch((url) => {

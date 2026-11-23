@@ -12,7 +12,7 @@ import { MenuPopover, placeMenu } from './MenuPopover'
 // focused before opening. jsdom has no layout: geometry is stubbed by class.
 
 const baseAnchor = { top: 100, bottom: 124, left: 300, right: 360 }
-const menuSize = { width: 200, height: 64 }
+let menuSize = { width: 200, height: 64 }
 
 let anchorBox = baseAnchor
 
@@ -40,6 +40,7 @@ function flushFrame() {
 
 beforeEach(() => {
   anchorBox = baseAnchor
+  menuSize = { width: 200, height: 64 }
   vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
     const r = rectFor(this)
     return {
@@ -67,12 +68,32 @@ beforeEach(() => {
 // the resize case pins innerHeight, restore the jsdom default between tests
 const innerHeightDesc = Object.getOwnPropertyDescriptor(window, 'innerHeight')!
 
+// FakeVV stands in for visualViewport, which jsdom ships none of: resize and
+// scroll events plus geometry fields cover the keyboard's effect on placement.
+interface FakeVV extends EventTarget {
+  width: number
+  height: number
+  offsetTop: number
+  offsetLeft: number
+}
+
+let vv: FakeVV
+
+function stubViewport(
+  props: Partial<{ width: number; height: number; offsetTop: number; offsetLeft: number }> = {},
+) {
+  vv = new EventTarget() as FakeVV
+  Object.assign(vv, { width: 1024, height: 768, offsetTop: 0, offsetLeft: 0 }, props)
+  Object.defineProperty(window, 'visualViewport', { configurable: true, value: vv })
+}
+
 afterEach(() => {
   vi.restoreAllMocks()
   window.requestAnimationFrame = realRaf
   window.cancelAnimationFrame = realCancelRaf
   rafCallbacks.clear()
   Object.defineProperty(window, 'innerHeight', innerHeightDesc)
+  Reflect.deleteProperty(window, 'visualViewport')
 })
 
 // Harness keeps the popover open beside a trigger under an overflow-clipped
@@ -273,6 +294,7 @@ describe('MenuPopover', () => {
   })
 
   it('repositions when the window resizes while open', () => {
+    // no visual viewport stub here: this is the layout-viewport fallback path
     render(<Harness />)
     expect(screen.getByRole('menu').style.top).toBe(`${baseAnchor.bottom + 4}px`)
 
@@ -284,6 +306,52 @@ describe('MenuPopover', () => {
       window.dispatchEvent(new Event('resize'))
     })
     expect(screen.getByRole('menu').style.top).toBe(`${baseAnchor.top - 4 - menuSize.height}px`)
+  })
+
+  it('repositions when the visual viewport resizes while open', () => {
+    // a keyboard shrinking the visible area flips the menu without the layout
+    // viewport ever moving
+    stubViewport()
+    render(<Harness />)
+    expect(screen.getByRole('menu').style.top).toBe(`${baseAnchor.bottom + 4}px`)
+
+    vv.height = 180
+    act(() => {
+      vv.dispatchEvent(new Event('resize'))
+    })
+    // too short below now, room left above, so the menu flips over the trigger
+    expect(screen.getByRole('menu').style.top).toBe(`${baseAnchor.top - 4 - menuSize.height}px`)
+  })
+
+  it('clamps into an offset visual viewport', () => {
+    // floating browser chrome shrinking the visible window from the left:
+    // fixed coordinates stay layout-relative, so only the usable box moves
+    stubViewport({ width: 300, offsetLeft: 40 })
+    render(<Harness />)
+    // the 200px menu hugs the usable right edge, 8px inside its 340px bound
+    expect(screen.getByRole('menu').style.left).toBe(`${40 + 300 - 8 - menuSize.width}px`)
+  })
+
+  it('caps its height inside a keyboard-shortened viewport', () => {
+    stubViewport({ height: 300 })
+    menuSize = { width: 200, height: 400 }
+    render(<Harness />)
+
+    const menu = screen.getByRole('menu')
+    // neither side fits the 284px cap, so the menu pins at the top margin and
+    // scrolls inside the usable box instead of spilling under the keyboard
+    expect(menu.style.top).toBe('8px')
+    expect(menu.style.maxHeight).toBe('284px')
+    expect(menu.style.overflowY).toBe('auto')
+  })
+
+  it('leaves its height uncapped while the usable viewport fits it', () => {
+    stubViewport()
+    render(<Harness />)
+
+    const menu = screen.getByRole('menu')
+    expect(menu.style.maxHeight).toBe('')
+    expect(menu.style.overflowY).toBe('')
   })
 
   it('follows a trigger that moves without resizing', () => {
@@ -520,7 +588,7 @@ describe('MenuPopover menu keys', () => {
 describe('placeMenu', () => {
   const anchor = { top: 100, bottom: 124, left: 300, right: 360 }
   const size = { width: 200, height: 64 }
-  const viewport = { width: 1024, height: 768 }
+  const viewport = { top: 0, left: 0, right: 1024, bottom: 768 }
 
   it('hangs below when the space fits', () => {
     expect(placeMenu(anchor, size, viewport, 'left')).toEqual({ left: 300, top: 128 })
@@ -548,7 +616,7 @@ describe('placeMenu', () => {
 
   it('pins to the roomier side when neither fits', () => {
     // a 64px menu against a 100px viewport: below offers 16, above 56
-    const tiny = { width: 1024, height: 100 }
+    const tiny = { top: 0, left: 0, right: 1024, bottom: 100 }
     expect(placeMenu({ ...anchor, top: 60, bottom: 80 }, size, tiny, 'left')).toEqual({
       left: 300,
       top: 8,
@@ -563,12 +631,42 @@ describe('placeMenu', () => {
     const tall = { width: 200, height: 120 }
     // below is roomier but cannot fit either, pin at the margin, not off-screen
     expect(
-      placeMenu({ ...anchor, top: 10, bottom: 30 }, tall, { width: 1024, height: 100 }, 'left'),
-    ).toEqual({ left: 300, top: 8 })
+      placeMenu(
+        { ...anchor, top: 10, bottom: 30 },
+        tall,
+        { top: 0, left: 0, right: 1024, bottom: 100 },
+        'left',
+      ),
+    ).toEqual({ left: 300, top: 8, maxHeight: 84 })
   })
 
   it('anchors at the trigger when the menu outgrows the viewport', () => {
     const huge = { width: 2000, height: 64 }
     expect(placeMenu(anchor, huge, viewport, 'left')).toEqual({ left: 300, top: 128 })
+  })
+
+  it('clamps into a panned usable box without moving the anchor', () => {
+    // a 40px chrome strip on the left: the box the menu must fit shifts, the
+    // trigger's fixed coordinates do not
+    const shifted = { top: 0, left: 40, right: 340, bottom: 768 }
+    expect(placeMenu(anchor, size, shifted, 'left')).toEqual({ left: 132, top: 128 })
+  })
+
+  it('caps its height against the usable box and reports the cap', () => {
+    const keyboard = { top: 0, left: 0, right: 1024, bottom: 300 }
+    expect(
+      placeMenu({ ...anchor, top: 10, bottom: 30 }, { width: 200, height: 400 }, keyboard, 'left'),
+    ).toEqual({ left: 300, top: 8, maxHeight: 284 })
+  })
+
+  it('keeps the capped menu inside the usable box', () => {
+    // the raw 400px menu pinned above a 128px-tall strip would spill 280px
+    // behind the keyboard; its 112px cap fits whole
+    const strip = { top: 0, left: 0, right: 1024, bottom: 128 }
+    expect(placeMenu(anchor, { width: 200, height: 400 }, strip, 'left')).toEqual({
+      left: 300,
+      top: 8,
+      maxHeight: 112,
+    })
   })
 })

@@ -541,4 +541,24 @@ describe('JobEditor', () => {
       expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ id: 3, name: 'renamed' })),
     )
   })
+
+  it('bounds the fields inside the scroll region beside the footer', () => {
+    // jsdom cannot lay out the mobile form, so this pins the structure its
+    // CSS bounds: the fields scroll, the action footer stands outside the
+    // scroll region, still a direct form child for native submit
+    renderEditor()
+
+    const form = document.querySelector('form')!
+    const scroll = form.querySelector('.editor-scroll')
+    const actions = form.querySelector('.editor-actions')
+    // theme.css keys the mobile bounds on this class pair
+    expect(form.closest('.modal.job-editor')).not.toBeNull()
+    expect(scroll).not.toBeNull()
+    expect(actions!.parentElement).toBe(form)
+    expect(scroll).toContainElement(screen.getByLabelText(/Workspace directory/))
+    expect(scroll).toContainElement(screen.getByRole('textbox', { name: /^Prompt/ }))
+    expect(scroll!.contains(screen.getByRole('button', { name: 'Create job' }))).toBe(false)
+    expect(form.contains(screen.getByRole('button', { name: 'Create job' }))).toBe(true)
+    expect(form.contains(screen.getByRole('button', { name: 'Cancel' }))).toBe(true)
+  })
 })

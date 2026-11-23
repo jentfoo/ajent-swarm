@@ -1846,18 +1846,45 @@ label {
   overflow-y: auto;
 }
 
-/* the editor fills small screens, so mobile gets a full-screen form; dvh
-   keeps its action buttons above browser toolbars instead of behind them */
+/* the editor fills small screens, so mobile gets a full-screen form. Dialogs
+   center inside the backdrop, which rides the published keyboard inset like
+   .sheet-backdrop, and full-screen cards size against it through 100% instead
+   of a static dvh the keyboard cannot see */
 @media (max-width: 48rem) {
-  .modal.job-editor,
+  .modal-backdrop {
+    bottom: var(--keyboard-inset, 0px);
+  }
   .modal.run-detail {
     width: 100vw;
-    height: 100vh; /* static fallback for engines without dynamic units */
-    height: 100dvh;
-    max-height: 100vh;
-    max-height: 100dvh;
+    height: 100%;
+    max-height: 100%;
     border-radius: 0;
     overflow-y: auto;
+  }
+  /* job and queue forms: bounded column, the fields scroll and the actions
+     stand still, so a focused field never pushes its buttons under the
+     keyboard. The safe area pads the footer while the keyboard inset stays on
+     the backdrop, so neither inset is counted twice */
+  .modal.job-editor {
+    width: 100vw;
+    height: 100%;
+    max-height: 100%;
+    border-radius: 0;
+    overflow: hidden;
+  }
+  .modal.job-editor form {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+  }
+  .modal.job-editor .editor-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+  }
+  .modal.job-editor .editor-actions {
+    flex-shrink: 0;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
   }
 }
 

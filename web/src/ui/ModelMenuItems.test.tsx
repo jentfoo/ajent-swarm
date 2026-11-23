@@ -1,9 +1,10 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { ModelMenuItems } from './ModelMenuItems'
 import type { ModelState } from '../api/types'
+import { stubCoarsePointer } from '../test/matchMedia'
 
 const model = (key: string, short = '', window = 0): ModelState => ({
   key,
@@ -18,8 +19,15 @@ const labels = () => screen.getAllByRole('menuitem').map((el) => el.textContent)
 // muted heading per provider, short labels with the full key as tooltip, loose
 // models by full key, the current badge on the active or snapshot key, and the
 // empty messages. Escape in the filter clears the query before the overlay's
-// own close can claim the press.
+// own close can claim the press, and the caret waits for a deliberate focus
+// on touch.
 describe('ModelMenuItems', () => {
+  // the pointer stubs here are global, so each test starts from the setup's
+  // fine-pointer stand-in again
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
   it('renders a heading before each provider group', () => {
     render(
       <ModelMenuItems
@@ -105,6 +113,32 @@ describe('ModelMenuItems', () => {
   })
 
   it('takes the caret on mount', () => {
+    render(<ModelMenuItems models={[model('a/one')]} active="" currentKey="" onPick={() => {}} />)
+    expect(screen.getByRole('searchbox')).toHaveFocus()
+  })
+
+  it('waits for a deliberate tap before touch focus', async () => {
+    // a tap-opened touch menu must not grab the caret: that would summon the
+    // software keyboard before the user asked for it
+    stubCoarsePointer()
+    fireEvent.pointerDown(document.body) // the tap that opened this menu
+    render(
+      <ModelMenuItems models={[model('a/one', 'one')]} active="" currentKey="" onPick={() => {}} />,
+    )
+    expect(screen.getByRole('searchbox')).not.toHaveFocus()
+
+    // tapping Filter models and typing still works
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('searchbox'))
+    await user.keyboard('one')
+    expect(labels()).toEqual(['one'])
+  })
+
+  it('touch keyboard opens still take the caret', () => {
+    // a hardware keyboard opening the menu is already deliberate, so the
+    // coarse-pointer gate must not strand that flow without a caret
+    stubCoarsePointer()
+    fireEvent.keyDown(document.body, { key: 'Enter' })
     render(<ModelMenuItems models={[model('a/one')]} active="" currentKey="" onPick={() => {}} />)
     expect(screen.getByRole('searchbox')).toHaveFocus()
   })

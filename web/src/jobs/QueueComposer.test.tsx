@@ -168,6 +168,11 @@ describe('QueueComposer', () => {
     expect(await screen.findByText(/name is required/)).toBeInTheDocument()
     expect(onQueued).not.toHaveBeenCalled()
     expect(screen.getByRole('dialog', { name: 'Queue a prompt' })).toBeInTheDocument()
+    // the refusal renders in the scroll body above the action footer, where a
+    // sticky mobile bar can never cover it
+    expect(document.querySelector('.editor-scroll')).toContainElement(
+      screen.getByText(/name is required/),
+    )
   })
 
   it('states the fixed policy as text instead of controls', () => {
@@ -253,5 +258,24 @@ describe('QueueComposer', () => {
 
     await user.click(screen.getByRole('button', { name: 'Cancel' }))
     expect(onCancel).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps the action footer inside the form beside a scroll body', () => {
+    // jsdom cannot lay out the mobile form, so this pins the structure its
+    // CSS bounds: fields scroll, actions stand outside the scroll region as
+    // a direct form child so the native submit survives
+    renderComposer()
+
+    const form = document.querySelector('form')!
+    const scroll = form.querySelector('.editor-scroll')
+    const actions = form.querySelector('.editor-actions')
+    // theme.css keys the mobile bounds on this class pair
+    expect(form.closest('.modal.job-editor')).not.toBeNull()
+    expect(scroll).not.toBeNull()
+    expect(actions!.parentElement).toBe(form)
+    expect(scroll).toContainElement(screen.getByRole('textbox', { name: /^Prompt/ }))
+    expect(scroll!.contains(screen.getByRole('button', { name: 'Queue prompt' }))).toBe(false)
+    expect(form.contains(screen.getByRole('button', { name: 'Queue prompt' }))).toBe(true)
+    expect(form.contains(screen.getByRole('button', { name: 'Cancel' }))).toBe(true)
   })
 })

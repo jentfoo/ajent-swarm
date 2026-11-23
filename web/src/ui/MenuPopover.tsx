@@ -12,7 +12,9 @@ const edgeMargin = 8
 // One shared answer to "was the last input a key press": a menu opened with
 // Enter may move focus into its items, one opened by a tap never steals the
 // pointer. Capture listeners track it, so every press counts wherever it
-// lands, claimed or not.
+// lands, claimed or not. openedWithKeyboard exposes the flag at mount time to
+// menu bodies, so touch menus can still autofocus for a hardware-keyboard
+// open while a tap waits for a deliberate focus.
 let lastInputWasKeyboard = false
 window.addEventListener(
   'keydown',
@@ -29,10 +31,17 @@ window.addEventListener(
   true,
 )
 
+export function openedWithKeyboard(): boolean {
+  return lastInputWasKeyboard
+}
+
 interface Placement {
   left: number
   top: number
   minWidth?: number
+  // present only when the menu is taller than the usable viewport, so the
+  // layer can scroll inside the space placement left it
+  maxHeight?: number
 }
 
 interface Box {
@@ -42,38 +51,62 @@ interface Box {
   right: number
 }
 
+// visibleViewport is the on-screen region in fixed coordinates: the visual
+// viewport's box when one exists, else the whole layout viewport at the
+// origin. The offsets matter because fixed elements position against the
+// layout viewport, while keyboards and floating chrome shrink and pan the
+// visual one the user actually sees.
+function visibleViewport(): Box {
+  const vv = window.visualViewport
+  if (!vv) {
+    return { top: 0, left: 0, bottom: window.innerHeight, right: window.innerWidth }
+  }
+  return {
+    top: vv.offsetTop,
+    left: vv.offsetLeft,
+    bottom: vv.offsetTop + vv.height,
+    right: vv.offsetLeft + vv.width,
+  }
+}
+
 // placeMenu computes fixed coordinates for one popover against a trigger box:
 // below when the space there fits, flipped above when only that side does,
-// then clamped horizontally into the viewport. A menu fitting neither side
-// pins to whichever edge leaves more room.
+// then clamped into the usable viewport box. A menu fitting neither side pins
+// to whichever edge leaves more room, and one taller than the usable viewport
+// also comes back capped so it scrolls inside the space instead of spilling
+// under a keyboard.
 export function placeMenu(
   anchor: Box,
   size: { width: number; height: number },
-  viewport: { width: number; height: number },
+  viewport: Box,
   align: 'left' | 'right',
 ): Placement {
-  const preferred = align === 'right' ? anchor.right - size.width : anchor.left
-  let left = Math.max(preferred, edgeMargin)
-  const maxLeft = viewport.width - edgeMargin - size.width
-  if (maxLeft > edgeMargin) left = Math.min(left, maxLeft)
+  const cap = Math.max(0, viewport.bottom - viewport.top - 2 * edgeMargin)
+  const height = Math.min(size.height, cap)
 
-  const belowSpace = viewport.height - anchor.bottom - anchorGap
-  const aboveSpace = anchor.top - anchorGap
+  const preferred = align === 'right' ? anchor.right - size.width : anchor.left
+  let left = Math.max(preferred, viewport.left + edgeMargin)
+  const maxLeft = viewport.right - edgeMargin - size.width
+  if (maxLeft > viewport.left + edgeMargin) left = Math.min(left, maxLeft)
+
+  const belowSpace = viewport.bottom - anchor.bottom - anchorGap
+  const aboveSpace = anchor.top - viewport.top - anchorGap
   let top: number
-  if (size.height <= belowSpace) {
+  if (height <= belowSpace) {
     top = anchor.bottom + anchorGap
-  } else if (size.height <= aboveSpace) {
-    top = anchor.top - anchorGap - size.height
+  } else if (height <= aboveSpace) {
+    top = anchor.top - anchorGap - height
   } else if (belowSpace >= aboveSpace) {
     // neither side fits: pin against the roomier edge, inside the viewport
     top = Math.max(
-      edgeMargin,
-      Math.min(anchor.bottom + anchorGap, viewport.height - edgeMargin - size.height),
+      viewport.top + edgeMargin,
+      Math.min(anchor.bottom + anchorGap, viewport.bottom - edgeMargin - height),
     )
   } else {
-    top = Math.max(edgeMargin, anchor.top - anchorGap - size.height)
+    top = Math.max(viewport.top + edgeMargin, anchor.top - anchorGap - height)
   }
-  return { left, top }
+  // <= keeps a just-capped remeasure stable instead of oscillating
+  return { left, top, maxHeight: cap <= size.height ? cap : undefined }
 }
 
 type MenuPopoverProps = {
@@ -96,12 +129,13 @@ function enabledItems(menu: HTMLElement): HTMLElement[] {
 
 // MenuPopover portals children into document.body as a fixed layer anchored to
 // the trigger in `anchorRef`, so no ancestor's overflow clipping can cut it
-// off. It flips above or clamps to stay in the viewport, follows the trigger
-// on scroll, resize and any layout shift while open, registers with
-// ui/overlayStack for its lifetime, and
-// closes on a plain Escape or an outside pointerdown: only the topmost of
-// stacked popovers answers Escape, presses another listener already claimed
-// are left alone. Closing returns focus to the element focused at open.
+// off. Placement flips above or clamps into the usable visual viewport, so an
+// open keyboard cannot hide the layer, and a menu taller than the space comes
+// back height-capped with a scroll. It follows the trigger on scroll, resize
+// and any layout shift while open, registers with ui/overlayStack for its
+// lifetime, and closes on a plain Escape or an outside pointerdown: only the
+// topmost of stacked popovers answers Escape, presses another listener already
+// claimed are left alone. Closing returns focus to the element focused at open.
 // Layers carrying role="menu" also drive their items: keyboard opens move
 // focus to the current or first enabled item (pointer opens never steal),
 // arrows and Home/End walk among enabled items, and Tab closes so focus
@@ -136,12 +170,15 @@ export function MenuPopover({
       const next = placeMenu(
         trigger,
         { width: box.width, height: box.height },
-        { width: window.innerWidth, height: window.innerHeight },
+        visibleViewport(),
         align,
       )
       const minWidth = matchWidth ? trigger.width : undefined
       // identical coordinates skip the render a scroll tick would cause
-      return prev?.left === next.left && prev?.top === next.top && prev.minWidth === minWidth
+      return prev?.left === next.left &&
+        prev?.top === next.top &&
+        prev?.maxHeight === next.maxHeight &&
+        prev.minWidth === minWidth
         ? prev
         : { ...next, minWidth }
     })
@@ -155,9 +192,16 @@ export function MenuPopover({
     window.addEventListener('resize', measure)
     // capture: ancestor scroll containers move the anchor without a window scroll
     window.addEventListener('scroll', measure, true)
+    // the keyboard and floating browser chrome resize and pan the visual
+    // viewport while the layout one holds still
+    const vv = window.visualViewport
+    vv?.addEventListener('resize', measure)
+    vv?.addEventListener('scroll', measure)
     return () => {
       window.removeEventListener('resize', measure)
       window.removeEventListener('scroll', measure, true)
+      vv?.removeEventListener('resize', measure)
+      vv?.removeEventListener('scroll', measure)
     }
   }, [measure])
 
@@ -262,6 +306,10 @@ export function MenuPopover({
         left: placement?.left,
         top: placement?.top,
         minWidth: placement?.minWidth,
+        maxHeight: placement?.maxHeight,
+        // the cap binds only below the CSS one, so the scrolling it needs
+        // travels with it for layers whose stylesheet overflow stays visible
+        overflowY: placement?.maxHeight !== undefined ? 'auto' : undefined,
       }}
     >
       {children}

@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent, ReactElement } from 'react'
 
 import type { ModelState } from '../api/types'
+import { useMediaQuery } from '../hooks/useMediaQuery'
+import { openedWithKeyboard } from './MenuPopover'
 import { filterModelGroups } from './modelFilter'
 
 // itemTitle is one row's tooltip: the full key plus the token window when known.
@@ -22,7 +24,9 @@ type ModelMenuProps = {
 // on the listing's active or the snapshot's key, and the empty message when
 // nothing lists. The desktop header menu and the mobile chip both render
 // through this, so the two chat surfaces read identically on the one grouping
-// and matching rules.
+// and matching rules. Touch taps open without the keyboard, so the caret
+// waits for a deliberate tap on Filter models there; desktop autofocus
+// always, and a hardware-keyboard open counts as deliberate everywhere.
 export function ModelMenuItems({ models, ...rest }: ModelMenuProps): ReactElement {
   if (models.length === 0) {
     return <span className="muted menu-empty">No models listed.</span>
@@ -34,6 +38,9 @@ export function ModelMenuItems({ models, ...rest }: ModelMenuProps): ReactElemen
 function ModelMenuTree({ models, active, currentKey, onPick }: ModelMenuProps): ReactElement {
   const [query, setQuery] = useState('')
   const filterRef = useRef<HTMLInputElement>(null)
+  // the pointer class, not viewport width, tells touch apart; tests stub it
+  // per render
+  const touch = useMediaQuery('(pointer: coarse)')
 
   // the listing's active key or the snapshot's model marks the menu's current
   // item, both for the badge and keyboard-open focus
@@ -41,10 +48,13 @@ function ModelMenuTree({ models, active, currentKey, onPick }: ModelMenuProps): 
 
   // the caret lands in the filter without scrolling: MenuPopover places its
   // layer only after a measure, so a plain focus would scroll to the unplaced
-  // menu's flow position instead
+  // menu's flow position instead. A coarse pointer skips the autofocus on a
+  // tap-opened menu, since grabbing the caret would summon the software
+  // keyboard; a hardware-keyboard open is already deliberate.
   useEffect(() => {
+    if (touch && !openedWithKeyboard()) return
     filterRef.current?.focus({ preventScroll: true })
-  }, [])
+  }, [touch])
 
   const onFilterKey = (ev: KeyboardEvent<HTMLInputElement>) => {
     if (ev.key !== 'Escape' || ev.ctrlKey || ev.metaKey || ev.altKey) return

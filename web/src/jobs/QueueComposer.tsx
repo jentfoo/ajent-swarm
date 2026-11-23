@@ -78,41 +78,48 @@ export function QueueComposer({
       onClose={onCancel}
     >
       <form onSubmit={save}>
-        <h2 style={{ marginTop: 0, fontSize: 'inherit' }}>Queue a prompt</h2>
+        <div className="editor-scroll">
+          <h2 style={{ marginTop: 0, fontSize: 'inherit' }}>Queue a prompt</h2>
 
-        <div className="form-grid">
-          <JobFactsFields
+          <div className="form-grid">
+            <JobFactsFields
+              draft={draft}
+              patch={patch}
+              errors={errors}
+              workspaces={workspaces}
+              models={models}
+              toolOptions={toolOptions}
+            />
+          </div>
+
+          <h3>Prompt</h3>
+          <label className="prompt-field">
+            Prompt
+            <textarea
+              rows={8}
+              placeholder="What should ajent do once the fleet is idle?"
+              value={draft.prompt}
+              onChange={(ev) => patch({ prompt: ev.target.value })}
+              aria-invalid={errors.prompt !== undefined}
+            />
+            {errors.prompt && <FieldError text={errors.prompt} />}
+          </label>
+
+          <h3>Pre-run command (optional)</h3>
+          <TriggerCommandFields
             draft={draft}
             patch={patch}
             errors={errors}
-            workspaces={workspaces}
-            models={models}
-            toolOptions={toolOptions}
+            label="Pre-run command"
           />
+
+          <p className="muted small-note">
+            Runs in a new session once its provider has been quiet for a minute; the session stays
+            open afterwards. Delete the row to cancel while it waits.
+          </p>
+
+          {saveError && <p className="error-text">{saveError}</p>}
         </div>
-
-        <h3>Prompt</h3>
-        <label className="prompt-field">
-          Prompt
-          <textarea
-            rows={8}
-            placeholder="What should ajent do once the fleet is idle?"
-            value={draft.prompt}
-            onChange={(ev) => patch({ prompt: ev.target.value })}
-            aria-invalid={errors.prompt !== undefined}
-          />
-          {errors.prompt && <FieldError text={errors.prompt} />}
-        </label>
-
-        <h3>Pre-run command (optional)</h3>
-        <TriggerCommandFields draft={draft} patch={patch} errors={errors} label="Pre-run command" />
-
-        <p className="muted small-note">
-          Runs in a new session once its provider has been quiet for a minute; the session stays
-          open afterwards. Delete the row to cancel while it waits.
-        </p>
-
-        {saveError && <p className="error-text">{saveError}</p>}
 
         <div className="editor-actions">
           <span className="spacer" style={{ flex: 1 }} />

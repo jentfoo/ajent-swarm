@@ -375,6 +375,14 @@ export const attentionKindLabels: Record<AttentionKind, string> = {
   working: 'working',
 }
 
+// attendBadgePath is the /s/ route one count badge activation opens: the
+// first dialog of the caller's ranked needs queue, encoded for the path.
+// Undefined when only reviews wait, so callers keep their existing destination.
+export function attendBadgePath(needs: readonly AttentionItem[]): string | undefined {
+  const first = needs.find((item) => item.kind === 'needs-input')
+  return first === undefined ? undefined : `/s/${encodeURIComponent(first.sessionId)}`
+}
+
 // attendBadgeLabels is the copy every shell's rising-attention count badge
 // shares, so the surfaces never drift apart. Keys spread straight onto DOM,
 // so aria keeps its attribute spelling.

@@ -5,6 +5,7 @@ import type { ReactElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import AppShell from './AppShell'
+import type { AttentionRow } from '../api/types'
 import { AuthProvider } from '../providers/auth'
 import { SwarmProvider } from '../providers/swarm'
 import { WorkspaceProvider } from '../providers/workspace'
@@ -87,6 +88,96 @@ describe('AppShell', () => {
       },
     )
   }
+
+  // row builds one digest row; only the ranked facts matter to these tests.
+  function row(overrides: Partial<AttentionRow> & { sessionId: string }): AttentionRow {
+    return { openInteractions: 0, running: false, idle: true, kind: 'awaiting', ...overrides }
+  }
+
+  it('opens the ranked first needs-input session', async () => {
+    routes.set('/api/attention', () =>
+      Response.json([
+        row({
+          sessionId: 'sr',
+          pid: 5,
+          lastTurnEnd: 50,
+          kind: 'needs-review',
+          reason: 'turn complete',
+          since: 50,
+        }),
+        row({
+          sessionId: 's-old',
+          openInteractions: 1,
+          dialogId: 3,
+          kind: 'needs-input',
+          reason: 'Allow write access?',
+          since: 100,
+        }),
+        row({
+          sessionId: 's-new',
+          openInteractions: 1,
+          dialogId: 4,
+          kind: 'needs-input',
+          reason: 'Approve tool use?',
+          since: 300,
+        }),
+      ]),
+    )
+    await renderShell('/')
+    const user = userEvent.setup()
+
+    // the older review outranks both dialogs but never wins the badge target
+    await user.click(await screen.findByRole('button', { name: '2 sessions need input' }))
+
+    expect(await screen.findByTestId('url')).toHaveTextContent('/s/s-old')
+  })
+
+  it('opens one dialog at its encoded session route', async () => {
+    routes.set('/api/attention', () =>
+      Response.json([
+        row({
+          sessionId: 'one two',
+          openInteractions: 1,
+          dialogId: 3,
+          kind: 'needs-input',
+          reason: 'Allow write access?',
+          since: 100,
+        }),
+      ]),
+    )
+    await renderShell('/')
+    const user = userEvent.setup()
+
+    await user.click(await screen.findByRole('button', { name: '1 sessions need input' }))
+
+    expect(await screen.findByTestId('url')).toHaveTextContent('/s/one%20two')
+  })
+
+  it('keeps the badge hidden with review-only attention', async () => {
+    routes.set('/api/attention', () =>
+      Response.json([
+        row({
+          sessionId: 'sr',
+          pid: 5,
+          lastTurnEnd: 50,
+          kind: 'needs-review',
+          reason: 'turn complete',
+          since: 50,
+        }),
+      ]),
+    )
+    await renderShell('/')
+
+    expect(screen.queryByRole('button', { name: /sessions need input/ })).not.toBeInTheDocument()
+    expect(screen.getByTestId('url')).toHaveTextContent('/')
+  })
+
+  it('keeps the badge hidden without attention', async () => {
+    await renderShell('/')
+
+    expect(screen.queryByRole('button', { name: /sessions need input/ })).not.toBeInTheDocument()
+    expect(screen.getByTestId('url')).toHaveTextContent('/')
+  })
 
   it.each([
     ['/', 'Workspace'],

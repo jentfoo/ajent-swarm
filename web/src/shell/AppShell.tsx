@@ -4,7 +4,7 @@ import type { ReactNode } from 'react'
 import { useSwarm } from '../providers/swarm'
 import { useWorkspace } from '../providers/workspace'
 import { useAuth } from '../providers/auth'
-import { attendBadgeLabels } from '../workspace/attention'
+import { attendBadgeLabels, attendBadgePath } from '../workspace/attention'
 import { reachableSession } from '../workspace/TileWorkspace'
 import { GlobalSettingsMenu } from './GlobalSettingsMenu'
 import { ConnectionBanner } from '../ui/ConnectionBanner'
@@ -22,6 +22,7 @@ const workspacePaths = new Set(['/', '/focused', '/tile'])
 export default function AppShell({ children }: { children: ReactNode }) {
   const { sessions, connection, theme, setTheme } = useSwarm()
   const {
+    needs,
     needsInputCount,
     profile,
     setMode,
@@ -91,7 +92,9 @@ export default function AppShell({ children }: { children: ReactNode }) {
             type="button"
             className="attend-badge"
             {...attendBadgeLabels(needsInputCount)}
-            onClick={() => navigate('/focused')}
+            // the ranked first dialog, or /focused when no dialog backs
+            // the count so a checkable review never reads as needing input
+            onClick={() => navigate(attendBadgePath(needs) ?? '/focused')}
           >
             {needsInputCount}
           </button>

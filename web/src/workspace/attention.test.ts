@@ -4,6 +4,7 @@ import type { AttentionRow } from '../api/types'
 import {
   ackBodyFor,
   anchorChained,
+  attendBadgePath,
   chainNoticeOf,
   compareAttention,
   deriveItem,
@@ -348,6 +349,50 @@ describe('shared attention ordering', () => {
       'aaa-plain', // digest-less reads as oldest within working
       'zzz-busy',
     ])
+  })
+})
+
+describe('attendBadgePath', () => {
+  it('opens the first dialog of the caller ranked order', () => {
+    const needs = [
+      deriveItem(
+        row({ sessionId: 'old-review', kind: 'needs-review', since: 10, lastTurnEnd: 10 }),
+      ),
+      deriveItem(
+        row({
+          sessionId: 'a-dialog',
+          openInteractions: 1,
+          kind: 'needs-input',
+          dialogId: 1,
+          since: 20,
+        }),
+      ),
+      deriveItem(
+        row({
+          sessionId: 'b-dialog',
+          openInteractions: 1,
+          kind: 'needs-input',
+          dialogId: 2,
+          since: 30,
+        }),
+      ),
+    ]
+
+    // an older review ranks first but never wins the badge destination
+    expect(attendBadgePath(needs)).toBe('/s/a-dialog')
+  })
+
+  it('encodes the session id for the route', () => {
+    const needs = [
+      deriveItem(row({ sessionId: 'one two', openInteractions: 1, kind: 'needs-input' })),
+    ]
+    expect(attendBadgePath(needs)).toBe('/s/one%20two')
+  })
+
+  it('stays undefined without dialogs so callers keep their destination', () => {
+    const needs = [deriveItem(row({ sessionId: 'sr', kind: 'needs-review', lastTurnEnd: 10 }))]
+    expect(attendBadgePath(needs)).toBeUndefined()
+    expect(attendBadgePath([])).toBeUndefined()
   })
 })
 

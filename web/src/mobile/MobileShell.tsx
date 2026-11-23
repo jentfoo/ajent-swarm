@@ -6,7 +6,7 @@ import { useKeyboardInset } from '../hooks/useKeyboardInset'
 import { useSwarm } from '../providers/swarm'
 import { useWorkspace } from '../providers/workspace'
 import { ConnectionBanner } from '../ui/ConnectionBanner'
-import { attendBadgeLabels } from '../workspace/attention'
+import { attendBadgeLabels, attendBadgePath } from '../workspace/attention'
 import NotificationPrompt from './NotificationPrompt'
 
 // Two tabs where the desktop nav has three: MobileHome is already the session
@@ -24,7 +24,7 @@ import NotificationPrompt from './NotificationPrompt'
 // that publish nothing of their own (MobileHome's launcher).
 export default function MobileShell({ children }: { children: ReactNode }) {
   const { connection } = useSwarm()
-  const { needsInputCount } = useWorkspace()
+  const { needs, needsInputCount } = useWorkspace()
   const location = useLocation()
   const keyboardInset = useKeyboardInset()
 
@@ -38,10 +38,14 @@ export default function MobileShell({ children }: { children: ReactNode }) {
     }
   }, [keyboardInset])
 
-  // Sessions lights on home itself and session views below it, any /jobs path
-  // lights Jobs. Desktop-only paths (/focused, /tile, /sessions) redirect home
-  // in AuthGate before rendering, so no extra rules are needed.
-  const sessionsRoute = location.pathname === '/' || location.pathname.startsWith('/s/')
+  // Sessions lights on home itself, session views below it and read-only ended
+  // transcripts at /m/read/, any /jobs path lights Jobs. The remaining
+  // desktop-only paths (/focused, /tile, /sessions) redirect home in AuthGate
+  // before rendering, so no extra rules are needed.
+  const sessionsRoute =
+    location.pathname === '/' ||
+    location.pathname.startsWith('/s/') ||
+    location.pathname.startsWith('/m/read/')
 
   return (
     <div className="app-shell mobile-shell">
@@ -56,7 +60,11 @@ export default function MobileShell({ children }: { children: ReactNode }) {
         </nav>
         <span className="spacer" />
         {needsInputCount > 0 && (
-          <Link to="/" className="attend-badge" {...attendBadgeLabels(needsInputCount)}>
+          <Link
+            to={attendBadgePath(needs) ?? '/'}
+            className="attend-badge"
+            {...attendBadgeLabels(needsInputCount)}
+          >
             {needsInputCount}
           </Link>
         )}

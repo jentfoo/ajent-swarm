@@ -315,6 +315,115 @@ describe('JobsHome', () => {
     expect(await screen.findByText(/No scheduled jobs yet/)).toBeInTheDocument()
   })
 
+  it('narrows rows by name, workspace and full prompt', async () => {
+    const longPrompt =
+      'sweep every log under /var/log, drop the rotated ones, and summarize the outliers for the weekly report'
+    jobsReply = {
+      rows: [job, { ...job, id: 6, name: 'digest', workspace: '/other', prompt: longPrompt }],
+    }
+    renderJobs()
+    const user = userEvent.setup()
+    await screen.findByText('nightly sweep')
+
+    const box = screen.getByRole('searchbox', { name: 'Filter jobs' })
+    const ids = () =>
+      screen.getAllByTestId(/^job-\d+$/).map((row) => row.getAttribute('data-testid'))
+
+    // a match past the 80-character excerpt the row renders
+    await user.type(box, 'OUTLIERS')
+    expect(ids()).toEqual(['job-6'])
+    await user.clear(box)
+
+    // workspace, then the row name
+    await user.type(box, '/other')
+    expect(ids()).toEqual(['job-6'])
+    await user.clear(box)
+    await user.type(box, 'Nightly')
+    expect(ids()).toEqual(['job-5'])
+  })
+
+  it('matches queued rows through the same text rule', async () => {
+    jobsReply = { rows: [job, queuedJob] }
+    renderJobs()
+    const user = userEvent.setup()
+    await screen.findByText('nightly sweep')
+
+    const box = screen.getByRole('searchbox', { name: 'Filter jobs' })
+    await user.type(box, 'later')
+    const ids = screen.getAllByTestId(/^job-\d+$/).map((row) => row.getAttribute('data-testid'))
+    expect(ids).toEqual(['job-7'])
+  })
+
+  it('treats a whitespace-only query as no filter', async () => {
+    jobsReply = { rows: [job] }
+    renderJobs()
+    const user = userEvent.setup()
+    await screen.findByText('nightly sweep')
+
+    await user.type(screen.getByRole('searchbox', { name: 'Filter jobs' }), '  ')
+    expect(screen.getByTestId('job-5')).toBeInTheDocument()
+    expect(screen.queryByText(/No jobs match/)).not.toBeInTheDocument()
+  })
+
+  it('filters rows by the enabled state choice', async () => {
+    jobsReply = { rows: [job, { ...job, id: 6, name: 'paused', enabled: false }] }
+    renderJobs()
+    const user = userEvent.setup()
+    await screen.findByText('nightly sweep')
+
+    const state = screen.getByRole('combobox', { name: 'Filter by state' })
+    const ids = () =>
+      screen.getAllByTestId(/^job-\d+$/).map((row) => row.getAttribute('data-testid'))
+
+    await user.selectOptions(state, 'enabled')
+    expect(ids()).toEqual(['job-5'])
+    await user.selectOptions(state, 'disabled')
+    expect(ids()).toEqual(['job-6'])
+    await user.selectOptions(state, 'all')
+    expect(ids()).toEqual(['job-5', 'job-6'])
+  })
+
+  it('separates a filter miss from the source-empty state', async () => {
+    jobsReply = { rows: [job] }
+    renderJobs()
+    const user = userEvent.setup()
+    await screen.findByText('nightly sweep')
+
+    await user.type(screen.getByRole('searchbox', { name: 'Filter jobs' }), 'zzz')
+    expect(screen.getByText('No jobs match “zzz”.')).toBeInTheDocument()
+    expect(screen.queryByText(/No scheduled jobs yet/)).not.toBeInTheDocument()
+
+    // clearing restores the prior list order
+    await user.click(screen.getByRole('button', { name: 'Clear filters' }))
+    expect(screen.getByText('nightly sweep')).toBeInTheDocument()
+  })
+
+  it('names the state choice when no rows carry it', async () => {
+    jobsReply = { rows: [job] }
+    renderJobs()
+    const user = userEvent.setup()
+    await screen.findByText('nightly sweep')
+
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Filter by state' }), 'disabled')
+    expect(screen.getByText('No disabled jobs.')).toBeInTheDocument()
+  })
+
+  it('toggles a row while a filter narrows the list', async () => {
+    renderJobs()
+    const user = userEvent.setup()
+    await screen.findByText('nightly sweep')
+
+    await user.type(screen.getByRole('searchbox', { name: 'Filter jobs' }), 'nightly')
+    expect(screen.getAllByTestId(/^job-\d+$/)).toHaveLength(1)
+
+    // the optimistic toggle and its payload keep working under the filter
+    await user.click(screen.getByRole('checkbox', { name: 'Disable nightly sweep' }))
+    expect(screen.getByRole('checkbox', { name: 'Enable nightly sweep' })).not.toBeChecked()
+    updateWaiters.shift()!(Response.json({ ...job, enabled: false }))
+    await waitFor(() => expect(updateBodies).toHaveLength(1))
+    expect(updateBodies[0]).toMatchObject({ id: 5, enabled: false })
+  })
+
   it('surfaces load failures instead of an empty table', async () => {
     vi.stubGlobal(
       'fetch',

@@ -12,6 +12,8 @@ import { relativeTime } from '../session/rewind'
 import { useSessionNamer } from '../session/useSessionLabel'
 import { sessionDrag, useSessionDrag } from '../ui/dndContext'
 import { SessionContextMenu, useSessionMenu } from '../session/SessionContextMenu'
+import { ListFilter } from '../ui/ListFilter'
+import { matchesQuery, normalizeQuery } from '../ui/textMatch'
 import { useWorkspaceKeys } from './keys'
 import { ShortcutOverlay } from './ShortcutOverlay'
 import { StatusBadge } from '../session/StatusBadge'
@@ -71,22 +73,57 @@ export default function FocusedWorkspace() {
       rows.filter((item) => !pinnedSessionIds.includes(item.sessionId))
     return { needs: keep(needs), waiting: keep(waiting), working: keep(working) }
   }, [needs, waiting, working, pinnedSessionIds])
+  const nameFor = useSessionNamer()
+
+  // The filter narrows the already-ranked rows locally, sections and counts
+  // reading the survivors. Pinned rows stay in Pinned and match like any
+  // other: the query never lets a pin bypass. Display name, session id, model
+  // and workspace, the same facts the sessions grid filters on.
+  const [filter, setFilter] = useState('')
+  const query = normalizeQuery(filter)
+  const matchesFilter = useCallback(
+    (item: AttentionItem) => {
+      const row = sessions.find((s) => s.sessionId === item.sessionId)
+      return matchesQuery(
+        query,
+        nameFor(item.sessionId),
+        item.sessionId,
+        row?.model,
+        row?.workspace,
+      )
+    },
+    [query, sessions, nameFor],
+  )
+  const visiblePinned = useMemo(() => pinnedRows.filter(matchesFilter), [pinnedRows, matchesFilter])
+  const visibleUnpinned = useMemo(
+    () => ({
+      needs: unpinned.needs.filter(matchesFilter),
+      waiting: unpinned.waiting.filter(matchesFilter),
+      working: unpinned.working.filter(matchesFilter),
+    }),
+    [unpinned, matchesFilter],
+  )
+  // rows is the visible flat list the keyboard machine reads: cursor
+  // fallback, j/k movement, digits and check-off all bind to what renders.
   const rows = useMemo(
-    () => [...pinnedRows, ...unpinned.needs, ...unpinned.waiting, ...unpinned.working],
-    [pinnedRows, unpinned],
+    () => [
+      ...visiblePinned,
+      ...visibleUnpinned.needs,
+      ...visibleUnpinned.waiting,
+      ...visibleUnpinned.working,
+    ],
+    [visiblePinned, visibleUnpinned],
   )
   const [cursorId, setCursorId] = useState<string | null>(selected ?? rows[0]?.sessionId ?? null)
 
-  // The cursor follows reality: a row that leaves the queue snaps to the
-  // first needs row, an unknown id lands at index zero rather than falling
-  // off the list.
+  // The cursor follows reality through the visible rows: a row a filter hides
+  // snaps the cursor to the first visible one, and a selected session a
+  // filter hides stays selected -- the open view never navigates or clears.
   const cursorIndex = Math.max(
     0,
     rows.findIndex((r) => r.sessionId === cursorId),
   )
   const cursor = rows[cursorIndex]?.sessionId ?? null
-
-  const nameFor = useSessionNamer()
 
   const railRef = useRef<HTMLDivElement>(null)
   const mainRef = useRef<HTMLDivElement>(null)
@@ -189,15 +226,18 @@ export default function FocusedWorkspace() {
 
   // The rail's sections in display order, the three queues titled from the
   // shared model. Rows badge their own kind, so a queue never encodes state,
-  // empty sections render no title at all.
+  // empty sections render no title at all. Sections read the filtered rows.
   const railSections = (
     [
-      { id: 'pinned', title: 'Pinned', rows: pinnedRows },
-      { id: 'needs', title: attentionSectionTitles.needs, rows: unpinned.needs },
-      { id: 'waiting', title: attentionSectionTitles.waiting, rows: unpinned.waiting },
-      { id: 'working', title: attentionSectionTitles.working, rows: unpinned.working },
+      { id: 'pinned', title: 'Pinned', rows: visiblePinned },
+      { id: 'needs', title: attentionSectionTitles.needs, rows: visibleUnpinned.needs },
+      { id: 'waiting', title: attentionSectionTitles.waiting, rows: visibleUnpinned.waiting },
+      { id: 'working', title: attentionSectionTitles.working, rows: visibleUnpinned.working },
     ] as const
   ).filter((section) => section.rows.length > 0)
+  // an actually empty roster differs from every row filtered out
+  const sourceCount =
+    pinnedRows.length + unpinned.needs.length + unpinned.waiting.length + unpinned.working.length
 
   const renderRow = (item: AttentionItem) => {
     const isCursor = item.sessionId === cursor
@@ -313,8 +353,22 @@ export default function FocusedWorkspace() {
   return (
     <div className="workspace focused-workspace">
       <div className="focus-rail" ref={railRef} aria-label="Focus queue">
+        {sourceCount > 0 && (
+          <div className="rail-filter-row">
+            <ListFilter label="Filter sessions" value={filter} onChange={setFilter} />
+          </div>
+        )}
         {railSections.length === 0 ? (
-          <p className="muted">No sessions running</p>
+          sourceCount === 0 ? (
+            <p className="muted">No sessions running</p>
+          ) : (
+            <div className="rail-no-match">
+              <p className="muted">No sessions match “{filter.trim()}”.</p>
+              <button type="button" onClick={() => setFilter('')}>
+                Clear filter
+              </button>
+            </div>
+          )
         ) : (
           railSections.map((section) => (
             <div className="rail-section" key={section.id}>

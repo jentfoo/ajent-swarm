@@ -1,9 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
-import type { KeyboardEvent, ReactElement } from 'react'
+import { useState } from 'react'
+import type { ReactElement } from 'react'
 
 import type { ModelState } from '../api/types'
-import { useMediaQuery } from '../hooks/useMediaQuery'
-import { openedWithKeyboard } from './MenuPopover'
+import { ListFilter } from './ListFilter'
 import { filterModelGroups } from './modelFilter'
 
 // itemTitle is one row's tooltip: the full key plus the token window when known.
@@ -37,34 +36,10 @@ export function ModelMenuItems({ models, ...rest }: ModelMenuProps): ReactElemen
 
 function ModelMenuTree({ models, active, currentKey, onPick }: ModelMenuProps): ReactElement {
   const [query, setQuery] = useState('')
-  const filterRef = useRef<HTMLInputElement>(null)
-  // the pointer class, not viewport width, tells touch apart; tests stub it
-  // per render
-  const touch = useMediaQuery('(pointer: coarse)')
 
   // the listing's active key or the snapshot's model marks the menu's current
   // item, both for the badge and keyboard-open focus
   const isCurrent = (key: string): boolean => key === active || key === currentKey
-
-  // the caret lands in the filter without scrolling: MenuPopover places its
-  // layer only after a measure, so a plain focus would scroll to the unplaced
-  // menu's flow position instead. A coarse pointer skips the autofocus on a
-  // tap-opened menu, since grabbing the caret would summon the software
-  // keyboard; a hardware-keyboard open is already deliberate.
-  useEffect(() => {
-    if (touch && !openedWithKeyboard()) return
-    filterRef.current?.focus({ preventScroll: true })
-  }, [touch])
-
-  const onFilterKey = (ev: KeyboardEvent<HTMLInputElement>) => {
-    if (ev.key !== 'Escape' || ev.ctrlKey || ev.metaKey || ev.altKey) return
-    if (ev.nativeEvent.isComposing) return // a mid-composition IME keeps its keys
-    if (query.trim() === '') return // the press falls through and closes the layer
-    // claimed before the popover's document listener runs, so the first Escape
-    // clears the filter and only the next one closes
-    ev.preventDefault()
-    setQuery('')
-  }
 
   const { groups, loose } = filterModelGroups(query, models)
   // a blank query keeps every listed row, so an empty answer is a filter miss
@@ -75,17 +50,7 @@ function ModelMenuTree({ models, active, currentKey, onPick }: ModelMenuProps): 
   return (
     <>
       <div className="menu-filter-row">
-        <input
-          ref={filterRef}
-          type="search"
-          value={query}
-          placeholder="Filter models"
-          aria-label="Filter models"
-          autoComplete="off"
-          spellCheck={false}
-          onChange={(ev) => setQuery(ev.target.value)}
-          onKeyDown={onFilterKey}
-        />
+        <ListFilter label="Filter models" value={query} onChange={setQuery} autoFocus />
       </div>
       {noneMatch ? (
         <span className="muted menu-empty">No models match.</span>

@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes, useSearchParams } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -231,5 +231,140 @@ describe('SessionsHome', () => {
     await user.click(second)
     await user.click(screen.getByRole('button', { name: 'Open workspace' }))
     expect(await screen.findByText('tiled 01A,01A')).toBeInTheDocument()
+  })
+
+  it('narrows cards case-insensitively across every fact', async () => {
+    sessionsReply = [
+      session({ sessionId: '01AAA', title: 'Nightly Sweep' }),
+      session({ sessionId: '01BBB', name: 'agent B' }),
+      session({ sessionId: '01CCC', model: 'p/M1', workspace: '/home/you/Repo' }),
+      session({ sessionId: '01DDD' }),
+    ]
+    renderHome()
+    const user = userEvent.setup()
+    await screen.findByText('Nightly Sweep')
+
+    const box = screen.getByRole('searchbox', { name: 'Filter sessions' })
+    const selected = () =>
+      screen
+        .getAllByRole('checkbox', { name: /Select .* for tiling/ })
+        .map((box) => box.getAttribute('aria-label'))
+
+    // display title
+    await user.type(box, 'nightly')
+    expect(selected()).toEqual(['Select Nightly Sweep for tiling'])
+    await user.clear(box)
+
+    // agent name
+    await user.type(box, 'AGENT B')
+    expect(selected()).toEqual(['Select agent B for tiling'])
+    await user.clear(box)
+
+    // session id, matched by lowercase fragment
+    await user.type(box, '01ccc')
+    expect(selected()).toEqual(['Select /home/you/Repo for tiling'])
+    await user.clear(box)
+
+    // model, then workspace tail
+    await user.type(box, 'p/m1')
+    expect(selected()).toEqual(['Select /home/you/Repo for tiling'])
+    await user.clear(box)
+    await user.type(box, 'repo')
+    expect(selected()).toEqual(['Select /home/you/Repo for tiling'])
+  })
+
+  it('treats a whitespace-only query as no filter', async () => {
+    sessionsReply = [session({ sessionId: '01A' }), session({ sessionId: '01B' })]
+    renderHome()
+    const user = userEvent.setup()
+    await screen.findByText('01A')
+
+    await user.type(screen.getByRole('searchbox', { name: 'Filter sessions' }), '   ')
+    expect(screen.getByRole('checkbox', { name: 'Select 01A for tiling' })).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: 'Select 01B for tiling' })).toBeInTheDocument()
+    expect(screen.queryByText(/No sessions match/)).not.toBeInTheDocument()
+  })
+
+  it('names the query in the no-match state with a clear action', async () => {
+    sessionsReply = [session({ sessionId: '01A', title: 'alpha' })]
+    renderHome()
+    const user = userEvent.setup()
+    await screen.findByText('alpha')
+
+    await user.type(screen.getByRole('searchbox', { name: 'Filter sessions' }), 'zzz')
+    expect(screen.getByText('No sessions match “zzz”.')).toBeInTheDocument()
+    expect(screen.queryByText(/No live sessions/)).not.toBeInTheDocument()
+
+    // clearing restores the prior list
+    await user.click(screen.getByRole('button', { name: 'Clear filter' }))
+    expect(screen.getByText('alpha')).toBeInTheDocument()
+    expect(screen.queryByText(/No sessions match/)).not.toBeInTheDocument()
+  })
+
+  it('keeps hidden selections and tiles them after clearing', async () => {
+    sessionsReply = [
+      session({ sessionId: '01AAA', title: 'alpha' }),
+      session({ sessionId: '01BBB', title: 'beta' }),
+    ]
+    renderHome()
+    const user = userEvent.setup()
+    await screen.findByText('alpha')
+
+    await user.click(screen.getByRole('checkbox', { name: 'Select alpha for tiling' }))
+    await user.click(screen.getByRole('checkbox', { name: 'Select beta for tiling' }))
+    // the action area counts the whole selection
+    expect(screen.getByText('2 selected')).toBeInTheDocument()
+
+    // filtering one card away must not silently drop its selection
+    const box = screen.getByRole('searchbox', { name: 'Filter sessions' })
+    await user.type(box, 'alpha')
+    expect(
+      screen.queryByRole('checkbox', { name: 'Select beta for tiling' }),
+    ).not.toBeInTheDocument()
+    expect(screen.getByText('2 selected')).toBeInTheDocument()
+
+    // clearing the box restores the full roster, selection intact
+    await user.clear(box)
+    expect(screen.getByRole('checkbox', { name: 'Select beta for tiling' })).toBeChecked()
+
+    // the tile request still carries the hidden instance
+    await user.click(screen.getByRole('button', { name: 'Open workspace' }))
+    expect(await screen.findByText('tiled 01AAA,01BBB')).toBeInTheDocument()
+  })
+
+  it('prunes selection keys whose instance leaves the roster', async () => {
+    sessionsReply = [session({ sessionId: '01A' })]
+    renderHome()
+    const user = userEvent.setup()
+    await screen.findByText('01A')
+
+    await user.click(screen.getByRole('checkbox', { name: 'Select 01A for tiling' }))
+    expect(screen.getByText('1 selected')).toBeInTheDocument()
+
+    // a poll drops the instance entirely: the stale selection key goes with it
+    sessionsReply = [session({ sessionId: '01B' })]
+    act(() => document.dispatchEvent(new Event('visibilitychange')))
+    await waitFor(() => expect(screen.getByText('01B')).toBeInTheDocument())
+    expect(screen.queryByText('1 selected')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Clear selection' })).not.toBeInTheDocument()
+  })
+
+  it('keeps card actions working while a filter is active', async () => {
+    sessionsReply = [
+      session({ sessionId: '01A', title: 'alpha' }),
+      session({ sessionId: '01B', title: 'beta' }),
+    ]
+    renderHome()
+    const user = userEvent.setup()
+    await screen.findByText('alpha')
+
+    await user.type(screen.getByRole('searchbox', { name: 'Filter sessions' }), 'alpha')
+    // only the matching card's actions remain
+    expect(screen.getAllByRole('button', { name: 'Stop' })).toHaveLength(1)
+
+    // the surviving card's armed stop still fires end to end
+    await user.click(screen.getByRole('button', { name: 'Stop' }))
+    await user.click(screen.getByRole('button', { name: 'Stop?' }))
+    await vi.waitFor(() => expect(stopPosts()).toHaveLength(1))
   })
 })

@@ -531,6 +531,100 @@ describe('TileWorkspace', () => {
     expect(within(menu as HTMLElement).getByRole('menuitem', { name: 'left' })).toBeInTheDocument()
   })
 
+  it('narrows the picker rows and opens the chosen session', async () => {
+    const THIRD = '01THIRDSESSION000001'
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string | URL | Request) => {
+        const path = String(url)
+          .replace(/^https?:\/\/[^/]+/, '')
+          .split('?')[0]
+        if (path === '/api/me') {
+          return Promise.resolve(Response.json({ username: 'you', via: 'cookie' }))
+        }
+        if (path === '/api/sessions') {
+          return Promise.resolve(
+            Response.json([
+              { sessionId: LEFT, name: 'left', state: 'online', spawnedBy: 'external' },
+              { sessionId: RIGHT, name: 'right', state: 'online', spawnedBy: 'external' },
+              { sessionId: THIRD, name: 'third', state: 'online', spawnedBy: 'external' },
+            ]),
+          )
+        }
+        if (path === '/api/attention') return Promise.resolve(Response.json(attention))
+        if (path === '/api/saved-sessions') return Promise.resolve(Response.json([]))
+        if (path === '/api/models/options') return Promise.resolve(Response.json([]))
+        const snap = /\/api\/sessions\/([^/]+)\/snapshot/.exec(path)
+        if (snap) return Promise.resolve(Response.json(ctlSnapshot(snap[1])))
+        return Promise.resolve(Response.json({}))
+      }),
+    )
+    localStorage.setItem(
+      'swarm.workspace.v1',
+      JSON.stringify({
+        mode: 'tile',
+        focused: {},
+        tile: { tree: stackedTree, focusedPaneId: 'p1' },
+      }),
+    )
+    renderTile()
+    await waitFor(() => expect(sockets.length).toBeGreaterThan(0))
+    act(() => sockets[0].open())
+    await screen.findAllByText('right')
+
+    const user = userEvent.setup()
+    await user.click(screen.getAllByLabelText('Add a session to this pane')[0])
+    const menu = document.querySelector('.tile-menu') as HTMLElement
+    const box = within(menu).getByRole('searchbox', { name: 'Filter sessions' })
+
+    // the query narrows by display name, dropping the other rows
+    await user.type(box, 'third')
+    expect(within(menu).getByRole('menuitem', { name: 'third' })).toBeInTheDocument()
+    expect(within(menu).queryByRole('menuitem', { name: 'left' })).not.toBeInTheDocument()
+
+    // opening still targets exactly the chosen session
+    await user.click(within(menu).getByRole('menuitem', { name: 'third' }))
+    await waitFor(() => {
+      const opens = sockets[0].sent.map((raw) => JSON.parse(raw))
+      expect(opens).toContainEqual({ type: 'subscribe', sessionId: THIRD })
+    })
+    expect(document.querySelectorAll('.tile-tab')).toHaveLength(3)
+  })
+
+  it('splits a picker-filtered session into its own pane', async () => {
+    await renderStacked()
+
+    const user = userEvent.setup()
+    await user.click(screen.getAllByLabelText('Add a session to this pane')[0])
+    const menu = document.querySelector('.tile-menu') as HTMLElement
+    const box = within(menu).getByRole('searchbox', { name: 'Filter sessions' })
+    await user.type(box, 'left')
+    expect(within(menu).queryByRole('menuitem', { name: 'right' })).not.toBeInTheDocument()
+
+    await user.click(within(menu).getByRole('button', { name: 'Split pane with left' }))
+    // the chosen session lands in a fresh pane beside the split
+    await waitFor(() => expect(domPaneIds()).toHaveLength(2))
+    expect(storedProfile().tile.tree.kind).toBe('split')
+  })
+
+  it('separates a picker filter miss from an empty roster', async () => {
+    await renderStacked()
+
+    const user = userEvent.setup()
+    await user.click(screen.getAllByLabelText('Add a session to this pane')[0])
+    const menu = document.querySelector('.tile-menu') as HTMLElement
+    const box = within(menu).getByRole('searchbox', { name: 'Filter sessions' })
+
+    await user.type(box, 'zzz')
+    expect(within(menu).getByText('No sessions match.')).toBeInTheDocument()
+    expect(within(menu).queryByRole('menuitem')).not.toBeInTheDocument()
+
+    // escape clears the query first, the rows return before any close claims it
+    await user.keyboard('{Escape}')
+    expect(box).toHaveValue('')
+    expect(within(menu).getByRole('menuitem', { name: 'right' })).toBeInTheDocument()
+  })
+
   it('presents an activated tab fresh instead of reusing the last view', async () => {
     await renderStacked()
 

@@ -15,10 +15,15 @@ import { draftFromJob, duplicateDraft, toPayload } from '../jobs/jobDraft'
 import type { JobDraft } from '../jobs/jobDraft'
 import { JobTabs } from '../jobs/JobTabs'
 import { formatSlot, runStatusClass, scheduleSummary, sortJobsForDisplay } from '../jobs/schedule'
+import { ListFilter } from '../ui/ListFilter'
+import { matchesQuery, normalizeQuery } from '../ui/textMatch'
 
 const pollJobsMs = 10_000
 // A page deep enough that every job's latest run is on it for most installs.
 const lastRunPage = 200
+
+// The compact state choice beside the text search: every row, or one enablement.
+type JobStateFilter = 'all' | 'enabled' | 'disabled'
 
 // JobsHome lists scheduled jobs over /api/jobs: plain-language schedules,
 // next fire times, an optimistic enabled toggle and manual fires. Each row's
@@ -37,6 +42,10 @@ export default function JobsHome() {
   const [lastRuns, setLastRuns] = useState<Map<number, Run>>(new Map())
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  // local view state: the list narrows, toggles and editor lookups read the
+  // full stored order below
+  const [filter, setFilter] = useState('')
+  const [stateFilter, setStateFilter] = useState<JobStateFilter>('all')
 
   // Toggles in flight hold their rows out of poll results, so a poll that read
   // pre-toggle state cannot flip the checkbox back mid-request. Counted per
@@ -80,12 +89,26 @@ export default function JobsHome() {
   // order for the toggle holds and editor lookups above.
   const sortedJobs = useMemo(() => (jobs ? sortJobsForDisplay(jobs) : []), [jobs])
 
+  // The filter runs downstream of that sort, so a narrowed list keeps its
+  // display order, and matches the full prompt, never the clipped excerpt the
+  // row renders. Queued and scheduled rows share one match.
+  const query = normalizeQuery(filter)
+  const visibleJobs = useMemo(
+    () =>
+      sortedJobs.filter(
+        (job) =>
+          (stateFilter === 'all' || (stateFilter === 'enabled') === job.enabled) &&
+          matchesQuery(query, job.name, job.workspace, job.prompt),
+      ),
+    [sortedJobs, query, stateFilter],
+  )
+
   // One derivation feeds both presentations, so a phone card can never show a
   // fact the table row would have rendered differently. The breakpoint swap is
   // presentational only: state, polling and actions live in JobsHome itself.
   const rows = useMemo(
-    () => sortedJobs.map((job) => ({ job, facts: jobRowFacts(job, home, lastRuns.get(job.id)) })),
-    [sortedJobs, home, lastRuns],
+    () => visibleJobs.map((job) => ({ job, facts: jobRowFacts(job, home, lastRuns.get(job.id)) })),
+    [visibleJobs, home, lastRuns],
   )
 
   const load = useCallback(async () => {
@@ -215,12 +238,42 @@ export default function JobsHome() {
         </p>
       )}
 
+      {jobs !== null && jobs.length > 0 && (
+        <div className="list-filter-row">
+          <ListFilter label="Filter jobs" value={filter} onChange={setFilter} />
+          <select
+            value={stateFilter}
+            aria-label="Filter by state"
+            onChange={(ev) => setStateFilter(ev.target.value as JobStateFilter)}
+          >
+            <option value="all">All</option>
+            <option value="enabled">Enabled</option>
+            <option value="disabled">Disabled</option>
+          </select>
+        </div>
+      )}
+
       {jobs === null && error === '' ? (
         <p className="muted">Loading jobs…</p>
       ) : jobs !== null && jobs.length === 0 && editingId === undefined ? (
         <p className="muted">
           No scheduled jobs yet. Create one to launch ajent on a schedule, or queue a single prompt
           for the next idle moment.
+        </p>
+      ) : jobs !== null && jobs.length > 0 && visibleJobs.length === 0 ? (
+        <p className="muted">
+          {query !== ''
+            ? `No jobs match “${filter.trim()}”.`
+            : `No ${stateFilter === 'enabled' ? 'enabled' : 'disabled'} jobs.`}{' '}
+          <button
+            type="button"
+            onClick={() => {
+              setFilter('')
+              setStateFilter('all')
+            }}
+          >
+            Clear filters
+          </button>
         </p>
       ) : jobs !== null && jobs.length > 0 ? (
         mobile ? (

@@ -18,12 +18,16 @@ import { RenameControl } from '../session/RenameControl'
 import { StatusBadge } from '../session/StatusBadge'
 import { displayName, shortID } from '../session/names'
 import { describeStop, instanceKey } from '../workspace/attention'
+import { ListFilter } from '../ui/ListFilter'
+import { matchesQuery, normalizeQuery } from '../ui/textMatch'
 import { ModelSelect, WorkspaceSelect } from '../ui/LaunchFormFields'
 
 // SessionsHome is the live instance grid: state, workspace and seat badges
 // beside quick actions per session, with a compact launch panel. Checkboxes
 // multi-select sessions for tiling, an exited card stays listed with one-click
-// resume and every live card keeps its explicit stop.
+// resume and every live card keeps its explicit stop. The filter narrows the
+// grid locally only: hidden cards keep their selection, selection rides the
+// full roster.
 export default function SessionsHome() {
   const { sessions } = useSwarm()
   const auth = useAuth()
@@ -31,7 +35,27 @@ export default function SessionsHome() {
   const [launching, setLaunching] = useState(false)
   // selection is by row key, Open workspace tiles them directly
   const [selected, setSelected] = useState<string[]>([])
+  // local view state: the grid narrows, selection and actions never do
+  const [filter, setFilter] = useState('')
   const navigate = useNavigate()
+
+  // selection keys ride instance identity and read through the live roster:
+  // an instance that vanished prunes its key from every read, so it can never
+  // tile or read as still selected
+  const selectedKeys = useMemo(() => {
+    if (selected.length === 0) return selected
+    const live = new Set(sessions.map((s) => instanceKey(s.sessionId, s.pid)))
+    return selected.filter((key) => live.has(key))
+  }, [selected, sessions])
+
+  const query = normalizeQuery(filter)
+  const visible = useMemo(
+    () =>
+      sessions.filter((s) =>
+        matchesQuery(query, displayName(s, home), s.sessionId, s.model, s.workspace),
+      ),
+    [sessions, query, home],
+  )
 
   // sessions listed twice carry a pid badge so the cards stay tellable apart
   const twinIds = useMemo(() => {
@@ -52,9 +76,9 @@ export default function SessionsHome() {
   // sessions, without one it lands in the focused workspace as usual. Twin
   // rows repeat their session id so both tile.
   const openWorkspace = () => {
-    if (selected.length > 0) {
+    if (selectedKeys.length > 0) {
       const idsOf = new Map(sessions.map((s) => [instanceKey(s.sessionId, s.pid), s.sessionId]))
-      const ids = selected
+      const ids = selectedKeys
         .map((k) => idsOf.get(k))
         .filter((id): id is string => id !== undefined)
         .map(encodeURIComponent)
@@ -70,10 +94,13 @@ export default function SessionsHome() {
       <div className="session-header">
         <h1 style={{ margin: 0, fontSize: 'inherit' }}>Sessions</h1>
         <span className="spacer" style={{ flex: 1 }} />
-        {selected.length > 0 && (
-          <button type="button" className="accent" onClick={() => setSelected([])}>
-            Clear selection
-          </button>
+        {selectedKeys.length > 0 && (
+          <>
+            <span className="muted">{selectedKeys.length} selected</span>
+            <button type="button" className="accent" onClick={() => setSelected([])}>
+              Clear selection
+            </button>
+          </>
         )}
         <button type="button" onClick={openWorkspace}>
           Open workspace
@@ -85,19 +112,32 @@ export default function SessionsHome() {
 
       {launching && <LaunchPanel home={home} />}
 
+      {sessions.length > 0 && (
+        <div className="list-filter-row">
+          <ListFilter label="Filter sessions" value={filter} onChange={setFilter} />
+        </div>
+      )}
+
       {sessions.length === 0 ? (
         <p className="muted">
           No live sessions. Launch one or start <code>ajent --serve</code> yourself.
         </p>
+      ) : visible.length === 0 ? (
+        <p className="muted">
+          No sessions match “{filter.trim()}”.{' '}
+          <button type="button" onClick={() => setFilter('')}>
+            Clear filter
+          </button>
+        </p>
       ) : (
         <div className="grid">
-          {sessions.map((s) => (
+          {visible.map((s) => (
             <SessionCard
               key={instanceKey(s.sessionId, s.pid)}
               status={s}
               home={home}
               twin={twinIds.has(s.sessionId)}
-              selected={selected.includes(instanceKey(s.sessionId, s.pid))}
+              selected={selectedKeys.includes(instanceKey(s.sessionId, s.pid))}
               onSelect={() => toggleSelected(instanceKey(s.sessionId, s.pid))}
             />
           ))}

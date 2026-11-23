@@ -326,10 +326,12 @@ describe('FocusedWorkspace', () => {
     attention = []
     renderFocused()
 
-    // an all-empty rail renders no section chrome, only the empty notice
+    // an all-empty rail renders no section chrome, only the empty notice, and
+    // no filter box for a roster with nothing to narrow
     expect(await screen.findByText('Select a session from the rail.')).toBeInTheDocument()
     expect(rail().querySelectorAll('.rail-section-title')).toHaveLength(0)
     expect(screen.getByText('No sessions running')).toBeInTheDocument()
+    expect(screen.queryByRole('searchbox')).not.toBeInTheDocument()
   })
 
   it('hides sections with no sessions', async () => {
@@ -660,5 +662,174 @@ describe('FocusedWorkspace', () => {
       const opens = sockets[0].sent.map((raw) => JSON.parse(raw))
       expect(opens).toContainEqual({ type: 'subscribe', sessionId: WORKER })
     })
+  })
+
+  it('narrows rows without regrouping or re-sorting them', async () => {
+    attention = [...attentionRows(), waitingRow()]
+    renderFocused()
+    await openSocket()
+
+    const user = userEvent.setup()
+    const box = screen.getByRole('searchbox', { name: 'Filter sessions' })
+    const ids = () => railRows().map((row) => row.dataset.sessionId)
+
+    // one shared letter hits every named row, none hits the waiting row whose
+    // label is its short id: the survivors keep the full ranked order
+    await user.type(box, 'e')
+    expect(ids()).toEqual([REVIEW, DIALOG, WORKER])
+
+    // a narrower query keeps queue membership and counts only survivors
+    await user.clear(box)
+    await user.type(box, 'dialog')
+    expect(ids()).toEqual([DIALOG])
+    const headings = [...rail().querySelectorAll('.rail-section-title')].map((h) => h.textContent)
+    expect(headings).toEqual(['Needs input (1)'])
+
+    // clearing restores the prior list order
+    await user.clear(box)
+    expect(ids()).toEqual([REVIEW, DIALOG, '01WAITING00000000', WORKER])
+  })
+
+  it('keeps workspace keys out of the filter box', async () => {
+    renderFocused()
+    await openSocket()
+
+    const user = userEvent.setup()
+    const box = screen.getByRole('searchbox', { name: 'Filter sessions' })
+    await user.type(box, 'dialog')
+    expect(railRows()).toHaveLength(1)
+    expect(railRows()[0].getAttribute('data-cursor')).toBe('true')
+
+    // j and r belong to the text field while the caret is in it: the query
+    // grows into a miss, and the cursor machinery reads only visible rows
+    await user.keyboard('jr')
+    expect(box).toHaveValue('dialogjr')
+    expect(screen.getByText('No sessions match “dialogjr”.')).toBeInTheDocument()
+    expect(rail().querySelectorAll('[data-cursor="true"]')).toHaveLength(0)
+
+    // the first Escape clears the query, the rail returns, keys bind again
+    await user.keyboard('{Escape}')
+    expect(box).toHaveValue('')
+    expect(railRows()).toHaveLength(3)
+    expect(railRows()[0].getAttribute('data-cursor')).toBe('true')
+  })
+
+  it('moves the cursor within the visible rows and bounds it', async () => {
+    attention = [...attentionRows(), waitingRow()]
+    renderFocused()
+    await openSocket()
+
+    const user = userEvent.setup()
+    const box = screen.getByRole('searchbox', { name: 'Filter sessions' })
+    await user.type(box, 'dialog')
+    expect(railRows()).toHaveLength(1)
+    // the cursor falls back to the only visible row
+    expect(railRows()[0].getAttribute('data-cursor')).toBe('true')
+
+    // back to the full rail, the cursor falls back to the first row
+    await user.clear(box)
+    act(() => box.blur())
+    expect(railRows()[0].getAttribute('data-cursor')).toBe('true')
+
+    // k past the top and j past the end clamp to the visible bounds
+    await user.keyboard('kkk')
+    expect(railRows()[0].getAttribute('data-cursor')).toBe('true')
+    await user.keyboard('jjjjj')
+    expect(railRows()[3].getAttribute('data-cursor')).toBe('true')
+  })
+
+  it('opens the cursor within the visible rows with Enter', async () => {
+    renderFocused()
+    await openSocket()
+
+    const user = userEvent.setup()
+    const box = screen.getByRole('searchbox', { name: 'Filter sessions' })
+
+    // the cursor rides the filter: with only the worker row visible, Enter
+    // opens it, where an unfiltered press would have opened the review row
+    await user.type(box, 'worker')
+    act(() => box.blur())
+    await user.keyboard('{Enter}')
+    await waitFor(() => expect(mainHeading().textContent).toContain('worker session'))
+  })
+
+  it('checks off the visible row under the cursor', async () => {
+    renderFocused()
+    await openSocket()
+
+    const user = userEvent.setup()
+    const box = screen.getByRole('searchbox', { name: 'Filter sessions' })
+
+    // narrowing puts the cursor on the only visible row, an unfiltered press
+    // would have acked the review row topping the rail
+    await user.type(box, 'dialog')
+    expect(railRows()[0].getAttribute('data-cursor')).toBe('true')
+    act(() => box.blur())
+    await user.keyboard('r')
+
+    await waitFor(() => expect(screen.queryByText('allow write access?')).not.toBeInTheDocument())
+
+    // the ack hit the dialog row the filter had made visible, never the review
+    // row the unfiltered rail tops with: the settled row alone stays listed
+    expect(railRows().map((row) => row.dataset.sessionId)).toEqual([DIALOG])
+    expect(railRows()[0].textContent).toContain('waiting for a prompt')
+
+    // clearing shows the untouched review row still topping the full rail
+    await user.clear(box)
+    await waitFor(() => expect(railRows()).toHaveLength(3))
+    expect(railRows()[0].textContent).toContain('review session')
+  })
+
+  it('keeps a filtered-out selection displayed without navigating', async () => {
+    renderFocused()
+    await openSocket()
+
+    const user = userEvent.setup()
+    await user.click(within(rail()).getByText('dialog session'))
+    await waitFor(() => expect(mainHeading().textContent).toContain('dialog session'))
+
+    // filtering the selected session away leaves the open view untouched
+    const box = screen.getByRole('searchbox', { name: 'Filter sessions' })
+    await user.type(box, 'worker')
+    expect(railRows().map((row) => row.dataset.sessionId)).toEqual([WORKER])
+    expect(mainHeading().textContent).toContain('dialog session')
+
+    // clearing brings the row back with its selection highlight
+    await user.clear(box)
+    await waitFor(() => expect(railRows()).toHaveLength(3))
+    expect(within(rail()).getByText('dialog session').closest('.rail-row')).toHaveClass('selected')
+    expect(mainHeading().textContent).toContain('dialog session')
+  })
+
+  it('separates a filter miss from an empty roster', async () => {
+    renderFocused()
+    await openSocket()
+
+    const user = userEvent.setup()
+    await user.type(screen.getByRole('searchbox', { name: 'Filter sessions' }), 'zzz')
+    expect(screen.getByText('No sessions match “zzz”.')).toBeInTheDocument()
+    expect(screen.queryByText('No sessions running')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Clear filter' }))
+    expect(screen.getByText('dialog session')).toBeInTheDocument()
+  })
+
+  it('keeps pinned rows under the query in Pinned', async () => {
+    localStorage.setItem(
+      'swarm.workspace.v1',
+      JSON.stringify({ focused: { pinnedSessionIds: [WORKER] } }),
+    )
+    renderFocused()
+    await openSocket()
+
+    const headings = () =>
+      [...rail().querySelectorAll('.rail-section-title')].map((h) => h.textContent)
+    expect(headings()).toEqual(['Pinned (1)', 'Needs input (2)'])
+
+    // the pin never bypasses the query: the pinned row hides with the rest
+    const user = userEvent.setup()
+    await user.type(screen.getByRole('searchbox', { name: 'Filter sessions' }), 'review')
+    expect(headings()).toEqual(['Needs input (1)'])
+    expect(railRows().map((row) => row.dataset.sessionId)).toEqual([REVIEW])
   })
 })

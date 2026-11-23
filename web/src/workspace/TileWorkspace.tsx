@@ -13,6 +13,8 @@ import { ChildState } from '../api/types'
 import type { SessionStatus } from '../api/types'
 import { useSessionNamer } from '../session/useSessionLabel'
 import { MenuPopover } from '../ui/MenuPopover'
+import { ListFilter } from '../ui/ListFilter'
+import { matchesQuery, normalizeQuery } from '../ui/textMatch'
 import { SessionContextMenu, useSessionMenu } from '../session/SessionContextMenu'
 import { sessionDrag } from '../ui/dndContext'
 import { useWorkspaceKeys } from './keys'
@@ -699,7 +701,8 @@ function PaneView({
 // SessionPicker is the tab strip's + affordance: every known session opens as
 // a tab here (a second button splits it into its own pane), so several
 // sessions stream side by side without touching the keyboard. The menu portals
-// through MenuPopover, so a short pane's overflow clipping cannot cut it off.
+// through MenuPopover, so a short pane's overflow clipping cannot cut it off,
+// and a filter row narrows the rows locally.
 function SessionPicker({
   nameFor,
   onOpen,
@@ -743,31 +746,68 @@ function SessionPicker({
           role={empty ? undefined : 'menu'}
           onClose={() => setOpen(false)}
         >
-          {empty
-            ? 'No sessions known.'
-            : ordered.map((s) => (
-                <div key={s.sessionId} className="tile-menu-row">
-                  <button
-                    type="button"
-                    role="menuitem"
-                    title={nameFor(s.sessionId)}
-                    onClick={() => pick(s.sessionId)}
-                  >
-                    {nameFor(s.sessionId)}
-                  </button>
-                  <button
-                    type="button"
-                    className="tile-menu-split"
-                    aria-label={`Split pane with ${nameFor(s.sessionId)}`}
-                    title="Open in a new split beside this pane"
-                    onClick={() => pick(s.sessionId, true)}
-                  >
-                    ⊞
-                  </button>
-                </div>
-              ))}
+          {empty ? (
+            'No sessions known.'
+          ) : (
+            <PickerMenu ordered={ordered} nameFor={nameFor} onOpen={pick} />
+          )}
         </MenuPopover>
       )}
     </span>
+  )
+}
+
+// PickerMenu is the open picker's body: the model menu's filter pattern over
+// the live-before-ended rows. Mounted fresh per open, so every visit starts
+// with a blank query.
+function PickerMenu({
+  ordered,
+  nameFor,
+  onOpen,
+}: {
+  ordered: SessionStatus[]
+  nameFor: (sessionId: string) => string
+  onOpen: (sessionId: string, split?: boolean) => void
+}) {
+  const [query, setQuery] = useState('')
+  const q = normalizeQuery(query)
+  // display name and workspace, the facts a picker row carries; the session
+  // id rides along for unnamed sessions
+  const visible = useMemo(
+    () => ordered.filter((s) => matchesQuery(q, nameFor(s.sessionId), s.sessionId, s.workspace)),
+    [ordered, q, nameFor],
+  )
+
+  return (
+    <>
+      <div className="menu-filter-row">
+        <ListFilter label="Filter sessions" value={query} onChange={setQuery} autoFocus />
+      </div>
+      {visible.length === 0 ? (
+        <span className="muted menu-empty">No sessions match.</span>
+      ) : (
+        visible.map((s) => (
+          <div key={s.sessionId} className="tile-menu-row">
+            <button
+              type="button"
+              role="menuitem"
+              title={nameFor(s.sessionId)}
+              onClick={() => onOpen(s.sessionId)}
+            >
+              {nameFor(s.sessionId)}
+            </button>
+            <button
+              type="button"
+              className="tile-menu-split"
+              aria-label={`Split pane with ${nameFor(s.sessionId)}`}
+              title="Open in a new split beside this pane"
+              onClick={() => onOpen(s.sessionId, true)}
+            >
+              ⊞
+            </button>
+          </div>
+        ))
+      )}
+    </>
   )
 }

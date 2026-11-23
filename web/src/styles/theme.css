@@ -2729,27 +2729,6 @@ label {
   min-width: 0;
 }
 
-/* the rail's filter row: pinned to the scrollport top so a long queue keeps
-   the query reachable while its rows scroll under */
-.rail-filter-row {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  background: var(--surface);
-  padding-bottom: calc(var(--unit) * 1);
-}
-.rail-filter-row input[type='search'] {
-  width: 100%;
-}
-/* the no-match notice under the rail's filter, its clear action beside */
-.rail-no-match {
-  display: flex;
-  align-items: center;
-  gap: calc(var(--unit) * 2);
-}
-.rail-no-match p {
-  margin: 0;
-}
 .tool-row {
   display: flex;
   align-items: center;

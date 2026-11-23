@@ -33,7 +33,7 @@ import type { AttentionItem } from './attention'
 // profile, recently viewed sessions stay warm in the store, so swapping
 // rows is instant.
 export default function FocusedWorkspace() {
-  const { sessions } = useSwarm()
+  const { sessions, sessionsLoaded } = useSwarm()
   const auth = useAuth()
   const {
     needs,
@@ -359,15 +359,18 @@ export default function FocusedWorkspace() {
           </div>
         )}
         {railSections.length === 0 ? (
-          sourceCount === 0 ? (
-            <p className="muted">No sessions running</p>
-          ) : (
+          sourceCount > 0 ? (
             <div className="rail-no-match">
               <p className="muted">No sessions match “{filter.trim()}”.</p>
               <button type="button" onClick={() => setFilter('')}>
                 Clear filter
               </button>
             </div>
+          ) : !sessionsLoaded ? (
+            // an empty rail claims nothing before the first roster commits
+            <p className="muted">Loading sessions…</p>
+          ) : (
+            <p className="muted">No sessions running</p>
           )
         ) : (
           railSections.map((section) => (

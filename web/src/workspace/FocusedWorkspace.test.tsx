@@ -329,9 +329,50 @@ describe('FocusedWorkspace', () => {
     // an all-empty rail renders no section chrome, only the empty notice, and
     // no filter box for a roster with nothing to narrow
     expect(await screen.findByText('Select a session from the rail.')).toBeInTheDocument()
+    expect(await screen.findByText('No sessions running')).toBeInTheDocument()
     expect(rail().querySelectorAll('.rail-section-title')).toHaveLength(0)
-    expect(screen.getByText('No sessions running')).toBeInTheDocument()
     expect(screen.queryByRole('searchbox')).not.toBeInTheDocument()
+  })
+
+  it('avoids claiming an empty roster while it loads', async () => {
+    attention = []
+    let release!: (r: Response) => void
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string | URL | Request, init?: RequestInit) => {
+        const path = String(url)
+          .replace(/^https?:\/\/[^/]+/, '')
+          .split('?')[0]
+        const snap = /\/api\/sessions\/([^/]+)\/snapshot/.exec(path)
+        if (snap) return Promise.resolve(Response.json(ctlSnapshot(snap[1])))
+        if (path === '/api/me')
+          return Promise.resolve(Response.json({ username: 'you', via: 'cookie' }))
+        if (path === '/api/sessions') {
+          // parked like a real fetch, so the empty rail waits out its roster
+          return new Promise<Response>((resolve) => {
+            release = resolve
+          })
+        }
+        if (
+          path === '/api/attention' ||
+          path === '/api/saved-sessions' ||
+          path === '/api/models/options'
+        ) {
+          return Promise.resolve(Response.json([]))
+        }
+        throw new Error(`unexpected fetch ${init?.method ?? 'GET'} ${path}`)
+      }),
+    )
+    renderFocused()
+
+    // the rail claims nothing about the fleet before the roster commits
+    expect(screen.getByText('Loading sessions…')).toBeInTheDocument()
+    expect(screen.queryByText('No sessions running')).not.toBeInTheDocument()
+
+    release(Response.json(sessionsList()))
+    // the loaded roster with an empty digest settles on the loaded-empty claim
+    await screen.findByText('No sessions running')
+    expect(screen.queryByText('Loading sessions…')).not.toBeInTheDocument()
   })
 
   it('hides sections with no sessions', async () => {

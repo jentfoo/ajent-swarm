@@ -227,7 +227,55 @@ describe('RunsHistory', () => {
     runsReply = []
     renderRuns()
 
-    expect(await screen.findByText(/No runs yet/)).toBeInTheDocument()
+    expect(
+      await screen.findByText('No runs yet. Fire a job or wait for its schedule.'),
+    ).toBeInTheDocument()
+  })
+
+  it('names the empty scope for a job filter', async () => {
+    runsReply = []
+    renderRuns()
+    const user = userEvent.setup()
+    await screen.findByText(/No runs yet/)
+
+    await user.selectOptions(screen.getByLabelText(/Job/), '6')
+    expect(
+      await screen.findByText('No runs for weekly yet. Fire it or wait for its schedule.'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/No runs yet/)).not.toBeInTheDocument()
+  })
+
+  it('scopes a status miss to the latest history', async () => {
+    renderRuns() // no run carries the timeout status in the fixture window
+    const user = userEvent.setup()
+    await screen.findByTestId('run-11')
+
+    await user.selectOptions(screen.getByLabelText(/^Status/), 'timeout')
+    expect(screen.getByText('No timeout runs in the latest history.')).toBeInTheDocument()
+
+    // the job-scoped miss names the job over the same window
+    await user.selectOptions(screen.getByLabelText(/Job/), '6')
+    expect(
+      await screen.findByText('No timeout runs for weekly in the latest history.'),
+    ).toBeInTheDocument()
+  })
+
+  it('scopes a status miss over a full latest page', async () => {
+    // 200 ok runs fill the fetched window: a miss there cannot speak for
+    // all-time, older matching runs may sit past the page
+    const page = Array.from({ length: 200 }, (_, i) => ({
+      ...runs[0],
+      id: i + 100,
+      status: 'ok' as const,
+    }))
+    runsReply = page
+    renderRuns()
+    const user = userEvent.setup()
+    await screen.findByTestId('run-100')
+
+    await user.selectOptions(screen.getByLabelText(/^Status/), 'failed')
+    expect(screen.getByText('No failed runs in the latest history.')).toBeInTheDocument()
+    expect(screen.queryByText('No runs yet')).not.toBeInTheDocument()
   })
 
   it('keeps the desktop table above the phone breakpoint', async () => {
@@ -322,6 +370,42 @@ describe('RunsHistory', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('The service hit an internal error.')
     // the failed first load keeps its alert, never a loading line beneath it
     expect(screen.queryByText('Loading run history…')).not.toBeInTheDocument()
+  })
+
+  it('renders rows even when job names fail', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string | URL | Request, init?: RequestInit) => {
+        const path = String(url).replace(/^https?:\/\/[^/]+/, '')
+        const base = path.split('?')[0]
+        if (base === '/api/me')
+          return Promise.resolve(Response.json({ username: 'you', via: 'cookie' }))
+        if (base === '/api/sessions') return Promise.resolve(Response.json([]))
+        if (base === '/api/attention' || base === '/api/models/options') {
+          return Promise.resolve(Response.json([]))
+        }
+        if (base === '/api/jobs') {
+          return Promise.resolve(Response.json({ error: 'internal_error' }, { status: 500 }))
+        }
+        if (base === '/api/runs') {
+          const jobParam = new URLSearchParams(path.split('?')[1] ?? '').get('job')
+          return Promise.resolve(
+            Response.json(
+              jobParam !== null ? runsReply.filter((r) => r.jobId === Number(jobParam)) : runsReply,
+            ),
+          )
+        }
+        throw new Error(`unexpected fetch ${init?.method ?? 'GET'} ${base}`)
+      }),
+    )
+    renderRuns()
+
+    // the primary history renders without an alert, the name join falls to
+    // the dash until a poll lands the names
+    await screen.findByTestId('run-11')
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(within(screen.getByTestId('run-11')).getByText('—')).toBeInTheDocument()
+    expect(within(screen.getByTestId('run-12')).getByText('—')).toBeInTheDocument()
   })
 
   it('filters by status client-side and by job through the backend', async () => {

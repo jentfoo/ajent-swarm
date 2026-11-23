@@ -115,9 +115,49 @@ describe('MobileHome', () => {
     expect(await screen.findByTestId('link-jobs')).toHaveAttribute('href', '/jobs')
     expect(screen.getByTestId('link-settings')).toHaveAttribute('href', '/m/settings')
 
-    // the launch form reveals a custom workspace path on demand
+    // the launch form preselects the most recent workspace, the custom path
+    // reveals on demand
     await userEvent.setup().click(screen.getByRole('button', { name: 'Launch…' }))
+    expect(screen.getByLabelText('Working directory')).toHaveValue('/home/you/project')
+    expect(screen.queryByTestId('custom-workspace')).not.toBeInTheDocument()
+    await userEvent.setup().selectOptions(screen.getByLabelText('Working directory'), '')
     expect(screen.getByTestId('custom-workspace')).toBeInTheDocument()
+  })
+
+  it('launches new sessions under the most recent workspace', async () => {
+    fetcher.mockImplementation(async (url: string | URL, init?: RequestInit) => {
+      const path = String(url).split('?')[0]
+      if (path === '/api/me')
+        return Response.json({ username: 'you', via: 'cookie', home: '/home/you' })
+      if (path === '/api/sessions' && init?.method === 'POST') {
+        expect(JSON.parse(String(init.body))).toEqual({
+          workspace: '/home/you/project',
+          mode: 'new',
+        })
+        return Response.json({ sessionId: '01NEWSESSION0000000', pid: 7 })
+      }
+      if (path === '/api/sessions') return Response.json(liveRow())
+      if (path === '/api/attention' || path === '/api/models/options') return Response.json([])
+      if (path === '/api/saved-sessions') return Response.json([])
+      throw new Error(`unexpected fetch ${String(url)}`)
+    })
+
+    renderHome()
+    await screen.findByText('fix login flow')
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Launch…' }))
+
+    // the seed satisfies the workspace requirement without any user pick
+    const launch = screen.getByTestId('launch-new')
+    expect(launch).toBeEnabled()
+    await user.click(launch)
+    await vi.waitFor(() => {
+      expect(
+        fetcher.mock.calls.some(
+          ([u, init]) => String(u) === '/api/sessions' && init?.method === 'POST',
+        ),
+      ).toBe(true)
+    })
   })
 
   it('opens an ended row read-only transcript route', async () => {

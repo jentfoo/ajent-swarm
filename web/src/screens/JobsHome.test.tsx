@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ReactElement } from 'react'
 import { MemoryRouter, Route, Routes, useNavigate } from 'react-router'
@@ -434,6 +434,113 @@ describe('JobsHome', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('The service hit an internal error.')
   })
 
+  it('keeps the job list when the history read fails', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string | URL | Request, init?: RequestInit) => {
+        const path = String(url).replace(/^https?:\/\/[^/]+/, '')
+        const base = path.split('?')[0]
+        if (base === '/api/me')
+          return Promise.resolve(Response.json({ username: 'you', via: 'cookie' }))
+        if (
+          base === '/api/sessions' ||
+          base === '/api/attention' ||
+          base === '/api/models/options'
+        ) {
+          return Promise.resolve(Response.json([]))
+        }
+        if (base === '/api/jobs' && (!init?.method || init.method === 'GET')) {
+          return Promise.resolve(Response.json([job]))
+        }
+        if (base === '/api/runs') {
+          return Promise.resolve(Response.json({ error: 'internal_error' }, { status: 500 }))
+        }
+        throw new Error(`unexpected fetch ${init?.method ?? 'GET'} ${base}`)
+      }),
+    )
+    renderJobs()
+
+    // the primary list renders with its warning beside it, no empty success
+    expect(await screen.findByText('nightly sweep')).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(
+      screen.getByText('Run history unavailable, last-run facts may be stale.'),
+    ).toBeInTheDocument()
+    // the Last run cell falls back to its dash
+    const row = screen.getByTestId('job-5')
+    expect(row.textContent).toContain('every 30 minutes')
+    expect(screen.queryByText('failed')).not.toBeInTheDocument()
+
+    // a later successful read clears the notice
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string | URL | Request, init?: RequestInit) => {
+        const base = String(url)
+          .replace(/^https?:\/\/[^/]+/, '')
+          .split('?')[0]
+        if (base === '/api/me')
+          return Promise.resolve(Response.json({ username: 'you', via: 'cookie' }))
+        if (
+          base === '/api/sessions' ||
+          base === '/api/attention' ||
+          base === '/api/models/options'
+        ) {
+          return Promise.resolve(Response.json([]))
+        }
+        if (base === '/api/jobs' && (!init?.method || init.method === 'GET')) {
+          return Promise.resolve(Response.json([job]))
+        }
+        if (base === '/api/runs') return Promise.resolve(Response.json([run]))
+        throw new Error(`unexpected fetch ${init?.method ?? 'GET'} ${base}`)
+      }),
+    )
+    act(() => document.dispatchEvent(new Event('visibilitychange')))
+    await screen.findByText('failed')
+    expect(screen.queryByText(/Run history unavailable/)).not.toBeInTheDocument()
+  })
+
+  it('drops a superseded jobs reply', async () => {
+    const parked: Array<(r: Response) => void> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string | URL | Request, init?: RequestInit) => {
+        const base = String(url)
+          .replace(/^https?:\/\/[^/]+/, '')
+          .split('?')[0]
+        if (base === '/api/me')
+          return Promise.resolve(Response.json({ username: 'you', via: 'cookie' }))
+        if (
+          base === '/api/sessions' ||
+          base === '/api/attention' ||
+          base === '/api/models/options'
+        ) {
+          return Promise.resolve(Response.json([]))
+        }
+        if (base === '/api/jobs' && (!init?.method || init.method === 'GET')) {
+          // parked like a real fetch, so replies can land out of order
+          return new Promise<Response>((resolve) => {
+            parked.push(resolve)
+          })
+        }
+        if (base === '/api/runs') return Promise.resolve(Response.json([]))
+        throw new Error(`unexpected fetch ${init?.method ?? 'GET'} ${base}`)
+      }),
+    )
+    renderJobs()
+    await waitFor(() => expect(parked).toHaveLength(1))
+
+    // a poll tick starts a newer load, its reply lands first
+    act(() => document.dispatchEvent(new Event('visibilitychange')))
+    await waitFor(() => expect(parked).toHaveLength(2))
+    parked[1]!(Response.json([{ ...job, id: 6, name: 'fresh row' }]))
+    await screen.findByText('fresh row')
+
+    // the stale initial reply must not repaint over the newer load
+    parked[0]!(Response.json([job]))
+    await waitFor(() => expect(screen.getByText('fresh row')).toBeInTheDocument())
+    expect(screen.queryByText('nightly sweep')).not.toBeInTheDocument()
+  })
+
   it('toggles enabled optimistically and reverts on refusal', async () => {
     const user = userEvent.setup()
     renderJobs()
@@ -610,6 +717,32 @@ describe('JobsHome', () => {
     await screen.findByText('early job')
     const ids = screen.getAllByTestId(/^job-\d+$/).map((row) => row.getAttribute('data-testid'))
     expect(ids).toEqual(['job-2', 'job-9'])
+  })
+
+  it('exposes explicit edit, copy and run-now controls on desktop', async () => {
+    renderJobs()
+    await screen.findByText('nightly sweep')
+    const row = screen.getByTestId('job-5')
+    expect(within(row).getByRole('link', { name: 'Edit nightly sweep' })).toHaveAttribute(
+      'href',
+      '/jobs/5',
+    )
+    expect(within(row).getByRole('link', { name: 'Copy nightly sweep' })).toHaveAttribute(
+      'href',
+      '/jobs/new?from=5',
+    )
+
+    // the run control names itself and its pending window
+    parkFires = 1
+    const runNow = within(row).getByRole('button', { name: 'Run nightly sweep now' })
+    expect(runNow).toHaveTextContent('Run now')
+    await userEvent.setup().click(runNow)
+    expect(runNow).toBeDisabled()
+    expect(runNow).toHaveTextContent('Starting…')
+
+    fireWaiters.shift()!(Response.json(manualRun(20)))
+    await waitFor(() => expect(runNow).toBeEnabled())
+    expect(runNow).toHaveTextContent('Run now')
   })
 
   it('fires manually and reports the outcome', async () => {

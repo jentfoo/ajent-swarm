@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -9,8 +9,8 @@ import type { LaunchTarget } from './useLaunchForm'
 // its custom reveal, the model select, and the busy/error flow around
 // fleet.launch. Targets stay with each surface.
 
-function FormProbe({ target }: { target: LaunchTarget }) {
-  const form = useLaunchForm()
+function FormProbe({ options = [], target }: { options?: string[]; target: LaunchTarget }) {
+  const form = useLaunchForm(options)
   return (
     <div>
       <select
@@ -64,6 +64,46 @@ describe('useLaunchForm', () => {
     vi.unstubAllGlobals()
   })
 
+  it('seeds the most recent workspace once options arrive', async () => {
+    const view = render(<FormProbe target={{ mode: 'new' }} />)
+    expect(screen.getByTestId('workspace')).toHaveTextContent('')
+
+    // the first option is the most recent known workspace
+    view.rerender(<FormProbe options={['/recent', '/older']} target={{ mode: 'new' }} />)
+    await waitFor(() => expect(screen.getByTestId('workspace')).toHaveTextContent('/recent'))
+
+    // the seed lands once: a later refresh of the same options adds nothing
+    view.rerender(<FormProbe options={['/other', '/recent']} target={{ mode: 'new' }} />)
+    expect(screen.getByTestId('workspace')).toHaveTextContent('/recent')
+  })
+
+  it('never overwrites a touched form with late options', async () => {
+    const user = userEvent.setup()
+    const view = render(<FormProbe options={['/recent']} target={{ mode: 'new' }} />)
+    await waitFor(() => expect(screen.getByTestId('workspace')).toHaveTextContent('/recent'))
+
+    // the user picks the custom reveal and types a path: the form is theirs now
+    await user.selectOptions(screen.getByLabelText('workspace'), '')
+    await user.type(screen.getByLabelText('custom'), '/mine')
+    expect(screen.getByTestId('workspace')).toHaveTextContent('/mine')
+
+    view.rerender(<FormProbe options={['/later', '/recent']} target={{ mode: 'new' }} />)
+    expect(screen.getByTestId('workspace')).toHaveTextContent('/mine')
+  })
+
+  it('keeps the empty-workspace validation when no options exist', async () => {
+    const user = userEvent.setup()
+    const spy = stubFetch(() => Response.json({ sessionId: '01NEW' }))
+    render(<FormProbe target={{ mode: 'new' }} />)
+
+    await user.click(screen.getByRole('button', { name: 'launch' }))
+
+    expect(screen.getByTestId('error')).toHaveTextContent(
+      'Pick the working directory to start under.',
+    )
+    expect(spy).not.toHaveBeenCalled()
+  })
+
   it('resolves the workspace from the choice or the custom reveal', async () => {
     const user = userEvent.setup()
     stubFetch(() => Response.json({ sessionId: '01NEW' }))
@@ -75,19 +115,6 @@ describe('useLaunchForm', () => {
 
     await user.selectOptions(screen.getByLabelText('workspace'), '/w')
     expect(screen.getByTestId('workspace')).toHaveTextContent('/w')
-  })
-
-  it('refuses an empty workspace without posting', async () => {
-    const user = userEvent.setup()
-    const spy = stubFetch(() => Response.json({ sessionId: '01NEW' }))
-    render(<FormProbe target={{ mode: 'new' }} />)
-
-    await user.click(screen.getByRole('button', { name: 'launch' }))
-
-    expect(screen.getByTestId('error')).toHaveTextContent(
-      'Pick the working directory to start under.',
-    )
-    expect(spy).not.toHaveBeenCalled()
   })
 
   it('posts the surface target with the resolved workspace and model', async () => {

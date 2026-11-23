@@ -43,26 +43,29 @@ export default function RunsHistory() {
 
   // The explicit job filter takes the value so a change reloads at once, the
   // poll's initial tick covers the mount-time load and later cadence ticks
-  // read the latest filter through the callback ref.
+  // read the latest filter through the callback ref. History is the primary
+  // read and job names auxiliary: one failing never masks the other, each
+  // branch applies only after the recency check.
   const load = useCallback(
     async (jobId: number | '' = jobFilter) => {
       const seq = ++loadSeq.current
       abortRef.current?.abort()
       const controller = new AbortController()
       abortRef.current = controller
-      try {
-        const [rows, jobRows] = await Promise.all([
-          runsApi.list(jobId === '' ? undefined : jobId, 200, controller.signal),
-          jobsApi.list(controller.signal),
-        ])
-        if (controller.signal.aborted || seq !== loadSeq.current) return // superseded
-        setRuns(rows ?? []) // a null body reads as an empty history
-        setJobs(jobRows ?? [])
+      const [runsRes, jobsRes] = await Promise.allSettled([
+        runsApi.list(jobId === '' ? undefined : jobId, 200, controller.signal),
+        jobsApi.list(controller.signal),
+      ])
+      if (controller.signal.aborted || seq !== loadSeq.current) return // superseded
+      if (runsRes.status === 'fulfilled') {
+        setRuns(runsRes.value ?? []) // a null body reads as an empty history
         setError('')
-      } catch (err) {
-        if (controller.signal.aborted || seq !== loadSeq.current) return // superseded
-        setError(describeError(err, 'Loading run history failed.'))
+      } else {
+        setError(describeError(runsRes.reason, 'Loading run history failed.'))
       }
+      // a refused names read keeps the current labels, rows stay on their dash
+      // until the next poll lands it
+      if (jobsRes.status === 'fulfilled') setJobs(jobsRes.value ?? [])
     },
     [jobFilter],
   )
@@ -77,6 +80,9 @@ export default function RunsHistory() {
     (run: Run) => jobs.find((j) => j.id === run.jobId)?.name ?? '',
     [jobs],
   )
+  // the filter's own job name for the empty copy, unknown until its row loads
+  const filterJobName =
+    jobFilter === '' ? undefined : (jobs.find((j) => j.id === jobFilter)?.name ?? 'this job')
 
   // Resolution by id keeps the modal off a frozen snapshot: status, finished
   // time and error track each poll. A run that left the history closes it.
@@ -145,10 +151,8 @@ export default function RunsHistory() {
           never a loading line under it */}
       {runs === null && error === '' ? (
         <p className="muted">Loading run history…</p>
-      ) : runs !== null && runs.length === 0 ? (
-        <p className="muted">No runs yet. Fire a job or wait for its schedule.</p>
-      ) : rows.length === 0 && runs !== null && runs.length > 0 ? (
-        <p className="muted">No runs match these filters.</p>
+      ) : runs !== null && rows.length === 0 ? (
+        <p className="muted">{runEmptyCopy(filterJobName, statusFilter)}</p>
       ) : rows.length > 0 ? (
         mobile ? (
           <div className="run-cards" role="list">
@@ -187,6 +191,19 @@ export default function RunsHistory() {
       {selected && <RunDetailLayer run={selected} onClose={() => setSelectedId(undefined)} />}
     </div>
   )
+}
+
+// runEmptyCopy names the empty scope: global absence, one job's history, or a
+// status miss over the fetched rows. The client reads only the latest window,
+// so a filter miss never claims older matching runs do not exist.
+function runEmptyCopy(job: string | undefined, status: string): string {
+  if (status !== '') {
+    return job === undefined
+      ? `No ${status} runs in the latest history.`
+      : `No ${status} runs for ${job} in the latest history.`
+  }
+  if (job !== undefined) return `No runs for ${job} yet. Fire it or wait for its schedule.`
+  return 'No runs yet. Fire a job or wait for its schedule.'
 }
 
 // RunRowFacts is one run's display data shared by the desktop table row and

@@ -21,6 +21,9 @@ import { matchesQuery, normalizeQuery } from '../ui/textMatch'
 const pollJobsMs = 10_000
 // A page deep enough that every job's latest run is on it for most installs.
 const lastRunPage = 200
+// Auxiliary failure copy: the history read failing never blanks the loaded
+// job list, the Last run column falls back to its dash instead.
+const lastRunsWarning = 'Run history unavailable, last-run facts may be stale.'
 
 // The compact state choice beside the text search: every row, or one enablement.
 type JobStateFilter = 'all' | 'enabled' | 'disabled'
@@ -41,6 +44,8 @@ export default function JobsHome() {
   const [jobs, setJobs] = useState<Job[] | null>(null)
   const [lastRuns, setLastRuns] = useState<Map<number, Run>>(new Map())
   const [error, setError] = useState('')
+  // the newest load's auxiliary failure, cleared by its first success
+  const [lastRunsNotice, setLastRunsNotice] = useState('')
   const [notice, setNotice] = useState('')
   // local view state: the list narrows, toggles and editor lookups read the
   // full stored order below
@@ -113,27 +118,35 @@ export default function JobsHome() {
 
   const load = useCallback(async () => {
     const token = ++loadToken.current
-    try {
-      // The newest-first history page doubles as every job's last-run status.
-      const [jobRows, history] = await Promise.all([
-        jobsApi.list(),
-        runsApi.list(undefined, lastRunPage),
-      ])
-      if (token !== loadToken.current) return // a newer load superseded this one
+    // The listings stand alone: a failed history read must not blank a loaded
+    // job list, and a failed job list keeps its own alert. One shared token
+    // keeps both commits monotonic under overlapping loads.
+    const [jobsRes, runsRes] = await Promise.allSettled([
+      jobsApi.list(),
+      runsApi.list(undefined, lastRunPage),
+    ])
+    if (token !== loadToken.current) return // a newer load superseded this one
+    if (jobsRes.status === 'fulfilled') {
       setJobs((current) => {
         const held = new Map(
           (current ?? [])
             .filter((j) => (pendingToggles.current.get(j.id) ?? 0) > 0)
             .map((j) => [j.id, j]),
         )
-        if (held.size === 0) return jobRows
-        return jobRows.map((j) => held.get(j.id) ?? j)
+        if (held.size === 0) return jobsRes.value
+        return jobsRes.value.map((j) => held.get(j.id) ?? j)
       })
-      setLastRuns(latestRunByJob(history))
       setError('')
-    } catch (err) {
-      if (token !== loadToken.current) return
-      setError(describeError(err, 'Loading jobs failed.'))
+    } else {
+      setError(describeError(jobsRes.reason, 'Loading jobs failed.'))
+    }
+    // a stale lastRuns map survives a failed read: the column may read old
+    // facts until the next poll, which the notice names
+    if (runsRes.status === 'fulfilled') {
+      setLastRuns(latestRunByJob(runsRes.value))
+      setLastRunsNotice('')
+    } else {
+      setLastRunsNotice(lastRunsWarning)
     }
   }, [])
 
@@ -235,6 +248,11 @@ export default function JobsHome() {
       {error !== '' && (
         <p className="error-text" role="alert">
           {error}
+        </p>
+      )}
+      {lastRunsNotice !== '' && (
+        <p className="muted" role="status">
+          {lastRunsNotice}
         </p>
       )}
 
@@ -520,17 +538,19 @@ function JobTableRow({ job, facts, firing, onToggle, onFire }: JobRowProps) {
       <td>
         <JobToggle job={job} onToggle={onToggle} />
         <div className="job-row-actions">
+          <Link to={`/jobs/${job.id}`} className="btn" aria-label={`Edit ${job.name}`}>
+            Edit
+          </Link>
           <Link to={`/jobs/new?from=${job.id}`} className="btn" aria-label={`Copy ${job.name}`}>
             Copy
           </Link>
           <button
             type="button"
-            title="Run now"
             aria-label={`Run ${job.name} now`}
             disabled={firing}
             onClick={onFire}
           >
-            ▶
+            {firing ? 'Starting…' : 'Run now'}
           </button>
         </div>
       </td>
@@ -569,7 +589,7 @@ function JobCard({ job, facts, firing, onToggle, onFire }: JobRowProps) {
           Copy
         </Link>
         <button type="button" aria-label={`Run ${job.name} now`} disabled={firing} onClick={onFire}>
-          Run
+          {firing ? 'Starting…' : 'Run'}
         </button>
         <Link to={`/jobs/${job.id}`} className="btn" aria-label={`Edit ${job.name}`}>
           Edit

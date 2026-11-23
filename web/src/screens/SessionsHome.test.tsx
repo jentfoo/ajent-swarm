@@ -99,6 +99,39 @@ describe('SessionsHome', () => {
     )
   }
 
+  it('shows a loading line until the roster lands, then the empty state', async () => {
+    let release!: (r: Response) => void
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string | URL | Request, init?: RequestInit) => {
+        const base = String(url)
+          .replace(/^https?:\/\/[^/]+/, '')
+          .split('?')[0]
+        if (base === '/api/me')
+          return Promise.resolve(Response.json({ username: 'you', via: 'cookie' }))
+        if (base === '/api/sessions' && (!init?.method || init.method === 'GET')) {
+          // parked like a real fetch, so the first paint stays on its load
+          return new Promise<Response>((resolve) => {
+            release = resolve
+          })
+        }
+        if (base === '/api/attention' || base === '/api/models/options') {
+          return Promise.resolve(Response.json([]))
+        }
+        throw new Error(`unexpected fetch ${init?.method ?? 'GET'} ${base}`)
+      }),
+    )
+    renderHome()
+
+    // an uncommitted roster claims nothing about the fleet
+    expect(screen.getByText('Loading sessions…')).toBeInTheDocument()
+    expect(screen.queryByText(/No live sessions/)).not.toBeInTheDocument()
+
+    release(Response.json([]))
+    expect(await screen.findByText(/No live sessions/)).toBeInTheDocument()
+    expect(screen.queryByText('Loading sessions…')).not.toBeInTheDocument()
+  })
+
   it('styles the launch command as code with no backticks', async () => {
     sessionsReply = []
     renderHome()
@@ -106,6 +139,44 @@ describe('SessionsHome', () => {
     const empty = await screen.findByText(/no live sessions/i)
     expect(empty.textContent).toBe('No live sessions. Launch one or start ajent --serve yourself.')
     expect(empty.querySelector('code')).toHaveTextContent('ajent --serve')
+  })
+
+  it('labels the workspace action with the selection size', async () => {
+    sessionsReply = [session({ sessionId: '01A' }), session({ sessionId: '01B' })]
+    renderHome()
+    const user = userEvent.setup()
+    await screen.findByText('01A')
+
+    // no selection keeps the focused-mode open action
+    expect(screen.getByRole('button', { name: 'Open workspace' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('checkbox', { name: 'Select 01A for tiling' }))
+    await user.click(screen.getByRole('checkbox', { name: 'Select 01B for tiling' }))
+    const tile = screen.getByRole('button', { name: 'Tile 2 selected' })
+
+    // the labeled action still tiles the explicit selection
+    await user.click(tile)
+    expect(await screen.findByText('tiled 01A,01B')).toBeInTheDocument()
+  })
+
+  it('seeds the launch form with the most recent workspace', async () => {
+    sessionsReply = [
+      session({ sessionId: '01A', workspace: '/repo/alpha' }),
+      session({ sessionId: '01B', workspace: '/repo/beta' }),
+    ]
+    renderHome()
+    const user = userEvent.setup()
+    await screen.findByText('alpha')
+
+    await user.click(screen.getByRole('button', { name: 'Launch session' }))
+
+    // the first known option preselects and hides the custom reveal
+    expect(screen.getByLabelText('Working directory')).toHaveValue('/repo/alpha')
+    expect(screen.queryByLabelText('Directory path')).not.toBeInTheDocument()
+
+    // custom path stays an explicit choice
+    await user.selectOptions(screen.getByLabelText('Working directory'), '')
+    expect(screen.getByLabelText('Directory path')).toBeInTheDocument()
   })
 
   it('badges held seats and stays quiet on free ones', async () => {
@@ -229,7 +300,7 @@ describe('SessionsHome', () => {
 
     // the tile request repeats the session id, once per selected instance
     await user.click(second)
-    await user.click(screen.getByRole('button', { name: 'Open workspace' }))
+    await user.click(screen.getByRole('button', { name: 'Tile 2 selected' }))
     expect(await screen.findByText('tiled 01A,01A')).toBeInTheDocument()
   })
 
@@ -328,7 +399,7 @@ describe('SessionsHome', () => {
     expect(screen.getByRole('checkbox', { name: 'Select beta for tiling' })).toBeChecked()
 
     // the tile request still carries the hidden instance
-    await user.click(screen.getByRole('button', { name: 'Open workspace' }))
+    await user.click(screen.getByRole('button', { name: 'Tile 2 selected' }))
     expect(await screen.findByText('tiled 01AAA,01BBB')).toBeInTheDocument()
   })
 

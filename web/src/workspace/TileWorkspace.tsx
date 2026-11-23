@@ -4,7 +4,7 @@ import type {
   KeyboardEvent as ReactKeyboardEvent,
   PointerEvent as ReactPointerEvent,
 } from 'react'
-import { useNavigate, useSearchParams } from 'react-router'
+import { Link, useNavigate, useSearchParams } from 'react-router'
 
 import { useSwarm } from '../providers/swarm'
 import { useWorkspace } from '../providers/workspace'
@@ -355,12 +355,28 @@ export default function TileWorkspace() {
     [commit, tree],
   )
 
+  const someReachable = sessions.some(reachableSession)
   return (
     <div className="workspace tile-workspace" ref={containerRef}>
       {tree === null ? (
+        // the empty state carries its own next actions: an existing session
+        // through the picker, or the Sessions screen to launch one
         <div className="tile-empty">
           <p className="muted">No panes open.</p>
-          {!sessions.some(reachableSession) && <span>No live sessions to open.</span>}
+          {sessionsLoaded && !someReachable && <span>No live sessions to open.</span>}
+          {sessions.length > 0 && (
+            <SessionPicker
+              nameFor={nameFor}
+              onOpen={(sessionId) => openInTree(sessionId)}
+              label="Open a session"
+              ariaLabel="Open a session"
+              title="Open a session in this workspace"
+              allowSplit={false}
+            />
+          )}
+          <Link to="/sessions" className="btn">
+            Open Sessions
+          </Link>
         </div>
       ) : (
         <NodeView
@@ -664,10 +680,15 @@ function PaneView({
             )
           })}
         </div>
-        <SessionPicker
-          nameFor={nameFor}
-          onOpen={(sessionId, split) => onOpenSession(sessionId, pane.id, split)}
-        />
+        <span className="tile-add">
+          <SessionPicker
+            nameFor={nameFor}
+            onOpen={(sessionId, split) => onOpenSession(sessionId, pane.id, split)}
+            label="+"
+            ariaLabel="Add a session to this pane"
+            title="Open a session in this pane"
+          />
+        </span>
       </div>
 
       <SessionContextMenu menu={menu} onClose={closeSessionMenu} />
@@ -698,17 +719,27 @@ function PaneView({
   )
 }
 
-// SessionPicker is the tab strip's + affordance: every known session opens as
-// a tab here (a second button splits it into its own pane), so several
-// sessions stream side by side without touching the keyboard. The menu portals
-// through MenuPopover, so a short pane's overflow clipping cannot cut it off,
-// and a filter row narrows the rows locally.
+// SessionPicker is the session-opening menu over one trigger button: every
+// known session opens through it (a second control splits it into its own
+// pane when the surface has panes to split), so several sessions stream side
+// by side without touching the keyboard. The pane strip keeps the compact +
+// trigger, the empty workspace a labeled one. The menu portals through
+// MenuPopover, so a short pane's overflow clipping cannot cut it off, and a
+// filter row narrows the rows locally.
 function SessionPicker({
   nameFor,
   onOpen,
+  label,
+  ariaLabel,
+  title,
+  allowSplit = true,
 }: {
   nameFor: (sessionId: string) => string
   onOpen: (sessionId: string, split?: boolean) => void
+  label: string
+  ariaLabel: string
+  title?: string
+  allowSplit?: boolean
 }) {
   const { sessions } = useSwarm()
   const [open, setOpen] = useState(false)
@@ -727,16 +758,16 @@ function SessionPicker({
   }
 
   return (
-    <span className="tile-add">
+    <>
       <button
         type="button"
         ref={addRef}
-        aria-label="Add a session to this pane"
-        title="Open a session in this pane"
+        aria-label={ariaLabel}
+        title={title ?? ariaLabel}
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
       >
-        +
+        {label}
       </button>
       {open && (
         <MenuPopover
@@ -749,11 +780,11 @@ function SessionPicker({
           {empty ? (
             'No sessions known.'
           ) : (
-            <PickerMenu ordered={ordered} nameFor={nameFor} onOpen={pick} />
+            <PickerMenu ordered={ordered} nameFor={nameFor} onOpen={pick} allowSplit={allowSplit} />
           )}
         </MenuPopover>
       )}
-    </span>
+    </>
   )
 }
 
@@ -764,10 +795,12 @@ function PickerMenu({
   ordered,
   nameFor,
   onOpen,
+  allowSplit,
 }: {
   ordered: SessionStatus[]
   nameFor: (sessionId: string) => string
   onOpen: (sessionId: string, split?: boolean) => void
+  allowSplit: boolean
 }) {
   const [query, setQuery] = useState('')
   const q = normalizeQuery(query)
@@ -796,15 +829,17 @@ function PickerMenu({
             >
               {nameFor(s.sessionId)}
             </button>
-            <button
-              type="button"
-              className="tile-menu-split"
-              aria-label={`Split pane with ${nameFor(s.sessionId)}`}
-              title="Open in a new split beside this pane"
-              onClick={() => onOpen(s.sessionId, true)}
-            >
-              ⊞
-            </button>
+            {allowSplit && (
+              <button
+                type="button"
+                className="tile-menu-split"
+                aria-label={`Split pane with ${nameFor(s.sessionId)}`}
+                title="Open in a new split beside this pane"
+                onClick={() => onOpen(s.sessionId, true)}
+              >
+                ⊞
+              </button>
+            )}
           </div>
         ))
       )}

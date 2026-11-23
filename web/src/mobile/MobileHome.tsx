@@ -108,7 +108,8 @@ function LaunchForm({
 }) {
   const { home } = useAuth()
   const { saved, models, workspaceOptions } = facts
-  const form = useLaunchForm()
+  // the most recent known workspace seeds the form once options exist
+  const form = useLaunchForm(workspaceOptions)
 
   const launchNew = async () => {
     const id = await form.launch({ mode: 'new' })

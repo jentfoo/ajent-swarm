@@ -474,8 +474,8 @@ describe('TileWorkspace', () => {
     renderTile('/tile?open=01STALESESSION000001')
 
     // the screen at rest matches a plain empty visit, only the URL differs
-    expect(await screen.findByText('No panes open.')).toBeInTheDocument()
-    expect(screen.getByText('No live sessions to open.')).toBeInTheDocument()
+    expect(await screen.findByText('No live sessions to open.')).toBeInTheDocument()
+    expect(screen.getByText('No panes open.')).toBeInTheDocument()
     await waitFor(() => expect(currentSearch).toBe(''))
   })
 
@@ -821,7 +821,54 @@ describe('TileWorkspace', () => {
     renderTile()
 
     expect(await screen.findByText('No panes open.')).toBeInTheDocument()
+    expect(await screen.findByText('No live sessions to open.')).toBeInTheDocument()
+  })
+
+  it('offers the empty workspace a picker that populates the tree', async () => {
+    localStorage.setItem(
+      'swarm.workspace.v1',
+      JSON.stringify({ mode: 'tile', focused: {}, tile: { tree: null } }),
+    )
+    // one ended session: nothing auto-tiles, so the empty state stays up
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string | URL | Request) => {
+        const path = String(url)
+          .replace(/^https?:\/\/[^/]+/, '')
+          .split('?')[0]
+        if (path === '/api/me') {
+          return Promise.resolve(Response.json({ username: 'you', via: 'cookie' }))
+        }
+        if (path === '/api/sessions') {
+          return Promise.resolve(
+            Response.json([
+              { sessionId: LEFT, name: 'left', state: 'exited', spawnedBy: 'external' },
+            ]),
+          )
+        }
+        if (path === '/api/attention') return Promise.resolve(Response.json([]))
+        return Promise.resolve(Response.json({}))
+      }),
+    )
+    renderTile()
+
+    expect(await screen.findByText('No panes open.')).toBeInTheDocument()
     expect(screen.getByText('No live sessions to open.')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Open Sessions' })).toHaveAttribute('href', '/sessions')
+
+    // the picker opens into the null tree through openInTree
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Open a session' }))
+    const menu = document.querySelector('.tile-menu') as HTMLElement
+    expect(
+      within(menu).queryByRole('button', { name: 'Split pane with left' }),
+    ).not.toBeInTheDocument()
+    await user.click(within(menu).getByRole('menuitem', { name: 'left' }))
+
+    await waitFor(() => expect(document.querySelectorAll('[data-pane-id]')).toHaveLength(1))
+    const stored = storedProfile().tile.tree
+    expect(stored.kind).toBe('pane')
+    expect(stored.tabs).toEqual([LEFT])
   })
 
   it('batches divider moves into one commit per frame', async () => {

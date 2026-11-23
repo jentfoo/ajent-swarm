@@ -29,7 +29,7 @@ import { ModelSelect, WorkspaceSelect } from '../ui/LaunchFormFields'
 // grid locally only: hidden cards keep their selection, selection rides the
 // full roster.
 export default function SessionsHome() {
-  const { sessions } = useSwarm()
+  const { sessions, sessionsLoaded } = useSwarm()
   const auth = useAuth()
   const home = auth.home
   const [launching, setLaunching] = useState(false)
@@ -103,7 +103,7 @@ export default function SessionsHome() {
           </>
         )}
         <button type="button" onClick={openWorkspace}>
-          Open workspace
+          {selectedKeys.length > 0 ? `Tile ${selectedKeys.length} selected` : 'Open workspace'}
         </button>
         <button type="button" onClick={() => setLaunching((v) => !v)}>
           {launching ? 'Close' : 'Launch session'}
@@ -118,7 +118,11 @@ export default function SessionsHome() {
         </div>
       )}
 
-      {sessions.length === 0 ? (
+      {/* the roster has not committed yet: loading reads truthfully instead
+          of claiming an empty fleet */}
+      {!sessionsLoaded ? (
+        <p className="muted">Loading sessions…</p>
+      ) : sessions.length === 0 ? (
         <p className="muted">
           No live sessions. Launch one or start <code>ajent --serve</code> yourself.
         </p>
@@ -332,7 +336,8 @@ function LaunchPanel({ home }: { home?: string }) {
   // One launch-facts source: workspaces from live and saved sessions, the
   // deduped model listing and the saved rows the resume target matches against.
   const { saved, models, workspaceOptions } = useLaunchFacts()
-  const form = useLaunchForm()
+  // the most recent known workspace seeds the form once options exist
+  const form = useLaunchForm(workspaceOptions)
 
   // No mode picker: an empty target launches new, a saved-session id resumes
   // it, anything else is a create-or-resume session name.

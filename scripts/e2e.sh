@@ -70,9 +70,11 @@ PROVIDER_PID=$!
 echo "==> starting swarm on $SWARM_URL"
 # --password no longer takes a value; headless starts read AJENT_SWARM_PASSWORD.
 # stdin stays redirected so an interactive run never triggers the prompt path.
+# --kill-children-on-shutdown reaps the spawned ajent when cleanup kills swarm,
+# children outlive the service by default and would leak e2e-ajent otherwise.
 AJENT_HOME="$HOME_DIR" AJENT_SWARM_PASSWORD="$SWARM_PASSWORD" \
   bin/e2e-swarm --port "$PORT" --host 127.0.0.1 \
-  --password --ajent-bin "$ROOT/bin/e2e-ajent" </dev/null &
+  --password --kill-children-on-shutdown --ajent-bin "$ROOT/bin/e2e-ajent" </dev/null &
 SWARM_PID=$!
 
 for _ in $(seq 1 100); do

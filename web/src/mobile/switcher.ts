@@ -1,6 +1,8 @@
 // The switcher's pure model: launcher rows derived from the fleet listing
 // plus the shared attention digest. Alive rows rank like the desktop rail and
-// carry the queue they render under, with a trailing Recent section of ended
+// carry the queue they render under, with pinned sessions pulled ahead under
+// their own Pinned heading in pin order whatever their live state (the same
+// split the desktop focus rail renders), and a trailing Recent section of ended
 // runs so a fresh exit stays one tap from resume: at least minEndedRows
 // always, plus every exit inside the recent window however many ran.
 import { childEnded, type SessionStatus } from '../api/types'
@@ -28,17 +30,18 @@ const endedWindowMs = 2 * 60 * 60 * 1000
 
 type SwitcherStatus = SessionBadge | 'ended'
 
-// SwitcherSection mirrors the desktop rail's three queues: states wanting a
-// human answer render under Needs input, idle agents under Waiting, busy and
-// digest-less rows under Working, and the exited tail last.
-type SwitcherSection = AttentionQueue | 'ended'
+// SwitcherSection mirrors the desktop rail's queues: pinned sessions lead
+// under Pinned, states wanting a human answer render under Needs input, idle
+// agents under Waiting, busy and digest-less rows under Working, and the
+// exited tail last.
+type SwitcherSection = AttentionQueue | 'ended' | 'pinned'
 
 export interface SwitcherRow {
   sessionId: string
   pid?: number // instance discriminator: twin rows share a session id
   label: string // rendered through the shared display-name helper upstream
   status: SwitcherStatus
-  section: SwitcherSection // rail queue, fixed at build time
+  section: SwitcherSection // rail queue or pin pull-ahead, fixed at build time
   reason: string // one-line digest reason when attention knows this session
   queued: number // prompts waiting in the session's queue; badged on launcher rows
   checkOff: boolean // a row that may be acknowledged; waiting rows refuse
@@ -55,7 +58,7 @@ interface GroupedSwitcherRows {
   rows: SwitcherRow[]
 }
 
-const sectionOrder: readonly SwitcherSection[] = ['needs', 'waiting', 'working', 'ended']
+const sectionOrder: readonly SwitcherSection[] = ['pinned', 'needs', 'waiting', 'working', 'ended']
 
 // buildSwitcherRows folds the listing and attention items into launcher rows.
 // Attention is optional: a missing digest merely drops badges and reasons
@@ -65,6 +68,7 @@ export function buildSwitcherRows(
   sessions: readonly SessionStatus[],
   labelFor: (s: SessionStatus) => string,
   items?: readonly AttentionItem[],
+  pinnedSessionIds?: readonly string[],
 ): SwitcherRow[] {
   const byInstance = new Map(items?.map((i) => [instanceKey(i.sessionId, i.pid), i]))
   const bySession = new Map(items?.map((i) => [i.sessionId, i]))
@@ -117,9 +121,20 @@ export function buildSwitcherRows(
     })
   }
 
-  alive.sort(compareAttention)
+  // Pinned alive rows leave their queue and lead in pin order, ended ones
+  // stay put; the queues below keep only the unpinned rest. Twin instances
+  // share a session id, so both follow it.
+  const pins = pinnedSessionIds ?? []
+  const pinned = alive.filter((a) => pins.includes(a.row.sessionId))
+  const rest = alive.filter((a) => !pins.includes(a.row.sessionId))
+  pinned.sort((a, b) => pins.indexOf(a.row.sessionId) - pins.indexOf(b.row.sessionId))
+  rest.sort(compareAttention)
   exited.sort((a, b) => (b.exitedAt ?? 0) - (a.exitedAt ?? 0))
-  return [...alive.map((a) => a.row), ...capEnded(exited)]
+  return [
+    ...pinned.map((a) => ({ ...a.row, section: 'pinned' as const })),
+    ...rest.map((a) => a.row),
+    ...capEnded(exited),
+  ]
 }
 
 // capEnded keeps the pinned minimum plus every exit inside the recent window
@@ -152,8 +167,9 @@ export function switcherRoute(row: SwitcherRow): string {
 // keeping each queue's incoming order rather than re-sorting, so mobile and
 // desktop can never disagree. The Working queue anchors chained rows below
 // the session they wait behind, the same shared rule the desktop rail reads.
-// Empty queues drop out and the ended tail keeps its window rule even when a
-// producer skips it.
+// A pinned parent leaving Working leaves its child ranked in place, the
+// cross-queue rule anchorChained already carries. Empty queues drop out and
+// the ended tail keeps its window rule even when a producer skips it.
 export function groupSwitcherRows(rows: readonly SwitcherRow[]): GroupedSwitcherRows[] {
   return sectionOrder.flatMap((section): GroupedSwitcherRows[] => {
     const matched = rows.filter((r) => r.section === section)
@@ -166,8 +182,14 @@ export function groupSwitcherRows(rows: readonly SwitcherRow[]): GroupedSwitcher
           : matched
     if (sectionRows.length === 0) return []
     // only the ended tail is switcher-specific, alive headings read the
-    // shared queue titles so the launcher cannot drift from the desktop rail
-    const title = section === 'ended' ? 'Recent' : attentionSectionTitles[section]
+    // shared queue titles plus Pinned so the launcher cannot drift from the
+    // desktop rail
+    const title =
+      section === 'ended'
+        ? 'Recent'
+        : section === 'pinned'
+          ? 'Pinned'
+          : attentionSectionTitles[section]
     return [{ section, title, rows: sectionRows }]
   })
 }

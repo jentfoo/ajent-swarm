@@ -12,11 +12,16 @@ import { buildSwitcherRows } from './switcher'
 export function useSwitcherRows() {
   const { sessions } = useSwarm()
   const { home } = useAuth()
-  const { needs, waiting, working } = useWorkspace()
+  const { needs, waiting, working, pinnedSessionIds } = useWorkspace()
 
   return useMemo(
     () =>
-      buildSwitcherRows(sessions, (s) => displayName(s, home), [...needs, ...waiting, ...working]),
-    [sessions, home, needs, waiting, working],
+      buildSwitcherRows(
+        sessions,
+        (s) => displayName(s, home),
+        [...needs, ...waiting, ...working],
+        pinnedSessionIds,
+      ),
+    [sessions, home, needs, waiting, working, pinnedSessionIds],
   )
 }

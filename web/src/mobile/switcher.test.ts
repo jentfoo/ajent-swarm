@@ -327,6 +327,50 @@ describe('buildSwitcherRows', () => {
     expect(working.rows.map((r) => r.sessionId)).toEqual(['orphan', 'other', 'parent', 'child'])
   })
 
+  it('pins lead the list in pin order', () => {
+    const attentionItems = [
+      { ...item('needs-input'), sessionId: 'a-dialog', since: 10 },
+      { ...item('awaiting'), sessionId: 'b-idle' },
+      { ...item('working'), sessionId: 'c-busy', running: true },
+    ]
+    const rows = buildSwitcherRows(
+      attentionItems.map((i) => session({ sessionId: i.sessionId })),
+      labelFor,
+      attentionItems,
+      ['c-busy', 'a-dialog'], // pin order, not rank order
+    )
+    expect(rows.map((r) => r.section)).toEqual(['pinned', 'pinned', 'waiting'])
+    expect(rows.map((r) => r.sessionId)).toEqual(['c-busy', 'a-dialog', 'b-idle'])
+
+    const groups = groupSwitcherRows(rows)
+    expect(groups.map((g) => g.section)).toEqual(['pinned', 'waiting'])
+    expect(groups[0]!.title).toBe('Pinned')
+  })
+
+  it('unpins back into the ranked queues', () => {
+    const attentionItems = [
+      { ...item('needs-input'), sessionId: 'a-dialog', since: 10 },
+      { ...item('working'), sessionId: 'c-busy', running: true },
+    ]
+    const rows = buildSwitcherRows(
+      attentionItems.map((i) => session({ sessionId: i.sessionId })),
+      labelFor,
+      attentionItems,
+      ['gone-session'], // a pin the listing no longer knows is inert
+    )
+    expect(rows.map((r) => r.section)).toEqual(['needs', 'working'])
+  })
+
+  it('keeps pinned ended rows in Recent', () => {
+    const rows = buildSwitcherRows(
+      [session({ sessionId: '01-ended', state: ChildState.Exited, exitedAt: Date.now() })],
+      labelFor,
+      undefined,
+      ['01-ended'],
+    )
+    expect(rows.map((r) => r.section)).toEqual(['ended'])
+  })
+
   it('carries the listing queue depth onto rows', () => {
     const rows = buildSwitcherRows(
       [

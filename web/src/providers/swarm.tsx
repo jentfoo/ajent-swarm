@@ -1,7 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 
-import { fleet } from '../api/endpoints'
+import { ApiError, onAuthEpoch } from '../api/client'
+import { auth, fleet } from '../api/endpoints'
 import { childEnded } from '../api/types'
 import type { AttentionRow, SessionStatus } from '../api/types'
 import { usePoll } from '../hooks/usePoll'
@@ -67,8 +68,23 @@ function useNewestPoll<T>(load: () => Promise<T[]>, commit: (rows: T[]) => void)
 // badges and the focus queue, and the theme persisted in localStorage.
 export function SwarmProvider({ children }: { children: ReactNode }) {
   // One stream per provider, StrictMode's simulated remount only disconnects
-  // it, and a fresh subscribe reconnects on demand.
-  const [stream] = useState(() => new SwarmStream())
+  // it, and a fresh subscribe reconnects on demand. Failed upgrades carry no
+  // status the browser can read, so the probe runs through the shared client:
+  // its 401 both parks the reconnect loop and drops auth to the login screen.
+  const [stream] = useState(
+    () =>
+      new SwarmStream({
+        authProbe: async () => {
+          try {
+            await auth.me()
+            return true
+          } catch (err) {
+            // a network failure names no credential verdict, keep retrying
+            return !(err instanceof ApiError && err.status === 401)
+          }
+        },
+      }),
+  )
   useEffect(() => () => stream.disconnect(), [stream])
   // The store owns every session's reconciled state and warm subscriptions.
   const [store] = useState(() => new SessionStore(stream))
@@ -90,6 +106,10 @@ export function SwarmProvider({ children }: { children: ReactNode }) {
   // Connect eagerly so the banner tracks the real socket even before a view
   // subscribes, runs after the listener above to catch its transitions.
   useEffect(() => stream.connect(), [stream])
+  // A fresh cookie re-arms a stream parked by an expired one; connect() is a
+  // no-op while a socket already lives. The epoch fires exactly when a login
+  // or bootstrap lands, keeping this independent of the auth React context.
+  useEffect(() => onAuthEpoch(() => stream.connect()), [stream])
 
   const onSessions = useCallback((rows: SessionStatus[]) => {
     setSessions(rows)

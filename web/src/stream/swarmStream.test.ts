@@ -419,3 +419,107 @@ describe('SwarmStream reconnects', () => {
     expect(second.sent).toEqual([]) // a definitive end never rejoins
   })
 })
+
+// A refused credential probe parks the stream instead of retrying forever:
+// failed upgrades carry no status the browser can read, so the verdict rides
+// an injected probe over the shared REST client.
+describe('SwarmStream auth cutoff', () => {
+  let stream: SwarmStream
+
+  beforeEach(() => {
+    MockWebSocket.instances = []
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    stream.disconnect()
+    vi.useRealTimers()
+  })
+
+  function newStream(probe: () => Promise<boolean>): SwarmStream {
+    return new SwarmStream({
+      url: 'ws://swarm/api/stream',
+      socketFactory: (url) => new MockWebSocket(url),
+      jitter: false,
+      backoffBaseMs: 100,
+      authProbe: probe,
+    })
+  }
+
+  it('parks unauthorized instead of retrying forever', async () => {
+    const probe = vi.fn(async () => false)
+    stream = newStream(probe)
+
+    stream.subscribe('s1', () => {})
+    await vi.advanceTimersByTimeAsync(0)
+    lastSocket().close()
+    await vi.advanceTimersByTimeAsync(100) // the backoff window
+
+    expect(stream.connectionState()).toBe('unauthorized')
+    expect(probe).toHaveBeenCalledTimes(1)
+
+    await vi.advanceTimersByTimeAsync(60_000) // parked: no sockets, no probes
+    expect(MockWebSocket.instances).toHaveLength(1)
+    expect(probe).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps retrying while the credential still works', async () => {
+    const probe = vi.fn(async () => true)
+    stream = newStream(probe)
+
+    stream.subscribe('s1', () => {})
+    await vi.advanceTimersByTimeAsync(0)
+    lastSocket().close()
+    await vi.advanceTimersByTimeAsync(100)
+
+    expect(stream.connectionState()).toBe('connecting')
+    expect(MockWebSocket.instances).toHaveLength(2)
+  })
+
+  it('keeps retrying when the probe cannot answer', async () => {
+    const probe = vi.fn(() => Promise.reject(new Error('network down')))
+    stream = newStream(probe)
+
+    stream.subscribe('s1', () => {})
+    await vi.advanceTimersByTimeAsync(0)
+    lastSocket().close()
+    await vi.advanceTimersByTimeAsync(100)
+
+    expect(stream.connectionState()).toBe('connecting')
+    expect(MockWebSocket.instances).toHaveLength(2)
+  })
+
+  it('re-arms from unauthorized on connect', async () => {
+    const probe = vi.fn(async () => false)
+    stream = newStream(probe)
+
+    stream.connect()
+    await vi.advanceTimersByTimeAsync(0)
+    lastSocket().close()
+    await vi.advanceTimersByTimeAsync(100)
+    expect(stream.connectionState()).toBe('unauthorized')
+
+    // the credential comes back: connect() bypasses the parked state and opens
+    probe.mockResolvedValue(true)
+    stream.connect()
+    await vi.advanceTimersByTimeAsync(0)
+    lastSocket().open()
+
+    expect(stream.connectionState()).toBe('open')
+  })
+
+  it('stays parked when the tab turns visible', async () => {
+    stream = newStream(async () => false)
+
+    stream.subscribe('s1', () => {})
+    await vi.advanceTimersByTimeAsync(0)
+    lastSocket().close()
+    await vi.advanceTimersByTimeAsync(100)
+    expect(stream.connectionState()).toBe('unauthorized')
+
+    document.dispatchEvent(new Event('visibilitychange'))
+    await vi.advanceTimersByTimeAsync(1_000)
+
+    expect(MockWebSocket.instances).toHaveLength(1)
+  })
+})

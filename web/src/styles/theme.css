@@ -533,10 +533,8 @@ label {
   padding: calc(var(--unit) * 2) calc(var(--unit) * 3);
   overflow-x: auto;
 }
-.fence > div > pre {
-  margin: 0;
-  background: transparent !important;
-}
+/* fences highlight through token spans, so .fence carries the theme's own
+   background directly and no nested markup needs resetting */
 
 /* raw-copy buttons: one icon per state cell, so a swap never resizes the
    button; labels stay in the tree for screen readers via .sr-only */

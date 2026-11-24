@@ -12,7 +12,7 @@
 import { childEnded, ChildState } from '../api/types'
 import type { ServerFrame } from '../api/types'
 
-export type SocketState = 'connecting' | 'open' | 'closed'
+export type SocketState = 'connecting' | 'open' | 'closed' | 'unauthorized'
 
 // Per-session phase. Ended versus lost is distinguished by the backend's
 // child/exit facts: a clean exit announces itself, everything else that stops
@@ -38,6 +38,7 @@ interface SwarmStreamOptions {
   backoffMaxMs?: number
   jitter?: boolean // randomized backoff spread, off in tests
   staleAfterMs?: number // no frame for this long closes the socket
+  authProbe?: () => Promise<boolean> // true while the credential still works
 }
 
 type FrameListener = (frame: ServerFrame) => void
@@ -64,6 +65,7 @@ export class SwarmStream {
   private readonly backoffMaxMs: number
   private readonly jitter: boolean
   private readonly staleAfterMs: number
+  private readonly authProbe?: () => Promise<boolean>
 
   private socket: SocketLike | null = null
   private socketStateValue: SocketState = 'closed'
@@ -89,6 +91,7 @@ export class SwarmStream {
     this.backoffMaxMs = opts.backoffMaxMs ?? 8_000
     this.jitter = opts.jitter ?? true
     this.staleAfterMs = opts.staleAfterMs ?? defaultStaleAfterMs
+    this.authProbe = opts.authProbe
   }
 
   // --- public surface ---
@@ -135,7 +138,8 @@ export class SwarmStream {
   }
 
   // connect opens the shared socket eagerly so the global connection banner
-  // reflects reality before any view subscribes, later subscribes ride it.
+  // reflects reality before any view subscribes, later subscribes ride it. It
+  // also re-arms a stream parked unauthorized, say after another login.
   connect(): void {
     if (this.socket !== null) return
     this.retryAttempt = 0
@@ -280,8 +284,35 @@ export class SwarmStream {
     this.retryAttempt += 1
     this.retryTimer = setTimeout(() => {
       this.retryTimer = null
-      this.ensureSocket()
+      void this.reconnect()
     }, exp + spread)
+  }
+
+  // reconnect opens the next socket, unless a refused credential probe parks
+  // the stream: a failed upgrade carries no status the browser can read, so
+  // the auth verdict rides a side channel instead of retrying forever. Only
+  // connect() leaves the parked state.
+  private async reconnect(): Promise<void> {
+    const authorized = await this.authVerdict()
+    if (!authorized) {
+      // A socket may have opened while the probe ran, never park an open one.
+      if (this.socket === null && this.retryTimer === null) {
+        this.setState('unauthorized')
+      }
+      return
+    }
+    this.ensureSocket()
+  }
+
+  // authVerdict asks the credential probe; a probe that cannot answer, say
+  // because the service itself is down, names no verdict and keeps retrying.
+  private async authVerdict(): Promise<boolean> {
+    if (this.authProbe === undefined) return true
+    try {
+      return await this.authProbe()
+    } catch {
+      return true
+    }
   }
 
   private checkStale = () => {
@@ -302,8 +333,9 @@ export class SwarmStream {
       }
       return
     }
-    // A closed socket reconnects immediately instead of waiting out backoff.
-    if (this.socket === null) {
+    // A closed socket reconnects immediately instead of waiting out backoff,
+    // an unauthorized one stays parked until connect() re-arms it.
+    if (this.socket === null && this.socketStateValue !== 'unauthorized') {
       if (this.retryTimer !== null) clearTimeout(this.retryTimer)
       this.retryTimer = null
       this.retryAttempt = 0

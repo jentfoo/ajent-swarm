@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import type { ActivityRow } from '../api/types'
 import type { ImageView, ToolResultView } from '../state/derive'
+import { isRenderableImage } from '../state/derive'
 import type { ToolProgressView } from '../state/eventApplier'
 
 import { EditOpDiff, splitRows } from './DiffCard'
@@ -250,14 +251,15 @@ export function SubAgentChips({
 }
 
 function ToolImage({ image }: { image: ImageView }) {
-  if (image.data === undefined) {
+  // The allowlist keeps hostile media types out of an img src.
+  if (image.data === undefined || !isRenderableImage(image.mediaType)) {
     return (
       <div className="muted" data-testid="deferred-image">
         [image {image.mediaType} not loaded]
       </div>
     )
   }
-  // Bodies are base64 media the transcript already vetted as an image type.
+  // Bodies are base64 media whose type passed the render allowlist.
   return <img alt="" src={`data:${image.mediaType};base64,${image.data}`} className="entry-image" />
 }
 

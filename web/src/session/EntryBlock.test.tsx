@@ -207,3 +207,35 @@ describe('EntryBlock assistant copy row', () => {
     expect(screen.queryByRole('button')).not.toBeInTheDocument()
   })
 })
+
+// The image gate is a hard guarantee: only allowlisted raster types may build
+// an img src out of transcript content.
+function userImages(images: { mediaType: string; data?: string }[]): DerivedBlock {
+  return { kind: 'user', id: 'e1', text: 'attached', images }
+}
+
+describe('EntryBlock image gate', () => {
+  it('renders allowlisted types as images', () => {
+    render(<EntryBlock block={userImages([{ mediaType: 'image/png', data: 'aGk=' }])} />)
+    expect(document.querySelector('img')).not.toBeNull()
+  })
+
+  it('never builds an img src for a non-allowlisted type', () => {
+    render(
+      <EntryBlock
+        block={userImages([
+          { mediaType: 'image/svg+xml', data: 'PHN2Zz48L3N2Zz4=' },
+          { mediaType: 'text/html', data: 'PGltZyBzcmM9eCBvbmVycm9yPjw=' },
+        ])}
+      />,
+    )
+    expect(document.querySelector('img')).toBeNull()
+    expect(screen.getAllByTestId('deferred-image')).toHaveLength(2)
+  })
+
+  it('keeps the deferred placeholder when data is absent', () => {
+    render(<EntryBlock block={userImages([{ mediaType: 'image/png' }])} />)
+    expect(document.querySelector('img')).toBeNull()
+    expect(screen.getByTestId('deferred-image').textContent).toContain('not loaded')
+  })
+})

@@ -5,6 +5,7 @@ import { splitRows } from './DiffCard'
 import { MarkdownBlock } from './MarkdownBlock'
 import { ToolCallCard } from './ToolCallCard'
 import type { DerivedBlock, ImageView } from '../state/derive'
+import { isRenderableImage } from '../state/derive'
 
 // EntryBlock renders one committed entry's derived block. Memoized on the
 // block object itself: derivation rebuilds only when the chain changes, so a
@@ -158,13 +159,14 @@ function InjectedEntry({ block }: { block: Extract<DerivedBlock, { kind: 'inject
 }
 
 // ImageRow renders user-message attachments, deferred bodies (init tails) show a
-// placeholder until an /entries page fetch brings them at full fidelity.
+// placeholder until an /entries page fetch brings them at full fidelity. The
+// allowlist keeps hostile media types out of an img src.
 function ImageRow({ images }: { images: ImageView[] }) {
   if (images.length === 0) return null
   return (
     <div className="image-row">
       {images.map((img, i) =>
-        img.data !== undefined ? (
+        img.data !== undefined && isRenderableImage(img.mediaType) ? (
           <img
             key={i}
             alt=""

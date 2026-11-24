@@ -40,9 +40,21 @@ function notifyUnauthorized(err: ApiError) {
 // must not bounce the new session back to the login screen.
 let authEpoch = 0
 
+type EpochListener = () => void
+
+const epochListeners = new Set<EpochListener>()
+
+// onAuthEpoch registers a listener fired once per credential landing, so
+// non-React owners like the stream can re-arm without the auth context.
+export function onAuthEpoch(listener: EpochListener): () => void {
+  epochListeners.add(listener)
+  return () => epochListeners.delete(listener)
+}
+
 // bumpAuthEpoch retires 401 notices from requests dispatched before the bump.
 export function bumpAuthEpoch(): void {
   authEpoch++
+  for (const cb of [...epochListeners]) cb()
 }
 
 interface RequestOptions {

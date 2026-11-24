@@ -20,4 +20,11 @@ describe('ConnectionBanner', () => {
     render(<ConnectionBanner connection="closed" />)
     expect(screen.getByRole('status').textContent).toBe('Live connection lost. Reconnecting…')
   })
+
+  it('names the parked state while unauthorized', () => {
+    render(<ConnectionBanner connection="unauthorized" />)
+    expect(screen.getByRole('status').textContent).toBe(
+      'Signed out. Live updates resume after login.',
+    )
+  })
 })

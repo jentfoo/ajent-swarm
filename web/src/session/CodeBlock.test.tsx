@@ -5,11 +5,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CodeBlock } from './CodeBlock'
 
 // shiki is mocked so the highlighted branch lands deterministically without
-// loading grammar bundles
-const { codeToHtml } = vi.hoisted(() => ({
-  codeToHtml: vi.fn(async () => '<pre class="shiki"><code>highlighted</code></pre>'),
+// loading grammar bundles; tokens mirror the shape codeToTokens returns
+const { codeToTokens } = vi.hoisted(() => ({
+  codeToTokens: vi.fn(async () => ({
+    tokens: [[{ content: 'fmt', color: '#FF7B72' }, { content: '.Println("hi")' }]],
+    fg: '#e6edf3',
+    bg: '#0d1117',
+    themeName: 'github-dark',
+  })),
 }))
-vi.mock('shiki', () => ({ codeToHtml }))
+vi.mock('shiki', () => ({ codeToTokens }))
 
 // jsdom ships no clipboard, each file stubs it so the requirement stays
 // visible at the call sites it covers
@@ -27,7 +32,7 @@ function setupCopyUser(writeText: (text: string) => Promise<void>) {
   return { user, writes }
 }
 
-beforeEach(() => codeToHtml.mockClear())
+beforeEach(() => codeToTokens.mockClear())
 afterEach(() => {
   delete (navigator as { clipboard?: unknown }).clipboard
   vi.useRealTimers()
@@ -47,7 +52,7 @@ describe('CodeBlock copy button', () => {
     render(<CodeBlock code={'fmt.Println("hi")'} lang={'go'} />)
     await act(async () => {}) // let the mocked highlighter land
 
-    expect(document.querySelector('.fence .shiki')).not.toBeNull()
+    expect(document.querySelector('.fence code span')).not.toBeNull()
     await user.click(screen.getByRole('button', { name: 'Copy' }))
     expect(writes).toHaveBeenCalledWith('fmt.Println("hi")')
   })
@@ -81,5 +86,21 @@ describe('CodeBlock copy button', () => {
 
     await user.click(screen.getByRole('button', { name: 'Copy' }))
     expect(screen.getByText('Copy failed').closest('[data-on]')).toHaveAttribute('data-on', 'true')
+  })
+
+  it('renders hostile token content as escaped text, never markup', async () => {
+    stubClipboard(async () => {})
+    const hostile = '<img src=x onerror="window.__pwned = true">'
+    codeToTokens.mockResolvedValueOnce({
+      tokens: [[{ content: hostile, color: '#FF7B72' }]],
+      fg: '#e6edf3',
+      bg: '#0d1117',
+      themeName: 'github-dark',
+    })
+    render(<CodeBlock code={hostile} lang={'js'} />)
+    await act(async () => {}) // let the mocked highlighter land
+
+    expect(document.querySelector('img')).toBeNull()
+    expect(document.querySelector('.fence')?.textContent).toContain(hostile)
   })
 })

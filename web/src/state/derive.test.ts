@@ -4,6 +4,7 @@ import {
   chainLineHeader,
   composeChainedLine,
   deriveBlocks,
+  isRenderableImage,
   maxRecallPrompts,
   mergeRecallSources,
   recallPrompts,
@@ -456,5 +457,27 @@ describe('deriveBlocks chained lines', () => {
     expect(plain?.truncated).toBe(false)
     const capped = splitChained(composeChainedLine('x'.repeat(8000), 'go'))
     expect(capped?.truncated).toBe(true)
+  })
+})
+
+describe('isRenderableImage', () => {
+  it('admits the raster types browsers render inline', () => {
+    expect(isRenderableImage('image/png')).toBe(true)
+    expect(isRenderableImage('image/jpeg')).toBe(true)
+    expect(isRenderableImage('image/gif')).toBe(true)
+    expect(isRenderableImage('image/webp')).toBe(true)
+  })
+
+  it('normalizes case and parameters before the check', () => {
+    expect(isRenderableImage('IMAGE/PNG')).toBe(true)
+    expect(isRenderableImage('image/png;charset=utf-8')).toBe(true)
+    expect(isRenderableImage(' image/svg+xml ')).toBe(false)
+  })
+
+  it('rejects types that never build an img src', () => {
+    expect(isRenderableImage('image/svg+xml')).toBe(false)
+    expect(isRenderableImage('text/html')).toBe(false)
+    expect(isRenderableImage('application/javascript')).toBe(false)
+    expect(isRenderableImage('')).toBe(false)
   })
 })

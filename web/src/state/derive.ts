@@ -24,6 +24,17 @@ export interface ImageView {
   data?: string // base64 body; absent when the server deferred it
 }
 
+// imageMediaTypes allowlists the raster types an <img> may render from a
+// transcript block, so no other declared type ever builds a data: URL.
+const imageMediaTypes = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp'])
+
+// isRenderableImage reports whether a block's media type passes the allowlist.
+// Types are case-insensitive and may carry parameters, both normalized here so
+// a transcript cannot smuggle one past the check.
+export function isRenderableImage(mediaType: string): boolean {
+  return imageMediaTypes.has(mediaType.split(';')[0].trim().toLowerCase())
+}
+
 export interface ToolResultView {
   callId: string
   toolName?: string

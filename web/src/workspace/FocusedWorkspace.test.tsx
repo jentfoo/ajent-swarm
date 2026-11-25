@@ -364,7 +364,9 @@ describe('FocusedWorkspace', () => {
     renderFocused()
 
     // the rail claims nothing about the fleet before the roster commits
-    expect(screen.getByText('Loading sessions…')).toBeInTheDocument()
+    const loading = screen.getByText('Loading sessions…')
+    expect(loading).toHaveAttribute('role', 'status')
+    expect(loading).toHaveAttribute('aria-busy', 'true')
     expect(screen.queryByText('No sessions running')).not.toBeInTheDocument()
 
     release(Response.json(sessionsList()))

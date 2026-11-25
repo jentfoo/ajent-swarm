@@ -243,3 +243,79 @@ describe('theme token routing', () => {
     expect(bareCss).toContain('.warn-text { color: var(--warn-fg);')
   })
 })
+
+describe('theme scroll ports', () => {
+  // one grouped rule carries the thin bar, so a classic scrollbar appearing
+  // inside a long menu or list never shifts content
+  const thinRule =
+    /[^{}]+\{ scrollbar-width: thin; scrollbar-color: var\(--border\) transparent; \}/
+  const scrollPorts = [
+    '.transcript-scroll',
+    '.menu',
+    '.tile-menu',
+    '.rewind-list',
+    '.transcript-preview',
+    '.bottom-sheet', // scrollbar props inherit onto the sheet's scrolling body
+  ]
+
+  it('thins every scroll port to the border color', () => {
+    const rule = bareCss.match(thinRule)
+    expect(rule).not.toBeNull()
+    for (const port of scrollPorts) {
+      expect(rule![0]).toContain(port)
+    }
+  })
+
+  it('reserves a gutter only on the tall list panes', () => {
+    const rule = bareCss.match(/[^{}]+\{ scrollbar-gutter: stable; \}/)
+    expect(rule).not.toBeNull()
+    for (const port of ['.transcript-scroll', '.rewind-list', '.transcript-preview']) {
+      expect(rule![0]).toContain(port)
+    }
+    // short menus would show an empty strip for a bar that never scrolls
+    expect(rule![0]).not.toContain('.menu')
+  })
+
+  it('keeps one webkit fallback with the same colors', () => {
+    const fallback = bareCss.match(/[^{}]+::-webkit-scrollbar\S* \{[^}]*\}/g) ?? []
+    expect(fallback).toHaveLength(3)
+    // every standard scroll port gets the fallback too
+    const joined = fallback.join(' ')
+    for (const port of scrollPorts.slice(0, 5)) {
+      expect(joined).toContain(port)
+    }
+    const thumb = fallback.find((rule) => rule.includes('-thumb')) ?? ''
+    expect(thumb).toContain('background: var(--border)')
+    const track = fallback.find((rule) => rule.includes('-track')) ?? ''
+    expect(track).toContain('background: transparent')
+  })
+})
+
+describe('theme native controls', () => {
+  it('tints native checkboxes and radios with the accent', () => {
+    expect(bareCss).toMatch(
+      /input\[type='checkbox'\], input\[type='radio'\] \{ accent-color: var\(--accent\); \}/,
+    )
+  })
+
+  it('keeps placeholders readable in both themes', () => {
+    const rule = bareCss.match(/input::placeholder, textarea::placeholder \{[^}]*\}/)
+    expect(rule).not.toBeNull()
+    expect(rule![0]).toContain('color: var(--muted);')
+    // Firefox dims placeholders by default
+    expect(rule![0]).toContain('opacity: 1;')
+  })
+})
+
+describe('theme tabular numerals', () => {
+  it('aligns table digits through the shared class', () => {
+    expect(bareCss).toContain('.tnum { font-variant-numeric: tabular-nums; }')
+  })
+
+  it('keeps body text on default numerals', () => {
+    // only the meter count and .tnum opt in, never a global face
+    const carriers = bareCss.match(/[^{}]+\{[^}]*font-variant-numeric: tabular-nums;[^}]*\}/g) ?? []
+    expect(carriers).toHaveLength(2)
+    expect(carriers.join(' ')).toContain('.meter-count')
+  })
+})

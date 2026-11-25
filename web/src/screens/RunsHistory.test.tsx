@@ -424,7 +424,9 @@ describe('RunsHistory', () => {
     )
 
     renderRuns()
-    expect(screen.getByText('Loading run history…')).toBeInTheDocument()
+    const loading = screen.getByText('Loading run history…')
+    expect(loading).toHaveAttribute('role', 'status')
+    expect(loading).toHaveAttribute('aria-busy', 'true')
 
     parked[0].resolve(Response.json(runs))
     await screen.findByTestId('run-11')

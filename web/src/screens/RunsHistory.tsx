@@ -188,7 +188,9 @@ export default function RunsHistory() {
       {/* gated on no error so a failed first load keeps its alert alone,
           never a loading line under it */}
       {runs === null && error === '' ? (
-        <p className="muted">Loading run history…</p>
+        <p className="muted" role="status" aria-busy="true">
+          Loading run history…
+        </p>
       ) : runs !== null && rows.length === 0 ? (
         <p className="muted">{runEmptyCopy(filterJobName, statusFilter)}</p>
       ) : rows.length > 0 ? (
@@ -311,9 +313,11 @@ function OpenDetailButton({ onOpen }: { onOpen: () => void }) {
 function RunTableRow({ run, facts, onOpen }: RunRowProps) {
   return (
     <tr className="run-row" onClick={onOpen} data-testid={`run-${run.id}`}>
-      <td title={facts.startedTitle}>{facts.startedLabel}</td>
+      <td className="tnum" title={facts.startedTitle}>
+        {facts.startedLabel}
+      </td>
       <td>{facts.jobName || '—'}</td>
-      <td>
+      <td className="tnum">
         <span className={facts.status.className}>{facts.status.label}</span>
         {facts.error !== '' && (
           <div className="muted small-note run-error-excerpt" title={facts.error}>
@@ -321,7 +325,7 @@ function RunTableRow({ run, facts, onOpen }: RunRowProps) {
           </div>
         )}
       </td>
-      <td>{facts.durationText}</td>
+      <td className="tnum">{facts.durationText}</td>
       <td className="run-prompt-cell" title={facts.prompt || undefined}>
         {facts.prompt.slice(0, 80) || '—'}
       </td>

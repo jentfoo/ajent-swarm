@@ -1,5 +1,5 @@
-import { useCallback, useRef, useState } from 'react'
-import { Link, useNavigate } from 'react-router'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Link, useNavigate, useSearchParams } from 'react-router'
 
 import type { SavedSession } from '../api/types'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
@@ -72,9 +72,25 @@ export default function MobileHome() {
 // button stays one tap without its form pushing the session list down.
 function NewSessionSection({ facts }: { facts: LaunchFacts }) {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { refreshSessions } = useSwarm()
 
-  const [open, setOpen] = useState(false)
+  // the manifest's "New session" shortcut lands on /?new=1: open for it and
+  // spend the param with a replace once consumed, so a refresh never reopens.
+  // The render-time setOpen covers an in-app navigation that re-carries it
+  const wantsNew = searchParams.get('new') === '1'
+  const [open, setOpen] = useState(wantsNew)
+  if (wantsNew && !open) {
+    setOpen(true) // adjusting during render, React's documented reset pattern
+  }
+
+  useEffect(() => {
+    if (!wantsNew) return
+    const next = new URLSearchParams(searchParams)
+    next.delete('new')
+    setSearchParams(next, { replace: true })
+  }, [wantsNew, searchParams, setSearchParams])
+
   return (
     <section aria-label="New session">
       <h2>

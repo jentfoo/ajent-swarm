@@ -139,7 +139,9 @@ describe('SessionsHome', () => {
     renderHome()
 
     // an uncommitted roster claims nothing about the fleet
-    expect(screen.getByText('Loading sessions…')).toBeInTheDocument()
+    const loading = screen.getByText('Loading sessions…')
+    expect(loading).toHaveAttribute('role', 'status')
+    expect(loading).toHaveAttribute('aria-busy', 'true')
     expect(screen.queryByText(/No live sessions/)).not.toBeInTheDocument()
 
     release(Response.json([]))

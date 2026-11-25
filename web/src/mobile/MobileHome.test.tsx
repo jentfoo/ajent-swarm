@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter, Route, Routes } from 'react-router'
+import { MemoryRouter, Route, Routes, useSearchParams } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import MobileHome from './MobileHome'
@@ -48,6 +48,13 @@ function liveRow() {
   ]
 }
 
+// SearchProbe shows the live query string, so tests can assert what the URL
+// actually carries without mounting extra chrome.
+function SearchProbe() {
+  const [params] = useSearchParams()
+  return <div data-testid="search">{params.toString()}</div>
+}
+
 describe('MobileHome', () => {
   let fetcher: ReturnType<typeof buildFetcher>
 
@@ -75,9 +82,11 @@ describe('MobileHome', () => {
     vi.unstubAllGlobals()
   })
 
-  function renderHome() {
+  function renderHome(initialEntry = '/') {
     return render(
-      <MemoryRouter initialEntries={['/']}>
+      <MemoryRouter initialEntries={[initialEntry]}>
+        {/* location probe outside the provider stack, for URL assertions */}
+        <SearchProbe />
         <AuthProvider>
           <SwarmProvider>
             <WorkspaceProvider>
@@ -114,6 +123,27 @@ describe('MobileHome', () => {
     const launch = await screen.findByRole('button', { name: 'Launch…' })
     const list = screen.getByLabelText('Live sessions')
     expect(launch.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('keeps the launcher closed without ?new=1', async () => {
+    renderHome('/')
+    await screen.findByText('fix login flow')
+
+    // the form stays one tap away instead of pushing the session list down
+    expect(screen.queryByLabelText('Working directory')).not.toBeInTheDocument()
+  })
+
+  it('opens the launcher for ?new=1 and clears the param', async () => {
+    renderHome('/?new=1')
+
+    // the manifest shortcut's deep link opens the form without a tap
+    expect(screen.getByLabelText('Working directory')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Hide' })).toBeInTheDocument()
+
+    // the param is spent once consumed, so a refresh does not reopen it
+    await waitFor(() => expect(screen.getByTestId('search').textContent).toBe(''))
+    // and spending it must not collapse the form it opened
+    expect(screen.getByLabelText('Working directory')).toBeInTheDocument()
   })
 
   it('shows launcher sections for jobs and settings', async () => {

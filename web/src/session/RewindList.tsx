@@ -132,7 +132,11 @@ export function RewindList({
 
   return (
     <div className="rewind-list" ref={listRef}>
-      {candidates === null && !loadError && <p className="muted">Loading rewind points…</p>}
+      {candidates === null && !loadError && (
+        <p className="muted" role="status" aria-busy="true">
+          Loading rewind points…
+        </p>
+      )}
       {loadError && <p className="error-text">{loadError}</p>}
       {candidates !== null && rows.length === 0 && !loadError && (
         <p className="muted">Nothing rewirable yet: no prompts, replies or compactions.</p>

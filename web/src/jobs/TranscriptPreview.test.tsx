@@ -95,6 +95,29 @@ describe('TranscriptPreview', () => {
     )
   }
 
+  it('marks the newest window busy until it lands', async () => {
+    let release!: (r: Response) => void
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        () =>
+          new Promise<Response>((resolve) => {
+            release = resolve
+          }),
+      ),
+    )
+    render(<TranscriptPreview sessionId="sA" />)
+
+    const loading = screen.getByText('Loading the transcript…')
+    expect(loading).toHaveAttribute('role', 'status')
+    expect(loading).toHaveAttribute('aria-busy', 'true')
+
+    // the paragraph unmounts once entries land, so nothing stays busy
+    release(Response.json(pageA))
+    await screen.findByText('hi friend')
+    expect(screen.queryByText('Loading the transcript…')).not.toBeInTheDocument()
+  })
+
   it('renders the newest window and pages back on demand', async () => {
     const user = userEvent.setup()
     render(<TranscriptPreview sessionId="sA" />)

@@ -50,7 +50,11 @@ export function SettingsMenu({ sessionId }: { sessionId: string }): ReactElement
 
   return (
     <div className="settings-menu" aria-label="Agent settings">
-      {loading && <p className="muted">Reading settings…</p>}
+      {loading && (
+        <p className="muted" role="status" aria-busy="true">
+          Reading settings…
+        </p>
+      )}
       {error && (
         <p className="error-text" role="alert">
           {error}

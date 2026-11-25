@@ -250,6 +250,29 @@ describe('RewindList', () => {
     expect(onClose).toHaveBeenCalled()
   })
 
+  it('marks the candidate load busy until rows land', async () => {
+    let release!: (r: Response) => void
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        () =>
+          new Promise<Response>((resolve) => {
+            release = resolve
+          }),
+      ),
+    )
+    renderList()
+
+    const loading = screen.getByText('Loading rewind points…')
+    expect(loading).toHaveAttribute('role', 'status')
+    expect(loading).toHaveAttribute('aria-busy', 'true')
+
+    // the paragraph unmounts once candidates land, so nothing stays busy
+    release(Response.json(forks))
+    await screen.findByTestId('rewind-04U')
+    expect(screen.queryByText('Loading rewind points…')).not.toBeInTheDocument()
+  })
+
   it('surfaces a load error', async () => {
     stubAPI(() =>
       Response.json({ error: 'unavailable', message: 'candidates refused' }, { status: 503 }),

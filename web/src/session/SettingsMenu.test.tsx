@@ -137,6 +137,29 @@ describe('SettingsMenu', () => {
     expect(alert).toHaveTextContent('read only')
   })
 
+  it('marks the rows load busy until they land', async () => {
+    let release!: (r: Response) => void
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        () =>
+          new Promise<Response>((resolve) => {
+            release = resolve
+          }),
+      ),
+    )
+
+    render(<SettingsMenu sessionId="01S" />)
+    const loading = screen.getByText('Reading settings…')
+    expect(loading).toHaveAttribute('role', 'status')
+    expect(loading).toHaveAttribute('aria-busy', 'true')
+
+    // the paragraph unmounts once rows land, so nothing stays busy
+    release(Response.json(ROWS))
+    await screen.findByText('Verbose output')
+    expect(screen.queryByText('Reading settings…')).not.toBeInTheDocument()
+  })
+
   it('edits the model row as a registry selection, not free text', async () => {
     const fetchSpy = vi.fn(async (url: string | URL, init?: RequestInit) => {
       const path = String(url).split('?')[0]

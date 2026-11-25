@@ -126,6 +126,54 @@ pre {
   outline-offset: -1px;
 }
 
+/* --- scroll ports ---
+   Classic scrollbars shrink to a thin bar over the border color, so one
+   appearing inside a long menu or the transcript never shifts content.
+   scrollbar-width and -color inherit, so .bottom-sheet covers whatever body
+   the sheet hosts. Only tall panes reserve a gutter; short menus would show
+   an empty strip for a bar that never scrolls */
+.transcript-scroll,
+.menu,
+.tile-menu,
+.rewind-list,
+.transcript-preview,
+.bottom-sheet {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.transcript-scroll,
+.rewind-list,
+.transcript-preview {
+  scrollbar-gutter: stable;
+}
+
+/* engines without the standard properties draw the same bar; WebKit
+   pseudo-elements do not inherit, so every real scroll port is listed here,
+   never a parent like .bottom-sheet whose children own the scrolling */
+:is(.transcript-scroll, .menu, .tile-menu, .rewind-list, .transcript-preview)::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+:is(
+  .transcript-scroll,
+  .menu,
+  .tile-menu,
+  .rewind-list,
+  .transcript-preview
+)::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+:is(
+  .transcript-scroll,
+  .menu,
+  .tile-menu,
+  .rewind-list,
+  .transcript-preview
+)::-webkit-scrollbar-track {
+  background: transparent;
+}
+
 /* --- layout chrome --- */
 
 /* definite height so inner regions own their scrolling: the workspace rail
@@ -396,6 +444,19 @@ textarea:focus {
   border-color: var(--accent);
 }
 
+/* native checkboxes and radios tint from the theme instead of browser chrome */
+input[type='checkbox'],
+input[type='radio'] {
+  accent-color: var(--accent);
+}
+/* hints stay readable on --bg and --surface in both themes; Firefox dims
+   placeholders by default */
+input::placeholder,
+textarea::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
+
 /* touch keyboards auto-zoom any focused control under 16px, so coarse
    pointers get a readable floor while desktop keeps its compact density */
 @media (pointer: coarse) {
@@ -432,6 +493,10 @@ label {
 .mono {
   font-family: var(--font-mono);
   font-size: var(--fs-small);
+}
+/* equal-width digits so timestamps and counts align down a table column */
+.tnum {
+  font-variant-numeric: tabular-nums;
 }
 
 /* --- auth screens --- */

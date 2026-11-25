@@ -319,7 +319,9 @@ export default function FocusedWorkspace() {
         {railSections.length === 0 ? (
           !sessionsLoaded ? (
             // an empty rail claims nothing before the first roster commits
-            <p className="muted">Loading sessions…</p>
+            <p className="muted" role="status" aria-busy="true">
+              Loading sessions…
+            </p>
           ) : (
             <p className="muted">No sessions running</p>
           )

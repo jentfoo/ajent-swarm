@@ -123,7 +123,9 @@ export default function SessionsHome() {
       {/* the roster has not committed yet: loading reads truthfully instead
           of claiming an empty fleet */}
       {!sessionsLoaded ? (
-        <p className="muted">Loading sessions…</p>
+        <p className="muted" role="status" aria-busy="true">
+          Loading sessions…
+        </p>
       ) : sessions.length === 0 ? (
         <p className="muted">
           No live sessions. Launch one or start <code>ajent --serve</code> yourself.

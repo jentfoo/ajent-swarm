@@ -286,7 +286,9 @@ export default function JobsHome() {
       )}
 
       {jobs === null && error === '' ? (
-        <p className="muted">Loading jobs…</p>
+        <p className="muted" role="status" aria-busy="true">
+          Loading jobs…
+        </p>
       ) : jobs !== null && jobs.length === 0 && editingId === undefined ? (
         <p className="muted">
           No scheduled jobs yet. Create one to launch ajent on a schedule, or queue a single prompt
@@ -355,7 +357,9 @@ export default function JobsHome() {
           That job no longer exists.
         </p>
       ) : jobs === null && (typeof editingId === 'number' || wantsSeed) ? (
-        <p className="muted">Loading job…</p>
+        <p className="muted" role="status" aria-busy="true">
+          Loading job…
+        </p>
       ) : editingId === 'queue' ? (
         <QueueWithFacts onClose={closeEditor} onQueued={onQueued} />
       ) : editingId !== undefined ? (
@@ -555,7 +559,7 @@ function JobTableRow({ job, facts, firing, onToggle, onFire }: JobRowProps) {
         {facts.prompt && <JobExcerpt className="run-prompt-cell" excerpt={facts.prompt} />}
       </td>
       <td>{facts.queued ? <span className="badge accent">queued</span> : facts.scheduleText}</td>
-      <td>{facts.nextRunText}</td>
+      <td className="tnum">{facts.nextRunText}</td>
       <td>
         {facts.lastStatus === undefined ? (
           '—'

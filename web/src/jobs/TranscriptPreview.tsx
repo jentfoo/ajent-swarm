@@ -158,7 +158,11 @@ export function TranscriptPreview({
         </button>
       ) : null}
       {error !== '' && <p className="error-text">{error}</p>}
-      {loading && <p className="muted">Loading the transcript…</p>}
+      {loading && (
+        <p className="muted" role="status" aria-busy="true">
+          Loading the transcript…
+        </p>
+      )}
       {!loading && entries.length === 0 && error === '' && (
         <p className="muted">This session recorded nothing.</p>
       )}

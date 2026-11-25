@@ -1,12 +1,26 @@
 {
   "name": "ajent-swarm",
+  "id": "/",
   "short_name": "swarm",
+  "lang": "en",
   "description": "Drive ajent sessions from your phone: launch, switch, read and answer the gate.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "background_color": "#101216",
   "theme_color": "#101216",
+  "shortcuts": [
+    {
+      "name": "New session",
+      "url": "/?new=1",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "Jobs",
+      "url": "/jobs",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    }
+  ],
   "icons": [
     {
       "src": "/icon-192.png",

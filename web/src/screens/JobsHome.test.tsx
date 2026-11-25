@@ -78,6 +78,9 @@ let fireWaiters: Array<(r: Response) => void> = []
 // window is observable.
 let updateBodies: Array<Record<string, unknown>> = []
 let updateWaiters: Array<(r: Response) => void> = []
+// parkReads holds every jobs/runs read open when set, so a loading line stays
+// observable in the busy-state tests.
+let parkReads = false
 const createBodies: Array<Record<string, unknown>> = []
 const queueBodies: Array<Record<string, unknown>> = []
 
@@ -97,6 +100,7 @@ describe('JobsHome', () => {
     updateWaiters = []
     createBodies.length = 0
     queueBodies.length = 0
+    parkReads = false
     vi.stubGlobal(
       'WebSocket',
       class extends MockWebSocket {
@@ -137,9 +141,12 @@ describe('JobsHome', () => {
         const listJobs = base === '/api/jobs' && (!init?.method || init.method === 'GET')
         if (listJobs) {
           jobsFetches++
+          // parked like a real fetch, so the first paint stays on its load
+          if (parkReads) return new Promise<Response>(() => {})
           return Promise.resolve(Response.json(jobsReply.rows ?? []))
         }
         if (base === '/api/runs') {
+          if (parkReads) return new Promise<Response>(() => {})
           const rows = runsReply ?? [run, ...fireReplies.map((r) => manualRun(r.id))]
           return Promise.resolve(Response.json(rows))
         }
@@ -226,6 +233,25 @@ describe('JobsHome', () => {
     expect(title).toHaveClass('page-title')
     // theme.css owns the scale; the old body-size inline reset is gone
     expect(title).not.toHaveAttribute('style')
+  })
+
+  it('marks the jobs load busy while it is in flight', () => {
+    parkReads = true
+    renderJobs()
+
+    const loading = screen.getByText('Loading jobs…')
+    expect(loading).toHaveAttribute('role', 'status')
+    expect(loading).toHaveAttribute('aria-busy', 'true')
+  })
+
+  it('marks the job editor load busy while it is in flight', () => {
+    parkReads = true
+    renderJobs('/jobs/5')
+
+    // the cold edit route waits on the same roster read, its own line too
+    const loading = screen.getByText('Loading job…')
+    expect(loading).toHaveAttribute('role', 'status')
+    expect(loading).toHaveAttribute('aria-busy', 'true')
   })
 
   it('titles each editor route distinctly', async () => {

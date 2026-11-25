@@ -3,6 +3,7 @@ import type { FormEvent } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router'
 
 import { describeError } from '../api/errors'
+import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import { useAuth } from '../providers/auth'
 
 // LoginScreen signs in with the unix account. The location state carries
@@ -12,6 +13,7 @@ export default function LoginScreen() {
   const { login, status } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
+  useDocumentTitle('Sign in')
 
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')

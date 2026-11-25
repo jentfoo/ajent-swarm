@@ -2,12 +2,13 @@ import { useEffect, useState } from 'react'
 import { useParams } from 'react-router'
 
 import { Toasts } from '../hooks/Toasts'
+import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import { useResume } from '../hooks/useResume'
 import { useSessionChannel } from '../hooks/useSessionChannel'
 import { useWorkspace } from '../providers/workspace'
 import { sessionBusy } from '../state/eventApplier'
 import { submitTurnEnd } from '../workspace/attention'
-import { useSessionNamer } from '../session/useSessionLabel'
+import { useSessionLabel, useSessionNamer } from '../session/useSessionLabel'
 import { Composer } from '../session/Composer'
 import { ChainStrip } from '../session/ChainStrip'
 import { endedBanner, PhaseBanner } from '../session/phases'
@@ -46,6 +47,9 @@ export default function SessionView({
 }) {
   const params = useParams()
   const sessionId = hostedId ?? params.sessionId ?? ''
+  // the standalone route owns the tab title, workspace panes ride their
+  // workspace's own "Focused workspace" / "Tile workspace"
+  useDocumentTitle(useSessionLabel(sessionId), { enabled: hostedId === undefined })
   return <SessionSurface key={sessionId} sessionId={sessionId} focused={focused} />
 }
 

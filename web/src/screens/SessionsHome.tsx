@@ -7,6 +7,7 @@ import { sessions as sessionAPI } from '../api/endpoints'
 import { ChildState, childEnded } from '../api/types'
 import type { SessionStatus } from '../api/types'
 import { useArmedConfirm } from '../hooks/useArmedConfirm'
+import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import { useLaunchFacts } from '../hooks/useLaunchFacts'
 import { useLaunchForm, type LaunchTarget } from '../hooks/useLaunchForm'
 import { useResume } from '../hooks/useResume'
@@ -32,6 +33,7 @@ export default function SessionsHome() {
   const { sessions, sessionsLoaded } = useSwarm()
   const auth = useAuth()
   const home = auth.home
+  useDocumentTitle('Sessions')
   const [launching, setLaunching] = useState(false)
   // selection is by row key, Open workspace tiles them directly
   const [selected, setSelected] = useState<string[]>([])

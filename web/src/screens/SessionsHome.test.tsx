@@ -99,6 +99,12 @@ describe('SessionsHome', () => {
     )
   }
 
+  it('titles the tab after the route', () => {
+    renderHome()
+
+    expect(document.title).toBe('Sessions · ajent-swarm')
+  })
+
   it('sizes the page title through the shared class, no inline override', () => {
     renderHome()
 

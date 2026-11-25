@@ -5,6 +5,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 import { describeError } from '../api/errors'
 import { jobsApi, runsApi, tools as toolsApi } from '../api/endpoints'
 import type { Job, Run, ToolState } from '../api/types'
+import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import { useLaunchFacts } from '../hooks/useLaunchFacts'
 import { usePoll } from '../hooks/usePoll'
 import { mobileLayout, useMediaQuery } from '../hooks/useMediaQuery'
@@ -28,6 +29,15 @@ const lastRunsWarning = 'Run history unavailable, last-run facts may be stale.'
 
 // The compact state choice beside the text search: every row, or one enablement.
 type JobStateFilter = 'all' | 'enabled' | 'disabled'
+
+// jobsTitle names the tab title for the editor route's state: the list, its
+// fixed siblings, or the edited job once its row is loaded.
+function jobsTitle(editingId: string | number | undefined, editing: Job | undefined): string {
+  if (editingId === 'new') return 'New job'
+  if (editingId === 'queue') return 'Queue a prompt'
+  if (typeof editingId !== 'number' || Number.isNaN(editingId)) return 'Scheduled jobs'
+  return editing !== undefined ? `Edit job ${editing.name}` : `Job #${editingId}`
+}
 
 // JobsHome lists scheduled jobs over /api/jobs: plain-language schedules,
 // next fire times, an optimistic enabled toggle and manual fires, with the
@@ -73,6 +83,8 @@ export default function JobsHome() {
     typeof editingId === 'number' && !Number.isNaN(editingId)
       ? jobs?.find((j) => j.id === editingId)
       : undefined
+
+  useDocumentTitle(jobsTitle(editingId, editing))
 
   // A duplicate link (/jobs/new?from=<id>) seeds the create form from a loaded
   // row: the editor fixes its draft at mount, so seeding waits for the jobs

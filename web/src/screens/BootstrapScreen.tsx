@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { FormEvent } from 'react'
 
 import { describeError } from '../api/errors'
+import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import { useAuth } from '../providers/auth'
 
 // bcrypt's hard input limit, the server rejects anything past it. Measured in
@@ -12,6 +13,7 @@ const maxPasswordBytes = 72
 // reports bootstrap-required. Loopback is enforced server-side.
 export default function BootstrapScreen() {
   const { bootstrap } = useAuth()
+  useDocumentTitle('Set password')
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
   const [error, setError] = useState('')

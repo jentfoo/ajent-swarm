@@ -1,5 +1,6 @@
 // The one client-side attention model every surface consumes: the focus rail,
-// tile tab badges, the title bar count and the desktop notification bridge.
+// tile tab badges, the tab title's gated count and the desktop notification
+// bridge.
 //
 // The kind, reason and wait of a row arrive derived on the /api/attention
 // digest, folded there against the server-side acknowledgment ledger, so every

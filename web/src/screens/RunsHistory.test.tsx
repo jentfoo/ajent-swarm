@@ -14,6 +14,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import RunsHistory from './RunsHistory'
 import { AuthProvider } from '../providers/auth'
 import { SwarmProvider } from '../providers/swarm'
+import { WorkspaceProvider } from '../providers/workspace'
 import { MockWebSocket } from '../test/mockWebSocket'
 import { stubPhoneLayout } from '../test/matchMedia'
 import { formatTimestamp, relativeTimestamp } from '../jobs/schedule'
@@ -220,19 +221,21 @@ describe('RunsHistory', () => {
       <MemoryRouter initialEntries={[initialEntry]}>
         <AuthProvider>
           <SwarmProvider>
-            {nav}
-            <Routes>
-              <Route
-                path="/jobs/runs"
-                element={
-                  <>
-                    <NavProbe />
-                    <RunsHistory />
-                  </>
-                }
-              />
-              <Route path="*" element={<div>elsewhere</div>} />
-            </Routes>
+            <WorkspaceProvider>
+              {nav}
+              <Routes>
+                <Route
+                  path="/jobs/runs"
+                  element={
+                    <>
+                      <NavProbe />
+                      <RunsHistory />
+                    </>
+                  }
+                />
+                <Route path="*" element={<div>elsewhere</div>} />
+              </Routes>
+            </WorkspaceProvider>
           </SwarmProvider>
         </AuthProvider>
       </MemoryRouter>,
@@ -240,6 +243,12 @@ describe('RunsHistory', () => {
   }
 
   const runsFetches = () => requested.filter((u) => u.startsWith('/api/runs'))
+
+  it('titles the tab after the route', () => {
+    renderRuns()
+
+    expect(document.title).toBe('Run history · ajent-swarm')
+  })
 
   it('sizes the page title through the shared class, no inline override', () => {
     renderRuns()

@@ -164,6 +164,43 @@ describe('SessionView', () => {
     return ws
   }
 
+  it('falls back to the short id on a cold deep link', async () => {
+    renderView()
+    const ws = await openSocket()
+
+    frame(ws, { type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
+
+    // no roster row names this session yet, so the title reads the short id
+    // instead of waiting out the listing with the bare product name
+    await vi.waitFor(() => expect(document.title).toBe('01VIEWTE… · ajent-swarm'))
+  })
+
+  it('titles the tab after the session label and a rename', async () => {
+    const roster = (title?: string) =>
+      Response.json([
+        {
+          sessionId: VIEW,
+          title,
+          state: 'online',
+          seatHeld: false,
+          seatOurs: false,
+          running: false,
+          idle: true,
+          openInteractions: 0,
+          spawnedBy: 'swarm',
+        },
+      ])
+    fetcher.on('/api/sessions', () => roster('nightly sweep'))
+    renderView()
+
+    await vi.waitFor(() => expect(document.title).toBe('nightly sweep · ajent-swarm'))
+
+    // a rename follows into the title through the same listing
+    fetcher.on('/api/sessions', () => roster('renamed in place'))
+    act(() => document.dispatchEvent(new Event('visibilitychange')))
+    await vi.waitFor(() => expect(document.title).toBe('renamed in place · ajent-swarm'))
+  })
+
   it('renders committed history, model chip and seat facts from the stream', async () => {
     renderView()
     const ws = await openSocket()

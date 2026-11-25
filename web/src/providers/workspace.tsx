@@ -59,6 +59,8 @@ interface WorkspaceContextValue {
   waiting: AttentionItem[] // idle agents waiting for their next prompt
   working: AttentionItem[]
   needsInputCount: number
+  // the dwell-gated needs-input count routes compose into their tab titles
+  titleCount: number
   itemFor(sessionId: string): AttentionItem | undefined
 
   // Acknowledgments by acting or explicit check-off. Either way the ledger is
@@ -77,7 +79,7 @@ const WorkspaceContext = createContext<WorkspaceContextValue | null>(null)
 
 // WorkspaceProvider carries the layout profile (mode plus each mode's state,
 // persisted per browser) and the one derived attention model every surface
-// consumes: the focus rail, tile badges, the title bar count and the desktop
+// consumes: the focus rail, tile badges, the tab title count and the desktop
 // notification bridge.
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const { attention, refreshAttention } = useSwarm()
@@ -211,12 +213,14 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   // dwell, while the rail and in-app badges keep live counts.
   const notices = useMemo(() => ranked.needs.filter(noticeEligible), [ranked])
 
-  // The title badge and the notification bridge consume the same gated list:
+  // The tab title and the notification bridge consume the same gated list:
   // the needs-input count is the single source for "something wants you".
-  useEffect(() => {
-    const count = notices.filter((i) => i.kind === 'needs-input').length
-    document.title = count > 0 ? `(${count}) ajent-swarm` : 'ajent-swarm'
-  }, [notices])
+  // Routes compose it into their titles through useDocumentTitle, the one
+  // writer of the browser's tab title.
+  const titleCount = useMemo(
+    () => notices.filter((i) => i.kind === 'needs-input').length,
+    [notices],
+  )
 
   // Notification clicks arrive from the OS tray, outside React's flow: focus
   // the window, then navigate, both shells route /s/:sessionId.
@@ -284,6 +288,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       waiting: ranked.waiting,
       working: ranked.working,
       needsInputCount: ranked.needsInputCount,
+      titleCount,
       itemFor,
       acknowledgeDialog,
       acknowledgeTurn,
@@ -311,6 +316,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       acknowledgeItem,
       permission,
       requestNotifications,
+      titleCount,
     ],
   )
 

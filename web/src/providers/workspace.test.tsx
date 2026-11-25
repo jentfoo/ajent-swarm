@@ -163,18 +163,20 @@ function SessionRouteProbe() {
   return null
 }
 
-// NoticeProbe hands the digest refresh over and records the in-app count,
-// which stays live while the tab title dwells.
+// NoticeProbe hands the digest refresh over and records the in-app count
+// beside the title's gated one, which stays quiet while the rail counts live.
 let refreshDigest: () => Promise<void> = () => Promise.resolve()
 let liveCounts: number[] = []
+let titleCounts: number[] = []
 
 function NoticeProbe() {
   const { refreshAttention } = useSwarm()
-  const { needsInputCount } = useWorkspace()
+  const { needsInputCount, titleCount } = useWorkspace()
   useEffect(() => {
     refreshDigest = refreshAttention
   }, [refreshAttention])
   liveCounts.push(needsInputCount)
+  titleCounts.push(titleCount)
   return null
 }
 
@@ -183,6 +185,7 @@ describe('WorkspaceProvider notice dwell', () => {
 
   beforeEach(() => {
     liveCounts = []
+    titleCounts = []
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string | URL) => {
@@ -230,8 +233,9 @@ describe('WorkspaceProvider notice dwell', () => {
     attention = [dialog(Date.now() - 1_000)]
     await renderNotices()
 
-    // the dialog is one second old: the tab stays quiet, the rail counts it
-    expect(document.title).toBe('ajent-swarm')
+    // the dialog is one second old: the title count stays quiet, the rail
+    // counts it
+    expect(titleCounts.at(-1)).toBe(0)
     expect(liveCounts.at(-1)).toBe(1)
 
     // the same digest read seconds later raises the tab notice
@@ -239,25 +243,25 @@ describe('WorkspaceProvider notice dwell', () => {
     await act(async () => {
       await refreshDigest()
     })
-    expect(document.title).toBe('(1) ajent-swarm')
+    expect(titleCounts.at(-1)).toBe(1)
 
     // a further digest keeps it raised while the dialog stays open
     await act(async () => {
       await refreshDigest()
     })
-    expect(document.title).toBe('(1) ajent-swarm')
+    expect(titleCounts.at(-1)).toBe(1)
   })
 
   it('drops the tab notice once the dialog settles', async () => {
     attention = [dialog(Date.now() - 10_000)]
     await renderNotices()
-    expect(document.title).toBe('(1) ajent-swarm')
+    expect(titleCounts.at(-1)).toBe(1)
 
     attention = [digestRow({ sessionId: 's1', kind: 'awaiting' })]
     await act(async () => {
       await refreshDigest()
     })
-    expect(document.title).toBe('ajent-swarm')
+    expect(titleCounts.at(-1)).toBe(0)
   })
 })
 

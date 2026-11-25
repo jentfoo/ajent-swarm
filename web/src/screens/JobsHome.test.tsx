@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import JobsHome from './JobsHome'
 import { AuthProvider } from '../providers/auth'
 import { SwarmProvider } from '../providers/swarm'
+import { WorkspaceProvider } from '../providers/workspace'
 import { MockWebSocket } from '../test/mockWebSocket'
 import { stubPhoneLayout } from '../test/matchMedia'
 import type { Job, Run } from '../api/types'
@@ -192,13 +193,15 @@ describe('JobsHome', () => {
       <MemoryRouter initialEntries={[initialEntry]}>
         <AuthProvider>
           <SwarmProvider>
-            {nav}
-            <Routes>
-              <Route path="/jobs" element={<JobsHome />} />
-              <Route path="/jobs/runs" element={<div>runs</div>} />
-              <Route path="/jobs/:jobId" element={<JobsHome />} />
-              <Route path="*" element={<div>elsewhere</div>} />
-            </Routes>
+            <WorkspaceProvider>
+              {nav}
+              <Routes>
+                <Route path="/jobs" element={<JobsHome />} />
+                <Route path="/jobs/runs" element={<div>runs</div>} />
+                <Route path="/jobs/:jobId" element={<JobsHome />} />
+                <Route path="*" element={<div>elsewhere</div>} />
+              </Routes>
+            </WorkspaceProvider>
           </SwarmProvider>
         </AuthProvider>
       </MemoryRouter>,
@@ -223,6 +226,41 @@ describe('JobsHome', () => {
     expect(title).toHaveClass('page-title')
     // theme.css owns the scale; the old body-size inline reset is gone
     expect(title).not.toHaveAttribute('style')
+  })
+
+  it('titles each editor route distinctly', async () => {
+    renderJobs(
+      '/jobs',
+      <>
+        <NavButton to="/jobs/new">go new</NavButton>
+        <NavButton to="/jobs/queue">go queue</NavButton>
+        <NavButton to="/jobs/5">go edit</NavButton>
+      </>,
+    )
+    const user = userEvent.setup()
+    await screen.findByText('nightly sweep')
+    expect(document.title).toBe('Scheduled jobs · ajent-swarm')
+
+    await user.click(screen.getByRole('button', { name: 'go new' }))
+    expect(document.title).toBe('New job · ajent-swarm')
+
+    await user.click(screen.getByRole('button', { name: 'go queue' }))
+    expect(document.title).toBe('Queue a prompt · ajent-swarm')
+
+    // the edit route names the job once its row is loaded
+    await user.click(screen.getByRole('button', { name: 'go edit' }))
+    expect(await screen.findByRole('heading', { name: 'Edit “nightly sweep”' })).toBeInTheDocument()
+    expect(document.title).toBe('Edit job nightly sweep · ajent-swarm')
+  })
+
+  it('reads a cold edit route as Job #id until the row lands', async () => {
+    renderJobs('/jobs/5')
+
+    // the first paint has no loaded roster yet, the id stands in
+    expect(document.title).toBe('Job #5 · ajent-swarm')
+
+    await screen.findByText('nightly sweep')
+    expect(document.title).toBe('Edit job nightly sweep · ajent-swarm')
   })
 
   it('renders job rows with schedule, next run and last status', async () => {

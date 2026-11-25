@@ -92,6 +92,13 @@ describe('MobileHome', () => {
     )
   }
 
+  it('titles the tab after the launcher', async () => {
+    renderHome()
+
+    await screen.findByText('fix login flow')
+    expect(document.title).toBe('Sessions · ajent-swarm')
+  })
+
   it('lists live sessions by title with status badges', async () => {
     renderHome()
 

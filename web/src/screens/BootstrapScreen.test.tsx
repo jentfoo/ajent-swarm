@@ -1,12 +1,17 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import BootstrapScreen from './BootstrapScreen'
 import { AuthProvider } from '../providers/auth'
+import { SwarmProvider } from '../providers/swarm'
+import { WorkspaceProvider } from '../providers/workspace'
+import { MockWebSocket } from '../test/mockWebSocket'
 
-// BootstrapScreen stands alone behind the auth gate, so it renders directly
-// under the provider. /api/me always answers bootstrap-required.
+// BootstrapScreen stands alone behind the auth gate, so it renders under the
+// full provider stack like every route surface. /api/me always answers
+// bootstrap-required.
 describe('BootstrapScreen', () => {
   const fetchSpy = vi.fn<typeof fetch>()
 
@@ -15,6 +20,7 @@ describe('BootstrapScreen', () => {
     fetchSpy.mockImplementation(() =>
       Promise.resolve(Response.json({ error: 'bootstrap_required' }, { status: 503 })),
     )
+    vi.stubGlobal('WebSocket', MockWebSocket)
     vi.stubGlobal('fetch', fetchSpy)
   })
 
@@ -24,9 +30,15 @@ describe('BootstrapScreen', () => {
 
   function renderScreen() {
     return render(
-      <AuthProvider>
-        <BootstrapScreen />
-      </AuthProvider>,
+      <MemoryRouter>
+        <AuthProvider>
+          <SwarmProvider>
+            <WorkspaceProvider>
+              <BootstrapScreen />
+            </WorkspaceProvider>
+          </SwarmProvider>
+        </AuthProvider>
+      </MemoryRouter>,
     )
   }
 
@@ -35,6 +47,12 @@ describe('BootstrapScreen', () => {
     await user.type(screen.getByLabelText('Confirm password'), password)
     await user.click(screen.getByRole('button', { name: 'Save password' }))
   }
+
+  it('titles the tab for first-run setup', () => {
+    renderScreen()
+
+    expect(document.title).toBe('Set password · ajent-swarm')
+  })
 
   it('rejects an over long password before submitting', async () => {
     renderScreen()

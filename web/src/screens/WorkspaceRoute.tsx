@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 
+import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import { useWorkspace } from '../providers/workspace'
 import FocusedWorkspace from '../workspace/FocusedWorkspace'
 import TileWorkspace from '../workspace/TileWorkspace'
@@ -15,5 +16,6 @@ export default function WorkspaceRoute({ mode }: { mode?: WorkspaceMode }) {
   }, [mode, profile.mode, setMode])
 
   const active: WorkspaceMode = mode ?? profile.mode
+  useDocumentTitle(active === 'tile' ? 'Tile workspace' : 'Focused workspace')
   return active === 'tile' ? <TileWorkspace /> : <FocusedWorkspace />
 }

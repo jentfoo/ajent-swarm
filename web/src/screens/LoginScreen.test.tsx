@@ -6,6 +6,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import LoginScreen from './LoginScreen'
 import { AuthProvider } from '../providers/auth'
+import { SwarmProvider } from '../providers/swarm'
+import { WorkspaceProvider } from '../providers/workspace'
+import { MockWebSocket } from '../test/mockWebSocket'
 
 type User = ReturnType<typeof userEvent.setup>
 
@@ -32,6 +35,7 @@ describe('LoginScreen', () => {
 
   beforeEach(() => {
     authed = false
+    vi.stubGlobal('WebSocket', MockWebSocket)
     vi.stubGlobal(
       'fetch',
       vi.fn((url: string | URL | Request, init?: RequestInit) => {
@@ -54,10 +58,14 @@ describe('LoginScreen', () => {
     return render(
       <MemoryRouter initialEntries={[{ pathname: '/login', state }]}>
         <AuthProvider>
-          <Routes>
-            <Route path="/login" element={<LoginScreen />} />
-            <Route path="*" element={<LocationProbe />} />
-          </Routes>
+          <SwarmProvider>
+            <WorkspaceProvider>
+              <Routes>
+                <Route path="/login" element={<LoginScreen />} />
+                <Route path="*" element={<LocationProbe />} />
+              </Routes>
+            </WorkspaceProvider>
+          </SwarmProvider>
         </AuthProvider>
       </MemoryRouter>,
     )
@@ -74,6 +82,12 @@ describe('LoginScreen', () => {
   function settledURL(): string {
     return screen.getByTestId('url').textContent + screen.getByTestId('search').textContent
   }
+
+  it('titles the tab for sign-in', () => {
+    renderLogin()
+
+    expect(document.title).toBe('Sign in · ajent-swarm')
+  })
 
   it('returns to the saved path and query after signing in', async () => {
     const user = userEvent.setup()

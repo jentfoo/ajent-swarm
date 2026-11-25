@@ -19,6 +19,7 @@ import { useInterruptStream } from '../session/useInterruptStream'
 import { useSessionCompose } from '../session/useSessionCompose'
 import { useSessionLabel, useSessionNamer } from '../session/useSessionLabel'
 import { Toasts } from '../hooks/Toasts'
+import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import { useSessionChannel } from '../hooks/useSessionChannel'
 import { ModelMenu } from '../ui/ModelMenu'
 import { ChevronLeftIcon, MoreHorizontalIcon } from '../ui/icons'
@@ -86,6 +87,7 @@ function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElemen
   })
   // the switcher's own label chain, so a rename follows the user into the view
   const label = useSessionLabel(sessionId)
+  useDocumentTitle(label)
 
   return (
     <div className="session-screen mobile-session">

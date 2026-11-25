@@ -5,6 +5,7 @@ import { describeError } from '../api/errors'
 import { jobsApi, runsApi } from '../api/endpoints'
 import type { Job, Run, RunStatus } from '../api/types'
 import { runStatuses } from '../api/types'
+import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import { mobileLayout, useMediaQuery } from '../hooks/useMediaQuery'
 import { useNow } from '../hooks/useNow'
 import { usePoll } from '../hooks/usePoll'
@@ -31,6 +32,7 @@ const pollRunsMs = 10_000
 export default function RunsHistory() {
   const mobile = useMediaQuery(mobileLayout)
   const [searchParams, setSearchParams] = useSearchParams()
+  useDocumentTitle('Run history')
   const [jobs, setJobs] = useState<Job[]>([])
   const [jobsLoaded, setJobsLoaded] = useState(false)
   const [runs, setRuns] = useState<Run[] | null>(null)

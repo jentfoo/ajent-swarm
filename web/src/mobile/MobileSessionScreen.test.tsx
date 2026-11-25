@@ -225,6 +225,34 @@ describe('MobileSessionScreen', () => {
 
     // the default row carries no title, name or workspace
     expect(await screen.findByText('01MOBILE…')).toBeInTheDocument()
+    // the cold deep link never leaves the bare product name behind either
+    expect(document.title).toBe('01MOBILE… · ajent-swarm')
+  })
+
+  it('titles the tab after the session label and a rename', async () => {
+    const roster = (title?: string) =>
+      Response.json([
+        {
+          sessionId: VIEW,
+          title,
+          state: 'online',
+          seatHeld: false,
+          seatOurs: false,
+          running: false,
+          idle: true,
+          openInteractions: 0,
+          spawnedBy: 'external',
+        },
+      ])
+    fetcher.on('/api/sessions', () => roster('nightly sweep'))
+    renderScreen()
+
+    await vi.waitFor(() => expect(document.title).toBe('nightly sweep · ajent-swarm'))
+
+    // a rename follows into the title through the same listing
+    fetcher.on('/api/sessions', () => roster('renamed in place'))
+    act(() => document.dispatchEvent(new Event('visibilitychange')))
+    await vi.waitFor(() => expect(document.title).toBe('renamed in place · ajent-swarm'))
   })
 
   it('renders the compact chrome with the shared status bar', async () => {

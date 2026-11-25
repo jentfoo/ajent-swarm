@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 
 import type { SavedSession } from '../api/types'
+import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import { useLaunchFacts, type LaunchFacts } from '../hooks/useLaunchFacts'
 import { useLaunchForm } from '../hooks/useLaunchForm'
 import { useResume } from '../hooks/useResume'
@@ -20,6 +21,7 @@ import { useSwitcherRows } from './useSwitcherRows'
 // for jobs and settings. Depth of controls trades for reachability here.
 export default function MobileHome() {
   const navigate = useNavigate()
+  useDocumentTitle('Sessions')
   const rows = useSwitcherRows()
   const { refreshSessions } = useSwarm()
   const facts = useLaunchFacts()

@@ -6,6 +6,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import EndedSessionScreen from './EndedSessionScreen'
 import type { LaunchRequest, SavedSession } from '../api/types'
+import { AuthProvider } from '../providers/auth'
+import { SwarmProvider } from '../providers/swarm'
+import { WorkspaceProvider } from '../providers/workspace'
+import { MockWebSocket } from '../test/mockWebSocket'
 
 // Back control contract: warm in-app navigation keeps the history pop so list
 // position and filters survive; cold entries (bookmark, saved link) have no
@@ -32,6 +36,7 @@ function OpenEnded({ replace }: { replace?: boolean }): ReactElement {
   )
 }
 
+// ScreenRoutes hosts the read screen beside the launcher it backs onto.
 function ScreenRoutes(): ReactElement {
   return (
     <Routes>
@@ -41,11 +46,26 @@ function ScreenRoutes(): ReactElement {
   )
 }
 
+// withProviders mounts the screen under the stack every route surface rides,
+// so its tab title hook reads the workspace context like it does in production.
+function withProviders(ui: ReactElement, initialEntries: string[]) {
+  return render(
+    <MemoryRouter initialEntries={initialEntries}>
+      <AuthProvider>
+        <SwarmProvider>
+          <WorkspaceProvider>{ui}</WorkspaceProvider>
+        </SwarmProvider>
+      </AuthProvider>
+    </MemoryRouter>,
+  )
+}
+
 describe('EndedSessionScreen', () => {
   let fetcher: ReturnType<typeof buildFetcher>
 
   beforeEach(() => {
     fetcher = buildFetcher()
+    vi.stubGlobal('WebSocket', MockWebSocket)
     vi.stubGlobal('fetch', fetcher)
   })
 
@@ -55,11 +75,7 @@ describe('EndedSessionScreen', () => {
 
   it('links to the launcher on cold entry', async () => {
     // lone initial entry carries react-router's 'default' key, like a bookmark
-    render(
-      <MemoryRouter initialEntries={[`/m/read/${ENDED}`]}>
-        <ScreenRoutes />
-      </MemoryRouter>,
-    )
+    withProviders(<ScreenRoutes />, [`/m/read/${ENDED}`])
 
     const back = screen.getByRole('link', { name: '← Back' })
     expect(back).toHaveAttribute('href', '/')
@@ -68,12 +84,39 @@ describe('EndedSessionScreen', () => {
     expect(screen.getByText('launcher')).toBeInTheDocument()
   })
 
+  it('titles the tab as an ended session when no roster row names one', async () => {
+    withProviders(<ScreenRoutes />, [`/m/read/${ENDED}`])
+
+    // the screen's own name stands in rather than an opaque short id
+    await vi.waitFor(() => expect(document.title).toBe('Ended session · ajent-swarm'))
+  })
+
+  it('titles the tab from the roster label once known', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string | URL) => {
+        const path = String(url).split('?')[0]
+        if (path === '/api/sessions')
+          return Response.json([
+            { sessionId: ENDED, title: 'nightly sweep', state: 'exited', spawnedBy: 'swarm' },
+          ])
+        if (path === `/api/saved-sessions/${ENDED}/entries`)
+          return Response.json({ entries: [], cursor: '' })
+        throw new Error(`unexpected fetch ${String(url)}`)
+      }),
+    )
+    withProviders(<ScreenRoutes />, [`/m/read/${ENDED}`])
+
+    await vi.waitFor(() => expect(document.title).toBe('nightly sweep · ajent-swarm'))
+  })
+
   it('pops history on warm navigation', async () => {
-    render(
-      <MemoryRouter initialEntries={['/']}>
+    withProviders(
+      <>
         <OpenEnded />
         <ScreenRoutes />
-      </MemoryRouter>,
+      </>,
+      ['/'],
     )
 
     const user = userEvent.setup()
@@ -88,11 +131,12 @@ describe('EndedSessionScreen', () => {
   it('links to the launcher after a replace landing', async () => {
     // the login redirect rewrites history with replace, so the landing carries
     // a fresh key over an empty stack; navigation type must still spot it cold
-    render(
-      <MemoryRouter initialEntries={['/']}>
+    withProviders(
+      <>
         <OpenEnded replace />
         <ScreenRoutes />
-      </MemoryRouter>,
+      </>,
+      ['/'],
     )
 
     const user = userEvent.setup()
@@ -132,6 +176,7 @@ describe('EndedSessionScreen resume', () => {
   beforeEach(() => {
     savedRow = baseRow()
     launches = []
+    vi.stubGlobal('WebSocket', MockWebSocket)
     vi.stubGlobal('fetch', async (url: string | URL, init?: RequestInit) => {
       const path = String(url).split('?')[0]
       if (path === '/api/saved-sessions') return Response.json([savedRow])
@@ -150,14 +195,13 @@ describe('EndedSessionScreen resume', () => {
   })
 
   function renderRead() {
-    render(
-      <MemoryRouter initialEntries={[`/m/read/${ENDED}`]}>
-        <Routes>
-          <Route path="/" element={<p>launcher</p>} />
-          <Route path="/m/read/:sessionId" element={<EndedSessionScreen />} />
-          <Route path="/s/:sessionId" element={<p>live session</p>} />
-        </Routes>
-      </MemoryRouter>,
+    withProviders(
+      <Routes>
+        <Route path="/" element={<p>launcher</p>} />
+        <Route path="/m/read/:sessionId" element={<EndedSessionScreen />} />
+        <Route path="/s/:sessionId" element={<p>live session</p>} />
+      </Routes>,
+      [`/m/read/${ENDED}`],
     )
   }
 

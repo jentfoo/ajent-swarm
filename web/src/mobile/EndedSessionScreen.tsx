@@ -5,7 +5,10 @@ import { Link, useLocation, useNavigate, useNavigationType, useParams } from 're
 import { describeError } from '../api/errors'
 import { fleet as fleetAPI } from '../api/endpoints'
 import { TranscriptPreview } from '../jobs/TranscriptPreview'
+import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import { useResume } from '../hooks/useResume'
+import { shortID } from '../session/names'
+import { useSessionLabel } from '../session/useSessionLabel'
 
 // EndedSessionScreen is an ended session's read-only transcript with a Resume
 // button that launches headless `--resume target`. The recording rides the
@@ -15,6 +18,11 @@ export default function EndedSessionScreen(): ReactElement {
   const location = useLocation()
   const navigate = useNavigate()
   const navType = useNavigationType()
+
+  // the roster's label once known, otherwise the screen's own name instead of
+  // an opaque short id in the browser chrome
+  const label = useSessionLabel(sessionId)
+  useDocumentTitle(label === shortID(sessionId) ? 'Ended session' : label)
 
   // Back pops history only with an in-app entry behind this screen. Cold deep
   // links carry react-router's 'default' key; the login redirect also lands

@@ -136,6 +136,8 @@ function enabledItems(menu: HTMLElement): HTMLElement[] {
 // lifetime, and closes on a plain Escape or an outside pointerdown: only the
 // topmost of stacked popovers answers Escape, presses another listener already
 // claimed are left alone. Closing returns focus to the element focused at open.
+// The layer enters through .pop-fade, an opacity-only fade: a transform would
+// move the box mount measurement reads.
 // Layers carrying role="menu" also drive their items: keyboard opens move
 // focus to the current or first enabled item (pointer opens never steal),
 // arrows and Home/End walk among enabled items, and Tab closes so focus
@@ -148,6 +150,7 @@ export function MenuPopover({
   matchWidth = false,
   restoreFocus = true,
   role,
+  className,
   children,
   ...rest
 }: MenuPopoverProps) {
@@ -299,6 +302,7 @@ export function MenuPopover({
       ref={menuRef}
       role={role}
       {...rest}
+      className={className === undefined ? 'pop-fade' : `pop-fade ${className}`}
       style={{
         ...rest.style,
         position: 'fixed',

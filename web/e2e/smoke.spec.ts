@@ -66,3 +66,24 @@ test('the session card reports online with the reply visible after reload', asyn
   await card.getByRole('link', { name: 'Open' }).click()
   await expect(page.getByText('The smoke test reply.')).toBeVisible({ timeout: 30_000 })
 })
+
+test('reduced motion leaves overlay entrances at zero duration', async ({ page }) => {
+  // Playwright emulates the media feature before any stylesheet loads, so the
+  // reduced-motion block is in force from the first paint
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await signIn(page)
+
+  const card = page.locator('.grid .card').first()
+  await expect(card).toBeVisible({ timeout: 30_000 })
+  await card.getByRole('button', { name: /^Rename/ }).click()
+
+  // the shared modal shell: backdrop and card both carry enter keyframes, and
+  // under the preference they resolve to zero duration instead of animating
+  const backdrop = page.locator('.modal-backdrop')
+  await expect(backdrop).toBeVisible()
+  await expect(backdrop).toHaveCSS('animation-name', 'fade-in')
+  await expect(backdrop).toHaveCSS('animation-duration', '0s')
+  const modal = page.locator('.modal-backdrop .modal')
+  await expect(modal).toHaveCSS('animation-name', 'modal-card-in')
+  await expect(modal).toHaveCSS('animation-duration', '0s')
+})

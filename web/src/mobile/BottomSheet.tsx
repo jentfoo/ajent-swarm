@@ -60,6 +60,9 @@ function SheetLayer({
   children: ReactElement
 }): ReactElement {
   const [dragY, setDragY] = useState(0)
+  // one entrance per mount: the first press on the handle keeps the dragging
+  // class for the layer's life, so a spring-back never replays the slide-in
+  const [dragged, setDragged] = useState(false)
   const sheetRef = useRef<HTMLElement>(null)
   // one pointer owns a drag, later fingers can neither steer nor release it
   const start = useRef<{ pointerId: number; x: number; y: number } | null>(null)
@@ -72,6 +75,7 @@ function SheetLayer({
     // a drag in flight never adopts the newcomer, that would hand it over
     if (start.current !== null) return
     start.current = { pointerId: ev.pointerId, x: ev.clientX, y: ev.clientY }
+    setDragged(true)
     ev.currentTarget.setPointerCapture(ev.pointerId)
   }
   const onPointerMove = (ev: ReactPointerEvent<HTMLDivElement>) => {
@@ -111,7 +115,7 @@ function SheetLayer({
         aria-modal="true"
         aria-label={label}
         tabIndex={-1}
-        className={`bottom-sheet ${dragY > 0 ? 'dragging' : ''}`}
+        className={`bottom-sheet ${dragged ? 'dragging' : ''}`}
         style={dragY > 0 ? { transform: `translateY(${dragY}px)` } : undefined}
         onClick={(ev) => ev.stopPropagation()}
       >

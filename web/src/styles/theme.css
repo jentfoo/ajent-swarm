@@ -16,6 +16,13 @@
   --fs-title: 1.0625rem; /* 17px */
   --fs-display: 1.25rem; /* 20px */
 
+  /* motion: one fast step for hover and press feedback, one base step for
+     layer entrances, one shared ease-out curve; reduced-motion zeroes the
+     durations below so every transition and animation lands at once */
+  --dur-fast: 120ms;
+  --dur-base: 180ms;
+  --ease-out: cubic-bezier(0, 0, 0.2, 1);
+
   /* spinner states mirror ajent's TUI glyph colors */
   --spin-idle: var(--muted);
   --spin-wait: var(--text);
@@ -76,8 +83,11 @@ a {
   color: var(--accent);
   text-decoration: none;
 }
-a:hover {
-  text-decoration: underline;
+/* hovers need a cursor; a tap must not leave an underline stuck on touch */
+@media (hover: hover) {
+  a:hover {
+    text-decoration: underline;
+  }
 }
 
 code,
@@ -231,6 +241,52 @@ button.primary,
   border-color: var(--accent);
   color: var(--accent-text);
 }
+
+/* state feedback rides the motion tokens on every control; layout properties
+   stay out of the list so nothing shifts while it eases */
+button,
+.btn,
+a,
+.badge,
+.tile-tab,
+.rail-row,
+.switch-row,
+.run-row,
+.run-card,
+input,
+select,
+textarea {
+  transition:
+    background-color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out),
+    opacity var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out);
+}
+
+/* hovers need a cursor, so touch taps never stick one on; :active stays
+   outside the gate for pressed feedback on every pointer */
+@media (hover: hover) {
+  button:not(:disabled):hover,
+  .btn:hover {
+    background: color-mix(in srgb, var(--text) 7%, transparent);
+  }
+  /* the primary fill darkens a step instead of taking the ink wash */
+  button.primary:not(:disabled):hover,
+  .btn.primary:hover {
+    background: color-mix(in srgb, #000 12%, var(--accent));
+  }
+}
+button:not(:disabled):active,
+.btn:active {
+  background: color-mix(in srgb, var(--text) 14%, transparent);
+  transform: scale(0.98);
+}
+button.primary:not(:disabled):active,
+.btn.primary:active {
+  background: color-mix(in srgb, #000 20%, var(--accent));
+}
+
 /* a:hover underline at (0,1,1) beats bare .btn, so re-suppress it here */
 .btn:hover {
   text-decoration: none;
@@ -241,8 +297,10 @@ button.danger {
   color: var(--danger);
   border-color: var(--danger);
 }
-button.danger:hover {
-  background: color-mix(in srgb, var(--danger) 15%, var(--surface-2));
+@media (hover: hover) {
+  button.danger:hover {
+    background: color-mix(in srgb, var(--danger) 15%, var(--surface-2));
+  }
 }
 /* the armed confirm step is the one loud moment */
 button.danger.armed {
@@ -258,6 +316,17 @@ button:disabled {
 button.keyboard-dismiss {
   opacity: 0.55;
   cursor: default;
+}
+/* hovered or pressed it keeps reading disabled, never taking the wash or the
+   press transform */
+button.keyboard-dismiss:hover,
+button.keyboard-dismiss:active {
+  background: var(--surface-2);
+  transform: none;
+}
+button.primary.keyboard-dismiss:hover,
+button.primary.keyboard-dismiss:active {
+  background: var(--accent);
 }
 
 input,
@@ -404,8 +473,10 @@ label {
   color: var(--muted);
   cursor: pointer;
 }
-.injected-toggle:hover {
-  color: var(--text);
+@media (hover: hover) {
+  .injected-toggle:hover {
+    color: var(--text);
+  }
 }
 .entry.system,
 .entry.unknown {
@@ -647,8 +718,10 @@ label {
   background: none;
   color: var(--muted);
 }
-.entry-copy:hover {
-  color: var(--text);
+@media (hover: hover) {
+  .entry-copy:hover {
+    color: var(--text);
+  }
 }
 @media (max-width: 48rem) {
   /* phones get the theme's touch floor; neither button is hover-revealed */
@@ -929,8 +1002,20 @@ label {
   background: transparent;
   padding: calc(var(--unit) * 1.5) calc(var(--unit) * 2);
 }
-.menu button:hover {
-  background: var(--surface-2);
+/* every MenuPopover portal enters through this hook class; opacity only,
+   because a transform would move the box mount measurement reads */
+.pop-fade {
+  animation: menu-fade var(--dur-base) var(--ease-out);
+}
+@keyframes menu-fade {
+  from {
+    opacity: 0;
+  }
+}
+@media (hover: hover) {
+  .menu button:hover {
+    background: var(--surface-2);
+  }
 }
 /* menu items carrying an inline glyph keep it on the text baseline */
 .menu button svg {
@@ -951,6 +1036,7 @@ label {
 }
 
 /* rewind modal */
+/* backdrop and card fade separately, so the layer reads as depth */
 .modal-backdrop {
   position: fixed;
   inset: 0;
@@ -958,11 +1044,24 @@ label {
   display: grid;
   place-items: center;
   z-index: 30;
+  animation: fade-in var(--dur-base) var(--ease-out);
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
 }
 .modal {
   width: min(34rem, 92vw);
   max-height: 80vh;
   overflow-y: auto;
+  animation: modal-card-in var(--dur-base) var(--ease-out);
+}
+@keyframes modal-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(calc(var(--unit) * 3));
+  }
 }
 /* the optional corner ✕ floats into the card's top right and sticks there
    while the card's own content scrolls past it */
@@ -982,8 +1081,10 @@ label {
   font-size: 1em;
   line-height: 26px;
 }
-.modal-close:hover {
-  color: var(--danger);
+@media (hover: hover) {
+  .modal-close:hover {
+    color: var(--danger);
+  }
 }
 @media (max-width: 48rem) {
   /* rename rides this modal on phones, so the ✕ meets the touch floor */
@@ -1200,8 +1301,13 @@ label {
   cursor: pointer;
   background: var(--bg);
 }
-.rail-row:hover {
-  border-color: var(--accent);
+@media (hover: hover) {
+  .rail-row:hover {
+    border-color: var(--accent);
+  }
+}
+.rail-row:active {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 .rail-row.selected {
   border-color: var(--accent);
@@ -1266,8 +1372,10 @@ label {
   padding: 0 2px;
   font-size: var(--fs-small);
 }
-.rail-check:hover {
-  color: var(--ok);
+@media (hover: hover) {
+  .rail-check:hover {
+    color: var(--ok);
+  }
 }
 @media (max-width: 48rem) {
   /* the switcher's large rows meet the touch floor */
@@ -1471,9 +1579,16 @@ label {
   font: inherit;
   color: inherit;
 }
-.rewind-row:not([aria-disabled='true']):hover,
+@media (hover: hover) {
+  .rewind-row:not([aria-disabled='true']):hover {
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+  }
+}
 .rewind-row[data-cursor='true'] {
   background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.rewind-row:not([aria-disabled='true']):active {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
 }
 .rewind-row[aria-disabled='true'] {
   cursor: default;
@@ -1591,7 +1706,12 @@ label {
   color: var(--muted);
   user-select: none;
 }
-.tile-add button:hover,
+@media (hover: hover) {
+  .tile-add button:hover {
+    background: var(--surface);
+    color: var(--text);
+  }
+}
 .tile-add button[aria-expanded='true'] {
   background: var(--surface);
   color: var(--text);
@@ -1636,6 +1756,15 @@ label {
   background: var(--surface);
   border: 1px solid var(--border);
 }
+/* the strip's inactive tabs read hover and press as a lifted surface */
+@media (hover: hover) {
+  .tile-tab:not(.active):hover {
+    background: var(--surface);
+  }
+}
+.tile-tab:not(.active):active {
+  background: var(--surface);
+}
 .tile-tab.drop-before {
   box-shadow: -2px 0 0 var(--accent);
 }
@@ -1651,8 +1780,10 @@ label {
   cursor: pointer;
   padding: 0 2px;
 }
-.tab-close:hover {
-  color: var(--danger);
+@media (hover: hover) {
+  .tab-close:hover {
+    color: var(--danger);
+  }
 }
 .tab-badge {
   width: 8px;
@@ -1679,9 +1810,11 @@ label {
   cursor: row-resize;
   margin: -3px 0;
 }
-.tile-divider.v:hover,
-.tile-divider.h:hover {
-  background: color-mix(in srgb, var(--accent) 35%, transparent);
+@media (hover: hover) {
+  .tile-divider.v:hover,
+  .tile-divider.h:hover {
+    background: color-mix(in srgb, var(--accent) 35%, transparent);
+  }
 }
 .tile-body {
   flex: 1;
@@ -1758,8 +1891,13 @@ label {
 .jobs-table tbody tr {
   cursor: pointer;
 }
-.run-row:hover {
-  background: color-mix(in srgb, var(--accent) 6%, transparent);
+@media (hover: hover) {
+  .run-row:hover {
+    background: color-mix(in srgb, var(--accent) 6%, transparent);
+  }
+}
+.run-row:active {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 .run-prompt-cell {
   max-width: 24rem;
@@ -1914,8 +2052,13 @@ label {
 .run-card {
   cursor: pointer;
 }
-.run-card:hover {
-  background: color-mix(in srgb, var(--accent) 6%, var(--surface));
+@media (hover: hover) {
+  .run-card:hover {
+    background: color-mix(in srgb, var(--accent) 6%, var(--surface));
+  }
+}
+.run-card:active {
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
 }
 /* the table's clipped prompt and error render unclipped here: long text wraps
    and long tokens break so neither widens the card */
@@ -1969,8 +2112,10 @@ label {
   background: none;
   border: none;
 }
-.rename-control:hover {
-  color: var(--text);
+@media (hover: hover) {
+  .rename-control:hover {
+    color: var(--text);
+  }
 }
 
 /* schedule preview beside the editor's mode chooser */
@@ -2128,6 +2273,10 @@ label {
 .switch-row.pressed {
   background: var(--surface-2);
 }
+/* a quick tap presses with the same fill the long-press state uses */
+.switch-row:active {
+  background: var(--surface-2);
+}
 /* the lifted source row of a held touch drag toward another session */
 .switch-row.chain-source {
   opacity: 0.55;
@@ -2218,6 +2367,13 @@ label {
   }
 }
 @media (prefers-reduced-motion: reduce) {
+  /* every new transition and entrance reads the duration tokens, so zeroing
+     them here stills all of it; keyframes hold only `from`, so a zero
+     duration lands on each layer's resting style */
+  :root {
+    --dur-fast: 0ms;
+    --dur-base: 0ms;
+  }
   .pull-refresh,
   .pull-refresh-spin {
     animation: none;
@@ -2312,9 +2468,19 @@ label {
   border: 1px solid var(--border);
   border-radius: var(--radius) var(--radius) 0 0;
   padding-bottom: env(safe-area-inset-bottom, 0px);
+  animation: sheet-in var(--dur-base) var(--ease-out);
 }
+@keyframes sheet-in {
+  from {
+    transform: translateY(100%);
+  }
+}
+/* the drag writes an inline transform, so both the entrance and any
+   transition must stand down for it; the component keeps this class once a
+   gesture touches the handle, so a spring-back never replays the slide-in */
 .bottom-sheet.dragging {
   transition: none;
+  animation: none;
 }
 .bottom-sheet > * {
   min-height: 0; /* children shrink so the body can own scrolling */
@@ -2498,6 +2664,12 @@ label {
   /* safe-area baseline plus the keyboard inset MobileShell publishes at
      :root, so inputs inside scroll clear of the keyboard */
   padding-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--keyboard-inset, 0px));
+  animation: pushed-screen-in var(--dur-base) var(--ease-out);
+}
+@keyframes pushed-screen-in {
+  from {
+    transform: translateX(100%);
+  }
 }
 .pushed-header {
   position: sticky;

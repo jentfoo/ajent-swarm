@@ -82,6 +82,30 @@ describe('BottomSheet', () => {
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
+  it('drags on the first frame after opening', () => {
+    const { onClose, handle } = renderSheet()
+    // the press retires the entrance before any movement, so the drag owns
+    // the transform from the first frame instead of fighting a slide-in
+    fireEvent.pointerDown(handle, { pointerId: 1, clientX: 20, clientY: 300 })
+    expect(document.querySelector('.bottom-sheet')).toHaveClass('dragging')
+
+    fireEvent.pointerMove(handle, { pointerId: 1, clientX: 20, clientY: 396 })
+    const sheet = document.querySelector('.bottom-sheet') as HTMLElement
+    expect(sheet.style.transform).toBe('translateY(96px)')
+
+    fireEvent.pointerUp(handle, { pointerId: 1, clientX: 20, clientY: 396 })
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps the entrance retired through a spring-back', () => {
+    const { onClose, handle } = renderSheet()
+    drag(handle, 40)
+    expect(onClose).not.toHaveBeenCalled()
+    // the class outlives the gesture: releasing above the threshold must not
+    // replay the slide-in on top of the spring-back
+    expect(document.querySelector('.bottom-sheet')).toHaveClass('dragging')
+  })
+
   it('springs back below the threshold', () => {
     const { onClose, handle } = renderSheet()
     drag(handle, 40)

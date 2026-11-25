@@ -100,3 +100,49 @@ describe('theme dialog dock bounds', () => {
     expect(base).not.toContain('overflow')
   })
 })
+
+describe('theme motion tokens', () => {
+  it('declares fast and base steps plus one shared ease-out curve', () => {
+    expect(css).toMatch(/--dur-fast: \d+ms;/)
+    expect(css).toMatch(/--dur-base: \d+ms;/)
+    expect(css).toContain('--ease-out: cubic-bezier(')
+  })
+
+  it('enters every overlay layer through the shared tokens', () => {
+    for (const name of ['menu-fade', 'fade-in', 'modal-card-in', 'sheet-in', 'pushed-screen-in']) {
+      expect(css).toContain(`@keyframes ${name}`)
+    }
+    // each entrance resolves its duration through a token, never a literal,
+    // so reduced-motion has one place to act
+    const entrances = [
+      /\.pop-fade \{[^}]*animation: menu-fade var\(--dur-base\) var\(--ease-out\)/,
+      /\.modal-backdrop \{[^}]*animation: fade-in var\(--dur-base\) var\(--ease-out\)/,
+      /\.modal \{[^}]*animation: modal-card-in var\(--dur-base\) var\(--ease-out\)/,
+      /\.bottom-sheet \{[^}]*animation: sheet-in var\(--dur-base\) var\(--ease-out\)/,
+      /\.pushed-screen \{[^}]*animation: pushed-screen-in var\(--dur-base\) var\(--ease-out\)/,
+    ]
+    for (const rule of entrances) {
+      expect(css).toMatch(rule)
+    }
+  })
+
+  it('keeps the menu entrance opacity-only', () => {
+    // transforms move the box mount measurement reads, so placement would
+    // measure a mid-flight layer
+    const fade = css.match(/@keyframes menu-fade \{.*?\} \}/)![0]
+    expect(fade).toContain('opacity: 0;')
+    expect(fade).not.toContain('transform:')
+  })
+
+  it('stands the sheet entrance down beside its transition while dragging', () => {
+    const rule = css.match(/\.bottom-sheet\.dragging \{[^}]*\}/)![0]
+    expect(rule).toContain('transition: none;')
+    expect(rule).toContain('animation: none;')
+  })
+
+  it('zeroes the durations under prefers-reduced-motion', () => {
+    const block = css.match(/@media \(prefers-reduced-motion: reduce\) \{.*?\} \}/)![0]
+    expect(block).toContain('--dur-fast: 0ms;')
+    expect(block).toContain('--dur-base: 0ms;')
+  })
+})

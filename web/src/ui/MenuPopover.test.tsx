@@ -153,6 +153,16 @@ describe('MenuPopover', () => {
     expect(menu.closest('.clip')).toBeNull()
   })
 
+  it('lands placed on mount without transforming its box', () => {
+    // the entrance is an opacity-only fade: a transform would move the box
+    // this mount measurement reads, so none may ever sit on the layer
+    render(<Harness />)
+    const menu = screen.getByRole('menu')
+    expect(menu.style.left).toBe(`${baseAnchor.left}px`)
+    expect(menu.style.top).toBe(`${baseAnchor.bottom + 4}px`)
+    expect(menu.style.transform).toBe('')
+  })
+
   it('stays at its natural width by default', () => {
     render(<Harness />)
     expect(screen.getByRole('menu').style.minWidth).toBe('')

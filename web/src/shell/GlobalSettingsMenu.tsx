@@ -9,7 +9,7 @@ import { TitleModelSelect } from './TitleModelSelect'
 export function GlobalSettingsMenu(): ReactElement {
   return (
     <HamburgerDialog label="Global settings">
-      <h3 style={{ margin: '0 0 calc(var(--unit) * 2)', fontSize: 'inherit' }}>Global settings</h3>
+      <h3 className="modal-title">Global settings</h3>
       <TitleModelSelect />
       <p className="muted" style={{ margin: 0, fontSize: 'var(--fs-small)' }}>
         Per-session agent settings live in each chat's ☰ header.

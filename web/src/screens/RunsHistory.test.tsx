@@ -241,6 +241,15 @@ describe('RunsHistory', () => {
 
   const runsFetches = () => requested.filter((u) => u.startsWith('/api/runs'))
 
+  it('sizes the page title through the shared class, no inline override', () => {
+    renderRuns()
+
+    const title = screen.getByRole('heading', { level: 1, name: 'Run history' })
+    expect(title).toHaveClass('page-title')
+    // theme.css owns the scale; the old body-size inline reset is gone
+    expect(title).not.toHaveAttribute('style')
+  })
+
   it('renders rows joined with job names, durations and errors', async () => {
     renderRuns()
 

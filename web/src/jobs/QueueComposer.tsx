@@ -79,7 +79,7 @@ export function QueueComposer({
     >
       <form onSubmit={save}>
         <div className="editor-scroll">
-          <h2 style={{ marginTop: 0, fontSize: 'inherit' }}>Queue a prompt</h2>
+          <h2 className="modal-title">Queue a prompt</h2>
 
           <div className="form-grid">
             <JobFactsFields
@@ -92,7 +92,7 @@ export function QueueComposer({
             />
           </div>
 
-          <h3>Prompt</h3>
+          <h3 className="section-title">Prompt</h3>
           <label className="prompt-field">
             Prompt
             <textarea
@@ -105,7 +105,7 @@ export function QueueComposer({
             {errors.prompt && <FieldError text={errors.prompt} />}
           </label>
 
-          <h3>Pre-run command (optional)</h3>
+          <h3 className="section-title">Pre-run command (optional)</h3>
           <TriggerCommandFields
             draft={draft}
             patch={patch}

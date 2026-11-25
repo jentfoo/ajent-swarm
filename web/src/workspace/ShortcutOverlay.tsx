@@ -76,14 +76,14 @@ export function ShortcutOverlay({ mode, onClose }: { mode: WorkspaceMode; onClos
         if (ev.key === '?') onClose()
       }}
     >
-      <h2 style={{ marginTop: 0, fontSize: 'inherit' }}>Keyboard shortcuts</h2>
+      <h2 className="modal-title">Keyboard shortcuts</h2>
       <p className="muted" style={{ marginTop: 0 }}>
         {mode === 'tile' ? 'Tile mode' : 'Focused mode'} · Mod is Ctrl or ⌘
       </p>
       <BindingTable bindings={bindings} />
-      <h3>Prompt composer</h3>
+      <h3 className="section-title">Prompt composer</h3>
       <BindingTable bindings={composerBindings} />
-      <h3>Dialogs</h3>
+      <h3 className="section-title">Dialogs</h3>
       <BindingTable bindings={dialogBindings} />
     </ModalShell>
   )

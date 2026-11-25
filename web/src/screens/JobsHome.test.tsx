@@ -216,6 +216,15 @@ describe('JobsHome', () => {
     )
   }
 
+  it('sizes the page title through the shared class, no inline override', () => {
+    renderJobs()
+
+    const title = screen.getByRole('heading', { level: 1, name: 'Scheduled jobs' })
+    expect(title).toHaveClass('page-title')
+    // theme.css owns the scale; the old body-size inline reset is gone
+    expect(title).not.toHaveAttribute('style')
+  })
+
   it('renders job rows with schedule, next run and last status', async () => {
     renderJobs()
 

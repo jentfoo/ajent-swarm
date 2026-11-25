@@ -5,6 +5,30 @@ import { MarkdownBlock } from './MarkdownBlock'
 
 // Model output is untrusted input, these are the hard guarantees.
 
+// jsdom cannot lay out text, so the prose measure's no-widening guarantee
+// rides a source probe of the sheet (theme.test.ts reads it the same way).
+// @ts-expect-error node builtins stay untyped in the web project on purpose
+const theme = (await import('node:fs')) as {
+  readFileSync(path: string, encoding: string): string
+}
+const css = theme.readFileSync('src/styles/theme.css', 'utf8').replace(/\s+/g, ' ')
+
+describe('MarkdownBlock prose measure', () => {
+  it('renders message text through the shared prose wrapper', () => {
+    render(<MarkdownBlock text="hello" />)
+    expect(screen.getByText('hello').closest('.markdown')).toHaveClass('prose')
+  })
+
+  it('keeps a long unbroken token from widening the container', () => {
+    // the cap sits on block children and the wrap guard breaks tokens that
+    // have no break point of their own
+    expect(css).toContain('.markdown.prose > * { max-width: min(72ch, 100%); }')
+    expect(css).toMatch(/\.markdown\.prose \{[^}]*overflow-wrap: anywhere/)
+    render(<MarkdownBlock text={'A'.repeat(400)} />)
+    expect(document.querySelector('.markdown.prose > p')).toHaveTextContent('A'.repeat(400))
+  })
+})
+
 describe('MarkdownBlock sanitize', () => {
   it('never renders raw HTML from model output', () => {
     render(

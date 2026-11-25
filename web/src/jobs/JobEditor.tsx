@@ -162,7 +162,7 @@ export function JobEditor({
           buttons clear of the keyboard; theme.css bounds the two on phones */}
       <form onSubmit={save}>
         <div className="editor-scroll">
-          <h2 style={{ marginTop: 0, fontSize: 'inherit' }}>
+          <h2 className="modal-title">
             {job !== undefined ? `Edit “${draft.name || 'job'}”` : 'New job'}
           </h2>
 
@@ -211,7 +211,7 @@ export function JobEditor({
             allow-auto or allow-all.
           </p>
 
-          <h3>Trigger</h3>
+          <h3 className="section-title">Trigger</h3>
           <div className="form-grid">
             <label>
               Mode
@@ -374,7 +374,10 @@ export function JobEditor({
             )
           )}
 
-          <h3 style={{ display: 'flex', alignItems: 'center', gap: 'calc(var(--unit) * 2)' }}>
+          <h3
+            className="section-title"
+            style={{ display: 'flex', alignItems: 'center', gap: 'calc(var(--unit) * 2)' }}
+          >
             <label htmlFor="job-run-when-idle">Run when idle</label>
             <input
               type="checkbox"
@@ -401,7 +404,7 @@ export function JobEditor({
             )}
           </div>
 
-          <h3>Prompt</h3>
+          <h3 className="section-title">Prompt</h3>
           <label className="prompt-field">
             Prompt
             <textarea
@@ -412,7 +415,7 @@ export function JobEditor({
             />
           </label>
 
-          <h3>Advanced</h3>
+          <h3 className="section-title">Advanced</h3>
           <div className="form-grid">
             <label>
               Timeout (minutes, 0 = unlimited)

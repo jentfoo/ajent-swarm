@@ -138,7 +138,7 @@ export default function RunsHistory() {
       <JobTabs active="runs" />
 
       <div className="session-header">
-        <h1 style={{ margin: 0, fontSize: 'inherit' }}>Run history</h1>
+        <h1 className="page-title">Run history</h1>
         <span className="spacer" style={{ flex: 1 }} />
         <label className="runs-filter">
           Job{' '}

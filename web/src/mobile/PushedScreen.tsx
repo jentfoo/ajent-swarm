@@ -101,7 +101,7 @@ export function PushedScreen({
           {/* a second back while asking cancels the question, never the layer */}
           <BackShield onClose={keepEditing} />
           <ModalShell label="Discard changes?" className="discard-modal" onClose={keepEditing}>
-            <h2 style={{ marginTop: 0, fontSize: 'inherit' }}>Discard unsaved changes?</h2>
+            <h2 className="modal-title">Discard unsaved changes?</h2>
             <p className="muted">Edits to this form are not saved yet.</p>
             <div className="dialog-actions">
               <button type="button" onClick={keepEditing}>

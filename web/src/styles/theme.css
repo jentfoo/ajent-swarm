@@ -7,8 +7,14 @@
 
   /* one compact density scale; no cozy variant anymore */
   --unit: 3px;
-  --fs-body: 13px;
-  --fs-small: 12px;
+  /* type steps in rem, so a browser font-size preference scales the sheet;
+     px comments name the step at the default root size */
+  --fs-xs: 0.6875rem; /* 11px */
+  --fs-small: 0.75rem; /* 12px */
+  --fs-body: 0.8125rem; /* 13px */
+  --fs-prose: 0.9375rem; /* 15px */
+  --fs-title: 1.0625rem; /* 17px */
+  --fs-display: 1.25rem; /* 20px */
 
   /* spinner states mirror ajent's TUI glyph colors */
   --spin-idle: var(--muted);
@@ -160,6 +166,25 @@ main.content {
   padding: calc(var(--unit) * 3);
 }
 
+/* heading scale: one shared class per role, so titles size through tokens
+   instead of per-screen inline resets */
+.page-title {
+  margin: 0;
+  font-size: var(--fs-title);
+}
+.modal-title {
+  margin: 0 0 calc(var(--unit) * 3);
+  font-size: var(--fs-title);
+}
+.section-title {
+  margin: calc(var(--unit) * 3) 0 calc(var(--unit) * 1);
+  font-size: var(--fs-small);
+  color: var(--muted);
+  /* case and spacing set sections apart, never color alone */
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
 .grid {
   display: grid;
   gap: calc(var(--unit) * 3);
@@ -239,6 +264,9 @@ input,
 select,
 textarea {
   font: inherit;
+  /* fields read at body size even nested in a small label, the job editor's
+     prompt was the casualty of label inheritance */
+  font-size: var(--fs-body);
   color: var(--text);
   background: var(--bg);
   border: 1px solid var(--border);
@@ -260,6 +288,15 @@ textarea:focus {
   select,
   textarea {
     font-size: max(var(--fs-body), 16px);
+  }
+}
+
+/* phones read a step up the scale; desktop keeps its compact density, and
+   --fs-body here also lifts the control floor above to 16px */
+@media (pointer: coarse) {
+  :root {
+    --fs-body: 0.9375rem; /* 15px */
+    --fs-prose: 1rem; /* 16px */
   }
 }
 
@@ -295,7 +332,7 @@ label {
 }
 .auth-card h1 {
   margin-top: 0;
-  font-size: calc(var(--fs-body) * 1.2);
+  font-size: var(--fs-display);
 }
 
 /* --- session view placeholder --- */
@@ -376,7 +413,7 @@ label {
 }
 .compaction-divider {
   text-align: center;
-  font-size: 0.85em;
+  font-size: var(--fs-xs);
   color: var(--muted);
   border-bottom: none;
 }
@@ -525,6 +562,22 @@ label {
 .markdown table th {
   border: 1px solid var(--border);
   padding: calc(var(--unit) * 0.5) calc(var(--unit) * 2);
+}
+/* prose measure: message text reads at a book line length; the cap sits on
+   block children because code inside cannot outgrow its parent, so fences
+   and tables re-join the pane below */
+.markdown.prose {
+  font-size: var(--fs-prose);
+  line-height: 1.6;
+  /* unbroken tokens break inside the measure instead of spilling past it */
+  overflow-wrap: anywhere;
+}
+.markdown.prose > * {
+  max-width: min(72ch, 100%);
+}
+.markdown.prose > .fence-wrap,
+.markdown.prose > table {
+  max-width: none;
 }
 .fence {
   background: #0d1117;
@@ -1108,11 +1161,7 @@ label {
 .shortcut-card {
   max-width: 26rem;
 }
-.shortcut-card h3 {
-  margin: calc(var(--unit) * 3) 0 calc(var(--unit) * 1);
-  font-size: inherit;
-  color: var(--muted);
-}
+
 .shortcut-table td {
   padding: calc(var(--unit) * 0.5) calc(var(--unit) * 3) calc(var(--unit) * 0.5) 0;
 }
@@ -1772,11 +1821,6 @@ label {
   grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
   gap: calc(var(--unit) * 2) calc(var(--unit) * 4);
 }
-.job-editor h3 {
-  margin: calc(var(--unit) * 3) 0 calc(var(--unit) * 1);
-  font-size: inherit;
-  color: var(--muted);
-}
 .field-error {
   display: block;
   margin-top: calc(var(--unit) * 1);
@@ -2187,7 +2231,7 @@ label {
   display: flex;
   align-items: center;
   gap: calc(var(--unit) * 3);
-  font-size: var(--fs-body);
+  font-size: var(--fs-title);
   margin: 0 0 calc(var(--unit) * 2);
 }
 .mobile-home h2 button {
@@ -2466,7 +2510,7 @@ label {
   border-bottom: 1px solid var(--border);
 }
 .pushed-header h2 {
-  font-size: var(--fs-body);
+  font-size: var(--fs-title);
   margin: 0;
   flex: 1;
 }
@@ -2526,9 +2570,8 @@ label {
 }
 
 /* full-screen settings */
-.mobile-settings h2,
-.mobile-settings h3 {
-  font-size: var(--fs-body);
+.mobile-settings h2 {
+  font-size: var(--fs-title);
 }
 /* every top-level settings card, so sections read as separate rows */
 .settings-card {

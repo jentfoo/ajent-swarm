@@ -20,7 +20,7 @@ export function RewindDialog({
 }): ReactElement {
   return (
     <ModalShell label="Rewind to an earlier point" className="rewind-modal" onClose={onClose}>
-      <h2 style={{ marginTop: 0, fontSize: 'inherit' }}>Rewind</h2>
+      <h2 className="modal-title">Rewind</h2>
       <RewindList
         keyboard
         sessionId={sessionId}

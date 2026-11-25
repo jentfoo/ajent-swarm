@@ -26,7 +26,7 @@ export function RunDetail({ run, onClose }: { run: Run; onClose: () => void }) {
       cardRef={scrollRef}
       onClose={onClose}
     >
-      <h2 style={{ marginTop: 0, fontSize: 'inherit' }}>
+      <h2 className="modal-title">
         Run #{run.id}{' '}
         <span className={runStatusClass(run.status)} data-testid="detail-status">
           {run.status}
@@ -37,14 +37,14 @@ export function RunDetail({ run, onClose }: { run: Run; onClose: () => void }) {
 
       {run.prompt && (
         <>
-          <h3>Prompt</h3>
+          <h3 className="section-title">Prompt</h3>
           <pre className="mono run-prompt">{run.prompt}</pre>
         </>
       )}
 
       {run.error && (
         <>
-          <h3>What went wrong</h3>
+          <h3 className="section-title">What went wrong</h3>
           <p className="error-text run-error">{run.error}</p>
         </>
       )}
@@ -95,7 +95,7 @@ function RunSessionFacts({
   const live = status !== undefined && !childEnded(status.state)
   return (
     <>
-      <h3>Session</h3>
+      <h3 className="section-title">Session</h3>
       <p className="mono muted">
         {run.sessionId}
         {status?.state ? ` · ${status.state}` : ''}

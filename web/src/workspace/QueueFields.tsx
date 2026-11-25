@@ -29,7 +29,7 @@ export function QueueFields({
         void form.submit()
       }}
     >
-      <h2 style={{ marginTop: 0, fontSize: 'inherit' }}>
+      <h2 className="modal-title">
         <span className="chain-name-chip">{form.parentName}</span>
         <span className="chain-link" aria-hidden="true">
           ⛓→
@@ -63,14 +63,14 @@ export function QueueFields({
         />
       </label>
 
-      <h3>The line the follow-up session receives</h3>
+      <h3 className="section-title">The line the follow-up session receives</h3>
       {form.preview !== '' ? (
         <pre className="mono chain-preview">{form.preview}</pre>
       ) : (
         <p className="muted small-note">The composed line appears as the start prompt fills in.</p>
       )}
 
-      <h3>Follow-up session</h3>
+      <h3 className="section-title">Follow-up session</h3>
       <label className="prompt-field">
         Session name (optional)
         <input

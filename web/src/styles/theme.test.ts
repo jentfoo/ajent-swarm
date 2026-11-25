@@ -27,9 +27,19 @@ describe('theme focus rules', () => {
   })
 })
 
-describe('theme typography scale', () => {
-  it('keeps the small text token readable', () => {
-    expect(css).toContain('--fs-small: 12px;')
+describe('theme type scale', () => {
+  it('declares every step in rem so browser settings scale the sheet', () => {
+    for (const step of ['xs', 'small', 'body', 'prose', 'title', 'display']) {
+      expect(css).toMatch(new RegExp(`--fs-${step}: [\\d.]+rem;`))
+    }
+  })
+
+  it('caps prose at a book measure while code keeps the pane', () => {
+    expect(css).toContain('.markdown.prose > * { max-width: min(72ch, 100%); }')
+    // fences and tables re-join the full pane width past the cap
+    expect(css).toMatch(
+      /\.markdown\.prose > \.fence-wrap, \.markdown\.prose > table \{[^}]*max-width: none;/,
+    )
   })
 })
 

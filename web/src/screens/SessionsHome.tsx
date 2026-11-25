@@ -92,7 +92,7 @@ export default function SessionsHome() {
   return (
     <>
       <div className="session-header">
-        <h1 style={{ margin: 0, fontSize: 'inherit' }}>Sessions</h1>
+        <h1 className="page-title">Sessions</h1>
         <span className="spacer" style={{ flex: 1 }} />
         {selectedKeys.length > 0 && (
           <>

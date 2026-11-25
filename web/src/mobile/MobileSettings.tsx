@@ -34,7 +34,7 @@ export default function MobileSettings(): ReactElement {
         <NotificationRow />
       </section>
 
-      <h3>Global</h3>
+      <h3 className="section-title">Global</h3>
       <section aria-label="Global settings" className="card">
         <TitleModelSelect />
         <p className="muted" style={{ margin: 0, fontSize: 'var(--fs-small)' }}>
@@ -42,7 +42,7 @@ export default function MobileSettings(): ReactElement {
         </p>
       </section>
 
-      <h3>Account</h3>
+      <h3 className="section-title">Account</h3>
       <section aria-label="Account" className="card">
         <div className="setting-row">
           <span className="account-name">{username}</span>

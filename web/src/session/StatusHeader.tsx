@@ -41,7 +41,7 @@ export function StatusHeader({
 
   return (
     <div className="session-header">
-      <h1 style={{ margin: 0, fontSize: 'inherit' }}>
+      <h1 className="page-title">
         {label}
         {label !== short && <span className="muted mono header-session-id">{short}</span>}
       </h1>

@@ -99,6 +99,15 @@ describe('SessionsHome', () => {
     )
   }
 
+  it('sizes the page title through the shared class, no inline override', () => {
+    renderHome()
+
+    const title = screen.getByRole('heading', { level: 1, name: 'Sessions' })
+    expect(title).toHaveClass('page-title')
+    // theme.css owns the scale; the old body-size inline reset is gone
+    expect(title).not.toHaveAttribute('style')
+  })
+
   it('shows a loading line until the roster lands, then the empty state', async () => {
     let release!: (r: Response) => void
     vi.stubGlobal(

@@ -11,6 +11,14 @@ import { prependDraft } from './draftStore'
 import { overlayOpen } from '../ui/overlayStack'
 import { coarseImport } from '../test/matchMedia'
 
+// jsdom applies no stylesheet, so the shared field-sizing contract rides a
+// source probe of theme.css (theme.test.ts reads it the same way).
+// @ts-expect-error node builtins stay untyped in the web project on purpose
+const theme = (await import('node:fs')) as {
+  readFileSync(path: string, encoding: string): string
+}
+const css = theme.readFileSync('src/styles/theme.css', 'utf8').replace(/\s+/g, ' ')
+
 type Suggestion = { path: string; dir?: boolean }
 
 // filesFetch answers /files lookups from a query -> suggestions table so
@@ -2539,5 +2547,20 @@ describe('Composer popup layers', () => {
     box.focus()
     await user.keyboard('{Enter}')
     expect(onSubmit).toHaveBeenCalledOnce()
+  })
+})
+
+describe('Composer prompt field type', () => {
+  it('keeps the accessible prompt label on the textarea', () => {
+    render(Harness())
+
+    expect(screen.getByRole('textbox', { name: 'Prompt' }).tagName).toBe('TEXTAREA')
+  })
+
+  it('sizes fields at the body token, not the label text around them', () => {
+    // jsdom applies no stylesheet, so this pins the shared control rule that
+    // decouples field text from the small labels wrapping it (the job
+    // editor's prompt was the casualty of label inheritance)
+    expect(css).toMatch(/input, select, textarea \{[^}]*font-size: var\(--fs-body\)/)
   })
 })

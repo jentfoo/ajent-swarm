@@ -228,7 +228,7 @@ export default function JobsHome() {
       <JobTabs active="jobs" />
 
       <div className="session-header">
-        <h1 style={{ margin: 0, fontSize: 'inherit' }}>Scheduled jobs</h1>
+        <h1 className="page-title">Scheduled jobs</h1>
         <span className="spacer" style={{ flex: 1 }} />
         {editingId === undefined && (
           <>

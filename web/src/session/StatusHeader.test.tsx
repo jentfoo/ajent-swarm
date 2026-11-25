@@ -212,6 +212,15 @@ describe('StatusHeader identity', () => {
     expect(screen.getByText('01HWYSF8…')).toHaveClass('header-session-id')
   })
 
+  it('sizes the session title through the shared page-title class', async () => {
+    renderNamed([listingRow({ title: 'nightly sweep' })])
+
+    // theme.css owns the scale; no inline body-size reset remains on titles
+    const title = await screen.findByRole('heading', { level: 1, name: /nightly sweep/ })
+    expect(title).toHaveClass('page-title')
+    expect(title).not.toHaveAttribute('style')
+  })
+
   it('prefers the listing label over the snapshot name', async () => {
     renderNamed([listingRow({ title: 'stored title' })], { id: ID, name: 'agent name' })
 

@@ -26,7 +26,7 @@ export function ChainFields({
         void form.submit()
       }}
     >
-      <h2 style={{ marginTop: 0, fontSize: 'inherit' }}>
+      <h2 className="modal-title">
         <span className="chain-name-chip">{form.parentName}</span>
         <span className="chain-link" aria-hidden="true">
           ⛓→
@@ -64,7 +64,7 @@ export function ChainFields({
         />
       </label>
 
-      <h3>The line {form.childName} receives</h3>
+      <h3 className="section-title">The line {form.childName} receives</h3>
       <pre className="mono chain-preview">{form.preview}</pre>
       <p className="muted small-note">
         Only a final prompt&rsquo;s answer rides the line; without one no parent response is

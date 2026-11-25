@@ -9,6 +9,7 @@ import { useResume } from '../hooks/useResume'
 import { RenameEditorModal } from '../session/RenameControl'
 import { tildePath } from '../session/names'
 import { SessionContextMenu, useSessionMenu } from '../session/SessionContextMenu'
+import { CheckIcon, MoreHorizontalIcon } from '../ui/icons'
 import { StatusBadge } from '../session/StatusBadge'
 import { useSessionNamer } from '../session/useSessionLabel'
 import { useSwarm } from '../providers/swarm'
@@ -27,7 +28,7 @@ import type { SwitcherRow } from './switcher'
 // row, a queued-prompt count when prompts wait, a
 // check-off on actionable attention states (never on neutral waiting or ended
 // rows), a trailing actions area carrying native Open, Settings/Stop or
-// Resume and an ⋯ trigger for the long-press menu (queue follow-up, chain
+// Resume and a More actions trigger for the long-press menu (queue follow-up, chain
 // after, rename, stop) anchored at the press or the button. A held drag lifts
 // its row and chains it onto
 // the row released under the finger, the same drop the desktop rail takes;
@@ -127,9 +128,9 @@ function RenameLayer({ row, onDone }: { row: SwitcherRow; onDone: () => void }):
 
 // SwitchRow renders one launcher row: the row itself opens on tap while a
 // native Open button inside gives keyboard users the same activation, and the
-// trailing actions area pairs Settings and Stop or Resume with an ⋯ trigger
-// opening the shared session menu at the button, so Rename, Queue follow-up
-// and Chain never depend on a long press.
+// trailing actions area pairs Settings and Stop or Resume with a More actions
+// trigger opening the shared session menu at the button, so Rename, Queue
+// follow-up and Chain never depend on a long press.
 function SwitchRow({
   row,
   drag,
@@ -225,14 +226,14 @@ function SwitchRow({
         {canCheckOff && (
           <button
             type="button"
-            className="rail-check"
+            className="rail-check icon-btn"
             aria-label={`Mark ${row.label} reviewed`}
             onClick={(ev) => {
               ev.stopPropagation()
               if (item) acknowledgeItem(item)
             }}
           >
-            ✓
+            <CheckIcon />
           </button>
         )}
       </span>
@@ -254,8 +255,8 @@ function SwitchRow({
 
 // RowActions is the row's trailing action area: a native Open control, then
 // Settings and Stop for live rows, Resume for ended ones with a recorded
-// workspace, and an ⋯ trigger opening the long-press menu at the button so
-// its rename and chain entries never depend on a held gesture. Stop carries
+// workspace, and a More actions trigger opening the long-press menu at the
+// button so its rename and chain entries never depend on a held gesture. Stop carries
 // the shared danger variant and arm/confirm guard, like the desktop card it
 // holds across listing polls, while a relaunch resets it by remounting this
 // row under a fresh instance key. It swallows clicks and pointer-downs so
@@ -333,6 +334,7 @@ function RowActions({
       )}
       <button
         type="button"
+        className="icon-btn"
         aria-label={`More actions for ${row.label}`}
         aria-haspopup="menu"
         onClick={(ev) => {
@@ -342,7 +344,7 @@ function RowActions({
           onMenuAt(box.left, box.bottom)
         }}
       >
-        ⋯
+        <MoreHorizontalIcon />
       </button>
       {(error || stopError) && <span className="error-text">{error || stopError}</span>}
     </div>

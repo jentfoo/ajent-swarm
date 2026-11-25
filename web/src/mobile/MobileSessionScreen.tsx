@@ -21,6 +21,7 @@ import { useSessionLabel, useSessionNamer } from '../session/useSessionLabel'
 import { Toasts } from '../hooks/Toasts'
 import { useSessionChannel } from '../hooks/useSessionChannel'
 import { ModelMenu } from '../ui/ModelMenu'
+import { ChevronLeftIcon, MoreHorizontalIcon } from '../ui/icons'
 import { OverlayMenu } from '../ui/OverlayMenu'
 import { useWorkspace } from '../providers/workspace'
 import { RewindSheet } from './RewindSheet'
@@ -90,7 +91,7 @@ function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElemen
     <div className="session-screen mobile-session">
       <header className="mobile-session-header">
         <Link to="/" aria-label="Back to launcher" className="back-link">
-          ←
+          <ChevronLeftIcon />
         </Link>
         <span className="session-title">{label}</span>
         {/* the same badge desktop's header renders, off the same derivation */}
@@ -234,13 +235,13 @@ function HeaderMenu({
       <button
         ref={triggerRef}
         type="button"
-        className="header-menu-trigger"
+        className="header-menu-trigger icon-btn"
         aria-label="Session actions"
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
       >
-        ⋯
+        <MoreHorizontalIcon />
       </button>
       {open && (
         <OverlayMenu anchorRef={triggerRef} onClose={() => setOpen(false)}>

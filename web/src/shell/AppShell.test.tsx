@@ -275,6 +275,18 @@ describe('AppShell', () => {
     expect(bell).toHaveAttribute('title', 'Desktop notifications are on')
   })
 
+  it('carries the theme state through pressed', async () => {
+    await renderShell('/')
+    const user = userEvent.setup()
+
+    // dark is the default, so pressed starts true and flips with the theme
+    const toggle = screen.getByRole('button', { name: 'Toggle theme' })
+    expect(toggle).toHaveAttribute('aria-pressed', 'true')
+
+    await user.click(toggle)
+    expect(toggle).toHaveAttribute('aria-pressed', 'false')
+  })
+
   it('keeps the switcher when a mode press navigates within workspaces', async () => {
     await renderShell('/')
     const user = userEvent.setup()

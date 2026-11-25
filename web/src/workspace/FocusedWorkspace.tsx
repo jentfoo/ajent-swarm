@@ -11,6 +11,7 @@ import { tildePath } from '../session/names'
 import { relativeTime } from '../session/rewind'
 import { useSessionNamer } from '../session/useSessionLabel'
 import { sessionDrag, useSessionDrag } from '../ui/dndContext'
+import { CheckIcon } from '../ui/icons'
 import { SessionContextMenu, useSessionMenu } from '../session/SessionContextMenu'
 import { useWorkspaceKeys } from './keys'
 import { ShortcutOverlay } from './ShortcutOverlay'
@@ -297,14 +298,14 @@ export default function FocusedWorkspace() {
           {isActionable(item.kind) && (
             <button
               type="button"
-              className="rail-check"
+              className="rail-check icon-btn"
               aria-label={`Mark ${label} reviewed`}
               onClick={(ev) => {
                 ev.stopPropagation()
                 acknowledgeItem(item)
               }}
             >
-              ✓
+              <CheckIcon />
             </button>
           )}
         </span>

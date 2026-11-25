@@ -250,8 +250,8 @@ function SessionCard({
 }
 
 // ActionsBar holds the quick actions: open, agent settings and stop for live
-// cards, resume for ended ones. The settings ☰ edits this card's session, so
-// no separate picker is needed anywhere.
+// cards, resume for ended ones. The settings menu edits this card's session,
+// so no separate picker is needed anywhere.
 function ActionsBar({ status: s }: { status: SessionStatus }) {
   const ended = childEnded(s.state)
   return (

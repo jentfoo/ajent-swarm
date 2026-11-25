@@ -6,6 +6,7 @@ import { useWorkspace } from '../providers/workspace'
 import { useAuth } from '../providers/auth'
 import { attendBadgeLabels, attendBadgePath } from '../workspace/attention'
 import { reachableSession } from '../workspace/TileWorkspace'
+import { BellIcon, BellOffIcon, MoonIcon, SunIcon } from '../ui/icons'
 import { GlobalSettingsMenu } from './GlobalSettingsMenu'
 import { ConnectionBanner } from '../ui/ConnectionBanner'
 
@@ -102,20 +103,23 @@ export default function AppShell({ children }: { children: ReactNode }) {
         {(permission === 'granted' || permission === 'default') && (
           <button
             type="button"
-            className={permission === 'granted' ? 'bell on' : 'bell'}
+            className={permission === 'granted' ? 'bell on icon-btn' : 'bell icon-btn'}
             title={bellLabel}
             aria-label={bellLabel}
             onClick={() => requestNotifications()}
           >
-            {permission === 'granted' ? '🔔' : '🔕'}
+            {permission === 'granted' ? <BellIcon /> : <BellOffIcon />}
           </button>
         )}
         <button
           type="button"
+          className="icon-btn"
           onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
           aria-label="Toggle theme"
+          // the glyph flips with the state, pressed carries it for AT
+          aria-pressed={theme === 'dark'}
         >
-          {theme === 'dark' ? '☾' : '☀'}
+          {theme === 'dark' ? <MoonIcon /> : <SunIcon />}
         </button>
         {/* swarm-level settings live here; per-session ones ride each chat */}
         <GlobalSettingsMenu />

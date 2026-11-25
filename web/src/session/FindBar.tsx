@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import type { ReactElement } from 'react'
 
 import { useOverlayDismiss } from '../ui/overlayStack'
+import { CloseIcon } from '../ui/icons'
 import type { TranscriptMatch } from './transcriptSearch'
 
 // FindBar is the transcript's compact find surface: a query line, the active
@@ -60,6 +61,7 @@ export function FindBar({
         )}
         <button
           type="button"
+          className="icon-btn"
           aria-label="Previous match"
           disabled={count === 0}
           onClick={() => onStep(-1)}
@@ -68,14 +70,15 @@ export function FindBar({
         </button>
         <button
           type="button"
+          className="icon-btn"
           aria-label="Next match"
           disabled={count === 0}
           onClick={() => onStep(1)}
         >
           ↓
         </button>
-        <button type="button" aria-label="Close find" onClick={onClose}>
-          ✕
+        <button type="button" className="icon-btn" aria-label="Close find" onClick={onClose}>
+          <CloseIcon />
         </button>
       </div>
       {activeMatch !== null && (

@@ -17,8 +17,8 @@ import { ToolsPanel } from './ToolsPanel'
 // action buttons. Everything that reads at a glance (segments, context,
 // queue, activity) lives in the status bar under the transcript. A running
 // turn stops from the composer's Stop button, sessions exit from the
-// sessions tab, so this header never tears one down. The ☰ here carries this
-// session's agent settings.
+// sessions tab, so this header never tears one down. The settings menu here
+// carries this session's agent settings.
 export function StatusHeader({
   sessionId,
   snap,

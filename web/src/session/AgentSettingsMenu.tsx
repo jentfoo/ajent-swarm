@@ -2,16 +2,17 @@ import { useState } from 'react'
 import type { ReactElement, ReactNode } from 'react'
 
 import { ModalShell } from '../ui/ModalShell'
+import { SettingsIcon } from '../ui/icons'
 import { childEnded } from '../api/types'
 import { ChainTargets } from '../workspace/ChainPicker'
 import { useSwarm } from '../providers/swarm'
 import { useWorkspace } from '../providers/workspace'
 import { SettingsMenu } from './SettingsMenu'
 
-// HamburgerDialog is the open/close shell both ☰ settings menus share: a
-// trigger plus, when open, children in a centered modal so edge-of-grid cards
-// keep the menu on page. `label` names trigger and dialog, `title` overrides
-// the trigger hover text.
+// HamburgerDialog is the open/close shell both hamburger settings menus
+// share: a trigger plus, when open, children in a centered modal so
+// edge-of-grid cards keep the menu on page. `label` names trigger and
+// dialog, `title` overrides the trigger hover text.
 export function HamburgerDialog({
   label,
   title,
@@ -27,12 +28,13 @@ export function HamburgerDialog({
     <>
       <button
         type="button"
+        className="icon-btn"
         aria-label={label}
         aria-expanded={open}
         title={title ?? label}
         onClick={() => setOpen(true)}
       >
-        ☰
+        <SettingsIcon />
       </button>
       {open && (
         <ModalShell className="settings-modal" label={label} onClose={() => setOpen(false)}>
@@ -43,9 +45,10 @@ export function HamburgerDialog({
   )
 }
 
-// AgentSettingsMenu is the ☰ affordance a session's own chrome carries: the
-// shared settings.get/settings.set menu over that session's control socket,
-// plus the keyboard routes into chaining. "Queue follow up session" lands a
+// AgentSettingsMenu is the settings affordance a session's own chrome
+// carries: the shared settings.get/settings.set menu over that session's
+// control socket, plus the keyboard routes into chaining. "Queue follow up
+// session" lands a
 // fresh-session draft with this session as the parent, "Chain after this
 // session" swaps the modal into a target picker, picking one hands the draft
 // to the shared chain dialog with this session as the parent. Both entries

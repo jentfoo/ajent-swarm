@@ -6,6 +6,7 @@ import { chainsApi } from '../api/endpoints'
 import { chainEditable } from '../api/types'
 import type { Chain } from '../api/types'
 import { useArmedConfirm } from '../hooks/useArmedConfirm'
+import { CloseIcon } from '../ui/icons'
 import { useSessionNamer } from '../session/useSessionLabel'
 import { useSwarm } from '../providers/swarm'
 import { useWorkspace } from '../providers/workspace'
@@ -148,7 +149,14 @@ function CancelLink({ chainId, onError }: { chainId: string; onError: (message: 
       onBlur={confirm.onBlur}
       onClick={confirm.onClick}
     >
-      {confirm.armed ? 'cancel chain?' : '× cancel'}
+      {confirm.armed ? (
+        'cancel chain?'
+      ) : (
+        <>
+          <CloseIcon size={14} />
+          cancel
+        </>
+      )}
     </button>
   )
 }

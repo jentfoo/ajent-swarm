@@ -38,7 +38,9 @@ async function launchAndTurn(page: Page, phrase: string): Promise<string> {
   await expect(page).toHaveURL(/\/s\//, { timeout: 30_000 })
   const sessionId = page.url().split('/s/')[1]!
 
-  const prompt = page.getByLabel('Prompt')
+  // anchor on role so the Queue button's aria-label cannot collide with
+  // substring matching, the same fix the smoke spec carries
+  const prompt = page.getByRole('textbox', { name: 'Prompt' })
   await expect(prompt).toBeEnabled({ timeout: 30_000 })
   await prompt.fill(phrase)
   await prompt.press('Enter')

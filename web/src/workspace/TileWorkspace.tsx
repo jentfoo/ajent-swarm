@@ -13,6 +13,7 @@ import { ChildState } from '../api/types'
 import type { SessionStatus } from '../api/types'
 import { useSessionNamer } from '../session/useSessionLabel'
 import { MenuPopover } from '../ui/MenuPopover'
+import { CloseIcon } from '../ui/icons'
 import { ListFilter } from '../ui/ListFilter'
 import { matchesQuery, normalizeQuery } from '../ui/textMatch'
 import { SessionContextMenu, useSessionMenu } from '../session/SessionContextMenu'
@@ -667,14 +668,14 @@ function PaneView({
                 <span className="tab-name">{nameFor(sessionId)}</span>
                 <button
                   type="button"
-                  className="tab-close"
+                  className="tab-close icon-btn"
                   aria-label={`Close ${nameFor(sessionId)}`}
                   onClick={(ev) => {
                     ev.stopPropagation()
                     onCloseTab(pane.id, sessionId)
                   }}
                 >
-                  ×
+                  <CloseIcon />
                 </button>
               </div>
             )

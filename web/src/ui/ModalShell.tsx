@@ -2,6 +2,7 @@ import { createContext, useCallback, useEffect, useContext, useRef, useState } f
 import type { ReactElement, ReactNode, RefObject } from 'react'
 
 import { overlayTopmost, useOverlayDismiss } from './overlayStack'
+import { CloseIcon } from './icons'
 import { useFocusTrap } from './useFocusTrap'
 import { useOverlayBack } from './useOverlayBack'
 
@@ -148,8 +149,13 @@ export function ModalShell({
           onClick={(ev) => ev.stopPropagation()}
         >
           {showClose && (
-            <button type="button" className="modal-close" aria-label="Close" onClick={requestClose}>
-              ×
+            <button
+              type="button"
+              className="modal-close icon-btn"
+              aria-label="Close"
+              onClick={requestClose}
+            >
+              <CloseIcon />
             </button>
           )}
           <RequestCloseContext.Provider value={requestClose}>

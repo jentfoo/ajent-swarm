@@ -1,5 +1,6 @@
 import type { ReactElement, ReactNode } from 'react'
 
+import { ChainLinkIcon } from '../ui/icons'
 import { useAuth } from '../providers/auth'
 import { ModelSelect, WorkspaceSelect } from '../ui/LaunchFormFields'
 import type { QueueFollowForm } from './useQueueFollowForm'
@@ -32,7 +33,7 @@ export function QueueFields({
       <h2 className="modal-title">
         <span className="chain-name-chip">{form.parentName}</span>
         <span className="chain-link" aria-hidden="true">
-          ⛓→
+          <ChainLinkIcon size={14} />→
         </span>
         <span className="chain-name-chip">
           {form.name.trim() !== '' ? form.name.trim() : 'new session'}

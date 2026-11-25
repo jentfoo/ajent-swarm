@@ -329,6 +329,31 @@ button.primary.keyboard-dismiss:active {
   background: var(--accent);
 }
 
+/* icon-only buttons: one chrome box for every SVG glyph so hit areas and
+   color states come from shared rules, never per-icon copies. Icons inherit
+   the muted rest color, hover wash rides the generic button rule, and
+   padding grows the target past the visual while the negative margin hands
+   the space back to the row */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: calc(var(--unit) * 2); /* a 16px glyph lands in a 28px square */
+  margin: calc(var(--unit) * -2);
+}
+/* the touch floor rides the shared class, so every icon control meets it on
+   coarse pointers while desktop panes keep their density */
+@media (pointer: coarse) {
+  .icon-btn {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
+
 input,
 select,
 textarea {
@@ -565,8 +590,7 @@ label {
   min-width: 0;
 }
 .find-row button {
-  flex-shrink: 0;
-  padding: 0 calc(var(--unit) * 1.5);
+  flex-shrink: 0; /* hit areas never yield to the query input */
 }
 .find-count {
   flex-shrink: 0;
@@ -1064,22 +1088,13 @@ label {
   }
 }
 /* the optional corner ✕ floats into the card's top right and sticks there
-   while the card's own content scrolls past it */
+   while the card's own content scrolls past it; its box comes from .icon-btn */
 .modal-close {
   position: sticky;
   top: 0;
   z-index: 1; /* stay above content flowing beside the float */
   float: right;
-  min-width: 26px;
-  min-height: 26px;
   margin: calc(var(--unit) * -1) calc(var(--unit) * -2) 0 calc(var(--unit) * 2);
-  padding: 0;
-  border: none;
-  background: none;
-  color: var(--muted);
-  cursor: pointer;
-  font-size: 1em;
-  line-height: 26px;
 }
 @media (hover: hover) {
   .modal-close:hover {
@@ -1091,7 +1106,6 @@ label {
   .modal-close {
     min-width: 44px;
     min-height: 44px;
-    line-height: 44px;
   }
 }
 /* the rewind modal is a column: the list is the one scroll container, header
@@ -1252,13 +1266,6 @@ label {
   border-radius: 999px;
   min-width: 1.8em;
 }
-.bell {
-  background: none;
-  border: none;
-  cursor: pointer;
-  font-size: 1em;
-  padding: calc(var(--unit) * 1);
-}
 .shortcut-card {
   max-width: 26rem;
 }
@@ -1362,26 +1369,11 @@ label {
   white-space: nowrap;
   min-width: 0; /* the flex line lets a long reason ellipsize */
 }
-/* the check-off rides the switcher and rail rows, so only phones carry the
-   touch floor while the rail keeps its density */
-.rail-check {
-  border: none;
-  background: none;
-  color: var(--muted);
-  cursor: pointer;
-  padding: 0 2px;
-  font-size: var(--fs-small);
-}
+/* the check-off rides the switcher and rail rows; its box, rest color and
+   touch floors come from .icon-btn, only the settle hue is local */
 @media (hover: hover) {
   .rail-check:hover {
     color: var(--ok);
-  }
-}
-@media (max-width: 48rem) {
-  /* the switcher's large rows meet the touch floor */
-  .rail-check {
-    min-width: 44px;
-    min-height: 44px;
   }
 }
 .workspace-main {
@@ -1497,7 +1489,6 @@ label {
 .search-close {
   flex-shrink: 0;
   margin-left: auto;
-  padding: 0 calc(var(--unit) * 1);
 }
 .search-empty {
   margin: calc(var(--unit) * 1) 0 0;
@@ -1773,13 +1764,7 @@ label {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.tab-close {
-  border: none;
-  background: none;
-  color: var(--muted);
-  cursor: pointer;
-  padding: 0 2px;
-}
+/* the tab's close rides .icon-btn for its box, only the hover hue is local */
 @media (hover: hover) {
   .tab-close:hover {
     color: var(--danger);
@@ -3008,7 +2993,7 @@ label {
   margin: 0;
 }
 
-/* both ☰ settings menus ride a centered modal narrower than the default, so
+/* both hamburger settings menus ride a centered modal narrower than the default, so
    the setting rows read comfortably on wide screens too */
 .modal.settings-modal {
   width: min(28rem, 92vw);
@@ -3101,6 +3086,11 @@ label {
 .chain-strip button {
   padding: 0;
 }
+/* labeled chips carrying an inline glyph keep it on the text baseline */
+.chain-strip button svg {
+  vertical-align: -0.15em;
+  margin-right: calc(var(--unit) * 1);
+}
 .chain-strip .error-text {
   /* the strip sits inside the chips row, keep the message on its own line */
   width: 100%;
@@ -3124,6 +3114,9 @@ label {
   padding: calc(var(--unit) * 0.5) calc(var(--unit) * 2);
 }
 .chain-link {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--unit) * 1);
   color: var(--warn);
   margin: 0 calc(var(--unit) * 1);
 }

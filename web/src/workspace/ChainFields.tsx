@@ -1,5 +1,6 @@
 import type { ReactElement, ReactNode } from 'react'
 
+import { ChainLinkIcon } from '../ui/icons'
 import type { ChainForm } from './useChainForm'
 
 // chainSubmitLabel names the submit action for both shells' footers.
@@ -29,7 +30,7 @@ export function ChainFields({
       <h2 className="modal-title">
         <span className="chain-name-chip">{form.parentName}</span>
         <span className="chain-link" aria-hidden="true">
-          ⛓→
+          <ChainLinkIcon size={14} />→
         </span>
         <span className="chain-name-chip">{form.childName}</span>
       </h2>

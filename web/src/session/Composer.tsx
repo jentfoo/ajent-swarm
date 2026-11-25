@@ -5,6 +5,7 @@ import { describeError } from '../api/errors'
 import { sessions as sessionAPI } from '../api/endpoints'
 import type { FileSuggestion } from '../api/types'
 import { MenuPopover } from '../ui/MenuPopover'
+import { AttachIcon, SearchIcon } from '../ui/icons'
 import { sessionDrag, useSessionDrag } from '../ui/dndContext'
 import {
   currentMatch,
@@ -913,22 +914,24 @@ export function Composer({
             {touchKeyboard && (
               <button
                 type="button"
+                className="icon-btn"
                 disabled={disabled}
                 onClick={openSearchOverlay}
                 aria-label="Search prompt history"
                 title="Search prompt history"
               >
-                🔍
+                <SearchIcon />
               </button>
             )}
             <button
               type="button"
+              className="icon-btn"
               disabled={disabled || uploading}
               onClick={() => fileRef.current?.click()}
               aria-label="Attach files"
               title="Attach images or text files"
             >
-              {uploading ? '…' : '📎'}
+              {uploading ? '…' : <AttachIcon />}
             </button>
             {/* stop rides beside Send, ahead of it in the touch order */}
             {stop && (

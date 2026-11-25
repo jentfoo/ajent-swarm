@@ -2393,6 +2393,21 @@ describe('Composer history search on touch', () => {
   })
 })
 
+describe('Composer toolbar icons', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('keeps both buttons named after the glyph swap', async () => {
+    // the search trigger only mounts on coarse pointers, so this one render
+    // carries both of the toolbar's icon-only buttons
+    render(Harness({ component: await coarseComposer() }))
+
+    expect(screen.getByRole('button', { name: 'Search prompt history' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Attach files' })).toBeInTheDocument()
+  })
+})
+
 describe('Composer popup layers', () => {
   afterEach(() => {
     vi.unstubAllGlobals()

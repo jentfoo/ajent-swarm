@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import type { ReactElement, ReactNode } from 'react'
 
 import { matchSpans, type HistorySearch } from './historySearch'
+import { CloseIcon } from '../ui/icons'
 
 // HistorySearchOverlay is the reverse search surface above the composer: a
 // query echo header over the matching prompts, blank until text is typed and
@@ -41,11 +42,11 @@ export function HistorySearchOverlay({
         </span>
         <button
           type="button"
-          className="search-close"
+          className="search-close icon-btn"
           aria-label="Close history search"
           onClick={onClose}
         >
-          ✕
+          <CloseIcon />
         </button>
       </div>
       {search.query !== '' && search.matches.length === 0 && (

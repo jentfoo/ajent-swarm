@@ -11,7 +11,7 @@ import { AuthProvider } from '../providers/auth'
 import { SwarmProvider } from '../providers/swarm'
 import { WorkspaceProvider } from '../providers/workspace'
 
-// Both ☰ menus ride one shared dialog shell: opening renders the body as a
+// Both hamburger menus ride one shared dialog shell: opening renders the body as a
 // centered modal over a backdrop, and backdrop click or Escape closes it.
 // The agent menu's chain entry swaps the modal into a target picker, and
 // picking a session hands the draft to the shared chain dialog.

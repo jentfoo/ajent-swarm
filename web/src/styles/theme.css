@@ -41,11 +41,22 @@
   --border: #2a313c;
   --text: #e6e9ef;
   --muted: #98a2b3;
+  /* --accent keeps borders, washes and decorative marks; filled controls pair
+     the darker fill with a white label and accent text reads on every surface
+     at the lighter step */
   --accent: #4f7cff;
+  --accent-fill: #3564e0;
+  --accent-fg: #5c85f0;
   --accent-text: #ffffff;
   --ok: #35c46f;
+  /* warning text reads through --warn-fg, borders and washes stay on --warn */
   --warn: #e5b24a;
+  --warn-fg: var(--warn);
+  /* armed danger and the attention badge fill from here under a white label */
   --danger: #e5534b;
+  --danger-fill: #c9443c;
+  /* keyboard ring holds off both fills in every theme */
+  --focus-ring: #ffffff;
   /* hunk @@ markers get their own hue so a boundary reads as a separator */
   --diff-hunk: #3fc6d9;
 }
@@ -58,11 +69,20 @@
   --border: #d8dde5;
   --text: #1c2430;
   --muted: #5b6675;
+  /* one accent covers borders, filled controls and text in light; dark needs
+     the darker fill and lighter fg steps */
   --accent: #3564e0;
+  --accent-fill: var(--accent);
+  --accent-fg: var(--accent);
   --accent-text: #ffffff;
   --ok: #188543;
+  /* warning text darkens a step for AA, borders and washes stay on --warn */
   --warn: #a06a00;
+  --warn-fg: #8a5a00;
   --danger: #c33f36;
+  --danger-fill: var(--danger); /* the white label already holds AA here */
+  /* keyboard ring holds off both fills in every theme */
+  --focus-ring: #101216;
   --diff-hunk: #0e7490;
 }
 
@@ -80,7 +100,7 @@ body {
 }
 
 a {
-  color: var(--accent);
+  color: var(--accent-fg);
   text-decoration: none;
 }
 /* hovers need a cursor; a tap must not leave an underline stuck on touch */
@@ -96,12 +116,13 @@ pre {
   font-size: var(--fs-small);
 }
 
-/* keyboard focus reads on every interactive control: the accent ring holds
-   contrast over bg, surface and surface-2 in both themes, and :focus-visible
-   keeps ordinary pointer activation ring-free. The inset offset stays inside
-   row borders so clipping parents never cut it */
+/* keyboard focus reads on every interactive control: --focus-ring stays off
+   both the accent and danger fills, so the ring survives on primary buttons,
+   active segments and armed danger, and :focus-visible keeps ordinary pointer
+   activation ring-free. The inset offset stays inside row borders so clipping
+   parents never cut it */
 :focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--focus-ring);
   outline-offset: -1px;
 }
 
@@ -216,13 +237,13 @@ main.content {
   color: var(--ok);
 }
 .badge.warn {
-  color: var(--warn);
+  color: var(--warn-fg);
 }
 .badge.danger {
   color: var(--danger);
 }
 .badge.accent {
-  color: var(--accent);
+  color: var(--accent-fg);
 }
 
 button,
@@ -237,8 +258,8 @@ button,
 }
 button.primary,
 .btn.primary {
-  background: var(--accent);
-  border-color: var(--accent);
+  background: var(--accent-fill);
+  border-color: var(--accent-fill);
   color: var(--accent-text);
 }
 
@@ -274,7 +295,7 @@ textarea {
   /* the primary fill darkens a step instead of taking the ink wash */
   button.primary:not(:disabled):hover,
   .btn.primary:hover {
-    background: color-mix(in srgb, #000 12%, var(--accent));
+    background: color-mix(in srgb, #000 12%, var(--accent-fill));
   }
 }
 button:not(:disabled):active,
@@ -284,7 +305,7 @@ button:not(:disabled):active,
 }
 button.primary:not(:disabled):active,
 .btn.primary:active {
-  background: color-mix(in srgb, #000 20%, var(--accent));
+  background: color-mix(in srgb, #000 20%, var(--accent-fill));
 }
 
 /* a:hover underline at (0,1,1) beats bare .btn, so re-suppress it here */
@@ -304,7 +325,7 @@ button.danger {
 }
 /* the armed confirm step is the one loud moment */
 button.danger.armed {
-  background: var(--danger);
+  background: var(--danger-fill);
   color: #fff;
 }
 button:disabled {
@@ -326,7 +347,7 @@ button.keyboard-dismiss:active {
 }
 button.primary.keyboard-dismiss:hover,
 button.primary.keyboard-dismiss:active {
-  background: var(--accent);
+  background: var(--accent-fill);
 }
 
 /* icon-only buttons: one chrome box for every SVG glyph so hit areas and
@@ -998,7 +1019,7 @@ label {
   padding: 0;
   border: none;
   background: none;
-  color: var(--accent);
+  color: var(--accent-fg);
   font-size: inherit;
   margin-left: calc(var(--unit) * 2);
   cursor: pointer;
@@ -1159,7 +1180,7 @@ label {
   color: var(--text);
 }
 .block-notice.warn {
-  color: var(--warn);
+  color: var(--warn-fg);
 }
 .block-notice.error {
   color: var(--danger);
@@ -1259,8 +1280,8 @@ label {
   color: var(--text);
 }
 .attend-badge {
-  background: var(--danger);
-  border-color: var(--danger);
+  background: var(--danger-fill);
+  border-color: var(--danger-fill);
   color: #fff;
   font-weight: 650;
   border-radius: 999px;
@@ -1475,7 +1496,7 @@ label {
   gap: calc(var(--unit) * 2);
   font-family: var(--font-mono);
   font-size: var(--fs-small);
-  color: var(--accent);
+  color: var(--accent-fg);
 }
 .search-echo {
   min-width: 0;
@@ -1627,7 +1648,7 @@ label {
   padding-left: calc(var(--unit) * 2);
 }
 .rewind-row.head .rewind-detail {
-  color: var(--accent);
+  color: var(--accent-fg);
 }
 
 /* tile mode */
@@ -1953,7 +1974,7 @@ label {
   font-size: var(--fs-small);
 }
 .warn-text {
-  color: var(--warn);
+  color: var(--warn-fg);
 }
 .check-row {
   display: flex;
@@ -2763,7 +2784,7 @@ label {
   background: transparent;
 }
 .segmented button.active {
-  background: var(--accent);
+  background: var(--accent-fill);
   color: var(--accent-text);
 }
 
@@ -3117,7 +3138,7 @@ label {
   display: inline-flex;
   align-items: center;
   gap: calc(var(--unit) * 1);
-  color: var(--warn);
+  color: var(--warn-fg);
   margin: 0 calc(var(--unit) * 1);
 }
 .chain-preview {

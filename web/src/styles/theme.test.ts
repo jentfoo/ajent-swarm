@@ -1,20 +1,59 @@
 import { describe, expect, it } from 'vitest'
 
 // The visible keyboard-focus contract lives in these style rules: one shared
-// :focus-visible ring over the theme accent, covering bg, surface and
-// surface-2 in both themes without any per-control restatement, and text
-// fields that keep their border tint while gaining the same ring. Node's fs
-// reads the sheet under every vitest environment; the web tsconfig types only
-// the DOM, so this single probe steps outside it deliberately.
+// :focus-visible ring over --focus-ring, a color that stays off both fill
+// tokens so it survives on primary buttons and armed danger, covering bg,
+// surface and surface-2 in both themes without any per-control restatement,
+// and text fields that keep their border tint while gaining the same ring.
+// Node's fs reads the sheet under every vitest environment; the web tsconfig
+// types only the DOM, so this single probe steps outside it deliberately.
 // @ts-expect-error node builtins stay untyped in the web project on purpose
 const theme = (await import('node:fs')) as {
   readFileSync(path: string, encoding: string): string
 }
 const css = theme.readFileSync('src/styles/theme.css', 'utf8').replace(/\s+/g, ' ')
+// comments stripped before token parsing so prose never parses as a value
+const bareCss = css.replace(/\/\*.*?\*\//g, ' ')
+
+// one theme block's custom properties as name -> value pairs
+function themeTokens(selector: RegExp): Map<string, string> {
+  const found = new Map<string, string>()
+  for (const m of bareCss.match(selector)![1].matchAll(/--([\w-]+): ([^;]+);/g)) {
+    found.set(m[1], m[2].trim())
+  }
+  return found
+}
+
+// var() references resolved, so the contrast math always sees a concrete color
+function resolved(tokens: Map<string, string>, name: string): string {
+  const value = tokens.get(name)
+  if (value === undefined) throw new Error(`--${name} has no declaration`)
+  const alias = value.match(/^var\(--([\w-]+)\)$/)
+  return alias ? resolved(tokens, alias[1]) : value
+}
+
+// WCAG 2.x relative luminance and contrast ratio for sRGB hex colors
+function luminance(hex: string): number {
+  const lin = (at: number) => {
+    const c = parseInt(hex.slice(at, at + 2), 16) / 255
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+  }
+  return 0.2126 * lin(1) + 0.7152 * lin(3) + 0.0722 * lin(5)
+}
+
+function contrast(a: string, b: string): number {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x)
+  return (hi + 0.05) / (lo + 0.05)
+}
+
+const darkTokens = themeTokens(/:root, \[data-theme='dark'\] \{([^}]*)\}/)
+const lightTokens = themeTokens(/\[data-theme='light'\] \{([^}]*)\}/)
 
 describe('theme focus rules', () => {
   it('declares one shared focus_visible ring', () => {
-    expect(css).toContain(':focus-visible { outline: 2px solid var(--accent);')
+    expect(css).toContain(
+      ':focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -1px;',
+    )
   })
 
   it('tints field borders on focus without suppressing the ring', () => {
@@ -144,5 +183,63 @@ describe('theme motion tokens', () => {
     const block = css.match(/@media \(prefers-reduced-motion: reduce\) \{.*?\} \}/)![0]
     expect(block).toContain('--dur-fast: 0ms;')
     expect(block).toContain('--dur-base: 0ms;')
+  })
+})
+
+describe('theme contrast tokens', () => {
+  const fills = ['accent-fill', 'danger-fill']
+  const texts = ['accent-fg', 'warn-fg']
+
+  it('declares fill, text and ring tokens in both themes', () => {
+    for (const name of [...fills, ...texts, 'focus-ring']) {
+      expect(resolved(darkTokens, name)).toMatch(/^#[0-9a-f]{6}$/)
+      expect(resolved(lightTokens, name)).toMatch(/^#[0-9a-f]{6}$/)
+    }
+  })
+
+  it('holds AA between each filled control and its white label', () => {
+    for (const tokens of [darkTokens, lightTokens]) {
+      for (const fill of fills) {
+        expect(contrast('#ffffff', resolved(tokens, fill))).toBeGreaterThanOrEqual(4.5)
+      }
+    }
+  })
+
+  it('reads accent and warn text on every surface', () => {
+    for (const tokens of [darkTokens, lightTokens]) {
+      for (const fg of texts) {
+        for (const back of ['bg', 'surface', 'surface-2']) {
+          expect(contrast(resolved(tokens, fg), resolved(tokens, back))).toBeGreaterThanOrEqual(4.5)
+        }
+      }
+    }
+  })
+
+  it('keeps the focus ring clear of both fills', () => {
+    for (const tokens of [darkTokens, lightTokens]) {
+      const ring = resolved(tokens, 'focus-ring')
+      expect(contrast(ring, resolved(tokens, 'accent-fill'))).toBeGreaterThanOrEqual(3)
+      expect(contrast(ring, resolved(tokens, 'danger-fill'))).toBeGreaterThanOrEqual(3)
+    }
+  })
+})
+
+describe('theme token routing', () => {
+  it('fills primary, armed danger, badge and segment from the fill tokens', () => {
+    expect(bareCss).toContain(
+      'button.primary, .btn.primary { background: var(--accent-fill); border-color: var(--accent-fill);',
+    )
+    expect(bareCss).toContain('.segmented button.active { background: var(--accent-fill);')
+    expect(bareCss).toContain('button.danger.armed { background: var(--danger-fill);')
+    expect(bareCss).toContain(
+      '.attend-badge { background: var(--danger-fill); border-color: var(--danger-fill);',
+    )
+  })
+
+  it('reads text links and badges through the fg tokens', () => {
+    expect(bareCss).toContain('a { color: var(--accent-fg);')
+    expect(bareCss).toContain('.badge.accent { color: var(--accent-fg);')
+    expect(bareCss).toContain('.badge.warn { color: var(--warn-fg);')
+    expect(bareCss).toContain('.warn-text { color: var(--warn-fg);')
   })
 })

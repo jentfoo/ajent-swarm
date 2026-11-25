@@ -768,17 +768,18 @@ describe('JobsHome', () => {
       '/jobs/new?from=5',
     )
 
-    // the run control names itself and its pending window
+    // the run control names itself and its pending window, a play glyph when
+    // idle so the row stays compact
     parkFires = 1
     const runNow = within(row).getByRole('button', { name: 'Run nightly sweep now' })
-    expect(runNow).toHaveTextContent('Run now')
+    expect(runNow.querySelector('svg')).not.toBeNull()
     await userEvent.setup().click(runNow)
     expect(runNow).toBeDisabled()
     expect(runNow).toHaveTextContent('Starting…')
 
     fireWaiters.shift()!(Response.json(manualRun(20)))
     await waitFor(() => expect(runNow).toBeEnabled())
-    expect(runNow).toHaveTextContent('Run now')
+    expect(runNow.querySelector('svg')).not.toBeNull()
   })
 
   it('fires manually and reports the outcome', async () => {

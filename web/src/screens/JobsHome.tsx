@@ -515,6 +515,25 @@ function JobToggle({ job, onToggle }: { job: Job; onToggle: () => void }) {
   )
 }
 
+// PlayIcon is the run-now glyph, the shared stroke-icon dialect.
+function PlayIcon(): ReactNode {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <polygon points="6 3 20 12 6 21 6 3" />
+    </svg>
+  )
+}
+
 function JobTableRow({ job, facts, firing, onToggle, onFire }: JobRowProps) {
   return (
     <tr data-testid={`job-${job.id}`}>
@@ -548,11 +567,12 @@ function JobTableRow({ job, facts, firing, onToggle, onFire }: JobRowProps) {
           </Link>
           <button
             type="button"
+            title="Run now"
             aria-label={`Run ${job.name} now`}
             disabled={firing}
             onClick={onFire}
           >
-            {firing ? 'Starting…' : 'Run now'}
+            {firing ? 'Starting…' : <PlayIcon />}
           </button>
         </div>
       </td>
@@ -603,8 +623,14 @@ function JobCard({ job, facts, firing, onToggle, onFire }: JobRowProps) {
         <Link to={`/jobs/new?from=${job.id}`} className="btn" aria-label={`Copy ${job.name}`}>
           Copy
         </Link>
-        <button type="button" aria-label={`Run ${job.name} now`} disabled={firing} onClick={onFire}>
-          {firing ? 'Starting…' : 'Run'}
+        <button
+          type="button"
+          title="Run now"
+          aria-label={`Run ${job.name} now`}
+          disabled={firing}
+          onClick={onFire}
+        >
+          {firing ? 'Starting…' : <PlayIcon />}
         </button>
         <Link to={`/jobs/${job.id}`} className="btn" aria-label={`Edit ${job.name}`}>
           Edit

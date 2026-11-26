@@ -162,6 +162,57 @@ describe('theme dialog dock bounds', () => {
   })
 })
 
+describe('theme mobile bottom fit', () => {
+  // the phone breakpoint block carrying the mobile session's bottom chrome,
+  // sliced from its transcript rule through the status bar rules
+  const phoneBlock = bareCss.match(
+    /@media \(max-width: 48rem\) \{ \.mobile-session \.transcript-wrap \{.*?\.queue-chip \{/,
+  )![0]
+
+  it('wraps the status bar under the breakpoint while desktop stays one line', () => {
+    const bar = phoneBlock.match(/\.mobile-session \.status-bar \{[^}]*\}/)![0]
+    expect(bar).toContain('flex-wrap: wrap;')
+    // a wrapped line keeps clear of the one above it
+    expect(bar).toContain('row-gap:')
+
+    const base = bareCss.match(/(?:^|\})\s*\.status-bar \{[^}]*\}/)![0]
+    expect(base).not.toContain('flex-wrap')
+    // the long/short segment swap keeps its container
+    expect(base).toContain('container-type: inline-size;')
+  })
+
+  it('lets the activity row grow past its desktop ceiling', () => {
+    const activity = phoneBlock.match(/\.mobile-session \.bar-activity \{[^}]*\}/)![0]
+    // the ceiling leaves room for the spinner beside it, so a long row
+    // ellipsizes on the first line instead of wrapping under the glyph
+    expect(activity).toContain('max-width: calc(100% - 3rem);')
+
+    const base = bareCss.match(/(?:^|\})\s*\.bar-activity \{[^}]*\}/)![0]
+    expect(base).toContain('max-width: 40%;')
+    expect(base).toContain('text-overflow: ellipsis;')
+    expect(base).toContain('white-space: nowrap;')
+  })
+
+  it('keeps the segment chips unshrunk so the wrap carries the pressure', () => {
+    expect(bareCss).toContain('.strip-segment { flex-shrink: 0; }')
+  })
+
+  it('scrolls a capped draft inside the composer field', () => {
+    // the overflow class rides the cap only, so a fitting field never shows
+    // a scrollbar
+    expect(bareCss).toContain('.composer textarea.capped { overflow-y: auto; }')
+    const base = bareCss.match(/\.composer textarea \{[^}]*\}/)![0]
+    expect(base).toContain('resize: none;')
+    expect(base).not.toContain('overflow')
+  })
+
+  it('frames the dialog placeholder like the composer it stands in for', () => {
+    const placeholder = bareCss.match(/\.composer-placeholder \{[^}]*\}/)![0]
+    expect(placeholder).toContain('border-top: 1px solid var(--border);')
+    expect(placeholder).toContain('margin: 0;')
+  })
+})
+
 describe('theme motion tokens', () => {
   it('declares fast and base steps plus one shared ease-out curve', () => {
     expect(css).toMatch(/--dur-fast: \d+ms;/)

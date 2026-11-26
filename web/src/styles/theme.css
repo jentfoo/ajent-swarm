@@ -1104,6 +1104,20 @@ label {
   display: block;
   min-width: 0;
 }
+/* the autosize cap is in force: the draft scrolls inside the field instead of
+   pushing the transcript away (Composer toggles the class past its row cap) */
+.composer textarea.capped {
+  overflow-y: auto;
+}
+/* the phone's stand-in for the composer while a dialog holds the turn: the
+   composer's top edge around one muted line, so the answer cards keep the room
+   the disabled composer's chrome would take (MobileSessionScreen) */
+.composer-placeholder {
+  border-top: 1px solid var(--border);
+  padding: calc(var(--unit) * 3) calc(var(--unit) * 2);
+  margin: 0;
+  font-size: var(--fs-small);
+}
 .composer-side {
   display: flex;
   flex-direction: column;
@@ -2990,8 +3004,8 @@ label {
 
 /* mobile session screen: the transcript owns the scroll under the sticky
    header, and the bottom status bar gets touch padding the desktop bar does
-   not need; it hugs the bottom edge like desktop's, inside the host's
-   safe-area baseline */
+   not need and wraps its chips where desktop stays one line. It hugs the
+   bottom edge like desktop's, inside the host's safe-area baseline */
 @media (max-width: 48rem) {
   .mobile-session .transcript-wrap {
     flex: 1;
@@ -2999,6 +3013,16 @@ label {
   }
   .mobile-session .status-bar {
     padding: calc(var(--unit) * 2) calc(var(--unit) * 3);
+    /* chips wrap onto a new line instead of panning the page sideways, the
+       row gap keeping the second line clear of the first */
+    flex-wrap: wrap;
+    row-gap: calc(var(--unit) * 1);
+  }
+  /* the activity row keeps the first line's priority: all but the spinner's
+     share is its ceiling (3rem with room to spare), ellipsizing there so chips
+     fit beside it or wrap under it */
+  .mobile-session .bar-activity {
+    max-width: calc(100% - 3rem);
   }
   /* queue chips wrap instead of clipping, and the edit button gets the 44px
      touch target floor */

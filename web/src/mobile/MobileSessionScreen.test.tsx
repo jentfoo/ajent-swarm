@@ -761,6 +761,98 @@ describe('MobileSessionScreen', () => {
     expect(prompt).toHaveAttribute('placeholder', 'Session ended: sigterm.')
   })
 
+  it('hands the composer and status bar room to a waiting dialog', async () => {
+    renderScreen()
+    const ws = await openSocket()
+    act(() => {
+      ws.message({ type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
+    })
+    await screen.findByLabelText('Prompt')
+    expect(screen.getByText('2 queued')).toBeInTheDocument() // the bar's own chip
+
+    act(() => {
+      ws.message(
+        wireEvent('interaction.pending', 1, {
+          id: 42,
+          kind: 'pick',
+          prompt: 'Allow write access?',
+          options: ['allow', 'deny'],
+        }),
+      )
+    })
+    expect(await screen.findByText('Allow write access?')).toBeInTheDocument()
+
+    // the disabled composer's chrome and the status bar stand down for the
+    // cards, one line names what the turn waits on
+    expect(screen.queryByLabelText('Prompt')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Send' })).not.toBeInTheDocument()
+    expect(screen.getByText('Answer the dialog above')).toBeInTheDocument()
+    expect(document.querySelector('.status-bar')).not.toBeInTheDocument()
+    expect(screen.queryByText('2 queued')).not.toBeInTheDocument()
+
+    // a stacked dialog counts
+    act(() => {
+      ws.message(
+        wireEvent('interaction.pending', 2, {
+          id: 43,
+          kind: 'confirm',
+          prompt: 'Also read secrets?',
+        }),
+      )
+    })
+    expect(await screen.findByText('Answer the 2 dialogs above')).toBeInTheDocument()
+
+    act(() => {
+      ws.message(
+        wireEvent('interaction.settled', 3, { id: 42, kind: 'pick', answered: true, index: 0 }),
+      )
+      ws.message(
+        wireEvent('interaction.settled', 4, { id: 43, kind: 'confirm', answered: true, index: 0 }),
+      )
+    })
+
+    // the settled dialogs leave as outcome chips, the composer and bar return
+    await vi.waitFor(() =>
+      expect(screen.queryByText('Answer the 2 dialogs above')).not.toBeInTheDocument(),
+    )
+    expect(screen.getByLabelText('Prompt')).not.toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Send' })).toBeInTheDocument()
+    expect(document.querySelector('.status-bar')).toBeInTheDocument()
+    expect(screen.getByText('2 queued')).toBeInTheDocument()
+  })
+
+  it('keeps the draft through a dialog round trip', async () => {
+    renderScreen()
+    const ws = await openSocket()
+    act(() => {
+      ws.message({ type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
+    })
+    const user = userEvent.setup()
+    await user.type(await screen.findByLabelText('Prompt'), 'my unfinished draft')
+
+    act(() => {
+      ws.message(
+        wireEvent('interaction.pending', 1, {
+          id: 42,
+          kind: 'pick',
+          prompt: 'Allow write access?',
+          options: ['allow', 'deny'],
+        }),
+      )
+    })
+    expect(await screen.findByText('Answer the dialog above')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Prompt')).not.toBeInTheDocument()
+
+    act(() => {
+      ws.message(
+        wireEvent('interaction.settled', 2, { id: 42, kind: 'pick', answered: true, index: 0 }),
+      )
+    })
+
+    // the unmounted composer never cleared the store, the remount restores it
+    expect(await screen.findByLabelText('Prompt')).toHaveValue('my unfinished draft')
+  })
+
   it('keeps the transcript link on a settled end', async () => {
     renderScreen()
     const ws = await openSocket()

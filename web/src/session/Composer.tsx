@@ -25,7 +25,12 @@ import { killLineEnd, killLineStart, yank } from './editKeys'
 import type { EditState, KillSnapshot } from './editKeys'
 import { useSubmitPress, touchKeyboard } from './submitPress'
 
+// maxRows and minRows bound the autosize cap, capShare of the visible viewport
+// in line boxes picking the count between them: a tall window keeps every row,
+// a phone with its keyboard open leaves the transcript the rest.
 const maxRows = 12
+const minRows = 4
+const capShare = 0.3
 
 // fallbackRowPx degrades the cap when computed styles are unreadable: the
 // coarse-pointer line box (16px font x 1.5), today's constant.
@@ -60,6 +65,12 @@ export const excludedHint = 'Shell run — display only, never reaches the model
 function isTextFile(file: File): boolean {
   if (file.type.startsWith('text/') || file.type === 'application/json') return true
   return /\.(txt|md|json|toml|ya?ml|log|conf|cfg)$/.test(file.name)
+}
+
+// viewportHeight reports the height the composer can be seen in: the visual
+// viewport excludes a phone keyboard, innerHeight stands in without one.
+function viewportHeight(): number {
+  return window.visualViewport?.height ?? window.innerHeight
 }
 
 // ComposerRecall wires the session's prompt recall into the composer. Items
@@ -245,28 +256,47 @@ export function Composer({
     el.setSelectionRange(pos, pos)
   }, [value])
 
-  // The cap rides the real line box: measured off computed styles, re-read on
-  // resize, degrading to fallbackRowPx when unreadable.
+  // The cap rides the real line box and the visible viewport, both re-read on
+  // resize. A phone's visual viewport shrinks under the keyboard and pans while
+  // the caret scrolls, so its resize and scroll events re-measure too, and an
+  // unreadable line box degrades to fallbackRowPx.
   const [rowPx, setRowPx] = useState(fallbackRowPx)
+  const [viewportPx, setViewportPx] = useState(viewportHeight)
   useEffect(() => {
     const el = areaRef.current
     if (!el) return
     const measure = () => {
       const px = Number.parseFloat(window.getComputedStyle(el).lineHeight)
       if (Number.isFinite(px) && px > 0) setRowPx(px)
+      setViewportPx(viewportHeight())
     }
     measure()
+    const vv = window.visualViewport
     window.addEventListener('resize', measure)
-    return () => window.removeEventListener('resize', measure)
+    vv?.addEventListener('resize', measure)
+    vv?.addEventListener('scroll', measure)
+    return () => {
+      window.removeEventListener('resize', measure)
+      vv?.removeEventListener('resize', measure)
+      vv?.removeEventListener('scroll', measure)
+    }
   }, [])
+  const rowCap = Math.min(maxRows, Math.max(minRows, Math.floor((viewportPx * capShare) / rowPx)))
 
-  // Autosize with what the textarea displays, capped at maxRows line boxes.
+  // Autosize with what the textarea displays, capped at rowCap line boxes. Past
+  // the cap the height stays there and the field scrolls inside instead of the
+  // transcript yielding, the capped class switching that overflow on. The class
+  // rides the deps too, so a classic scrollbar appearing or leaving re-measures
+  // under the width the text actually has.
+  const [capped, setCapped] = useState(false)
   useEffect(() => {
     const el = areaRef.current
     if (!el) return
     el.style.height = 'auto'
-    el.style.height = `${Math.min(el.scrollHeight, maxRows * rowPx)}px`
-  }, [shown, rowPx])
+    const capPx = rowCap * rowPx
+    el.style.height = `${Math.min(el.scrollHeight, capPx)}px`
+    setCapped(el.scrollHeight > capPx)
+  }, [shown, rowPx, rowCap, capped])
 
   // One lookup per token query, debounced, failures stay quiet.
   useEffect(() => {
@@ -854,6 +884,7 @@ export function Composer({
         <textarea
           ref={areaRef}
           rows={1}
+          className={capped ? 'capped' : undefined}
           value={shown}
           placeholder={
             disabled

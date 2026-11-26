@@ -2344,27 +2344,125 @@ describe('Composer recall browsing', () => {
 })
 
 describe('Composer autosize cap', () => {
-  it('caps at measured line boxes and re-measures on resize', async () => {
+  // jsdom's own innerHeight descriptor, restored after each case
+  const innerHeight = Object.getOwnPropertyDescriptor(window, 'innerHeight')!
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    Object.defineProperty(window, 'innerHeight', innerHeight)
+    Reflect.deleteProperty(window, 'visualViewport')
+  })
+
+  // setViewport pins the layout viewport jsdom reports.
+  function setViewport(height: number): void {
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: height })
+  }
+
+  // overflowing pins the field's scrollHeight past any cap, so the height
+  // set on it reads as the cap itself.
+  function overflowing() {
+    return vi.spyOn(Element.prototype, 'scrollHeight', 'get').mockReturnValue(9999)
+  }
+
+  // resized re-measures the cap the way a window or visual viewport event
+  // would.
+  const resized = (target: EventTarget = window, type = 'resize') =>
+    act(async () => {
+      target.dispatchEvent(new Event(type))
+    })
+
+  it('caps a long draft at thirty percent of the viewport in measured rows', async () => {
+    // a phone with its keyboard up: 600px stay visible, 30% of them at the
+    // 24px fallback line box is seven rows
+    setViewport(600)
+    overflowing()
     render(Harness())
 
     const box = screen.getByLabelText('Prompt') as HTMLTextAreaElement
-    // jsdom computes inline styles back out, so an inline px line-height stands
-    // in for the stylesheet, a stubbed scrollHeight plays overflow
+    expect(box.style.height).toBe('168px')
+
+    // a measured 30px line box leaves six of those rows
     box.style.lineHeight = '30px'
-    Object.defineProperty(box, 'scrollHeight', { configurable: true, value: 9999 })
+    await resized()
+    expect(box.style.height).toBe('180px')
+  })
 
-    await act(async () => {
-      window.dispatchEvent(new Event('resize'))
-    })
-    // twelve measured rows cap at 360px, not the hardcoded 24px-per-row 288
-    expect(box.style.height).toBe('360px')
+  it('scrolls inside the field only while the draft outgrows the cap', async () => {
+    setViewport(768)
+    const scroll = overflowing()
+    render(Harness())
 
-    // a later resize re-measures: the cap follows the new line box
-    box.style.lineHeight = '20px'
-    await act(async () => {
-      window.dispatchEvent(new Event('resize'))
-    })
+    const box = screen.getByLabelText('Prompt') as HTMLTextAreaElement
+    expect(box).toHaveClass('capped')
+
+    // the draft shrinks back under the cap: the field follows its content
+    // again and the internal scrollbar stands down
+    scroll.mockReturnValue(48)
+    fireEvent.change(box, { target: { value: 'short draft' } })
+    expect(box.style.height).toBe('48px')
+    expect(box).not.toHaveClass('capped')
+  })
+
+  it('recomputes the cap on a viewport resize', async () => {
+    setViewport(1200)
+    overflowing()
+    render(Harness())
+
+    const box = screen.getByLabelText('Prompt') as HTMLTextAreaElement
+    expect(box.style.height).toBe('288px')
+
+    // a keyboard opening halves the visible viewport: 30% of 500px at 24px
+    // is six rows
+    setViewport(500)
+    await resized()
+    expect(box.style.height).toBe('144px')
+  })
+
+  it('follows the visual viewport resize and scroll', async () => {
+    setViewport(1200)
+    // a phone browser's visual viewport: an event target carrying the height
+    // the cap must follow, absent on desktop
+    const vv = Object.assign(new EventTarget(), { height: 1200 })
+    Object.defineProperty(window, 'visualViewport', { configurable: true, value: vv })
+    overflowing()
+    render(Harness())
+
+    const box = screen.getByLabelText('Prompt') as HTMLTextAreaElement
+    expect(box.style.height).toBe('288px')
+
+    // the keyboard shrinks the visual viewport while the layout one stays
+    // put: 30% of 400px at 24px is five rows
+    vv.height = 400
+    await resized(vv)
+    expect(box.style.height).toBe('120px')
+
+    // a caret scroll pans the visual viewport without resizing anything
+    vv.height = 800
+    await resized(vv, 'scroll')
     expect(box.style.height).toBe('240px')
+  })
+
+  it('never drops below four rows on a tiny viewport', () => {
+    setViewport(200)
+    overflowing()
+    render(Harness())
+
+    // 30% of 200px is under three rows, the floor holds four
+    expect((screen.getByLabelText('Prompt') as HTMLTextAreaElement).style.height).toBe('96px')
+  })
+
+  it('keeps the desktop cap at twelve rows', async () => {
+    // a tall window: 30% of it would allow thirty rows, the ceiling is twelve
+    setViewport(2400)
+    overflowing()
+    render(Harness())
+
+    const box = screen.getByLabelText('Prompt') as HTMLTextAreaElement
+    expect(box.style.height).toBe('288px')
+
+    box.style.lineHeight = '30px'
+    await resized()
+    expect(box.style.height).toBe('360px')
   })
 })
 

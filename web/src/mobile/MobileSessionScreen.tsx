@@ -36,7 +36,7 @@ import { DialogDock } from '../session/DialogDock'
 // session label, the shared status badge, the model chip and mode menu, with
 // the secondary actions collapsed behind one menu button. The working turn's
 // Stop rides beside Send, and dialogs stack as full-width cards above the
-// composer.
+// composer, standing in for it and the status bar while one waits.
 //
 // The content keys on sessionId, so the route reusing this screen for another
 // session presents it as a remount: that session's own draft restores from the
@@ -74,6 +74,10 @@ function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElemen
 
   const working = sessionBusy(snap)
   const ended = endedBanner(phase, state.exitReason)
+  // A live dialog holding the turn takes the composer's and the status bar's
+  // room below. An ended run owes no answer, so it keeps both and its composer
+  // names how the run stopped.
+  const dialogWaiting = dialogs.length > 0 && !ended.show
   // sub-agent job records are pull-only: re-listed while any job is live, so
   // the chips band and poll cards carry stop controls and real statuses
   const agentJobs = useAgentJobs(sessionId, snap.activity, snap.status?.segments, pushToast)
@@ -151,30 +155,41 @@ function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElemen
         onEditParked={() => void recallParked()}
       />
       <ChainStrip sessionId={sessionId} />
-      <Composer
-        sessionId={sessionId}
-        value={draft}
-        onChange={setDraft}
-        disabled={composerDisabled}
-        disabledReason={disabledReason}
-        onSubmit={(line, pendingId) => {
-          dispatch({ type: 'pendingSubmitted', pendingId, text: line })
-          // the raised review row's server turn end settles, a later turn re-raises
-          acknowledgeTurn(sessionId, submitTurnEnd(itemFor(sessionId)))
-        }}
-        onSubmitFailed={(pendingId) => dispatch({ type: 'pendingFailed', pendingId })}
-        onQueue={(line, pendingId) =>
-          dispatch({ type: 'pendingSubmitted', pendingId, text: line, parked: true })
-        }
-        onQueueFailed={(pendingId) => dispatch({ type: 'pendingFailed', pendingId })}
-        recall={recall}
-        stop={working ? { onClick: interrupt, busy: stopBusy } : undefined}
-        chainInto={{
-          nameFor,
-          open: (childId) => setChainDraft({ parentId: sessionId, childId }),
-        }}
-      />
-      <StatusBar snap={snap} live={state.live} />
+      {/* desktop keeps its composer visible but disabled behind a dialog. A
+          phone hands that room to the answer cards instead, the draft waiting
+          in the store for the remount once the dialog settles */}
+      {dialogWaiting ? (
+        <p className="composer-placeholder muted">
+          {dialogs.length > 1
+            ? `Answer the ${dialogs.length} dialogs above`
+            : 'Answer the dialog above'}
+        </p>
+      ) : (
+        <Composer
+          sessionId={sessionId}
+          value={draft}
+          onChange={setDraft}
+          disabled={composerDisabled}
+          disabledReason={disabledReason}
+          onSubmit={(line, pendingId) => {
+            dispatch({ type: 'pendingSubmitted', pendingId, text: line })
+            // the raised review row's server turn end settles, a later turn re-raises
+            acknowledgeTurn(sessionId, submitTurnEnd(itemFor(sessionId)))
+          }}
+          onSubmitFailed={(pendingId) => dispatch({ type: 'pendingFailed', pendingId })}
+          onQueue={(line, pendingId) =>
+            dispatch({ type: 'pendingSubmitted', pendingId, text: line, parked: true })
+          }
+          onQueueFailed={(pendingId) => dispatch({ type: 'pendingFailed', pendingId })}
+          recall={recall}
+          stop={working ? { onClick: interrupt, busy: stopBusy } : undefined}
+          chainInto={{
+            nameFor,
+            open: (childId) => setChainDraft({ parentId: sessionId, childId }),
+          }}
+        />
+      )}
+      {!dialogWaiting && <StatusBar snap={snap} live={state.live} />}
 
       <ToolsScreen
         sessionId={sessionId}

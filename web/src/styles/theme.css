@@ -1855,11 +1855,13 @@ label {
   margin: calc(var(--unit) * 1) 0 0;
   padding: 0;
   list-style: none;
-  max-height: 24rem;
+  max-height: 20rem;
   overflow-y: auto;
 }
 .search-list button {
-  display: block;
+  display: flex;
+  align-items: baseline;
+  gap: calc(var(--unit) * 2);
   width: 100%;
   text-align: left;
   font-family: var(--font-mono);
@@ -1870,12 +1872,18 @@ label {
   background: color-mix(in srgb, var(--accent) 25%, transparent);
 }
 .search-row {
+  flex: 1 1 auto;
+  min-width: 0;
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 4;
+  -webkit-line-clamp: 2;
   overflow: hidden;
   white-space: pre-wrap;
   word-break: break-word;
+}
+.search-extra {
+  flex-shrink: 0;
+  color: var(--muted);
 }
 .search-row mark {
   background: color-mix(in srgb, var(--accent) 35%, transparent);

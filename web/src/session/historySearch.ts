@@ -121,3 +121,43 @@ export function matchSpans(text: string, query: string): [number, number][] {
 export function matchOffset(text: string, query: string): number {
   return matchSpans(text, query)[0]?.[0] ?? -1
 }
+
+// previewChars bounds one row's visible text: enough to recognize a prompt
+// around the match, short enough that a long prompt cannot become a wall.
+export const previewChars = 140
+
+// Preview is one row's visible text beside the number of lines the prompt
+// hides.
+export interface Preview {
+  text: string
+  extraLines: number
+}
+
+// previewLine picks the line holding the first match and windows it around
+// that match, marking a cut start or end with an ellipsis. A prompt whose
+// match cannot be located shows its first line from the start.
+export function previewLine(text: string, query: string): Preview {
+  const lines = text.split('\n')
+  const at = matchOffset(text, query)
+  let index = 0
+  let start = 0
+  for (const [i, line] of lines.entries()) {
+    if (at >= start && at < start + line.length) {
+      index = i
+      break
+    }
+    start += line.length + 1
+  }
+  const raw = lines[index]!
+  // a CRLF prompt's carriage return is not display text
+  const line = raw.endsWith('\r') ? raw.slice(0, -1) : raw
+  const local = Math.max(0, Math.min(at - start, line.length))
+  const before = Math.floor(previewChars * 0.4)
+  const from = Math.max(0, local - before)
+  const to = Math.min(line.length, from + previewChars)
+  // a leading mark when the window opens past the line, or the line is not
+  // the prompt's first; a trailing one when text or lines follow it
+  const lead = index > 0 || from > 0 ? '…' : ''
+  const tail = index < lines.length - 1 || to < line.length ? '…' : ''
+  return { text: `${lead}${line.slice(from, to)}${tail}`, extraLines: lines.length - 1 }
+}

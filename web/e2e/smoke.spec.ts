@@ -261,3 +261,49 @@ test('a toast stacks clear of the composer', async ({ page }) => {
     composerBox!.x + composerBox!.width <= toastBox!.x
   expect(clear).toBe(true)
 })
+
+test('the history search holds its geometry over long prompts', async ({ page }) => {
+  // the real layout bug this pins: a content-sized popover layer once read its
+  // width from its own left placement, so a row wider than the viewport grew
+  // the space it was given by the edge margin every frame and the overlay
+  // flashed wider and wider. jsdom lays nothing out, so only the real page
+  // can hold the box still.
+  await signIn(page)
+
+  const card = page.locator('.grid .card').first()
+  await expect(card).toBeVisible({ timeout: 30_000 })
+  await card.getByRole('link', { name: 'Open' }).click()
+  const prompt = page.getByRole('textbox', { name: 'Prompt' })
+  await expect(prompt).toBeEnabled({ timeout: 30_000 })
+
+  // one committed prompt long enough that its unwrapped width clears the
+  // viewport, which is what used to feed the width loop
+  const reply = page.getByLabel('Transcript', { exact: true }).getByText('The smoke test reply.')
+  const before = await reply.count()
+  await prompt.fill(`needle ${'This is a long prompt for the history search overlay. '.repeat(60)}`)
+  await prompt.press('Enter')
+  await expect(reply).toHaveCount(before + 1, { timeout: 30_000 })
+
+  await prompt.press('Control+r')
+  const menu = page.locator('.search-menu')
+  await expect(menu).toBeVisible()
+  await prompt.pressSequentially('needle')
+  await expect(menu.locator('.search-row mark').first()).toBeVisible()
+
+  // one box across frames: no width, height or position churn
+  const boxes = await menu.evaluate(async (el) => {
+    const seen: string[] = []
+    for (let i = 0; i < 20; i++) {
+      const r = el.getBoundingClientRect()
+      seen.push([r.left, r.top, r.width, r.height].map(Math.round).join(','))
+      await new Promise((resolve) => requestAnimationFrame(resolve))
+    }
+    return seen
+  })
+  expect(new Set(boxes).size).toBe(1)
+
+  // a long prompt previews through a bounded window, never a wall of text
+  const row = menu.locator('.search-row').first()
+  expect((await row.textContent())!.length).toBeLessThan(200)
+  expect(await row.textContent()).toContain('…')
+})

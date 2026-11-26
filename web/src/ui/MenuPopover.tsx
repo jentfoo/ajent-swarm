@@ -39,6 +39,11 @@ interface Placement {
   left: number
   top: number
   minWidth?: number
+  // the layer's own width basis: matchWidth pins it to the trigger, otherwise
+  // content-sized
+  width?: number
+  // the usable viewport width, so content sizing never spills past an edge
+  maxWidth?: number
   // present only when the menu is taller than the usable viewport, so the
   // layer can scroll inside the space placement left it
   maxHeight?: number
@@ -113,7 +118,8 @@ type MenuPopoverProps = {
   anchorRef: RefObject<HTMLElement | null>
   onClose: () => void
   align?: 'left' | 'right'
-  // stretch the layer to at least the trigger's width
+  // stretch the layer to the trigger's width, so composer popovers stay as
+  // wide as the field they open from
   matchWidth?: boolean
   // leave focus wherever closing left it, for blur-closed layers
   restoreFocus?: boolean
@@ -184,21 +190,25 @@ export function MenuPopover({
     if (!anchor || !menu) return
     const trigger = anchor.getBoundingClientRect()
     const box = menu.getBoundingClientRect()
+    const viewport = visibleViewport()
     setPlacement((prev) => {
-      const next = placeMenu(
-        trigger,
-        { width: box.width, height: box.height },
-        visibleViewport(),
-        align,
-      )
+      const next = placeMenu(trigger, { width: box.width, height: box.height }, viewport, align)
       const minWidth = matchWidth ? trigger.width : undefined
+      const width = matchWidth ? trigger.width : undefined
+      // A content-sized layer must never derive its width from its own left:
+      // placeMenu clamps left by the measured width, so a row wider than the
+      // viewport would grow the space it is given by the edge margin every
+      // frame. Capping the width at the usable box breaks that cycle.
+      const maxWidth = Math.max(0, viewport.right - viewport.left - 2 * edgeMargin)
       // identical coordinates skip the render a scroll tick would cause
       return prev?.left === next.left &&
         prev?.top === next.top &&
         prev?.maxHeight === next.maxHeight &&
-        prev.minWidth === minWidth
+        prev?.maxWidth === maxWidth &&
+        prev.minWidth === minWidth &&
+        prev.width === width
         ? prev
-        : { ...next, minWidth }
+        : { ...next, minWidth, width, maxWidth }
     })
   }, [anchorRef, align, matchWidth])
 
@@ -327,7 +337,11 @@ export function MenuPopover({
         visibility: placement ? undefined : 'hidden',
         left: placement?.left,
         top: placement?.top,
+        // max-content keeps a content-sized layer off the shrink-to-fit track
+        // its left placement feeds, the cap above bounds it instead
+        width: placement?.width ?? 'max-content',
         minWidth: placement?.minWidth,
+        maxWidth: placement?.maxWidth,
         maxHeight: placement?.maxHeight,
         // the cap binds only below the CSS one, so the scrolling it needs
         // travels with it for layers whose stylesheet overflow stays visible

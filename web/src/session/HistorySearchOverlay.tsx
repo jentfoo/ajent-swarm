@@ -1,15 +1,16 @@
 import { useEffect, useRef } from 'react'
 import type { ReactElement, ReactNode } from 'react'
 
-import { matchSpans, type HistorySearch } from './historySearch'
+import { matchSpans, previewLine, type HistorySearch } from './historySearch'
 import { CloseIcon } from '../ui/icons'
 
 // HistorySearchOverlay is the reverse search surface above the composer: a
 // query echo header over the matching prompts, blank until text is typed and
-// showing a "no match" note otherwise. Hosted by Composer through MenuPopover
-// like the @-menu, so pane clipping cannot cut it off; never a modal picker:
-// the composer keeps focus and feeds the keys, and a row click (or tap)
-// accepts that row into the draft.
+// showing a "no match" note otherwise. Each row previews a window around its
+// match, so long prompts stay scannable. Hosted by Composer through
+// MenuPopover like the @-menu, so pane clipping cannot cut it off; never a
+// modal picker: the composer keeps focus and feeds the keys, and a row click
+// (or tap) accepts that row into the draft.
 export function HistorySearchOverlay({
   search,
   onHighlight,
@@ -64,17 +65,31 @@ export function HistorySearchOverlay({
                 role="option"
                 aria-selected={i === search.cursor}
                 className={i === search.cursor ? 'active' : ''}
+                title={text}
                 onPointerDown={(ev) => ev.preventDefault()}
                 onClick={() => onAccept(text)}
                 onMouseEnter={() => onHighlight(i - search.cursor)}
               >
-                <HighlightRow text={text} query={search.query} />
+                <PreviewRow text={text} query={search.query} />
               </button>
             </li>
           ))}
         </ul>
       )}
     </div>
+  )
+}
+
+// PreviewRow shows one candidate through a window around the match, so a
+// long prompt reads by its hit instead of its opening lines, with the count
+// of lines the window hides.
+function PreviewRow({ text, query }: { text: string; query: string }): ReactElement {
+  const preview = previewLine(text, query)
+  return (
+    <>
+      <HighlightRow text={preview.text} query={query} />
+      {preview.extraLines > 0 && <span className="search-extra">+{preview.extraLines} lines</span>}
+    </>
   )
 }
 

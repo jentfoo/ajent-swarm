@@ -186,9 +186,19 @@ describe('MenuPopover', () => {
 
   it('matchWidth stretches the layer to the trigger box', () => {
     render(<Harness matchWidth />)
-    expect(layerOf(screen.getByRole('menu')).style.minWidth).toBe(
-      `${baseAnchor.right - baseAnchor.left}px`,
-    )
+    const layer = layerOf(screen.getByRole('menu'))
+    expect(layer.style.minWidth).toBe(`${baseAnchor.right - baseAnchor.left}px`)
+    expect(layer.style.width).toBe(`${baseAnchor.right - baseAnchor.left}px`)
+  })
+
+  it('content-sized layers keep an intrinsic width inside the viewport', () => {
+    render(<Harness />)
+    const layer = layerOf(screen.getByRole('menu'))
+    // shrink-to-fit would read the space left of the layer's own placement,
+    // which placeMenu derives from the measured width: a wide row would grow
+    // its space back every frame
+    expect(layer.style.width).toBe('max-content')
+    expect(layer.style.maxWidth).toBe(`${window.innerWidth - 16}px`)
   })
 
   // placement math lives in placeMenu's own describe below, the component

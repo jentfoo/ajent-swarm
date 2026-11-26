@@ -5,6 +5,8 @@ import {
   matchOffset,
   matchSpans,
   openSearch,
+  previewChars,
+  previewLine,
   searchKey,
   withItems,
 } from './historySearch'
@@ -214,5 +216,49 @@ describe('matchSpans', () => {
     expect(matchOffset('Fix the RETRY loop', 'retry')).toBe(8)
     expect(matchOffset('abc', '')).toBe(-1)
     expect(matchOffset('İstanbul trip', 'i')).toBe(-1)
+  })
+})
+
+describe('previewLine', () => {
+  it('shows a short prompt whole', () => {
+    expect(previewLine('ship v2', 'ship')).toEqual({ text: 'ship v2', extraLines: 0 })
+  })
+
+  it('windows a long line around the match', () => {
+    const text = `${'a'.repeat(300)} needle ${'b'.repeat(300)}`
+    const preview = previewLine(text, 'needle')
+    expect(preview.text.startsWith('…')).toBe(true)
+    expect(preview.text.endsWith('…')).toBe(true)
+    expect(preview.text).toContain('needle')
+    expect(preview.text.length).toBeLessThanOrEqual(previewChars + 2)
+  })
+
+  it('picks the line holding the match', () => {
+    const text = 'first line\nsecond needle line\nthird line'
+    expect(previewLine(text, 'needle')).toEqual({
+      text: '…second needle line…',
+      extraLines: 2,
+    })
+  })
+
+  it('marks a cut tail on a multi-line prompt', () => {
+    expect(previewLine('needle here\nsecond line', 'needle')).toEqual({
+      text: 'needle here…',
+      extraLines: 1,
+    })
+  })
+
+  it('falls back to the first line without a match', () => {
+    expect(previewLine('first\nsecond', 'zzz')).toEqual({
+      text: 'first…',
+      extraLines: 1,
+    })
+  })
+
+  it('drops a carriage return from a CRLF prompt', () => {
+    expect(previewLine('first\r\nsecond needle\r\nthird', 'needle')).toEqual({
+      text: '…second needle…',
+      extraLines: 2,
+    })
   })
 })

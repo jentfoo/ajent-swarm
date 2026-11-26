@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { DragEvent, FormEvent, KeyboardEvent, PointerEvent } from 'react'
 
 import { describeError } from '../api/errors'
@@ -232,12 +232,17 @@ export function Composer({
   // Ctrl+R reverse search over the session's recall source. The machine state
   // holds the list it opened with, every render refilters against the current
   // one, so a workspace mirror landing under an open search joins the matches
-  // without an effect (historySearch.withItems). null while closed.
+  // without an effect (historySearch.withItems). The derived state holds one
+  // reference between changes, so unrelated renders do not re-run the
+  // overlay's keep-in-view effect. null while closed.
   const [rawSearch, setRawSearch] = useState<HistorySearch | null>(null)
-  const search =
-    rawSearch === null || rawSearch.items === recall.items
-      ? rawSearch
-      : withItems(rawSearch, recall.items)
+  const search = useMemo(
+    () =>
+      rawSearch === null || rawSearch.items === recall.items
+        ? rawSearch
+        : withItems(rawSearch, recall.items),
+    [rawSearch, recall.items],
+  )
   const fileRef = useRef<HTMLInputElement>(null)
   const areaRef = useRef<HTMLTextAreaElement>(null)
   // composer-box anchors every popup layer the form portals through MenuPopover

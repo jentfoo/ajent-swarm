@@ -61,6 +61,23 @@ describe('HistorySearchOverlay', () => {
     expect(options[0]!.querySelector('mark')).toHaveTextContent('retry')
   })
 
+  it('previews a window around the match', () => {
+    const long = `${'x'.repeat(400)} retry ${'y'.repeat(400)}`
+    renderOverlay(narrowed([long], 'retry'))
+
+    const option = screen.getByRole('option')
+    // the opening x run is cut away, the hit stays visible with a cut tail
+    expect(option.textContent!.length).toBeLessThan(160)
+    expect(option.querySelector('mark')).toHaveTextContent('retry')
+    expect(option.textContent).toContain('…')
+  })
+
+  it('counts the lines a multi-line prompt hides', () => {
+    renderOverlay(narrowed(['first line\nsecond retry line\nthird'], 'retry'))
+
+    expect(screen.getByRole('option')).toHaveTextContent('+2 lines')
+  })
+
   it('accepts the pressed row, not just the highlighted one', async () => {
     const user = userEvent.setup()
     const { onAccept } = renderOverlay(narrowed(items, 'ship'))

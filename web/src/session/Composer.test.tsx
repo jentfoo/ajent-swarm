@@ -9,6 +9,7 @@ import type { ComposerProps, ComposerRecall } from './Composer'
 import { commandDocs } from './commands'
 import { prependDraft } from './draftStore'
 import { overlayOpen } from '../ui/overlayStack'
+import { sessionDrag } from '../ui/dndContext'
 import { coarseImport } from '../test/matchMedia'
 
 // jsdom applies no stylesheet, so the shared field-sizing contract rides a
@@ -49,18 +50,33 @@ function deferredFiles() {
   }
 }
 
-// deferredUpload holds the attachment POST reply until released, so tests can
-// land draft edits between picking a file and its upload resolving.
-function deferredUpload() {
-  let resolve!: (res: Response) => void
-  const fetchSpy = vi.fn((_url: string | URL, init?: RequestInit) => {
-    if (init?.body instanceof FormData)
-      return new Promise<Response>((r) => {
-        resolve = r
-      })
-    return Response.json({})
+// uploadsFetch answers each attachment POST through reply with the posted
+// file's name and records the posted forms, every other request gets an
+// empty JSON body.
+function uploadsFetch(reply: (name: string) => Response) {
+  const uploads: FormData[] = []
+  const fetchSpy = vi.fn(async (_url: string | URL, init?: RequestInit) => {
+    if (!(init?.body instanceof FormData)) return Response.json({})
+    uploads.push(init.body)
+    return reply((init.body.get('file') as File).name)
   })
-  return { fetchSpy, reply: (res: Response) => resolve(res) }
+  return { fetchSpy, uploads }
+}
+
+// refused answers an attach failure carrying the server's reason
+const refused = (message: string) =>
+  Response.json({ error: 'internal_error', message }, { status: 500 })
+
+// wireUploads holds every attachment POST until a test releases it, naming
+// the file each one carries so a test can release them in any order.
+function wireUploads() {
+  const wire: { name: string; resolve: (res: Response) => void }[] = []
+  const fetchSpy = vi.fn((_url: string | URL, init?: RequestInit) => {
+    if (!(init?.body instanceof FormData)) return Response.json({})
+    const name = (init.body.get('file') as File).name
+    return new Promise<Response>((resolve) => wire.push({ name, resolve }))
+  })
+  return { fetchSpy, wire }
 }
 
 // component swaps the module under test, the coarse-pointer cases re-import
@@ -1492,6 +1508,53 @@ describe('Composer submit flow', () => {
     expect(box.value).toBe('my unsent idea')
   })
 
+  it('announces a refused submit and marks the prompt invalid', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({ error: 'unavailable' }, { status: 409 })),
+    )
+    render(Harness({}))
+
+    const box = screen.getByLabelText('Prompt') as HTMLTextAreaElement
+    await user.type(box, 'my unsent idea{Enter}')
+
+    // the refusal reaches assistive tech and the field it belongs to
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(/not available right now/)
+    expect(box).toHaveAttribute('aria-invalid', 'true')
+    expect(document.getElementById(box.getAttribute('aria-describedby')!)).toBe(alert)
+    // a network or server refusal never steals focus, the draft stays put
+    expect(box).toHaveFocus()
+    expect(box).toHaveValue('my unsent idea')
+
+    // the next edit answers the refusal
+    await user.type(box, '!')
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(box).not.toHaveAttribute('aria-invalid')
+    expect(box).not.toHaveAttribute('aria-describedby')
+  })
+
+  it('clears a refused submit when a search accept reshapes the draft', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({ error: 'unavailable' }, { status: 409 })),
+    )
+    render(Harness(recallHarness(['fix the retry loop'])))
+
+    const box = screen.getByLabelText('Prompt') as HTMLTextAreaElement
+    await user.type(box, 'my unsent idea{Enter}')
+    expect(await screen.findByRole('alert')).toBeInTheDocument()
+
+    // the recall fill is an edit like any other
+    await user.keyboard('{Control>}r{/Control}')
+    await user.keyboard('retry{Enter}')
+    expect(box.value).toBe('fix the retry loop\nmy unsent idea')
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(box).not.toHaveAttribute('aria-invalid')
+  })
+
   it('fires one submit while an identical line is still unanswered', async () => {
     const user = userEvent.setup()
     vi.stubGlobal(
@@ -1766,17 +1829,10 @@ describe('Composer attachments', () => {
 
   it('uploads an image and appends an @path reference', async () => {
     const user = userEvent.setup()
-    const uploads: FormData[] = []
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (_url: string | URL, init?: RequestInit) => {
-        if (init?.body instanceof FormData) {
-          uploads.push(init.body)
-          return Response.json({ path: '/home/you/.ajent/swarm/attachments/x.png' })
-        }
-        return Response.json({})
-      }),
+    const { fetchSpy, uploads } = uploadsFetch(() =>
+      Response.json({ path: '/home/you/.ajent/swarm/attachments/x.png' }),
     )
+    vi.stubGlobal('fetch', fetchSpy)
     const onChange = vi.fn()
     render(Harness({ value: '', onChange }))
 
@@ -1812,17 +1868,8 @@ describe('Composer attachments', () => {
 
   it('falls back to uploading an oversize text file', async () => {
     const user = userEvent.setup()
-    const uploads: FormData[] = []
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (_url: string | URL, init?: RequestInit) => {
-        if (init?.body instanceof FormData) {
-          uploads.push(init.body)
-          return Response.json({ path: '/state/big.log' })
-        }
-        return Response.json({})
-      }),
-    )
+    const { fetchSpy, uploads } = uploadsFetch(() => Response.json({ path: '/state/big.log' }))
+    vi.stubGlobal('fetch', fetchSpy)
     const onChange = vi.fn()
     render(Harness({ value: '', onChange }))
 
@@ -1837,8 +1884,8 @@ describe('Composer attachments', () => {
 
   it('typing_during_upload_survives', async () => {
     const user = userEvent.setup()
-    const upload = deferredUpload()
-    vi.stubGlobal('fetch', upload.fetchSpy)
+    const { fetchSpy, wire } = wireUploads()
+    vi.stubGlobal('fetch', fetchSpy)
     render(Harness())
 
     const box = screen.getByLabelText('Prompt') as HTMLTextAreaElement
@@ -1852,7 +1899,7 @@ describe('Composer attachments', () => {
     await user.type(box, ' while it uploads')
     expect(box.value).toBe('look at this while it uploads')
 
-    upload.reply(Response.json({ path: '/state/shot.png' }))
+    wire[0]!.resolve(Response.json({ path: '/state/shot.png' }))
     await act(async () => {}) // let the append continuation run
 
     // the ref lands under the live draft, not the selection-time one
@@ -1861,8 +1908,8 @@ describe('Composer attachments', () => {
 
   it('recall_prefill_mid_upload_survives', async () => {
     const user = userEvent.setup()
-    const upload = deferredUpload()
-    vi.stubGlobal('fetch', upload.fetchSpy)
+    const { fetchSpy, wire } = wireUploads()
+    vi.stubGlobal('fetch', fetchSpy)
     render(Harness(recallHarness(['fix the retry loop'])))
 
     const box = screen.getByLabelText('Prompt') as HTMLTextAreaElement
@@ -1876,10 +1923,289 @@ describe('Composer attachments', () => {
     await user.keyboard('retry{Enter}')
     expect(box.value).toBe('fix the retry loop\ndraft text')
 
-    upload.reply(Response.json({ path: '/state/shot.png' }))
+    wire[0]!.resolve(Response.json({ path: '/state/shot.png' }))
     await act(async () => {}) // let the append continuation run
 
     expect(box.value).toBe('fix the retry loop\ndraft text\n\n@/state/shot.png')
+  })
+
+  it('renders no attachment row before anything attaches', () => {
+    render(Harness())
+
+    expect(screen.queryByRole('list', { name: 'Attachments' })).not.toBeInTheDocument()
+  })
+
+  it('announces a refused attach without marking the prompt invalid', async () => {
+    const user = userEvent.setup()
+    const { fetchSpy } = uploadsFetch(() => refused('disk full'))
+    vi.stubGlobal('fetch', fetchSpy)
+    render(Harness())
+
+    const box = screen.getByLabelText('Prompt') as HTMLTextAreaElement
+    const file = new File(['png-bytes'], 'shot.png', { type: 'image/png' })
+    await user.upload(screen.getByTestId('attach-input'), file)
+
+    // the failed file is named, the prompt itself is not the problem
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(/shot.png/)
+    expect(alert).toHaveTextContent(/disk full/)
+    expect(box).not.toHaveAttribute('aria-invalid')
+    expect(box).not.toHaveAttribute('aria-describedby')
+    expect(box).toHaveValue('') // nothing landed in the draft
+    expect(screen.getByRole('list', { name: 'Attachments' })).toHaveTextContent('Failed')
+  })
+
+  it('starts every upload before the first settles', async () => {
+    const user = userEvent.setup()
+    const { fetchSpy, wire } = wireUploads()
+    vi.stubGlobal('fetch', fetchSpy)
+    render(Harness())
+
+    const files = [
+      new File(['a'], 'a.png', { type: 'image/png' }),
+      new File(['b'], 'b.png', { type: 'image/png' }),
+    ]
+    await user.upload(screen.getByTestId('attach-input'), files)
+
+    // both posts ride the wire at once, each chip naming its own state
+    await waitFor(() => expect(wire).toHaveLength(2))
+    expect(screen.getAllByText('Uploading')).toHaveLength(2)
+    expect(screen.getByRole('button', { name: 'Attach files' })).toBeDisabled()
+
+    wire[0]!.resolve(Response.json({ path: '/state/a.png' }))
+    wire[1]!.resolve(Response.json({ path: '/state/b.png' }))
+    await waitFor(() =>
+      expect(screen.getByLabelText('Prompt')).toHaveValue('@/state/a.png\n\n@/state/b.png'),
+    )
+    expect(screen.getAllByText('Attached')).toHaveLength(2)
+    // a landed chip names where its file went
+    expect(screen.getByTitle('@/state/a.png')).toHaveTextContent('a.png')
+    expect(screen.getByRole('button', { name: 'Attach files' })).toBeEnabled()
+  })
+
+  it('keeps landed references and names the file that failed', async () => {
+    const user = userEvent.setup()
+    const { fetchSpy } = uploadsFetch((name) =>
+      name === 'bad.png' ? refused('no room') : Response.json({ path: `/state/${name}` }),
+    )
+    vi.stubGlobal('fetch', fetchSpy)
+    const onChange = vi.fn()
+    render(Harness({ onChange }))
+
+    const files = [
+      new File(['good'], 'good.png', { type: 'image/png' }),
+      new File(['bad'], 'bad.png', { type: 'image/png' }),
+    ]
+    await user.upload(screen.getByTestId('attach-input'), files)
+
+    // the landed reference stays, the refusal names only the file it lost
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(/Could not attach bad\.png/)
+    expect(alert).not.toHaveTextContent(/good\.png/)
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith('@/state/good.png'))
+    expect(screen.getByTitle('@/state/good.png')).toHaveTextContent('good.png')
+  })
+
+  it('names every file a batch could not attach', async () => {
+    const user = userEvent.setup()
+    const { fetchSpy } = uploadsFetch(() => refused('no room'))
+    vi.stubGlobal('fetch', fetchSpy)
+    const onChange = vi.fn()
+    render(Harness({ onChange }))
+
+    const files = [
+      new File(['a'], 'a.png', { type: 'image/png' }),
+      new File(['b'], 'b.png', { type: 'image/png' }),
+    ]
+    await user.upload(screen.getByTestId('attach-input'), files)
+
+    // a whole batch lost names each file on one readable line
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(/Could not attach a\.png, b\.png\./)
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it('drops a queued chip before its turn', async () => {
+    const user = userEvent.setup()
+    const { fetchSpy, wire } = wireUploads()
+    vi.stubGlobal('fetch', fetchSpy)
+    const onChange = vi.fn()
+    render(Harness({ onChange }))
+
+    const names = ['a.png', 'b.png', 'c.png', 'd.png', 'e.png']
+    const files = names.map((name) => new File(['x'], name, { type: 'image/png' }))
+    await user.upload(screen.getByTestId('attach-input'), files)
+
+    // three ride the wire, two wait their turn, one of those never takes it
+    await waitFor(() => expect(wire.map((job) => job.name)).toEqual(['a.png', 'b.png', 'c.png']))
+    await user.click(screen.getByRole('button', { name: 'Remove e.png' }))
+    expect(screen.queryByText('e.png')).not.toBeInTheDocument()
+
+    for (const job of wire.splice(0)) job.resolve(Response.json({ path: `/state/${job.name}` }))
+    await waitFor(() => expect(wire).toHaveLength(1))
+    expect(wire[0]!.name).toBe('d.png')
+    wire[0]!.resolve(Response.json({ path: '/state/d.png' }))
+
+    // four references land, the removed file's never does
+    await waitFor(() => expect(onChange).toHaveBeenCalled())
+    expect(String(onChange.mock.calls.at(-1)![0])).toBe(
+      '@/state/a.png\n\n@/state/b.png\n\n@/state/c.png\n\n@/state/d.png',
+    )
+  })
+
+  it('inlines a small source file as a fenced block', async () => {
+    const user = userEvent.setup()
+    const fetchSpy = vi.fn(okSubmit())
+    vi.stubGlobal('fetch', fetchSpy)
+    const onChange = vi.fn()
+    render(Harness({ onChange }))
+
+    // source files often arrive with an empty MIME type, the extension decides
+    const file = new File(['package main\n'], 'main.go')
+    await user.upload(screen.getByTestId('attach-input'), file)
+
+    await waitFor(() => expect(onChange).toHaveBeenCalled())
+    const draft = String(onChange.mock.calls[0]![0])
+    expect(draft).toContain('`main.go`:')
+    expect(draft).toContain('```\npackage main\n```')
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('uploads an oversize source file as a reference', async () => {
+    const user = userEvent.setup()
+    const { fetchSpy, uploads } = uploadsFetch(() => Response.json({ path: '/state/big.go' }))
+    vi.stubGlobal('fetch', fetchSpy)
+    const onChange = vi.fn()
+    render(Harness({ onChange }))
+
+    // the inline cap holds, so the body rides @path instead
+    const big = 'x'.repeat((64 << 10) + 1)
+    const file = new File([big], 'big.go')
+    await user.upload(screen.getByTestId('attach-input'), file)
+
+    await waitFor(() => expect(uploads).toHaveLength(1))
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith('@/state/big.go'))
+  })
+
+  it('uploads a binary file that only looks like text', async () => {
+    const user = userEvent.setup()
+    const { fetchSpy, uploads } = uploadsFetch(() => Response.json({ path: '/state/blob.txt' }))
+    vi.stubGlobal('fetch', fetchSpy)
+    const onChange = vi.fn()
+    render(Harness({ onChange }))
+
+    // a NUL byte means the body is not text, so the upload path takes it
+    const file = new File(['\u0000bytes'], 'blob.txt', { type: 'text/plain' })
+    await user.upload(screen.getByTestId('attach-input'), file)
+
+    await waitFor(() => expect(uploads).toHaveLength(1))
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith('@/state/blob.txt'))
+  })
+
+  // dropped fires a file drop on the composer and reports whether the composer
+  // cancelled it, jsdom ships no DataTransfer
+  function dropped(files: File[], types = ['Files']) {
+    return fireEvent.drop(screen.getByLabelText('Prompt').closest('form')!, {
+      dataTransfer: { types, files },
+    })
+  }
+
+  it('drops files on the composer', async () => {
+    const { fetchSpy, uploads } = uploadsFetch(() => Response.json({ path: '/state/dropped.png' }))
+    vi.stubGlobal('fetch', fetchSpy)
+    const onChange = vi.fn()
+    render(Harness({ onChange }))
+
+    const file = new File(['png-bytes'], 'dropped.png', { type: 'image/png' })
+    // a cancelled drop never falls through to the browser opening the file
+    expect(dropped([file])).toBe(false)
+
+    await waitFor(() => expect(uploads).toHaveLength(1))
+    expect(uploads[0]!.get('file')).toBeInstanceOf(File)
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith('@/state/dropped.png'))
+  })
+
+  it('ignores a drop while a session drag is live', async () => {
+    const fetchSpy = vi.fn(okSubmit())
+    vi.stubGlobal('fetch', fetchSpy)
+    const onChange = vi.fn()
+    render(Harness({ onChange }))
+
+    const file = new File(['png-bytes'], 'shot.png', { type: 'image/png' })
+    act(() => sessionDrag.begin('02S'))
+    expect(dropped([file])).toBe(false)
+    await act(async () => {})
+    act(() => sessionDrag.end())
+
+    // the chain strip owns that drag, no file attaches under it
+    expect(fetchSpy).not.toHaveBeenCalled()
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it('ignores a drop while the composer is disabled', async () => {
+    const fetchSpy = vi.fn(okSubmit())
+    vi.stubGlobal('fetch', fetchSpy)
+    const onChange = vi.fn()
+    render(Harness({ onChange, disabled: true }))
+
+    const file = new File(['png-bytes'], 'shot.png', { type: 'image/png' })
+    // nothing attaches, yet the browser never opens the file either
+    expect(dropped([file])).toBe(false)
+    await act(async () => {})
+
+    expect(fetchSpy).not.toHaveBeenCalled()
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it('ignores a drop that carries no files', async () => {
+    const fetchSpy = vi.fn(okSubmit())
+    vi.stubGlobal('fetch', fetchSpy)
+    const onChange = vi.fn()
+    render(Harness({ onChange }))
+
+    // a text selection keeps the textarea's own drop handling
+    expect(dropped([], ['text/plain'])).toBe(true)
+    await act(async () => {})
+
+    expect(fetchSpy).not.toHaveBeenCalled()
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it('lights the composer as a drop target', () => {
+    render(Harness())
+    const composer = screen.getByLabelText('Prompt').closest('form')!
+
+    const payload = { dataTransfer: { types: ['Files'] } }
+    // an uncancelled dragover never delivers a drop
+    expect(fireEvent.dragOver(composer, payload)).toBe(false)
+    fireEvent.dragEnter(composer, payload)
+    expect(composer).toHaveClass('file-drag')
+
+    // entering a child and leaving it again keeps the target lit
+    fireEvent.dragEnter(screen.getByLabelText('Prompt'), payload)
+    fireEvent.dragLeave(composer, payload)
+    expect(composer).toHaveClass('file-drag')
+
+    fireEvent.dragLeave(composer, payload)
+    expect(composer).not.toHaveClass('file-drag')
+  })
+
+  it('clears its chips with an accepted submit', async () => {
+    const user = userEvent.setup()
+    const { fetchSpy } = uploadsFetch(() => Response.json({ path: '/state/shot.png' }))
+    vi.stubGlobal('fetch', fetchSpy)
+    render(Harness())
+
+    const box = screen.getByLabelText('Prompt') as HTMLTextAreaElement
+    const file = new File(['png-bytes'], 'shot.png', { type: 'image/png' })
+    await user.upload(screen.getByTestId('attach-input'), file)
+    await waitFor(() => expect(box).toHaveValue('@/state/shot.png'))
+    expect(screen.getByRole('list', { name: 'Attachments' })).toBeInTheDocument()
+
+    // the sent prompt takes its chips with it
+    await user.type(box, 'look{Enter}')
+    await waitFor(() => expect(box).toHaveValue(''))
+    expect(screen.queryByRole('list', { name: 'Attachments' })).not.toBeInTheDocument()
   })
 })
 
@@ -1895,17 +2221,8 @@ describe('Composer image paste', () => {
   }
 
   it('uploads a screenshot through the picker path', async () => {
-    const uploads: FormData[] = []
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (_url: string | URL, init?: RequestInit) => {
-        if (init?.body instanceof FormData) {
-          uploads.push(init.body)
-          return Response.json({ path: '/state/pasted.png' })
-        }
-        return Response.json({})
-      }),
-    )
+    const { fetchSpy, uploads } = uploadsFetch(() => Response.json({ path: '/state/pasted.png' }))
+    vi.stubGlobal('fetch', fetchSpy)
     const onChange = vi.fn()
     render(Harness({ value: '', onChange }))
 

@@ -1206,6 +1206,56 @@ label {
 .composer-queue {
   width: 100%;
 }
+/* attachment chips: one compact row above the prompt naming each file and its
+   state, absent whenever nothing is attached */
+.composer-uploads {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--unit) * 1);
+  list-style: none;
+  margin: 0 0 calc(var(--unit) * 2);
+  padding: 0;
+}
+.composer-upload {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--unit) * 1);
+  max-width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: calc(var(--unit) * 1) calc(var(--unit) * 2);
+  font-size: var(--fs-small);
+}
+.composer-upload-icon {
+  display: inline-flex;
+  /* holds the name column still while a chip waits for its working mark */
+  min-inline-size: 1.2em;
+  justify-content: center;
+  color: var(--muted);
+}
+.composer-upload.done .composer-upload-icon {
+  color: var(--ok);
+}
+.composer-upload.failed .composer-upload-icon,
+.composer-upload.failed .composer-upload-word {
+  color: var(--danger);
+}
+.composer-upload-name {
+  max-inline-size: 16rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.composer-upload-word {
+  color: var(--muted);
+}
+/* file drop target: the prompt box lights up while a file payload hovers the
+   composer; the session chain drag keeps its own amber strip */
+.composer.file-drag .composer-box {
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
 /* coarse pointers stack the prompt above one action row, so typing keeps the
    full width and every control meets the touch floor; fine pointers keep the
    compact side-by-side composer even in narrow desktop panes. The popups'

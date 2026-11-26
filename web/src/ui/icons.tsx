@@ -149,6 +149,17 @@ export function CheckIcon(props: IconProps): ReactElement {
   )
 }
 
+// CircleXIcon marks a refused attachment beside its failed status word, the
+// same circled X CopyButton answers a failed copy with.
+export function CircleXIcon(props: IconProps): ReactElement {
+  return (
+    <Icon {...props}>
+      <circle cx="12" cy="12" r="10" />
+      <path d="M15 9l-6 6M9 9l6 6" />
+    </Icon>
+  )
+}
+
 export function ChevronLeftIcon(props: IconProps): ReactElement {
   return (
     <Icon {...props}>

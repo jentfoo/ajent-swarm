@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import type { FormEvent, KeyboardEvent, PointerEvent } from 'react'
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import type { DragEvent, FormEvent, KeyboardEvent, PointerEvent } from 'react'
 
 import { describeError } from '../api/errors'
 import { sessions as sessionAPI } from '../api/endpoints'
 import type { FileSuggestion } from '../api/types'
 import { MenuPopover } from '../ui/MenuPopover'
-import { AttachIcon, SearchIcon } from '../ui/icons'
+import { AttachIcon, CheckIcon, CircleXIcon, CloseIcon, SearchIcon } from '../ui/icons'
 import { sessionDrag, useSessionDrag } from '../ui/dndContext'
 import {
   currentMatch,
@@ -24,6 +24,7 @@ import { pasteImageFiles } from './pasteImages'
 import { killLineEnd, killLineStart, yank } from './editKeys'
 import type { EditState, KillSnapshot } from './editKeys'
 import { useSubmitPress, touchKeyboard } from './submitPress'
+import { Spinner } from './Spinner'
 
 // maxRows and minRows bound the autosize cap, capShare of the visible viewport
 // in line boxes picking the count between them: a tall window keeps every row,
@@ -40,9 +41,40 @@ const fallbackRowPx = 24
 // larger uploads as an @path reference instead.
 const inlineFileCapBytes = 64 << 10
 
+// attachConcurrency caps the uploads in flight at once: a local service takes
+// a few parallel posts, dozens at once would burst.
+const attachConcurrency = 3
+
+// textExts are the extensions that read as text whatever MIME the browser
+// reports for them: source files often arrive with an empty file.type.
+const textExts = [
+  'cfg',
+  'conf',
+  'css',
+  'go',
+  'html',
+  'js',
+  'json',
+  'jsx',
+  'log',
+  'md',
+  'py',
+  'rs',
+  'sh',
+  'sql',
+  'toml',
+  'ts',
+  'tsx',
+  'txt',
+  'yaml',
+  'yml',
+]
+
 // textAccept lists the file picker's types: images ride the @path flow, text
 // files inline into the draft as fenced blocks.
-const textAccept = 'image/*,text/*,.json,.toml,.yaml,.yml,.md,.txt'
+const textAccept = `image/*,text/*,${textExts.map((ext) => `.${ext}`).join(',')}`
+
+const textExtRe = new RegExp(`\\.(${textExts.join('|')})$`, 'i')
 
 // SubmitVerb names the composer's two submit verbs, each guarding its own
 // in-flight set: a sent copy and a parked one are distinct actions.
@@ -64,7 +96,34 @@ export const excludedHint = 'Shell run — display only, never reaches the model
 // upload. Extension covers servers that skip the type check.
 function isTextFile(file: File): boolean {
   if (file.type.startsWith('text/') || file.type === 'application/json') return true
-  return /\.(txt|md|json|toml|ya?ml|log|conf|cfg)$/.test(file.name)
+  return textExtRe.test(file.name)
+}
+
+// UploadStatus is one attachment's lifecycle: queued behind the concurrency
+// limit, on the wire, landed, or refused.
+type UploadStatus = 'pending' | 'uploading' | 'done' | 'failed'
+
+// UploadItem is one attachment chip: the file's name, its state and the @path
+// an upload landed at, absent for a file inlined into the draft.
+interface UploadItem {
+  id: string
+  name: string
+  status: UploadStatus
+  reference?: string
+}
+
+// UploadOutcome settles one file: the reference it landed, the copy of its
+// refusal, or neither when its chip was dropped before the turn came.
+type UploadOutcome =
+  { name: string; reference: string } | { name: string; error: string } | { name: string }
+
+// uploadWords names each chip's state for sighted readers, never a progress
+// percentage: the endpoint reports none.
+const uploadWords: Record<UploadStatus, string> = {
+  pending: 'Queued',
+  uploading: 'Uploading',
+  done: 'Attached',
+  failed: 'Failed',
 }
 
 // viewportHeight reports the height the composer can be seen in: the visual
@@ -139,8 +198,37 @@ export function Composer({
   recall,
   chainInto,
 }: ComposerProps) {
-  const [error, setError] = useState('')
-  const [uploading, setUploading] = useState(false)
+  // submitError and attachError stay apart: a refused submit marks the prompt
+  // invalid and describes the field, a failed attach names its files and
+  // leaves the prompt alone.
+  const [submitError, setSubmitError] = useState('')
+  const [attachError, setAttachError] = useState('')
+  // uploads tracks the current batch's chips, the next batch replaces them
+  const [uploads, setUploads] = useState<UploadItem[]>([])
+  // attaching flags a batch on the wire for the paperclip, attachingRef is
+  // the synchronous guard: the picker, a paste and a drop all reach attach
+  // before the state could re-render
+  const [attaching, setAttaching] = useState(false)
+  const attachingRef = useRef(false)
+  // removedUploads drops a queued chip before its turn: the pool reads it when
+  // that file would start
+  const removedUploads = useRef(new Set<string>())
+  const submitErrorId = useId()
+  const attachErrorId = useId()
+  // clearErrors drops both messages with the edit that answers them
+  const clearErrors = useCallback(() => {
+    setSubmitError('')
+    setAttachError('')
+  }, [])
+
+  const setUpload = useCallback((id: string, status: UploadStatus, reference?: string) => {
+    setUploads((prev) =>
+      prev.map((item) =>
+        item.id === id ? { ...item, status, reference: reference ?? item.reference } : item,
+      ),
+    )
+  }, [])
+
   // Ctrl+R reverse search over the session's recall source. The machine state
   // holds the list it opened with, every render refilters against the current
   // one, so a workspace mirror landing under an open search joins the matches
@@ -337,19 +425,22 @@ export function Composer({
       if (pendingId !== undefined) optimistic(line, pendingId)
       inFlight.current[verb].add(line)
       typedSinceSend.current = false
-      setError('')
+      clearErrors()
       try {
         await submitWire[verb](sessionId, line, pendingId)
       } catch (err) {
         if (pendingId !== undefined) onFailed(pendingId)
-        setError(describeError(err, failureText))
+        setSubmitError(describeError(err, failureText))
         return // the refused text stays right where it is
       } finally {
         inFlight.current[verb].delete(line)
       }
-      if (!typedSinceSend.current && valueRef.current === draft) onChange('')
+      if (!typedSinceSend.current && valueRef.current === draft) {
+        onChange('')
+        setUploads([]) // the sent prompt takes its chips with it
+      }
     },
-    [disabled, sessionId, onChange],
+    [disabled, sessionId, onChange, clearErrors],
   )
 
   // send submits one draft line exactly as typed in the editor.
@@ -461,6 +552,7 @@ export function Composer({
     }
     typedSinceSend.current = true
     promptNav.current = null
+    clearErrors()
   }
 
   // recallStep walks the armed list: delta 1 recalls older, -1 newer, and
@@ -496,6 +588,7 @@ export function Composer({
     pendingSelectionRef.current = { text: next.value, caret: next.selectionStart }
     setCaret(next.selectionStart)
     typedSinceSend.current = true
+    clearErrors()
     onChange(next.value)
   }
 
@@ -543,10 +636,11 @@ export function Composer({
       setCaret(nextCaret)
       // a following Enter submits instead of completing again
       setPick({ key: '', index: 0, moved: false })
+      clearErrors()
       onChange(next)
       return next
     },
-    [token, value, caret, onChange],
+    [token, value, caret, onChange, clearErrors, setCaret],
   )
 
   // acceptCommand splices the chosen command over the slash query, the
@@ -561,6 +655,7 @@ export function Composer({
     setCaret(insert.length)
     // a following Enter submits instead of completing again
     setPick({ key: '', index: 0, moved: false })
+    clearErrors()
     onChange(next)
     return next
   }
@@ -672,6 +767,7 @@ export function Composer({
       pendingSelectionRef.current = { text: next, caret: start + 1 }
       setCaret(start + 1)
       typedSinceSend.current = true
+      clearErrors()
       onChange(next)
       return
     }
@@ -753,42 +849,169 @@ export function Composer({
   // and the draft gains an @<abs path> reference for vision models to inject.
   // Small text files inline as fenced blocks instead, so context sees them
   // without a round trip, oversize or unreadable ones fall back to uploading.
-  // The append builds on the live draft (valueRef.current), not the
-  // selection-time value: typing and prefills land during an upload. Pasted
-  // image files join here too, so paste and picker share one upload path.
+  // Up to attachConcurrency files ride the wire at once, each chip tracking its
+  // own state, and the batch appends its landed references to the live draft
+  // (valueRef.current, not the selection-time value), so typing and prefills
+  // during an upload survive. A partial failure keeps the references that
+  // landed and names the files that did not. Pasted image files join here too,
+  // so paste, picker and drop share one upload path.
   const attach = useCallback(
     async (files: FileList | File[] | null) => {
-      if (!files || files.length === 0) return
-      setUploading(true)
-      setError('')
+      if (!files || files.length === 0 || disabled || attachingRef.current) return
+      const jobs = Array.from(files, (file) => ({ file, id: newID('u') }))
+      attachingRef.current = true
+      removedUploads.current.clear()
+      setAttaching(true)
+      setAttachError('')
+      setUploads(jobs.map(({ file, id }) => ({ id, name: file.name, status: 'pending' })))
       try {
-        const refs: string[] = []
-        for (const file of Array.from(files)) {
-          if (isTextFile(file) && file.size <= inlineFileCapBytes) {
-            refs.push(await readInline(file))
-            continue
-          }
-          const res = await sessionAPI.attach(sessionId, file)
-          refs.push(`@${res.path}`)
+        const outcomes = await mapLimit(
+          jobs,
+          attachConcurrency,
+          async ({ file, id }): Promise<UploadOutcome> => {
+            if (removedUploads.current.has(id)) return { name: file.name }
+            setUpload(id, 'uploading')
+            try {
+              const inlined =
+                isTextFile(file) && file.size <= inlineFileCapBytes ? await readInline(file) : null
+              if (inlined !== null) {
+                setUpload(id, 'done')
+                return { name: file.name, reference: inlined }
+              }
+              const res = await sessionAPI.attach(sessionId, file)
+              const reference = `@${res.path}`
+              setUpload(id, 'done', reference)
+              return { name: file.name, reference }
+            } catch (err) {
+              setUpload(id, 'failed')
+              return { name: file.name, error: describeError(err, 'Attach failed.') }
+            }
+          },
+        )
+        const refs = outcomes.flatMap((outcome) =>
+          'reference' in outcome ? [outcome.reference] : [],
+        )
+        const failed = outcomes.filter((outcome) => 'error' in outcome)
+        if (refs.length > 0) {
+          const draft = valueRef.current
+          onChange(draft === '' ? refs.join('\n\n') : `${draft}\n\n${refs.join('\n\n')}`)
         }
-        const draft = valueRef.current
-        onChange(draft === '' ? refs.join('\n\n') : `${draft}\n\n${refs.join('\n\n')}`)
-      } catch (err) {
-        setError(describeError(err, 'Attach failed.'))
+        if (failed.length > 0) {
+          // one refusal carries its reason, several name their files and
+          // stay one readable line
+          const names = failed.map((item) => item.name).join(', ')
+          setAttachError(
+            failed.length === 1
+              ? `Could not attach ${names}: ${failed[0]!.error}`
+              : `Could not attach ${names}.`,
+          )
+        }
       } finally {
-        setUploading(false)
+        attachingRef.current = false
+        setAttaching(false)
         if (fileRef.current) fileRef.current.value = ''
       }
     },
-    [sessionId, onChange],
+    [disabled, sessionId, onChange, setUpload],
   )
 
+  // removeUpload drops a queued chip before its turn. An in-flight upload keeps
+  // running because the endpoint takes no abort signal, and a landed reference
+  // is draft text now, so both stay read-only.
+  const removeUpload = (id: string) => {
+    removedUploads.current.add(id)
+    setUploads((prev) => prev.filter((item) => item.id !== id))
+  }
+
+  // File drops ride the picker's attach path. Only a payload carrying files
+  // claims a drop: a session drag keeps the chain strip's, a text drag keeps
+  // the textarea's own insertion. A file drop is always cancelled whatever the
+  // composer's state, or the browser would open the file in the tab, and only
+  // attaches while dropReady holds.
+  const { dragging } = useSessionDrag()
+  // dragDepth counts enter and leave pairs, so moving over a child element
+  // never flickers the drop target off
+  const [dragDepth, setDragDepth] = useState(0)
+  const dropReady = !disabled && !attaching && dragging === null && search === null
+  const fileDragging = dragDepth > 0 && dropReady
+
+  const onDragEnter = (ev: DragEvent<HTMLFormElement>) => {
+    if (carriesFiles(ev)) setDragDepth((depth) => depth + 1)
+  }
+
+  const onDragOver = (ev: DragEvent<HTMLFormElement>) => {
+    if (!carriesFiles(ev)) return
+    ev.preventDefault() // an uncancelled dragover never delivers the drop
+    ev.dataTransfer.dropEffect = 'copy'
+  }
+
+  const onDragLeave = (ev: DragEvent<HTMLFormElement>) => {
+    if (carriesFiles(ev)) setDragDepth((depth) => Math.max(0, depth - 1))
+  }
+
+  const onDrop = (ev: DragEvent<HTMLFormElement>) => {
+    if (!carriesFiles(ev)) return
+    ev.preventDefault()
+    setDragDepth(0)
+    if (dropReady) void attach(ev.dataTransfer.files)
+  }
+
   return (
-    <form className="composer" onSubmit={onFormSubmit}>
+    <form
+      className={fileDragging ? 'composer file-drag' : 'composer'}
+      onSubmit={onFormSubmit}
+      onDragEnter={onDragEnter}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+    >
       {/* the no-modifier chain path: dropping another session's tab here
           opens the chain dialog with this session as the child */}
       {chainInto !== undefined && <ChainDropStrip sessionId={sessionId} chainInto={chainInto} />}
-      {error && <p className="error-text">{error}</p>}
+      {submitError !== '' && (
+        <p className="error-text" id={submitErrorId} role="alert">
+          {submitError}
+        </p>
+      )}
+      {attachError !== '' && (
+        <p className="error-text" id={attachErrorId} role="alert">
+          {attachError}
+        </p>
+      )}
+      {uploads.length > 0 && (
+        <ul className="composer-uploads" aria-label="Attachments">
+          {uploads.map((item) => (
+            <li key={item.id} className={`composer-upload ${item.status}`}>
+              {/* the working glyph and the landed marks are decoration, the
+                  status word beside them carries the state */}
+              <span className="composer-upload-icon" aria-hidden="true">
+                {item.status === 'uploading' ? (
+                  <Spinner state="wait" />
+                ) : item.status === 'done' ? (
+                  <CheckIcon size={14} />
+                ) : item.status === 'failed' ? (
+                  <CircleXIcon size={14} />
+                ) : null}
+              </span>
+              <span className="composer-upload-name" title={item.reference}>
+                {item.name}
+              </span>
+              <span className="composer-upload-word">{uploadWords[item.status]}</span>
+              {item.status === 'pending' && (
+                <button
+                  type="button"
+                  className="icon-btn"
+                  onClick={() => removeUpload(item.id)}
+                  aria-label={`Remove ${item.name}`}
+                  title="Remove"
+                >
+                  <CloseIcon size={14} />
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
       <div className="composer-box" ref={boxRef}>
         {/* popups portal through MenuPopover: pane clipping cannot cut them
             off and the layer stands workspace keys down while visible; an
@@ -898,6 +1121,8 @@ export function Composer({
                     : 'Send a prompt — Enter to send, Shift+Enter for newline'
           }
           aria-label="Prompt"
+          aria-invalid={submitError !== '' ? true : undefined}
+          aria-describedby={submitError !== '' ? submitErrorId : undefined}
           disabled={disabled}
           onChange={(ev) => {
             if (search !== null) {
@@ -905,6 +1130,7 @@ export function Composer({
               return // the draft never changes while the search holds the keys
             }
             typedSinceSend.current = true
+            clearErrors()
             onChange(ev.target.value)
           }}
           onPaste={(ev) => {
@@ -957,12 +1183,12 @@ export function Composer({
             <button
               type="button"
               className="icon-btn"
-              disabled={disabled || uploading}
+              disabled={disabled || attaching}
               onClick={() => fileRef.current?.click()}
               aria-label="Attach files"
               title="Attach images or text files"
             >
-              {uploading ? '…' : <AttachIcon />}
+              {attaching ? '…' : <AttachIcon />}
             </button>
             {/* stop rides beside Send, ahead of it in the touch order */}
             {stop && (
@@ -996,18 +1222,48 @@ export function Composer({
   )
 }
 
-function newPendingID(): string {
-  // randomUUID is secure-context only: plain HTTP over a LAN IP, a supported
-  // deployment, lacks it, so fall back to a random hex correlation.
+// newID mints a client-side id: randomUUID where the secure context allows
+// it, else a prefixed random hex correlation, since plain HTTP over a LAN IP,
+// a supported deployment, lacks the secure-context API.
+function newID(prefix: string): string {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID()
-  return `p${Math.random().toString(16).slice(2)}${Date.now().toString(16)}`
+  return `${prefix}${Math.random().toString(16).slice(2)}${Date.now().toString(16)}`
+}
+
+// newPendingID mints the correlation pairing an optimistic row with its reply.
+const newPendingID = (): string => newID('p')
+
+// mapLimit runs fn over items with at most limit in flight, answering in input
+// order.
+async function mapLimit<T, R>(
+  items: readonly T[],
+  limit: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length)
+  let next = 0
+  const worker = async (): Promise<void> => {
+    while (next < items.length) {
+      const at = next++
+      results[at] = await fn(items[at]!)
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
+  return results
+}
+
+// carriesFiles reports whether a drag payload holds files: session drags and
+// text selections ride other types and keep their default handling.
+function carriesFiles(ev: DragEvent): boolean {
+  return Array.from(ev.dataTransfer.types).includes('Files')
 }
 
 // readInline renders one small text file as a fenced block with the filename
-// prefixed above, binary-looking bytes upload instead of landing garbage.
-async function readInline(file: File): Promise<string> {
+// prefixed above, answering null for binary-looking bytes so the caller
+// uploads them instead of landing garbage in the draft.
+async function readInline(file: File): Promise<string | null> {
   const text = await file.text()
-  if (text.includes('\u0000')) throw new Error(`${file.name} is not readable text`)
+  if (text.includes('\u0000')) return null
   return `\`${file.name}\`:\n\`\`\`\n${text.replace(/\n$/, '')}\n\`\`\``
 }
 

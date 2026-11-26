@@ -20,9 +20,35 @@ function MenuHost(): ReactElement {
         open
       </button>
       {open && (
-        <OverlayMenu anchorRef={triggerRef} onClose={() => setOpen(false)}>
+        <OverlayMenu anchorRef={triggerRef} label="Actions" onClose={() => setOpen(false)}>
           <button type="button" role="menuitem" onClick={() => setOpen(false)}>
             pick
+          </button>
+        </OverlayMenu>
+      )}
+    </>
+  )
+}
+
+// HeaderHost mounts a menu carrying a header row, the shape the model menu's
+// filter takes through this layer.
+function HeaderHost(): ReactElement {
+  const [open, setOpen] = useState(false)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  return (
+    <>
+      <button ref={triggerRef} type="button" onClick={() => setOpen(true)}>
+        open
+      </button>
+      {open && (
+        <OverlayMenu
+          anchorRef={triggerRef}
+          label="Models"
+          header={<input aria-label="Filter" />}
+          onClose={() => setOpen(false)}
+        >
+          <button type="button" role="menuitemradio" aria-checked={false}>
+            one
           </button>
         </OverlayMenu>
       )}
@@ -40,7 +66,21 @@ describe('OverlayMenu', () => {
     render(<MenuHost />)
 
     await user.click(screen.getByRole('button', { name: 'open' }))
-    expect(await screen.findByRole('menu')).toBeInTheDocument()
+    // the label names the menu, a popup never inherits its trigger's name
+    expect(await screen.findByRole('menu', { name: 'Actions' })).toBeInTheDocument()
+  })
+
+  it('hosts its header above the items inside the layer', async () => {
+    const user = userEvent.setup()
+    render(<HeaderHost />)
+    await user.click(screen.getByRole('button', { name: 'open' }))
+
+    // the header rides the layer above the role element, never inside it
+    const menu = await screen.findByRole('menu', { name: 'Models' })
+    const filter = screen.getByLabelText('Filter')
+    expect(menu).not.toContainElement(filter)
+    expect(menu.parentElement).toContainElement(filter)
+    expect(menu).toContainElement(screen.getByRole('menuitemradio', { name: 'one' }))
   })
 
   it('dismisses on an outside tap', async () => {

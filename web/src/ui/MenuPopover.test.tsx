@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -106,12 +107,14 @@ function Harness({
   label = 'trigger',
   matchWidth,
   restoreFocus,
+  header,
 }: {
   align?: 'left' | 'right'
   startOpen?: boolean
   label?: string
   matchWidth?: boolean
   restoreFocus?: boolean
+  header?: ReactNode
 }) {
   const [open, setOpen] = useState(startOpen)
   const anchorRef = useRef<HTMLButtonElement>(null)
@@ -134,6 +137,7 @@ function Harness({
           role="menu"
           aria-label={label}
           className="menu popover-menu"
+          header={header}
           onClose={() => setOpen(false)}
         >
           <button type="button" role="menuitem">
@@ -145,32 +149,46 @@ function Harness({
   )
 }
 
+// layerOf is the positioned wrapper around a role element: placement, the
+// caller's className and the mount measurement live there, the role sits inside
+function layerOf(menu: HTMLElement): HTMLElement {
+  return menu.parentElement as HTMLElement
+}
+
 describe('MenuPopover', () => {
   it('portals past a clipped ancestor into the body', () => {
     render(<Harness />)
     const menu = screen.getByRole('menu')
-    expect(menu.parentElement).toBe(document.body)
-    expect(menu.closest('.clip')).toBeNull()
+    // the layer is the body-level box carrying the caller's className, the role
+    // element sits inside it with the caller's attributes
+    const layer = layerOf(menu)
+    expect(layer.parentElement).toBe(document.body)
+    expect(layer.closest('.clip')).toBeNull()
+    expect(layer).toHaveClass('popover-menu', 'pop-fade')
+    expect(menu).toHaveAttribute('aria-label', 'trigger')
+    expect(menu).not.toHaveClass('popover-menu')
   })
 
   it('lands placed on mount without transforming its box', () => {
     // the entrance is an opacity-only fade: a transform would move the box
     // this mount measurement reads, so none may ever sit on the layer
     render(<Harness />)
-    const menu = screen.getByRole('menu')
-    expect(menu.style.left).toBe(`${baseAnchor.left}px`)
-    expect(menu.style.top).toBe(`${baseAnchor.bottom + 4}px`)
-    expect(menu.style.transform).toBe('')
+    const layer = layerOf(screen.getByRole('menu'))
+    expect(layer.style.left).toBe(`${baseAnchor.left}px`)
+    expect(layer.style.top).toBe(`${baseAnchor.bottom + 4}px`)
+    expect(layer.style.transform).toBe('')
   })
 
   it('stays at its natural width by default', () => {
     render(<Harness />)
-    expect(screen.getByRole('menu').style.minWidth).toBe('')
+    expect(layerOf(screen.getByRole('menu')).style.minWidth).toBe('')
   })
 
   it('matchWidth stretches the layer to the trigger box', () => {
     render(<Harness matchWidth />)
-    expect(screen.getByRole('menu').style.minWidth).toBe(`${baseAnchor.right - baseAnchor.left}px`)
+    expect(layerOf(screen.getByRole('menu')).style.minWidth).toBe(
+      `${baseAnchor.right - baseAnchor.left}px`,
+    )
   })
 
   // placement math lives in placeMenu's own describe below, the component
@@ -293,20 +311,22 @@ describe('MenuPopover', () => {
 
   it('repositions when the window scrolls while open', () => {
     render(<Harness />)
-    expect(screen.getByRole('menu').style.top).toBe(`${baseAnchor.bottom + 4}px`)
+    expect(layerOf(screen.getByRole('menu')).style.top).toBe(`${baseAnchor.bottom + 4}px`)
 
     anchorBox = { ...baseAnchor, top: 700, bottom: 724 }
     act(() => {
       window.dispatchEvent(new Event('scroll'))
     })
     // the trigger now sits near the bottom edge, so the menu flips above
-    expect(screen.getByRole('menu').style.top).toBe(`${anchorBox.top - 4 - menuSize.height}px`)
+    expect(layerOf(screen.getByRole('menu')).style.top).toBe(
+      `${anchorBox.top - 4 - menuSize.height}px`,
+    )
   })
 
   it('repositions when the window resizes while open', () => {
     // no visual viewport stub here: this is the layout-viewport fallback path
     render(<Harness />)
-    expect(screen.getByRole('menu').style.top).toBe(`${baseAnchor.bottom + 4}px`)
+    expect(layerOf(screen.getByRole('menu')).style.top).toBe(`${baseAnchor.bottom + 4}px`)
 
     act(() => {
       // a viewport too short for below flips the menu above
@@ -315,7 +335,9 @@ describe('MenuPopover', () => {
     act(() => {
       window.dispatchEvent(new Event('resize'))
     })
-    expect(screen.getByRole('menu').style.top).toBe(`${baseAnchor.top - 4 - menuSize.height}px`)
+    expect(layerOf(screen.getByRole('menu')).style.top).toBe(
+      `${baseAnchor.top - 4 - menuSize.height}px`,
+    )
   })
 
   it('repositions when the visual viewport resizes while open', () => {
@@ -323,14 +345,16 @@ describe('MenuPopover', () => {
     // viewport ever moving
     stubViewport()
     render(<Harness />)
-    expect(screen.getByRole('menu').style.top).toBe(`${baseAnchor.bottom + 4}px`)
+    expect(layerOf(screen.getByRole('menu')).style.top).toBe(`${baseAnchor.bottom + 4}px`)
 
     vv.height = 180
     act(() => {
       vv.dispatchEvent(new Event('resize'))
     })
     // too short below now, room left above, so the menu flips over the trigger
-    expect(screen.getByRole('menu').style.top).toBe(`${baseAnchor.top - 4 - menuSize.height}px`)
+    expect(layerOf(screen.getByRole('menu')).style.top).toBe(
+      `${baseAnchor.top - 4 - menuSize.height}px`,
+    )
   })
 
   it('clamps into an offset visual viewport', () => {
@@ -339,7 +363,7 @@ describe('MenuPopover', () => {
     stubViewport({ width: 300, offsetLeft: 40 })
     render(<Harness />)
     // the 200px menu hugs the usable right edge, 8px inside its 340px bound
-    expect(screen.getByRole('menu').style.left).toBe(`${40 + 300 - 8 - menuSize.width}px`)
+    expect(layerOf(screen.getByRole('menu')).style.left).toBe(`${40 + 300 - 8 - menuSize.width}px`)
   })
 
   it('caps its height inside a keyboard-shortened viewport', () => {
@@ -347,42 +371,46 @@ describe('MenuPopover', () => {
     menuSize = { width: 200, height: 400 }
     render(<Harness />)
 
-    const menu = screen.getByRole('menu')
+    const layer = layerOf(screen.getByRole('menu'))
     // neither side fits the 284px cap, so the menu pins at the top margin and
     // scrolls inside the usable box instead of spilling under the keyboard
-    expect(menu.style.top).toBe('8px')
-    expect(menu.style.maxHeight).toBe('284px')
-    expect(menu.style.overflowY).toBe('auto')
+    expect(layer.style.top).toBe('8px')
+    expect(layer.style.maxHeight).toBe('284px')
+    expect(layer.style.overflowY).toBe('auto')
   })
 
   it('leaves its height uncapped while the usable viewport fits it', () => {
     stubViewport()
     render(<Harness />)
 
-    const menu = screen.getByRole('menu')
-    expect(menu.style.maxHeight).toBe('')
-    expect(menu.style.overflowY).toBe('')
+    const layer = layerOf(screen.getByRole('menu'))
+    expect(layer.style.maxHeight).toBe('')
+    expect(layer.style.overflowY).toBe('')
   })
 
   it('follows a trigger that moves without resizing', () => {
     render(<Harness />)
-    expect(screen.getByRole('menu').style.left).toBe(`${baseAnchor.left}px`)
+    expect(layerOf(screen.getByRole('menu')).style.left).toBe(`${baseAnchor.left}px`)
 
     // a pane divider drag shifts the whole trigger box, no scroll or resize
     anchorBox = { ...baseAnchor, left: 200, right: 260 }
     flushFrame()
-    expect(screen.getByRole('menu').style.left).toBe(`${anchorBox.left}px`)
+    expect(layerOf(screen.getByRole('menu')).style.left).toBe(`${anchorBox.left}px`)
   })
 
   it('follows a trigger that resizes while open', () => {
     render(<Harness matchWidth />)
-    expect(screen.getByRole('menu').style.minWidth).toBe(`${baseAnchor.right - baseAnchor.left}px`)
+    expect(layerOf(screen.getByRole('menu')).style.minWidth).toBe(
+      `${baseAnchor.right - baseAnchor.left}px`,
+    )
 
     // header chips wrap: the trigger box narrows with its pane
     anchorBox = { ...baseAnchor, left: 320, right: 350 }
     flushFrame()
-    expect(screen.getByRole('menu').style.left).toBe(`${anchorBox.left}px`)
-    expect(screen.getByRole('menu').style.minWidth).toBe(`${anchorBox.right - anchorBox.left}px`)
+    expect(layerOf(screen.getByRole('menu')).style.left).toBe(`${anchorBox.left}px`)
+    expect(layerOf(screen.getByRole('menu')).style.minWidth).toBe(
+      `${anchorBox.right - anchorBox.left}px`,
+    )
   })
 
   it('toggles from its own trigger without a close-reopen race', async () => {
@@ -395,18 +423,23 @@ describe('MenuPopover', () => {
 })
 
 // ItemsHost mounts a closed role=menu layer over its trigger, with named
-// items and an optional marked-current label, native-disabled item and filter
-// row -- the shapes the shared key behavior must tell apart.
+// items, an optional marked-current label, native-disabled item and header
+// filter row -- the shapes the shared key behavior must tell apart. Radio and
+// checkbox items carry aria-checked, plain items aria-current.
+type ItemRole = 'menuitem' | 'menuitemradio' | 'menuitemcheckbox'
+
 function ItemsHost({
   labels,
   current,
   disabled,
   filter,
+  role = 'menuitem',
 }: {
   labels: string[]
   current?: string
   disabled?: string
   filter?: boolean
+  role?: ItemRole
 }) {
   const [open, setOpen] = useState(false)
   const anchorRef = useRef<HTMLButtonElement>(null)
@@ -426,20 +459,23 @@ function ItemsHost({
           role="menu"
           aria-label="items menu"
           className="popover-menu"
+          header={
+            filter && (
+              <div className="menu-filter-row">
+                <input type="search" autoFocus aria-label="Filter models" />
+              </div>
+            )
+          }
           onClose={() => setOpen(false)}
         >
-          {filter && (
-            <div className="menu-filter-row">
-              <input type="search" autoFocus aria-label="Filter models" />
-            </div>
-          )}
           {labels.map((label) => (
             <button
               key={label}
               type="button"
-              role="menuitem"
+              role={role}
               disabled={label === disabled || undefined}
-              aria-current={label === current ? 'true' : undefined}
+              aria-checked={role === 'menuitem' ? undefined : label === current}
+              aria-current={role === 'menuitem' && label === current ? 'true' : undefined}
               onClick={() => setOpen(false)}
             >
               {label}
@@ -475,6 +511,18 @@ describe('MenuPopover menu keys', () => {
     await openWithKeyboard(user)
 
     expect(screen.getByRole('menuitem', { name: 'marked' })).toHaveFocus()
+  })
+
+  it('keyboard opening lands on the checked radio', async () => {
+    // a single-select list marks its current item with aria-checked, not
+    // aria-current, and the keyboard open must still find it
+    const user = userEvent.setup()
+    render(<ItemsHost labels={['plain', 'picked']} current="picked" role="menuitemradio" />)
+    await openWithKeyboard(user)
+
+    expect(screen.getByRole('menuitemradio', { name: 'picked' })).toHaveFocus()
+    expect(screen.getByRole('menuitemradio', { name: 'picked' })).toBeChecked()
+    expect(screen.getByRole('menuitemradio', { name: 'plain' })).not.toBeChecked()
   })
 
   it('keyboard opening skips a disabled first item', async () => {
@@ -521,6 +569,39 @@ describe('MenuPopover menu keys', () => {
     expect(within(menu).getByRole('menuitem', { name: 'c' })).toHaveFocus()
   })
 
+  it('arrows walk radio items too', async () => {
+    // the model and permission menus are single-select lists, their rows are
+    // menuitemradio and must ride the same navigation as plain items
+    const user = userEvent.setup()
+    render(
+      <ItemsHost
+        labels={['a', 'skipped', 'c']}
+        current="a"
+        disabled="skipped"
+        role="menuitemradio"
+      />,
+    )
+    const menu = await openWithKeyboard(user)
+    expect(within(menu).getByRole('menuitemradio', { name: 'a' })).toHaveFocus()
+
+    await user.keyboard('{ArrowDown}')
+    expect(within(menu).getByRole('menuitemradio', { name: 'c' })).toHaveFocus()
+    await user.keyboard('{End}')
+    expect(within(menu).getByRole('menuitemradio', { name: 'c' })).toHaveFocus()
+    await user.keyboard('{Home}')
+    expect(within(menu).getByRole('menuitemradio', { name: 'a' })).toHaveFocus()
+  })
+
+  it('arrows walk checkbox items too', async () => {
+    const user = userEvent.setup()
+    render(<ItemsHost labels={['x', 'y']} role="menuitemcheckbox" />)
+    const menu = await openWithKeyboard(user)
+    expect(within(menu).getByRole('menuitemcheckbox', { name: 'x' })).toHaveFocus()
+
+    await user.keyboard('{ArrowDown}')
+    expect(within(menu).getByRole('menuitemcheckbox', { name: 'y' })).toHaveFocus()
+  })
+
   it('home and end jump to the enabled ends', async () => {
     const user = userEvent.setup()
     render(<ItemsHost labels={['a', 'skipped', 'c']} disabled="skipped" />)
@@ -549,6 +630,41 @@ describe('MenuPopover menu keys', () => {
 
     await user.keyboard('{ArrowDown}')
     expect(screen.getByLabelText('Filter models')).toHaveFocus()
+  })
+
+  it('renders the header inside the layer but outside the menu', async () => {
+    const user = userEvent.setup()
+    render(<ItemsHost labels={['first']} filter />)
+    const menu = await openWithKeyboard(user)
+
+    // the filter row rides the layer above the role element: the menu's
+    // children are items only, the input never reads as one
+    const filter = screen.getByLabelText('Filter models')
+    expect(menu).not.toContainElement(filter)
+    expect(filter.closest('[role="menu"]')).toBeNull()
+    expect(layerOf(menu)).toContainElement(filter)
+    expect(menu.querySelector('input')).toBeNull()
+    // tab order still runs filter first, then the items
+    expect(
+      filter.compareDocumentPosition(screen.getByRole('menuitem', { name: 'first' })) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+  })
+
+  it('measures the whole layer, header included', () => {
+    // the header belongs to the measured box: a layer measured at its role
+    // element alone would flip against the wrong height
+    render(<Harness header={<div className="popover-header">filter</div>} />)
+    const menu = screen.getByRole('menu')
+    expect(layerOf(menu)).toContainElement(screen.getByText('filter'))
+    expect(menu).not.toContainElement(screen.getByText('filter'))
+
+    anchorBox = { ...baseAnchor, top: 700, bottom: 724 }
+    act(() => {
+      window.dispatchEvent(new Event('scroll'))
+    })
+    // the 64px stubbed height is the layer's (.popover-menu), not the role box
+    expect(layerOf(menu).style.top).toBe(`${anchorBox.top - 4 - menuSize.height}px`)
   })
 
   it('enter activates the focused item', async () => {

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import type { HTMLAttributes, RefObject } from 'react'
+import type { HTMLAttributes, ReactNode, RefObject } from 'react'
 import { createPortal } from 'react-dom'
 
 import { overlayEnter, overlayLeave, overlayTopmost } from './overlayStack'
@@ -117,12 +117,19 @@ type MenuPopoverProps = {
   matchWidth?: boolean
   // leave focus wherever closing left it, for blur-closed layers
   restoreFocus?: boolean
+  // header renders inside the positioned layer but above the role element, so
+  // a filter row never counts as a menu child
+  header?: ReactNode
 } & Omit<HTMLAttributes<HTMLDivElement>, 'onClose'>
 
-// enabledItems lists a menu layer's role=menuitem elements in DOM order,
-// disabled entries excluded; headings and filter rows never carry the role.
+// itemSelector lists every role the key navigation treats as an item: plain
+// items plus the single-select radio and checkbox widgets.
+const itemSelector = '[role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"]'
+
+// enabledItems lists a menu layer's item elements in DOM order, disabled
+// entries excluded; headings and filter rows never carry an item role.
 function enabledItems(menu: HTMLElement): HTMLElement[] {
-  return Array.from(menu.querySelectorAll<HTMLElement>('[role="menuitem"]')).filter(
+  return Array.from(menu.querySelectorAll<HTMLElement>(itemSelector)).filter(
     (el) => !el.hasAttribute('disabled') && el.getAttribute('aria-disabled') !== 'true',
   )
 }
@@ -138,6 +145,12 @@ function enabledItems(menu: HTMLElement): HTMLElement[] {
 // claimed are left alone. Closing returns focus to the element focused at open.
 // The layer enters through .pop-fade, an opacity-only fade: a transform would
 // move the box mount measurement reads.
+//
+// The layer is two boxes: the outer carries placement, the caller's className
+// (card and scroll styling) and the measurement, the inner carries the role
+// with the rest of the caller's attributes and the items. `header` sits between
+// the two, inside the measured layer but outside the role subtree.
+//
 // Layers carrying role="menu" also drive their items: keyboard opens move
 // focus to the current or first enabled item (pointer opens never steal),
 // arrows and Home/End walk among enabled items, and Tab closes so focus
@@ -151,6 +164,8 @@ export function MenuPopover({
   restoreFocus = true,
   role,
   className,
+  style,
+  header,
   children,
   ...rest
 }: MenuPopoverProps) {
@@ -249,15 +264,20 @@ export function MenuPopover({
   const isMenu = role === 'menu'
 
   // A keyboard-opened menu takes the caret: the marked current item when one
-  // exists, else the first enabled one. Runs once placed (a hidden layer
-  // cannot take focus), skips when content already focused itself -- the model
-  // filter's autofocus keeps its caret -- and pointer opens never steal.
+  // exists, else the first enabled one. Current is the checked radio or
+  // checkbox, else the plain item marked aria-current. Runs once placed (a
+  // hidden layer cannot take focus), skips when content already focused itself
+  // -- the model filter's autofocus keeps its caret -- and pointer opens never
+  // steal.
   useLayoutEffect(() => {
     if (!isMenu || placement === null || !lastInputWasKeyboard) return
     const menu = menuRef.current
     if (menu === null || menu.contains(document.activeElement)) return
     const items = enabledItems(menu)
-    const current = items.find((el) => el.getAttribute('aria-current') === 'true')
+    const current = items.find(
+      (el) =>
+        el.getAttribute('aria-checked') === 'true' || el.getAttribute('aria-current') === 'true',
+    )
     ;(current ?? items[0])?.focus({ preventScroll: true })
   }, [isMenu, placement])
 
@@ -300,11 +320,9 @@ export function MenuPopover({
   return createPortal(
     <div
       ref={menuRef}
-      role={role}
-      {...rest}
       className={className === undefined ? 'pop-fade' : `pop-fade ${className}`}
       style={{
-        ...rest.style,
+        ...style,
         position: 'fixed',
         visibility: placement ? undefined : 'hidden',
         left: placement?.left,
@@ -316,7 +334,12 @@ export function MenuPopover({
         overflowY: placement?.maxHeight !== undefined ? 'auto' : undefined,
       }}
     >
-      {children}
+      {header}
+      {/* the rest of the caller's attributes name and describe the role,
+          so they ride the same element as it */}
+      <div role={role} {...rest} className="menu-body">
+        {children}
+      </div>
     </div>,
     document.body,
   )

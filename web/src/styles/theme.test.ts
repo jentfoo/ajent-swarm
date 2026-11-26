@@ -144,6 +144,16 @@ describe('theme touch layout rules', () => {
   })
 })
 
+describe('theme menu body', () => {
+  it('stacks the role element inside a popover layer', () => {
+    // MenuPopover's layer is the caller's className box; the role element under
+    // a header must lay its items out the same column the layer used to
+    const rule = bareCss.match(/\.menu-body \{[^}]*\}/)![0]
+    expect(rule).toContain('display: flex;')
+    expect(rule).toContain('flex-direction: column;')
+  })
+})
+
 describe('theme dialog dock bounds', () => {
   const touchDock = css.match(/\.dialog-dock\.touch \{[^}]*\}/)![0]
 

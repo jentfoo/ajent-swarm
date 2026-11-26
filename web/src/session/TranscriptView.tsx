@@ -40,7 +40,9 @@ const scrollAwayKeys = new Set(['ArrowUp', 'PageUp', 'Home'])
 // latest, relabeling `↓ New output` when transcript content arrived while the
 // view sat unstuck. The session-local Find surface scrolls committed rows into
 // view and marks the active hit's row. A sessionId change (swapping sessions
-// inside one hosted view) re-lands on the latest too and resets both.
+// inside one hosted view) re-lands on the latest too and resets both. The
+// wrapper is a named region: a landmark a reader can jump to that stays quiet
+// while the virtualizer re-renders rows.
 export function TranscriptView({
   sessionId,
   state,
@@ -410,7 +412,7 @@ export function TranscriptView({
   }, [pullDownToLatest, jumpToLatest])
 
   return (
-    <div className="transcript-wrap" aria-label="Transcript">
+    <div className="transcript-wrap" role="region" aria-label="Transcript">
       {!state.chain.rooted && state.chain.ids.length > 0 && (
         <>
           <p>

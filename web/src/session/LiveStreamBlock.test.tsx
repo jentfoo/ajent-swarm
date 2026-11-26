@@ -137,6 +137,19 @@ describe('LiveStreamBlock thinking panel', () => {
   })
 })
 
+describe('LiveStreamBlock landmarks', () => {
+  it('is a named group, never a live region', () => {
+    // deltas land many times a second: the block must not narrate them, the
+    // turn-end announcement in the surfaces speaks once instead
+    render(<LiveStreamBlock onThinkingToggle={noopToggle} live={liveFor({ text: 'streaming' })} />)
+
+    const block = screen.getByRole('group', { name: 'Live stream' })
+    expect(block).toHaveClass('live-block')
+    expect(block).not.toHaveAttribute('aria-live')
+    expect(screen.queryByRole('log')).not.toBeInTheDocument()
+  })
+})
+
 describe('LiveStreamBlock tool cards', () => {
   it('headers a user shell card from its label', () => {
     render(

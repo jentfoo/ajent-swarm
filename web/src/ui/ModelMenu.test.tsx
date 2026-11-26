@@ -9,7 +9,8 @@ import { stubCoarsePointer } from '../test/matchMedia'
 // The one model menu both chat headers render, over the shared useModelMenu
 // controller: one fetch per open filling the shared grouped items, model.set
 // switching without a picker, refusals surfacing as toasts, and the pointer
-// class picking OverlayMenu against MenuPopover exactly like ModeMenu.
+// class picking OverlayMenu against MenuPopover exactly like ModeMenu. The
+// filter rides the popover's header slot outside the menu role on both branches.
 
 const zeroUsage = () => ({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0 })
 
@@ -72,7 +73,7 @@ describe('ModelMenu', () => {
     expect(document.querySelector('.model-chip-wrap')).not.toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: /sonnet/ }))
-    expect(await screen.findByRole('menu')).toBeInTheDocument()
+    expect(await screen.findByRole('menu', { name: 'Models' })).toBeInTheDocument()
   })
 
   it('lists the registry grouped and marks the active model', async () => {
@@ -94,7 +95,7 @@ describe('ModelMenu', () => {
     render(<ModelMenu sessionId="01S" snap={snapFor()} onToast={() => {}} />)
     await user.click(screen.getByRole('button', { name: /sonnet/ }))
 
-    const items = await screen.findAllByRole('menuitem')
+    const items = await screen.findAllByRole('menuitemradio')
     expect(items.map((el) => el.textContent?.replace(/\s*current$/, ''))).toEqual([
       'sonnet',
       'haiku',
@@ -102,6 +103,108 @@ describe('ModelMenu', () => {
     ])
     expect(screen.getByRole('group', { name: 'anthropic' })).toBeInTheDocument()
     expect(items.filter((el) => el.textContent?.includes('current'))).toHaveLength(1)
+    // the active model is the one checked radio, the badge its visual twin
+    expect(screen.getByRole('menuitemradio', { name: /^sonnet/ })).toBeChecked()
+    expect(screen.getAllByRole('menuitemradio', { checked: true })).toHaveLength(1)
+  })
+
+  it('keeps the filter input outside the menu role', async () => {
+    const user = userEvent.setup()
+    stubFetch((url) => {
+      if (url === '/api/sessions/01S/models') {
+        return Response.json({
+          active: 'anthropic/claude-sonnet',
+          models: [{ key: 'anthropic/claude-sonnet', short: 'sonnet' }],
+        })
+      }
+      throw new Error(`unexpected fetch ${url}`)
+    })
+
+    render(<ModelMenu sessionId="01S" snap={snapFor()} onToast={() => {}} />)
+    await user.click(screen.getByRole('button', { name: /sonnet/ }))
+    const menu = await screen.findByRole('menu', { name: 'Models' })
+
+    // the filter row rides the layer above the role element, so the menu's
+    // children are items only
+    const filter = screen.getByRole('searchbox', { name: 'Filter models' })
+    expect(menu).not.toContainElement(filter)
+    expect(menu.parentElement).toContainElement(filter)
+    expect(menu.querySelector('input')).toBeNull()
+  })
+
+  it('narrows the rows from the header filter', async () => {
+    const user = userEvent.setup()
+    stubFetch((url) => {
+      if (url === '/api/sessions/01S/models') {
+        return Response.json({
+          active: 'anthropic/claude-sonnet',
+          models: [
+            { key: 'anthropic/claude-sonnet', short: 'sonnet' },
+            { key: 'anthropic/claude-haiku', short: 'haiku' },
+          ],
+        })
+      }
+      throw new Error(`unexpected fetch ${url}`)
+    })
+
+    render(<ModelMenu sessionId="01S" snap={snapFor()} onToast={() => {}} />)
+    // a keyboard open autofocuses the header filter without stealing into items
+    await user.tab()
+    await user.keyboard('{Enter}')
+    const filter = await screen.findByRole('searchbox', { name: 'Filter models' })
+    expect(filter).toHaveFocus()
+    expect(screen.getAllByRole('menuitemradio').map((el) => el.textContent)).toEqual([
+      'sonnetcurrent',
+      'haiku',
+    ])
+
+    await user.type(filter, 'haiku')
+    expect(screen.getAllByRole('menuitemradio').map((el) => el.textContent)).toEqual(['haiku'])
+    // the caret keeps its own keys while the rows narrow underneath it
+    expect(filter).toHaveFocus()
+  })
+
+  it('starts every open with a blank filter', async () => {
+    const user = userEvent.setup()
+    stubFetch((url) => {
+      if (url === '/api/sessions/01S/models') {
+        return Response.json({
+          active: 'anthropic/claude-sonnet',
+          models: [
+            { key: 'anthropic/claude-sonnet', short: 'sonnet' },
+            { key: 'anthropic/claude-haiku', short: 'haiku' },
+          ],
+        })
+      }
+      throw new Error(`unexpected fetch ${url}`)
+    })
+
+    render(<ModelMenu sessionId="01S" snap={snapFor()} onToast={() => {}} />)
+    await user.click(screen.getByRole('button', { name: /sonnet/ }))
+    await user.type(await screen.findByRole('searchbox', { name: 'Filter models' }), 'haiku')
+    expect(screen.getAllByRole('menuitemradio')).toHaveLength(1)
+
+    // close, then reopen: the fresh visit lists everything again
+    fireEvent.pointerDown(document.body)
+    await user.click(screen.getByRole('button', { name: /sonnet/ }))
+    expect(await screen.findByRole('searchbox', { name: 'Filter models' })).toHaveValue('')
+    expect(screen.getAllByRole('menuitemradio')).toHaveLength(2)
+  })
+
+  it('drops the filter row while nothing lists', async () => {
+    const user = userEvent.setup()
+    stubFetch((url) => {
+      if (url === '/api/sessions/01S/models') return Response.json({ active: '', models: [] })
+      throw new Error(`unexpected fetch ${url}`)
+    })
+
+    render(<ModelMenu sessionId="01S" snap={snapFor()} onToast={() => {}} />)
+    await user.click(screen.getByRole('button', { name: /sonnet/ }))
+
+    expect(await screen.findByRole('menu', { name: 'Models' })).toHaveTextContent(
+      'No models listed.',
+    )
+    expect(screen.queryByRole('searchbox')).not.toBeInTheDocument()
   })
 
   it('announces the trigger as a toggleable menu', async () => {
@@ -123,7 +226,7 @@ describe('ModelMenu', () => {
     expect(chip).toHaveAttribute('aria-expanded', 'false')
 
     await user.click(chip)
-    await screen.findByRole('menuitem')
+    await screen.findByRole('menuitemradio')
     expect(chip).toHaveAttribute('aria-expanded', 'true')
   })
 
@@ -160,12 +263,12 @@ describe('ModelMenu', () => {
 
     render(<ModelMenu sessionId="01S" snap={snapFor()} onToast={() => {}} />)
     await user.click(screen.getByRole('button', { name: /sonnet/ }))
-    await user.click(await screen.findByRole('menuitem', { name: 'h' }))
+    await user.click(await screen.findByRole('menuitemradio', { name: 'h' }))
 
     await vi.waitFor(() => {
       expect(spy.mock.calls.some(([u]) => String(u).endsWith('/model'))).toBe(true)
     })
-    expect(screen.queryByRole('menuitem')).not.toBeInTheDocument()
+    expect(screen.queryByRole('menuitemradio')).not.toBeInTheDocument()
   })
 
   it('toasts a listing refusal and never opens the menu', async () => {
@@ -187,7 +290,7 @@ describe('ModelMenu', () => {
     await vi.waitFor(() => {
       expect(onToast).toHaveBeenCalledWith('another controller holds the seat', 'error')
     })
-    expect(screen.queryByRole('menuitem')).not.toBeInTheDocument()
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
   })
 
   it('closes on platform back for touch pointers', async () => {
@@ -210,7 +313,9 @@ describe('ModelMenu', () => {
       render(<ModelMenu sessionId="01S" snap={snapFor()} onToast={() => {}} />)
       expect(document.querySelector('.model-chip-wrap')).toBeInTheDocument()
       await user.click(screen.getByRole('button', { name: /sonnet/ }))
-      expect(await screen.findByRole('menuitem', { name: /sonnet/ })).toBeInTheDocument()
+      // the touch branch names its menu and checks its active row the same way
+      expect(await screen.findByRole('menu', { name: 'Models' })).toBeInTheDocument()
+      expect(screen.getByRole('menuitemradio', { name: /^sonnet/ })).toBeChecked()
 
       // the platform back gesture pops the menu's own history entry and closes it
       act(() => {
@@ -245,7 +350,11 @@ describe('ModelMenu', () => {
 
     render(<ModelMenu sessionId="01S" snap={snapFor()} onToast={() => {}} />)
     await user.click(screen.getByRole('button', { name: /sonnet/ }))
-    expect(await screen.findByRole('menuitem', { name: /sonnet/ })).toBeInTheDocument()
+    expect(await screen.findByRole('menuitemradio', { name: /^sonnet/ })).toBeInTheDocument()
+    // the filter rides outside the menu role on this branch too
+    expect(screen.getByRole('menu', { name: 'Models' })).not.toContainElement(
+      screen.getByRole('searchbox'),
+    )
     expect(screen.getByRole('searchbox')).not.toHaveFocus()
 
     // settle the queued consume and leave unstamped ground behind, like the
@@ -270,11 +379,11 @@ describe('ModelMenu', () => {
 
     render(<ModelMenu sessionId="01S" snap={snapFor()} onToast={() => {}} />)
     await user.click(screen.getByRole('button', { name: /sonnet/ }))
-    await screen.findByRole('menuitem')
+    await screen.findByRole('menuitemradio')
 
     fireEvent.pointerDown(document.body) // outside the menu closes it
     await user.click(screen.getByTitle('Switch model'))
-    await screen.findByRole('menuitem')
+    await screen.findByRole('menuitemradio')
     expect(vi.mocked(fetch).mock.calls.filter(([u]) => String(u).endsWith('/models'))).toHaveLength(
       2,
     )

@@ -3,6 +3,7 @@ import type {
   DragEvent,
   KeyboardEvent as ReactKeyboardEvent,
   PointerEvent as ReactPointerEvent,
+  RefObject,
 } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
 
@@ -770,38 +771,47 @@ function SessionPicker({
       >
         {label}
       </button>
-      {open && (
-        <MenuPopover
-          anchorRef={addRef}
-          align="right"
-          className={empty ? 'tile-menu muted' : 'tile-menu'}
-          role={empty ? undefined : 'menu'}
-          onClose={() => setOpen(false)}
-        >
-          {empty ? (
-            'No sessions known.'
-          ) : (
-            <PickerMenu ordered={ordered} nameFor={nameFor} onOpen={pick} allowSplit={allowSplit} />
-          )}
-        </MenuPopover>
-      )}
+      {open &&
+        (empty ? (
+          <MenuPopover
+            anchorRef={addRef}
+            align="right"
+            className="tile-menu muted"
+            onClose={() => setOpen(false)}
+          >
+            No sessions known.
+          </MenuPopover>
+        ) : (
+          <PickerMenu
+            anchorRef={addRef}
+            ordered={ordered}
+            nameFor={nameFor}
+            onOpen={pick}
+            allowSplit={allowSplit}
+            onClose={() => setOpen(false)}
+          />
+        ))}
     </>
   )
 }
 
-// PickerMenu is the open picker's body: the model menu's filter pattern over
-// the live-before-ended rows. Mounted fresh per open, so every visit starts
-// with a blank query.
+// PickerMenu is the open picker's layer: the model menu's filter pattern over
+// the live-before-ended rows, the filter riding the header slot outside the
+// menu role. Mounted fresh per open, so every visit starts with a blank query.
 function PickerMenu({
+  anchorRef,
   ordered,
   nameFor,
   onOpen,
   allowSplit,
+  onClose,
 }: {
+  anchorRef: RefObject<HTMLButtonElement | null>
   ordered: SessionStatus[]
   nameFor: (sessionId: string) => string
   onOpen: (sessionId: string, split?: boolean) => void
   allowSplit: boolean
+  onClose: () => void
 }) {
   const [query, setQuery] = useState('')
   const q = normalizeQuery(query)
@@ -813,10 +823,19 @@ function PickerMenu({
   )
 
   return (
-    <>
-      <div className="menu-filter-row">
-        <ListFilter label="Filter sessions" value={query} onChange={setQuery} autoFocus />
-      </div>
+    <MenuPopover
+      anchorRef={anchorRef}
+      align="right"
+      className="tile-menu"
+      role="menu"
+      aria-label="Sessions"
+      header={
+        <div className="menu-filter-row">
+          <ListFilter label="Filter sessions" value={query} onChange={setQuery} autoFocus />
+        </div>
+      }
+      onClose={onClose}
+    >
       {visible.length === 0 ? (
         <span className="muted menu-empty">No sessions match.</span>
       ) : (
@@ -844,6 +863,6 @@ function PickerMenu({
           </div>
         ))
       )}
-    </>
+    </MenuPopover>
   )
 }

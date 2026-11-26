@@ -46,15 +46,24 @@ export default function MobileShell({ children }: { children: ReactNode }) {
     location.pathname === '/' ||
     location.pathname.startsWith('/s/') ||
     location.pathname.startsWith('/m/read/')
+  const jobsRoute = location.pathname.startsWith('/jobs')
 
   return (
     <div className="app-shell mobile-shell">
       <header className="topbar mobile-topbar">
         <nav aria-label="Primary">
-          <Link to="/" className={sessionsRoute ? 'active' : ''}>
+          <Link
+            to="/"
+            className={sessionsRoute ? 'active' : ''}
+            aria-current={sessionsRoute ? 'page' : undefined}
+          >
             Sessions
           </Link>
-          <Link to="/jobs" className={location.pathname.startsWith('/jobs') ? 'active' : ''}>
+          <Link
+            to="/jobs"
+            className={jobsRoute ? 'active' : ''}
+            aria-current={jobsRoute ? 'page' : undefined}
+          >
             Jobs
           </Link>
         </nav>

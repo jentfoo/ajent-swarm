@@ -1,10 +1,8 @@
-import { fireEvent, render, screen } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { render, screen } from '@testing-library/react'
+import { describe, expect, it, vi } from 'vitest'
 
 import { ModelMenuItems } from './ModelMenuItems'
 import type { ModelState } from '../api/types'
-import { stubCoarsePointer } from '../test/matchMedia'
 
 const model = (key: string, short = '', window = 0): ModelState => ({
   key,
@@ -13,25 +11,25 @@ const model = (key: string, short = '', window = 0): ModelState => ({
   caps: { reasoning: false, images: false, parallelToolCalls: false },
 })
 
-const labels = () => screen.getAllByRole('menuitem').map((el) => el.textContent)
+const labels = () => screen.getAllByRole('menuitemradio').map((el) => el.textContent)
 
-// The grouped menu body both chat model menus render: a filter input above a
-// muted heading per provider, short labels with the full key as tooltip, loose
-// models by full key, the current badge on the active or snapshot key, and the
-// empty messages. Escape in the filter clears the query before the overlay's
-// own close can claim the press, and the caret waits for a deliberate focus
-// on touch.
+const registry = [
+  model('anthropic/sonnet', 'sonnet'),
+  model('anthropic/haiku', 'haiku'),
+  model('openai/gpt', 'gpt'),
+  model('local-tuned'),
+]
+
+// The grouped menu body both chat model menus render under their filter header:
+// a muted heading per provider, short labels with the full key as tooltip, loose
+// models by full key, the current badge and aria-checked on the active or
+// snapshot key, and the empty messages. The query is the header's value.
 describe('ModelMenuItems', () => {
-  // the pointer stubs here are global, so each test starts from the setup's
-  // fine-pointer stand-in again
-  afterEach(() => {
-    vi.unstubAllGlobals()
-  })
-
   it('renders a heading before each provider group', () => {
     render(
       <ModelMenuItems
         models={[model('anthropic/sonnet', 'sonnet'), model('openai/gpt', 'gpt')]}
+        query=""
         active=""
         currentKey=""
         onPick={() => {}}
@@ -47,16 +45,13 @@ describe('ModelMenuItems', () => {
     render(
       <ModelMenuItems
         models={[model('local-tuned'), model('also-bare'), model('/slashed')]}
+        query=""
         active=""
         currentKey=""
         onPick={() => {}}
       />,
     )
-    expect(screen.getAllByRole('menuitem').map((el) => el.textContent)).toEqual([
-      'local-tuned',
-      'also-bare',
-      '/slashed',
-    ])
+    expect(labels()).toEqual(['local-tuned', 'also-bare', '/slashed'])
     expect(screen.queryByRole('group')).not.toBeInTheDocument()
   })
 
@@ -64,193 +59,127 @@ describe('ModelMenuItems', () => {
     render(
       <ModelMenuItems
         models={[model('anthropic/claude-x')]}
+        query=""
         active=""
         currentKey=""
         onPick={() => {}}
       />,
     )
-    expect(screen.getByRole('menuitem', { name: 'anthropic/claude-x' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitemradio', { name: 'anthropic/claude-x' })).toBeInTheDocument()
   })
 
-  it('marks the active and snapshot keys as current', () => {
+  it('exposes every row as a radio, the current ones checked', () => {
     render(
       <ModelMenuItems
         models={[model('a/one', 'one'), model('a/two', 'two'), model('b/three', 'three')]}
+        query=""
         active="a/one"
         currentKey="a/two"
         onPick={() => {}}
       />,
     )
-    const items = screen.getAllByRole('menuitem')
+    const items = screen.getAllByRole('menuitemradio')
     expect(items.map((el) => el.textContent?.replace(/\s*current$/, ''))).toEqual([
       'one',
       'two',
       'three',
     ])
+    // the listing's active and the snapshot's key both read as current
+    expect(screen.getAllByRole('menuitemradio', { checked: true })).toHaveLength(2)
+    expect(screen.getByRole('menuitemradio', { name: /^one/ })).toBeChecked()
+    expect(screen.getByRole('menuitemradio', { name: /^two/ })).toBeChecked()
+    expect(screen.getByRole('menuitemradio', { name: 'three' })).not.toBeChecked()
+    expect(screen.getAllByRole('menuitemradio', { checked: false })).toHaveLength(1)
+    // the badge is the visual twin of the checked state, never its carrier
     expect(items.filter((el) => el.textContent?.includes('current'))).toHaveLength(2)
+    expect(screen.queryByRole('menuitem')).not.toBeInTheDocument()
   })
 
   it('tooltips the full key and names the window when known', () => {
     render(
       <ModelMenuItems
         models={[model('a/big', 'big', 200_000), model('b/small', 'small', 0)]}
+        query=""
         active=""
         currentKey=""
         onPick={() => {}}
       />,
     )
-    const big = screen.getByRole('menuitem', { name: 'big' })
+    const big = screen.getByRole('menuitemradio', { name: 'big' })
     expect(big.getAttribute('title')).toContain('a/big')
     expect(big.getAttribute('title')).toContain('token window')
-    expect(screen.getByRole('menuitem', { name: 'small' }).getAttribute('title')).toBe('b/small')
+    expect(screen.getByRole('menuitemradio', { name: 'small' }).getAttribute('title')).toBe(
+      'b/small',
+    )
   })
 
   it('shows the empty message when nothing lists', () => {
-    render(<ModelMenuItems models={[]} active="" currentKey="" onPick={() => {}} />)
+    render(<ModelMenuItems models={[]} query="" active="" currentKey="" onPick={() => {}} />)
     expect(screen.getByText('No models listed.')).toBeInTheDocument()
-    expect(screen.queryByRole('menuitem')).not.toBeInTheDocument()
-    expect(screen.queryByRole('searchbox')).not.toBeInTheDocument()
+    expect(screen.queryByRole('menuitemradio')).not.toBeInTheDocument()
   })
 
-  it('takes the caret on mount', () => {
-    render(<ModelMenuItems models={[model('a/one')]} active="" currentKey="" onPick={() => {}} />)
-    expect(screen.getByRole('searchbox')).toHaveFocus()
-  })
-
-  it('waits for a deliberate tap before touch focus', async () => {
-    // a tap-opened touch menu must not grab the caret: that would summon the
-    // software keyboard before the user asked for it
-    stubCoarsePointer()
-    fireEvent.pointerDown(document.body) // the tap that opened this menu
-    render(
-      <ModelMenuItems models={[model('a/one', 'one')]} active="" currentKey="" onPick={() => {}} />,
-    )
-    expect(screen.getByRole('searchbox')).not.toHaveFocus()
-
-    // tapping Filter models and typing still works
-    const user = userEvent.setup()
-    await user.click(screen.getByRole('searchbox'))
-    await user.keyboard('one')
-    expect(labels()).toEqual(['one'])
-  })
-
-  it('touch keyboard opens still take the caret', () => {
-    // a hardware keyboard opening the menu is already deliberate, so the
-    // coarse-pointer gate must not strand that flow without a caret
-    stubCoarsePointer()
-    fireEvent.keyDown(document.body, { key: 'Enter' })
-    render(<ModelMenuItems models={[model('a/one')]} active="" currentKey="" onPick={() => {}} />)
-    expect(screen.getByRole('searchbox')).toHaveFocus()
-  })
-
-  it('narrows the tree live as the query types', async () => {
-    const user = userEvent.setup()
-    render(
-      <ModelMenuItems
-        models={[
-          model('anthropic/sonnet', 'sonnet'),
-          model('anthropic/haiku', 'haiku'),
-          model('openai/gpt', 'gpt'),
-          model('local-tuned'),
-        ]}
-        active=""
-        currentKey=""
-        onPick={() => {}}
-      />,
+  it('narrows the tree by the header query', () => {
+    const view = render(
+      <ModelMenuItems models={registry} query="" active="" currentKey="" onPick={() => {}} />,
     )
     expect(labels()).toEqual(['sonnet', 'haiku', 'gpt', 'local-tuned'])
 
-    const filter = screen.getByRole('searchbox')
-    await user.type(filter, 'haiku')
+    view.rerender(
+      <ModelMenuItems models={registry} query="haiku" active="" currentKey="" onPick={() => {}} />,
+    )
     expect(screen.queryByRole('group', { name: 'openai' })).not.toBeInTheDocument()
     expect(labels()).toEqual(['haiku'])
 
     // loosening the query brings the dropped groups back
-    await user.clear(filter)
+    view.rerender(
+      <ModelMenuItems models={registry} query="" active="" currentKey="" onPick={() => {}} />,
+    )
     expect(labels()).toEqual(['sonnet', 'haiku', 'gpt', 'local-tuned'])
   })
 
-  it('shows the distinct no-match message for a filter miss', async () => {
-    const user = userEvent.setup()
+  it('shows the distinct no-match message for a filter miss', () => {
     render(
-      <ModelMenuItems models={[model('a/one', 'one')]} active="" currentKey="" onPick={() => {}} />,
+      <ModelMenuItems
+        models={[model('a/one', 'one')]}
+        query="zzz"
+        active=""
+        currentKey=""
+        onPick={() => {}}
+      />,
     )
-
-    await user.type(screen.getByRole('searchbox'), 'zzz')
     expect(screen.getByText('No models match.')).toBeInTheDocument()
     expect(screen.queryByText('No models listed.')).not.toBeInTheDocument()
-    expect(screen.queryByRole('menuitem')).not.toBeInTheDocument()
+    expect(screen.queryByRole('menuitemradio')).not.toBeInTheDocument()
   })
 
-  it('keeps the current badge on the active row while narrowed', async () => {
-    const user = userEvent.setup()
+  it('keeps the current row checked and badged while narrowed', () => {
     render(
       <ModelMenuItems
         models={[model('anthropic/sonnet', 'sonnet'), model('openai/gpt', 'gpt')]}
+        query="sonnet"
         active="anthropic/sonnet"
         currentKey=""
         onPick={() => {}}
       />,
     )
-
-    await user.type(screen.getByRole('searchbox'), 'sonnet')
     expect(labels()).toEqual(['sonnetcurrent'])
-  })
-
-  it('claims escape to clear the query before the layer close', async () => {
-    const user = userEvent.setup()
-    render(
-      <ModelMenuItems
-        models={[model('a/one', 'one'), model('b/two', 'two')]}
-        active=""
-        currentKey=""
-        onPick={() => {}}
-      />,
-    )
-    const filter = screen.getByRole('searchbox')
-    // fireEvent answers whether the press was claimed, an empty query leaves
-    // it for the popover's own Escape close
-    expect(fireEvent.keyDown(filter, { key: 'Escape' })).toBe(true)
-
-    await user.type(filter, 'zz')
-    expect(fireEvent.keyDown(filter, { key: 'Escape' })).toBe(false)
-    expect(filter).toHaveValue('')
-    expect(labels()).toEqual(['one', 'two'])
-  })
-
-  it('clears a stale query when the listing empties', async () => {
-    const user = userEvent.setup()
-    const models = [model('a/one', 'one')]
-    const view = render(
-      <ModelMenuItems models={models} active="" currentKey="" onPick={() => {}} />,
-    )
-
-    await user.type(screen.getByRole('searchbox'), 'zzz')
-    expect(screen.getByText('No models match.')).toBeInTheDocument()
-
-    view.rerender(<ModelMenuItems models={[]} active="" currentKey="" onPick={() => {}} />)
-    expect(screen.getByText('No models listed.')).toBeInTheDocument()
-    expect(screen.queryByText('No models match.')).not.toBeInTheDocument()
-
-    // the refill starts from an empty query, never the stale one
-    view.rerender(<ModelMenuItems models={models} active="" currentKey="" onPick={() => {}} />)
-    expect(screen.getByRole('searchbox')).toHaveValue('')
-    expect(screen.getByRole('menuitem', { name: 'one' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitemradio', { name: /^sonnet/ })).toBeChecked()
   })
 
   it('picks with the full key', async () => {
     const onPick = vi.fn()
-    const user = userEvent.setup()
     render(
       <ModelMenuItems
         models={[model('anthropic/sonnet', 'sonnet'), model('local-tuned')]}
+        query=""
         active=""
         currentKey=""
         onPick={onPick}
       />,
     )
-    await user.click(screen.getByRole('menuitem', { name: 'sonnet' }))
-    await user.click(screen.getByRole('menuitem', { name: 'local-tuned' }))
+    screen.getByRole('menuitemradio', { name: /^sonnet/ }).click()
+    screen.getByRole('menuitemradio', { name: 'local-tuned' }).click()
     expect(onPick).toHaveBeenCalledWith('anthropic/sonnet')
     expect(onPick).toHaveBeenCalledWith('local-tuned')
   })

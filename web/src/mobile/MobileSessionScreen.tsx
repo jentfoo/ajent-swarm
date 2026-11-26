@@ -14,6 +14,7 @@ import { QueuedPrompts } from '../session/QueuedPrompts'
 import { ModeMenu } from '../ui/ModeMenu'
 import { StatusBar } from '../session/StatusBar'
 import { TranscriptView } from '../session/TranscriptView'
+import { TurnEndAnnouncement } from '../session/TurnEndAnnouncement'
 import { useAgentJobs } from '../session/useAgentJobs'
 import { useInterruptStream } from '../session/useInterruptStream'
 import { useSessionCompose } from '../session/useSessionCompose'
@@ -132,6 +133,7 @@ function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElemen
         agentJobs={agentJobs}
         onThinkingToggle={(open) => dispatch({ type: 'liveThinkingToggled', open })}
       />
+      <TurnEndAnnouncement state={state} />
 
       <Notices notices={state.notices} />
       <DialogDock
@@ -220,7 +222,8 @@ function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElemen
 
 // HeaderMenu collapses the header's secondary actions behind one entry point:
 // Rewind, Tools and agent settings open from the menu, so the sticky row keeps
-// a single line while every target keeps its touch floor.
+// a single line while every target keeps its touch floor. The menu carries the
+// trigger's own name, a popup never inherits it.
 function HeaderMenu({
   onRewind,
   onTools,
@@ -261,7 +264,7 @@ function HeaderMenu({
         <MoreHorizontalIcon />
       </button>
       {open && (
-        <OverlayMenu anchorRef={triggerRef} onClose={() => setOpen(false)}>
+        <OverlayMenu anchorRef={triggerRef} label="Session actions" onClose={() => setOpen(false)}>
           {item('Rewind', onRewind)}
           {item('Tools', onTools)}
           {item('Agent settings', onSettings)}

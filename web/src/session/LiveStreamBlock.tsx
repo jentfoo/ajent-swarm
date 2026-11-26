@@ -19,7 +19,9 @@ import type { ToolResultView } from '../state/derive'
 // While a dialog holds the turn, calls queued behind the gated one wait (see
 // barrierHold) so the dialog's answer reads against that one action, and the
 // gated edit card itself drops its op preview: the full-file diff rides above
-// the dialog, an unnumbered fragment copy would only repeat it.
+// the dialog, an unnumbered fragment copy would only repeat it. The block is
+// a named group, so a reader can tell the streaming row from committed history
+// without a live region narrating every delta.
 export function LiveStreamBlock({
   live,
   activity,
@@ -40,7 +42,7 @@ export function LiveStreamBlock({
   const subs = subAgentRows(activity)
   const chips = capRows(subs)
   return (
-    <div className="live-block" aria-label="Live stream">
+    <div className="live-block" role="group" aria-label="Live stream">
       <span className="block-role">live{current.model ? ` · ${current.model}` : ''}</span>
       <SubAgentChips rows={chips.rows} overflow={chips.overflow} jobs={agentJobs} />
       {current.thinking !== '' && (

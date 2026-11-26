@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -255,10 +255,104 @@ describe('SessionView', () => {
       return expect(matches).toHaveLength(1)
     })
 
-    // turn.end clears the pinned row, still one copy
+    // turn.end clears the pinned row, still one copy (the status region's
+    // announcement quotes the reply too, so the count stays inside the region)
     frame(ws, wireEvent('turn.end', 4, { stop: 'end_turn' }))
     await waitFor(() => expect(screen.queryByLabelText('Live stream')).not.toBeInTheDocument())
-    expect(await screen.findAllByText(/Hello streamed world/)).toHaveLength(1)
+    const transcript = within(screen.getByRole('region', { name: 'Transcript' }))
+    expect(await transcript.findAllByText(/Hello streamed world/)).toHaveLength(1)
+  })
+
+  it('announces the reply once a streamed turn retires', async () => {
+    renderView()
+    const ws = await openSocket()
+    // the surface's one status region: mounted empty, filled by a retired turn
+    const region = () => screen.getByRole('status')
+
+    frame(ws, {
+      type: 'init',
+      sessionId: VIEW,
+      state: snapshotFor(VIEW, { head: '01OLD' }),
+      entries: [
+        messageEntry('01U0', undefined, 'user', 'old prompt'),
+        assistantEntry('01OLD', '01U0', 'Old reply.'),
+      ],
+    })
+    // mounting over settled history announces nothing
+    await screen.findByText('Old reply.')
+    expect(region()).toBeEmptyDOMElement()
+
+    frame(ws, wireEvent('turn.start', 1, { model: 'sonnet' }))
+    frame(ws, wireEvent('text.delta', 2, { delta: 'Streamed answer.\n\nDetails follow.' }))
+    // streaming never narrates, the tokens are not the message
+    expect(region()).toBeEmptyDOMElement()
+
+    // the committed copy lands while the turn still runs: still silent
+    frame(
+      ws,
+      wireEvent('entry.append', 3, {
+        entry: assistantEntry('01A', '01OLD', 'Streamed answer.\n\nDetails follow.'),
+      }),
+    )
+    expect(region()).toBeEmptyDOMElement()
+
+    frame(ws, wireEvent('turn.end', 4, { stop: 'end_turn' }))
+    await waitFor(() => expect(region()).toHaveTextContent('Assistant replied: Streamed answer.'))
+  })
+
+  it('announces nothing on a session swap', async () => {
+    fetcher.on(`/api/sessions/${SWAP_A}/snapshot`, () => Response.json(snapshotFor(SWAP_A)))
+    fetcher.on(`/api/sessions/${SWAP_B}/snapshot`, () => Response.json(snapshotFor(SWAP_B)))
+    const view = renderHosted(SWAP_A)
+    const ws = await openSocket()
+    const region = () => screen.getByRole('status')
+    frame(ws, { type: 'init', sessionId: SWAP_A, state: snapshotFor(SWAP_A), entries: [] })
+
+    // a full turn on the first session reads out once
+    frame(ws, {
+      type: 'event',
+      sessionId: SWAP_A,
+      event: { event: 'turn.start', seq: 1, data: { model: 'sonnet' } },
+    })
+    frame(ws, {
+      type: 'event',
+      sessionId: SWAP_A,
+      event: {
+        event: 'entry.append',
+        seq: 2,
+        data: { entry: assistantEntry('01SA', undefined, 'First answer.') },
+      },
+    })
+    frame(ws, {
+      type: 'event',
+      sessionId: SWAP_A,
+      event: { event: 'turn.end', seq: 3, data: { stop: 'end_turn' } },
+    })
+    await waitFor(() => expect(region()).toHaveTextContent('Assistant replied: First answer.'))
+
+    // the swap remounts: the other session's settled reply is history, not news
+    view.rerender(
+      <MemoryRouter>
+        <AuthProvider>
+          <SwarmProvider>
+            <WorkspaceProvider>
+              <SessionView sessionId={SWAP_B} />
+            </WorkspaceProvider>
+          </SwarmProvider>
+        </AuthProvider>
+      </MemoryRouter>,
+    )
+    frame(ws, {
+      type: 'init',
+      sessionId: SWAP_B,
+      state: snapshotFor(SWAP_B, { head: '01SB' }),
+      entries: [
+        messageEntry('01SU', undefined, 'user', 'their prompt'),
+        assistantEntry('01SB', '01SU', 'Their answer.'),
+      ],
+    })
+    expect(await screen.findByText('Their answer.')).toBeInTheDocument()
+    expect(region()).toBeEmptyDOMElement()
   })
 
   it('retires a live tool card only when its carrier commits', async () => {

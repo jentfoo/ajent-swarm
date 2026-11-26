@@ -179,6 +179,12 @@ describe('AppShell', () => {
     expect(screen.getByTestId('url')).toHaveTextContent('/')
   })
 
+  it('names the primary navigation', async () => {
+    await renderShell('/')
+
+    expect(screen.getByRole('navigation', { name: 'Primary' })).toBeInTheDocument()
+  })
+
   it.each([
     ['/', 'Workspace'],
     ['/focused', 'Workspace'],
@@ -186,13 +192,19 @@ describe('AppShell', () => {
     ['/sessions', 'Sessions'],
     ['/s/01ABC0000000', 'Sessions'],
     ['/jobs/runs', 'Jobs'],
-  ])('highlights exactly one nav link on %s', async (path, active) => {
+  ])('marks exactly one nav link current on %s', async (path, active) => {
     await renderShell(path)
 
     for (const name of ['Workspace', 'Sessions', 'Jobs']) {
       const el = screen.getByRole('link', { name })
-      if (name === active) expect(el).toHaveClass('active')
-      else expect(el).not.toHaveClass('active')
+      // the class carries the look, aria-current carries the semantics
+      if (name === active) {
+        expect(el).toHaveClass('active')
+        expect(el).toHaveAttribute('aria-current', 'page')
+      } else {
+        expect(el).not.toHaveClass('active')
+        expect(el).not.toHaveAttribute('aria-current')
+      }
     }
   })
 

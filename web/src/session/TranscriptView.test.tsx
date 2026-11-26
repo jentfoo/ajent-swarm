@@ -116,6 +116,19 @@ function typeInto(box: HTMLInputElement, query: string) {
   fireEvent.change(box, { target: { value: query } })
 }
 
+describe('TranscriptView landmarks', () => {
+  it('is a named region that stays quiet', () => {
+    renderTranscript()
+
+    // a landmark a reader can jump to; a log or live region would narrate
+    // every row the virtualizer re-renders
+    const region = screen.getByRole('region', { name: 'Transcript' })
+    expect(region).toHaveClass('transcript-wrap')
+    expect(screen.queryByRole('log')).not.toBeInTheDocument()
+    expect(region).not.toHaveAttribute('aria-live')
+  })
+})
+
 describe('TranscriptView pull to latest', () => {
   it('jumps to latest past the threshold', () => {
     const el = renderTranscript()

@@ -37,6 +37,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
   // session views live at /s/, off the /sessions prefix, but light its link
   const sessionsRoute =
     location.pathname.startsWith('/sessions') || location.pathname.startsWith('/s/')
+  const jobsRoute = location.pathname.startsWith('/jobs')
 
   const switchMode = (mode: 'focused' | 'tile') => {
     setMode(mode)
@@ -56,14 +57,26 @@ export default function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="app-shell">
       <header className="topbar">
-        <nav>
-          <Link to="/" className={workspaceRoute ? 'active' : ''}>
+        <nav aria-label="Primary">
+          <Link
+            to="/"
+            className={workspaceRoute ? 'active' : ''}
+            aria-current={workspaceRoute ? 'page' : undefined}
+          >
             Workspace
           </Link>
-          <Link to="/sessions" className={sessionsRoute ? 'active' : ''}>
+          <Link
+            to="/sessions"
+            className={sessionsRoute ? 'active' : ''}
+            aria-current={sessionsRoute ? 'page' : undefined}
+          >
             Sessions
           </Link>
-          <Link to="/jobs" className={location.pathname.startsWith('/jobs') ? 'active' : ''}>
+          <Link
+            to="/jobs"
+            className={jobsRoute ? 'active' : ''}
+            aria-current={jobsRoute ? 'page' : undefined}
+          >
             Jobs
           </Link>
         </nav>

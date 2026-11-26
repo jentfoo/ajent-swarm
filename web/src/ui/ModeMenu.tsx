@@ -52,13 +52,14 @@ export function ModeMenu({
 
   if (mode === '') return null // no gate exists on this session
 
-  // one item list feeds either surface's popover
+  // one item list feeds either surface's popover: the current mode is the
+  // checked radio, its badge the visual twin
   const items = permissionModes.map((m) => (
     <button
       key={m}
       type="button"
-      role="menuitem"
-      aria-current={m === mode ? 'true' : undefined}
+      role="menuitemradio"
+      aria-checked={m === mode}
       onClick={() => void pick(m)}
     >
       {m}
@@ -82,13 +83,14 @@ export function ModeMenu({
       </button>
       {open &&
         (touch ? (
-          <OverlayMenu anchorRef={chipRef} onClose={() => setOpen(false)}>
+          <OverlayMenu anchorRef={chipRef} label="Permission mode" onClose={() => setOpen(false)}>
             {items}
           </OverlayMenu>
         ) : (
           <MenuPopover
             anchorRef={chipRef}
             role="menu"
+            aria-label="Permission mode"
             className="menu card"
             onClose={() => setOpen(false)}
           >

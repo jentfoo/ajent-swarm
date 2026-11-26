@@ -25,6 +25,7 @@ import { useInterruptStream } from '../session/useInterruptStream'
 import { useQueuedRecall } from '../session/useQueuedRecall'
 import { useRewindGesture } from '../session/useRewindGesture'
 import { useSessionCompose } from '../session/useSessionCompose'
+import { TurnEndAnnouncement } from '../session/TurnEndAnnouncement'
 
 // SessionView is the single-session experience: slim status header with
 // controls, virtualized transcript over reconciled state, dialog dock above a
@@ -136,6 +137,7 @@ function SessionSurface({ sessionId, focused }: { sessionId: string; focused: bo
         agentJobs={agentJobs}
         onThinkingToggle={(open) => dispatch({ type: 'liveThinkingToggled', open })}
       />
+      <TurnEndAnnouncement state={state} />
 
       <Notices notices={state.notices} />
       <DialogDock

@@ -42,6 +42,26 @@ function wireEvent(name: string, seq: number, data?: unknown) {
   return { type: 'event', sessionId: VIEW, event: { event: name, seq, data } }
 }
 
+// assistantEntry is one committed assistant message, the shape a retired
+// turn's answer takes on the wire
+function assistantEntry(id: string, parent: string | undefined, text: string) {
+  const e: Record<string, unknown> = { id, type: 'message', ts: 2 }
+  if (parent !== undefined) e.parentId = parent
+  e.data = JSON.parse(
+    `{"message":{"role":"assistant","content":[{"type":"text","data":{"text":${JSON.stringify(text)}}}]}}`,
+  )
+  return e
+}
+
+function messageEntry(id: string, parent: string | undefined, role: string, text: string) {
+  const e: Record<string, unknown> = { id, type: 'message', ts: 1 }
+  if (parent !== undefined) e.parentId = parent
+  e.data = JSON.parse(
+    `{"message":{"role":"${role}","content":[{"type":"text","data":{"text":${JSON.stringify(text)}}}]}}`,
+  )
+  return e
+}
+
 function snapshotFor(sessionId: string, overrides: Record<string, unknown> = {}) {
   return {
     session: { id: sessionId },
@@ -185,6 +205,74 @@ describe('MobileSessionScreen', () => {
       </MemoryRouter>,
     )
   }
+
+  it('announces the reply once a streamed turn retires', async () => {
+    renderScreen()
+    const ws = await openSocket()
+    // the surface's one status region: mounted empty, filled by a retired turn
+    const region = () => screen.getByRole('status')
+    act(() => {
+      ws.message({ type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
+    })
+    expect(region()).toBeEmptyDOMElement()
+
+    act(() => {
+      ws.message(wireEvent('turn.start', 1, { model: 'sonnet' }))
+      ws.message(wireEvent('text.delta', 2, { delta: 'Mobile answer.' }))
+    })
+    // streaming never narrates, and neither does the commit while the turn runs
+    expect(region()).toBeEmptyDOMElement()
+    act(() => {
+      ws.message(
+        wireEvent('entry.append', 3, {
+          entry: assistantEntry('01MA', undefined, 'Mobile answer.'),
+        }),
+      )
+    })
+    expect(region()).toBeEmptyDOMElement()
+
+    act(() => {
+      ws.message(wireEvent('turn.end', 4, { stop: 'end_turn' }))
+    })
+    await vi.waitFor(() => expect(region()).toHaveTextContent('Assistant replied: Mobile answer.'))
+  })
+
+  it('announces nothing on a session swap', async () => {
+    fetcher.on(`/api/sessions/${OTHER}/snapshot`, () => Response.json(snapshotFor(OTHER)))
+    renderSwitchable()
+    const ws = await openSocket()
+    const region = () => screen.getByRole('status')
+    act(() => {
+      ws.message({ type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
+    })
+
+    // a full turn on the first session reads out once
+    act(() => {
+      ws.message(wireEvent('turn.start', 1, { model: 'sonnet' }))
+      ws.message(
+        wireEvent('entry.append', 2, { entry: assistantEntry('01MA', undefined, 'First answer.') }),
+      )
+      ws.message(wireEvent('turn.end', 3, { stop: 'end_turn' }))
+    })
+    await vi.waitFor(() => expect(region()).toHaveTextContent('Assistant replied: First answer.'))
+
+    // the swap remounts: the other session's settled reply is history, not news
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'go other' }))
+    act(() => {
+      ws.message({
+        type: 'init',
+        sessionId: OTHER,
+        state: snapshotFor(OTHER, { head: '01OB' }),
+        entries: [
+          messageEntry('01OU', undefined, 'user', 'their prompt'),
+          assistantEntry('01OB', '01OU', 'Their answer.'),
+        ],
+      })
+    })
+    expect(await screen.findByText('Their answer.')).toBeInTheDocument()
+    expect(region()).toBeEmptyDOMElement()
+  })
 
   it('carries the session label between the back link and the model chip', async () => {
     fetcher.on('/api/sessions', () =>
@@ -880,7 +968,7 @@ describe('MobileSessionScreen', () => {
 
       const user = userEvent.setup()
       await user.click(await screen.findByRole('button', { name: /mode: auto/ }))
-      expect(screen.getByRole('menuitem', { name: /allow-read/ })).toBeInTheDocument()
+      expect(screen.getByRole('menuitemradio', { name: /allow-read/ })).toBeInTheDocument()
 
       // the platform back gesture pops the menu's own history entry and closes
       // it, leaving the session on screen like every mobile overlay layer
@@ -1065,7 +1153,7 @@ describe('MobileSessionScreen', () => {
     await openHeaderMenu(user, 'Tools')
     expect(await screen.findByRole('dialog', { name: 'Tools' })).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /sonnet/ }))
-    expect(await screen.findByRole('menuitem', { name: /sonnet/ })).toBeInTheDocument()
+    expect(await screen.findByRole('menuitemradio', { name: /sonnet/ })).toBeInTheDocument()
 
     // the swap presents the other session fresh: panel and menu closed, and a
     // draft typed for the first session is not sitting in the composer
@@ -1075,7 +1163,7 @@ describe('MobileSessionScreen', () => {
     })
     expect(await screen.findByLabelText('Prompt')).toHaveValue('')
     expect(screen.queryByRole('dialog', { name: 'Tools' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('menuitem', { name: /sonnet/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('menuitemradio', { name: /sonnet/ })).not.toBeInTheDocument()
 
     // returning restores that session's draft from the store, not a blank
     await user.click(screen.getByRole('button', { name: 'go view' }))

@@ -124,7 +124,13 @@ function MenuBody({
         aria-hidden="true"
         style={{ position: 'fixed', left: menu.x, top: menu.y, width: 0, height: 0 }}
       />
-      <MenuPopover anchorRef={anchorRef} className="menu card" role="menu" onClose={onClose}>
+      <MenuPopover
+        anchorRef={anchorRef}
+        className="menu card"
+        role="menu"
+        aria-label="Session actions"
+        onClose={onClose}
+      >
         {/* pin leads the menu; the wording reads the state the flip leaves
             behind, and ended sessions keep it for their next live run */}
         <button

@@ -2,13 +2,15 @@ import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { ListFilter } from './ListFilter'
 import { ModelMenuItems } from './ModelMenuItems'
 import { useModelMenu } from './useModelMenu'
 
 // The model registry controller both chat headers share: one fetch per open,
 // model.set picks, and toasts on refusals. Hosts key on sessionId, so a swap
 // remounts and session hygiene lives there, not in the hook. The open body is
-// the real ModelMenuItems, so the filter's remount lifecycle lands here too.
+// the real ListFilter and ModelMenuItems, so the query's per-open reset lands
+// here too.
 
 function MenuProbe({
   sessionId,
@@ -35,12 +37,16 @@ function MenuProbe({
         pick
       </button>
       {menu.open && (
-        <ModelMenuItems
-          models={menu.models}
-          active={menu.active}
-          currentKey=""
-          onPick={(key) => void menu.pick(key)}
-        />
+        <>
+          <ListFilter label="Filter" value={menu.query} onChange={menu.setQuery} />
+          <ModelMenuItems
+            models={menu.models}
+            query={menu.query}
+            active={menu.active}
+            currentKey=""
+            onPick={(key) => void menu.pick(key)}
+          />
+        </>
       )}
     </div>
   )
@@ -72,7 +78,7 @@ describe('useModelMenu', () => {
 
     // open: one fetch, then the menu opens with the reply's active key
     await user.click(screen.getByRole('button', { name: 'toggle' }))
-    expect(await screen.findByRole('menuitem', { name: /^m/ })).toBeInTheDocument()
+    expect(await screen.findByRole('menuitemradio', { name: /^m/ })).toBeInTheDocument()
     expect(screen.getByTestId('open')).toHaveTextContent('true')
     expect(screen.getByTestId('active')).toHaveTextContent('a/m')
     expect(vi.mocked(fetch).mock.calls.filter(([u]) => String(u).endsWith('/models'))).toHaveLength(
@@ -90,7 +96,7 @@ describe('useModelMenu', () => {
     await user.click(screen.getByRole('button', { name: 'toggle' }))
     expect(screen.getByTestId('open')).toHaveTextContent('false')
     await user.click(screen.getByRole('button', { name: 'toggle' }))
-    await screen.findByRole('menuitem', { name: /^m/ })
+    await screen.findByRole('menuitemradio', { name: /^m/ })
     expect(vi.mocked(fetch).mock.calls.filter(([u]) => String(u).endsWith('/models'))).toHaveLength(
       2,
     )
@@ -107,7 +113,7 @@ describe('useModelMenu', () => {
     render(<MenuProbe sessionId="01S" fallbackKey="snap/key" onToast={() => {}} />)
 
     await user.click(screen.getByRole('button', { name: 'toggle' }))
-    expect(await screen.findByRole('menuitem', { name: /^m/ })).toBeInTheDocument()
+    expect(await screen.findByRole('menuitemradio', { name: /^m/ })).toBeInTheDocument()
     expect(screen.getByTestId('active')).toHaveTextContent('snap/key')
   })
 
@@ -144,7 +150,7 @@ describe('useModelMenu', () => {
     render(<MenuProbe sessionId="01S" fallbackKey="x" onToast={onToast} />)
 
     await user.click(screen.getByRole('button', { name: 'toggle' }))
-    await screen.findByRole('menuitem', { name: /^m/ })
+    await screen.findByRole('menuitemradio', { name: /^m/ })
 
     // a refused pick keeps the menu open for another choice
     await user.click(screen.getByRole('button', { name: 'pick' }))
@@ -171,14 +177,14 @@ describe('useModelMenu', () => {
     await user.click(screen.getByRole('button', { name: 'toggle' }))
     const filter = await screen.findByRole('searchbox')
     await user.type(filter, 'other')
-    expect(screen.queryByRole('menuitem', { name: /^m/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('menuitemradio', { name: /^m/ })).not.toBeInTheDocument()
 
-    // the body unmounts on close, so the query dies with it
+    // the open body unmounts on close, and the controller blanks the query
     await user.click(screen.getByRole('button', { name: 'toggle' }))
     expect(screen.queryByRole('searchbox')).not.toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'toggle' }))
     expect(await screen.findByRole('searchbox')).toHaveValue('')
-    expect(screen.getByRole('menuitem', { name: /^m/ })).toBeInTheDocument()
+    expect(screen.getByRole('menuitemradio', { name: /^m/ })).toBeInTheDocument()
   })
 })

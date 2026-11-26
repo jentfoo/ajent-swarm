@@ -9,6 +9,10 @@ export interface ModelMenuController {
   busy: boolean
   models: ModelState[] // the listing for this session; empty until one lands
   active: string // the listing's active key; '' until one lands
+  // the open menu's filter text, shared by its header input and its rows and
+  // blanked on every open
+  query: string
+  setQuery: (query: string) => void
   // toggle closes an open menu, or fetches the registry once and opens after
   // it lands, one fetch per open, never on dependency drift
   toggle: () => Promise<void>
@@ -19,9 +23,11 @@ export interface ModelMenuController {
 
 // useModelMenu owns the model registry control both chat headers render: one
 // models.get fetch per open, model.set picks, and the busy state around both.
-// Failures surface through onToast and leave the menu closed. Consumers render
-// the body through ui/ModelMenuItems, hosts key on sessionId, so a swap
-// remounts and resets every piece of this state.
+// Failures surface through onToast and leave the menu closed. The filter query
+// lives here too, so the header input and the item body read one value and a
+// reopen always starts blank. Consumers render the body through
+// ui/ModelMenuItems, hosts key on sessionId, so a swap remounts and resets
+// every piece of this state.
 export function useModelMenu(
   sessionId: string,
   fallbackKey: string,
@@ -30,6 +36,7 @@ export function useModelMenu(
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [listing, setListing] = useState<{ models: ModelState[]; active: string } | null>(null)
+  const [query, setQuery] = useState('')
 
   const toggle = useCallback(async () => {
     if (open) {
@@ -37,6 +44,7 @@ export function useModelMenu(
       return
     }
     setBusy(true)
+    setQuery('') // a fresh visit never opens narrowed by the last one
     try {
       const res = await sessionAPI.models(sessionId)
       setListing({ models: res.models ?? [], active: res.active || fallbackKey })
@@ -72,6 +80,8 @@ export function useModelMenu(
     busy,
     models: listing?.models ?? [],
     active: listing?.active ?? '',
+    query,
+    setQuery,
     toggle,
     close,
     pick,

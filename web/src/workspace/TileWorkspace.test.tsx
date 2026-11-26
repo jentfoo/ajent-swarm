@@ -528,7 +528,12 @@ describe('TileWorkspace', () => {
     expect(menus).toHaveLength(1)
     const menu = menus[0]
     expect(menu.parentElement).toBe(document.body)
-    expect(within(menu as HTMLElement).getByRole('menuitem', { name: 'left' })).toBeInTheDocument()
+    // the named role element sits inside the layer, the filter header above it
+    const list = within(menu as HTMLElement).getByRole('menu', { name: 'Sessions' })
+    const filter = within(menu as HTMLElement).getByRole('searchbox', { name: 'Filter sessions' })
+    expect(list).not.toContainElement(filter)
+    expect(menu).toContainElement(filter)
+    expect(within(list).getByRole('menuitem', { name: 'left' })).toBeInTheDocument()
   })
 
   it('lists every session in the picker, grid filters aside', async () => {

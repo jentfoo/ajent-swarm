@@ -3,6 +3,7 @@ import type { ReactElement } from 'react'
 
 import type { CtlState } from '../api/types'
 import { useMediaQuery } from '../hooks/useMediaQuery'
+import { ListFilter } from './ListFilter'
 import { MenuPopover } from './MenuPopover'
 import { ModelMenuItems } from './ModelMenuItems'
 import { OverlayMenu } from './OverlayMenu'
@@ -12,7 +13,8 @@ import { useModelMenu } from './useModelMenu'
 // useModelMenu controller with ModelMenuItems as the body. The pointer class
 // picks OverlayMenu against MenuPopover exactly like ModeMenu on the same
 // screen, the touch branch keeps the span wrapper the mobile header's
-// yielding rules target.
+// yielding rules target. The filter row rides the popover's header slot on
+// either branch, outside the menu role, and stands down while nothing lists.
 export function ModelMenu({
   sessionId,
   snap,
@@ -41,9 +43,16 @@ export function ModelMenu({
       {snap.model.short || snap.model.key || 'model'}
     </button>
   )
+  const header =
+    menu.models.length > 0 ? (
+      <div className="menu-filter-row">
+        <ListFilter label="Filter models" value={menu.query} onChange={menu.setQuery} autoFocus />
+      </div>
+    ) : undefined
   const items = (
     <ModelMenuItems
       models={menu.models}
+      query={menu.query}
       active={menu.active}
       currentKey={snap.model.key}
       onPick={(key) => void menu.pick(key)}
@@ -56,7 +65,7 @@ export function ModelMenu({
       <span className="model-chip-wrap">
         {chip}
         {menu.open && (
-          <OverlayMenu anchorRef={chipRef} onClose={menu.close}>
+          <OverlayMenu anchorRef={chipRef} label="Models" header={header} onClose={menu.close}>
             {items}
           </OverlayMenu>
         )}
@@ -67,7 +76,14 @@ export function ModelMenu({
     <div className="model-menu">
       {chip}
       {menu.open && (
-        <MenuPopover anchorRef={chipRef} role="menu" className="menu card" onClose={menu.close}>
+        <MenuPopover
+          anchorRef={chipRef}
+          role="menu"
+          aria-label="Models"
+          className="menu card"
+          header={header}
+          onClose={menu.close}
+        >
           {items}
         </MenuPopover>
       )}

@@ -107,14 +107,20 @@ describe('MobileShell', () => {
     ['/jobs/01JOB0000000', 'Jobs'],
     ['/m/settings', null],
     ['/m/read/01ENDED00000000', 'Sessions'],
-  ])('highlights exactly one tab on %s', async (path, active) => {
+  ])('marks exactly one tab current on %s', async (path, active) => {
     await renderShell(path)
 
     expect(screen.getByRole('navigation', { name: 'Primary' })).toBeInTheDocument()
     for (const name of ['Sessions', 'Jobs']) {
       const el = screen.getByRole('link', { name })
-      if (name === active) expect(el).toHaveClass('active')
-      else expect(el).not.toHaveClass('active')
+      // the class carries the look, aria-current carries the semantics
+      if (name === active) {
+        expect(el).toHaveClass('active')
+        expect(el).toHaveAttribute('aria-current', 'page')
+      } else {
+        expect(el).not.toHaveClass('active')
+        expect(el).not.toHaveAttribute('aria-current')
+      }
     }
   })
 

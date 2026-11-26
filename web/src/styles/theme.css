@@ -1286,6 +1286,13 @@ label {
   vertical-align: -0.15em;
   margin-right: calc(var(--unit) * 1.5);
 }
+/* the role element inside every MenuPopover layer: the layer's own className
+   sizes and scrolls it, this only stacks the items in a column the way they
+   lay out directly under the layer when no header splits them */
+.menu-body {
+  display: flex;
+  flex-direction: column;
+}
 .usage-card {
   position: absolute;
   z-index: 20;

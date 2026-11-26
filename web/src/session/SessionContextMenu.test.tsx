@@ -95,6 +95,29 @@ describe('SessionContextMenu', () => {
     expect(screen.queryByRole('menu')).toBeNull()
   })
 
+  it('names the menu for assistive tech', async () => {
+    stubFetch()
+    render(
+      <MemoryRouter>
+        <AuthProvider>
+          <SwarmProvider>
+            <WorkspaceProvider>
+              <MenuProbe />
+              <QueueDialog />
+            </WorkspaceProvider>
+          </SwarmProvider>
+        </AuthProvider>
+      </MemoryRouter>,
+    )
+
+    fireEvent.contextMenu(screen.getByTestId('row'), { clientX: 30, clientY: 40 })
+    // a popup never inherits its trigger's name, the menu carries its own
+    expect(await screen.findByRole('menu', { name: 'Session actions' })).toBeInTheDocument()
+
+    fireEvent.pointerDown(document.body)
+    expect(screen.queryByRole('menu')).toBeNull()
+  })
+
   it('closes on an outside press without opening the draft', async () => {
     stubFetch()
     render(

@@ -136,6 +136,7 @@ pre {
 .menu,
 .tile-menu,
 .rewind-list,
+.table-scroll,
 .transcript-preview,
 .bottom-sheet {
   scrollbar-width: thin;
@@ -150,7 +151,14 @@ pre {
 /* engines without the standard properties draw the same bar; WebKit
    pseudo-elements do not inherit, so every real scroll port is listed here,
    never a parent like .bottom-sheet whose children own the scrolling */
-:is(.transcript-scroll, .menu, .tile-menu, .rewind-list, .transcript-preview)::-webkit-scrollbar {
+:is(
+  .transcript-scroll,
+  .menu,
+  .tile-menu,
+  .rewind-list,
+  .table-scroll,
+  .transcript-preview
+)::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
@@ -159,6 +167,7 @@ pre {
   .menu,
   .tile-menu,
   .rewind-list,
+  .table-scroll,
   .transcript-preview
 )::-webkit-scrollbar-thumb {
   background: var(--border);
@@ -169,6 +178,7 @@ pre {
   .menu,
   .tile-menu,
   .rewind-list,
+  .table-scroll,
   .transcript-preview
 )::-webkit-scrollbar-track {
   background: transparent;
@@ -744,9 +754,58 @@ label {
   border: 1px solid var(--border);
   padding: calc(var(--unit) * 0.5) calc(var(--unit) * 2);
 }
+/* headings ride the type scale instead of UA 2em defaults, bold alone sets
+   h4 and below apart */
+.markdown :is(h1, h2, h3, h4, h5, h6) {
+  margin: 1.25em 0 0.5em;
+}
+.markdown h1 {
+  font-size: var(--fs-title);
+}
+.markdown h2,
+.markdown h3 {
+  font-size: var(--fs-prose);
+}
+/* list indent follows the prose size so nesting stays readable in a pane */
+.markdown :is(ul, ol) {
+  margin: 0.25em 0;
+  padding-left: 1.5em;
+}
+.markdown li {
+  margin: 0.15em 0; /* sibling items keep a small gap */
+}
+/* quoted material reads muted behind a quiet edge, never as chrome */
+.markdown blockquote {
+  border-left: 3px solid var(--border);
+  color: var(--muted);
+  margin: 0.5em 0;
+  padding: 0 calc(var(--unit) * 3);
+}
+.markdown hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 1em 0;
+}
+/* model images cap at their container's width, radius matches every card */
+.markdown img {
+  max-width: 100%;
+  border-radius: var(--radius);
+}
+/* inline code rides a quiet chip; :not(pre) keeps fence bodies (CodeBlock
+   renders its own pre > code) out of it */
+.markdown :not(pre) > code {
+  background: var(--surface-2);
+  border-radius: calc(var(--unit) * 1);
+  font-size: 0.9em;
+  padding: 0 calc(var(--unit) * 1);
+}
+/* prose links underline at rest; the shared a:hover carries hover */
+.markdown a {
+  text-decoration: underline;
+}
 /* prose measure: message text reads at a book line length; the cap sits on
    block children because code inside cannot outgrow its parent, so fences
-   and tables re-join the pane below */
+   and table scroll ports re-join the pane below */
 .markdown.prose {
   font-size: var(--fs-prose);
   line-height: 1.6;
@@ -757,8 +816,15 @@ label {
   max-width: min(72ch, 100%);
 }
 .markdown.prose > .fence-wrap,
-.markdown.prose > table {
+.markdown.prose > .table-scroll {
   max-width: none;
+}
+/* wide tables scroll inside their own port instead of widening the pane, no
+   display change on the table itself, that would alter its layout */
+.table-scroll {
+  margin: calc(var(--unit) * 2) 0;
+  max-width: 100%;
+  overflow-x: auto;
 }
 .fence {
   background: #0d1117;

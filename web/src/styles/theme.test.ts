@@ -75,10 +75,32 @@ describe('theme type scale', () => {
 
   it('caps prose at a book measure while code keeps the pane', () => {
     expect(css).toContain('.markdown.prose > * { max-width: min(72ch, 100%); }')
-    // fences and tables re-join the full pane width past the cap
+    // fences and table scroll ports re-join the full pane width past the cap
     expect(css).toMatch(
-      /\.markdown\.prose > \.fence-wrap, \.markdown\.prose > table \{[^}]*max-width: none;/,
+      /\.markdown\.prose > \.fence-wrap, \.markdown\.prose > \.table-scroll \{[^}]*max-width: none;/,
     )
+  })
+})
+
+describe('theme markdown prose', () => {
+  it('breaks unbroken tokens inside the message column', () => {
+    // a long URL or token must never widen a tile pane or the transcript
+    expect(css).toMatch(/\.markdown\.prose \{[^}]*overflow-wrap: anywhere/)
+  })
+
+  it('gives wide tables their own scroll port', () => {
+    // the } boundary skips the measure's > .table-scroll exclusion above, and
+    // stripped comments leave space runs, so the gap stays flexible
+    const rule = bareCss.match(/(?:^|\})\s*\.table-scroll \{[^}]*\}/)![0]
+    expect(rule).toContain('overflow-x: auto;')
+    expect(rule).toContain('max-width: 100%;')
+  })
+
+  it('chips inline code without touching fence bodies', () => {
+    // :not(pre) is the scope, CodeBlock renders its own pre > code
+    const rule = bareCss.match(/\.markdown :not\(pre\) > code \{[^}]*\}/)
+    expect(rule).not.toBeNull()
+    expect(rule![0]).toContain('background: var(--surface-2);')
   })
 })
 
@@ -254,6 +276,7 @@ describe('theme scroll ports', () => {
     '.menu',
     '.tile-menu',
     '.rewind-list',
+    '.table-scroll', // a wide table's own port gets the same thin bar
     '.transcript-preview',
     '.bottom-sheet', // scrollbar props inherit onto the sheet's scrolling body
   ]
@@ -281,7 +304,7 @@ describe('theme scroll ports', () => {
     expect(fallback).toHaveLength(3)
     // every standard scroll port gets the fallback too
     const joined = fallback.join(' ')
-    for (const port of scrollPorts.slice(0, 5)) {
+    for (const port of scrollPorts.slice(0, -1)) {
       expect(joined).toContain(port)
     }
     const thumb = fallback.find((rule) => rule.includes('-thumb')) ?? ''

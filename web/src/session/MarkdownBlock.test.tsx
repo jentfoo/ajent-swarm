@@ -29,6 +29,45 @@ describe('MarkdownBlock prose measure', () => {
   })
 })
 
+describe('MarkdownBlock prose elements', () => {
+  it('renders headings, lists and blockquotes as elements', () => {
+    render(<MarkdownBlock text={'# Title\n\n- one\n- two\n\n> quoted note'} />)
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Title')
+    expect(screen.getAllByRole('listitem')).toHaveLength(2)
+    expect(screen.getByText(/quoted note/).closest('blockquote')).not.toBeNull()
+  })
+
+  it('opens links in a new tab with an sr-only hint', () => {
+    render(<MarkdownBlock text={'[docs](https://example.com)'} />)
+    const link = screen.getByText('docs').closest('a')
+    expect(link).toHaveAttribute('href', 'https://example.com')
+    expect(link).toHaveAttribute('target', '_blank')
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+    expect(screen.getByText(/opens in new tab/)).toHaveClass('sr-only')
+  })
+
+  it('renders a stripped javascript link without an anchor', () => {
+    render(<MarkdownBlock text={'[click](javascript:alert(1))'} />)
+    // the sanitizer drops the href, the renderer then declines to wrap it
+    expect(document.querySelector('a')).toBeNull()
+    expect(screen.getByText('click')).toBeInTheDocument()
+  })
+
+  it('wraps tables in a focusable scroll port', () => {
+    render(<MarkdownBlock text={'| a | b |\n|---|---|\n| 1 | 2 |'} />)
+    const wrap = document.querySelector('.table-scroll')
+    expect(wrap).not.toBeNull()
+    expect(wrap).toHaveAttribute('tabindex', '0')
+    expect(wrap).toHaveAttribute('aria-label', 'Scrollable table')
+    expect(wrap?.querySelector('table')).not.toBeNull()
+  })
+
+  it('keeps the inline code chip away from fenced code', () => {
+    // jsdom cannot lay out text, so the rule's scope carries the guarantee
+    expect(css).toMatch(/\.markdown :not\(pre\) > code \{[^}]*background: var\(--surface-2\)/)
+  })
+})
+
 describe('MarkdownBlock sanitize', () => {
   it('never renders raw HTML from model output', () => {
     render(

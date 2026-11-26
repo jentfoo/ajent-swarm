@@ -17,6 +17,7 @@ import {
   resetQueueEntries,
   sessionBadgeOf,
   submitTurnEnd,
+  urgencyRank,
 } from './attention'
 import type { AttentionItem, AttentionSort } from './attention'
 
@@ -348,6 +349,27 @@ describe('shared attention ordering', () => {
       'b-idle',
       'aaa-plain', // digest-less reads as oldest within working
       'zzz-busy',
+    ])
+  })
+})
+
+describe('urgencyRank', () => {
+  it('orders dialogs, reviews, working and waiting ahead of ended rows', () => {
+    const rows: [string, number][] = [
+      ['ended', urgencyRank(true, { kind: 'needs-input' })],
+      ['waiting', urgencyRank(false, { kind: 'awaiting' })],
+      ['digestless', urgencyRank(false)],
+      ['working', urgencyRank(false, { kind: 'working' })],
+      ['review', urgencyRank(false, { kind: 'needs-review' })],
+      ['dialog', urgencyRank(false, { kind: 'needs-input' })],
+    ]
+    expect(rows.sort((a, b) => a[1] - b[1]).map(([name]) => name)).toEqual([
+      'dialog',
+      'review',
+      'working',
+      'waiting',
+      'digestless', // a row the digest has not reached waits too
+      'ended',
     ])
   })
 })

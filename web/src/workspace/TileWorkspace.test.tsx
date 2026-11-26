@@ -531,6 +531,20 @@ describe('TileWorkspace', () => {
     expect(within(menu as HTMLElement).getByRole('menuitem', { name: 'left' })).toBeInTheDocument()
   })
 
+  it('lists every session in the picker, grid filters aside', async () => {
+    await renderStacked()
+
+    const user = userEvent.setup()
+    await user.click(screen.getAllByLabelText('Add a session to this pane')[0])
+    const menu = document.querySelector('.tile-menu') as HTMLElement
+
+    // the grid's state filter and urgency sort live on SessionsHome only: the
+    // picker keeps its text filter and offers every session
+    expect(within(menu).getByRole('menuitem', { name: 'left' })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: 'right' })).toBeInTheDocument()
+    expect(within(menu).queryByRole('combobox')).not.toBeInTheDocument()
+  })
+
   it('narrows the picker rows and opens the chosen session', async () => {
     const THIRD = '01THIRDSESSION000001'
     vi.stubGlobal(

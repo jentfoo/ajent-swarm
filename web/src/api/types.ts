@@ -199,6 +199,7 @@ export interface SessionStatus {
   seatHolder?: string
   seatOurs: boolean
   running: boolean
+  spinning?: boolean // busy at a spinner, absent when false
   idle: boolean
   queued: number // prompts waiting in the session's queue
   parked?: number // prompts parked in swarm for the session's next idle point

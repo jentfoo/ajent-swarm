@@ -332,6 +332,17 @@ describe('FocusedWorkspace', () => {
     expect(rail().querySelectorAll('.rail-section-title')).toHaveLength(0)
   })
 
+  it('renders no grid state filter in the rail', async () => {
+    attention = [...attentionRows(), waitingRow()]
+    renderFocused()
+    await openSocket()
+
+    // the state select, urgency toggle and bulk select stay on SessionsHome
+    expect(screen.queryByRole('combobox', { name: 'Filter by state' })).not.toBeInTheDocument()
+    expect(screen.queryByText('Urgency first')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Select all visible' })).not.toBeInTheDocument()
+  })
+
   it('avoids claiming an empty roster while it loads', async () => {
     attention = []
     let release!: (r: Response) => void

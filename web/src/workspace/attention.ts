@@ -268,6 +268,25 @@ export function compareAttention(a: AttentionSort, b: AttentionSort): number {
   return (a.queuedAt ?? 0) - (b.queuedAt ?? 0) || a.sessionId.localeCompare(b.sessionId)
 }
 
+// --- grid urgency sort ---
+
+// urgencyRank places one listing row on the sessions grid's "Urgency first"
+// sort: dialogs, then unreviewed turns, busy agents and waiting ones, ended
+// rows last. A row without a digest item ranks as waiting.
+export function urgencyRank(ended: boolean, item?: Pick<AttentionItem, 'kind'>): number {
+  if (ended) return 4 // ended sessions drop out of the digest
+  switch (item?.kind) {
+    case 'needs-input':
+      return 0
+    case 'needs-review':
+      return 1
+    case 'working':
+      return 2
+    default:
+      return 3
+  }
+}
+
 // --- queue entries, in memory only ---
 
 // The digest carries no timestamp for idle or busy transitions, so each

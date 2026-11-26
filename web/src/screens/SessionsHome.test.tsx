@@ -8,7 +8,7 @@ import { AuthProvider } from '../providers/auth'
 import { SwarmProvider } from '../providers/swarm'
 import { WorkspaceProvider } from '../providers/workspace'
 import { MockWebSocket } from '../test/mockWebSocket'
-import { ChildState, type SessionStatus } from '../api/types'
+import { ChildState, type SessionStatus, type AttentionRow } from '../api/types'
 
 // The sessions grid renders over the real provider stack with fetch and
 // WebSocket stubs: cards carry shared stop wording instead of raw reasons,
@@ -30,7 +30,18 @@ function session(overrides: Partial<SessionStatus> = {}): SessionStatus {
   }
 }
 
+function attentionRow(overrides: Partial<AttentionRow> & { sessionId: string }): AttentionRow {
+  return {
+    openInteractions: 0,
+    running: false,
+    idle: true,
+    kind: 'awaiting',
+    ...overrides,
+  }
+}
+
 let sessionsReply: SessionStatus[]
+let attentionReply: AttentionRow[]
 let fetchSpy: ReturnType<typeof vi.fn>
 
 // TileProbe shows the open list the workspace request carried, so tests can
@@ -44,6 +55,7 @@ describe('SessionsHome', () => {
   beforeEach(() => {
     localStorage.clear()
     sessionsReply = [session()]
+    attentionReply = []
     fetchSpy = vi.fn((url: string | URL | Request, init?: RequestInit) => {
       const base = String(url)
         .replace(/^https?:\/\/[^/]+/, '')
@@ -53,14 +65,13 @@ describe('SessionsHome', () => {
       if (base === '/api/sessions' && (!init?.method || init.method === 'GET')) {
         return Promise.resolve(Response.json(sessionsReply))
       }
+      if (base === '/api/attention') {
+        return Promise.resolve(Response.json(attentionReply))
+      }
       if (base === '/api/sessions/01A/stop') {
         return Promise.resolve(new Response(null, { status: 204 }))
       }
-      if (
-        base === '/api/attention' ||
-        base === '/api/models/options' ||
-        base === '/api/tools/options'
-      ) {
+      if (base === '/api/models/options' || base === '/api/tools/options') {
         return Promise.resolve(Response.json([]))
       }
       throw new Error(`unexpected fetch ${init?.method ?? 'GET'} ${base}`)
@@ -130,7 +141,11 @@ describe('SessionsHome', () => {
             release = resolve
           })
         }
-        if (base === '/api/attention' || base === '/api/models/options') {
+        if (
+          base === '/api/attention' ||
+          base === '/api/models/options' ||
+          base === '/api/tools/options'
+        ) {
           return Promise.resolve(Response.json([]))
         }
         throw new Error(`unexpected fetch ${init?.method ?? 'GET'} ${base}`)
@@ -412,7 +427,7 @@ describe('SessionsHome', () => {
     expect(screen.queryByText(/No live sessions/)).not.toBeInTheDocument()
 
     // clearing restores the prior list
-    await user.click(screen.getByRole('button', { name: 'Clear filter' }))
+    await user.click(screen.getByRole('button', { name: 'Clear filters' }))
     expect(screen.getByText('alpha')).toBeInTheDocument()
     expect(screen.queryByText(/No sessions match/)).not.toBeInTheDocument()
   })
@@ -482,5 +497,204 @@ describe('SessionsHome', () => {
     await user.click(screen.getByRole('button', { name: 'Stop' }))
     await user.click(screen.getByRole('button', { name: 'Stop?' }))
     await vi.waitFor(() => expect(stopPosts()).toHaveLength(1))
+  })
+
+  it('narrows the grid by the running state', async () => {
+    sessionsReply = [
+      // a spinner is busy through sessionBusy, the badges' derivation
+      session({ sessionId: '01A', title: 'alpha', spinning: true, idle: false }),
+      session({ sessionId: '01B', title: 'beta', running: true, idle: false }),
+      session({
+        sessionId: '01C',
+        title: 'gamma',
+        state: ChildState.Exited,
+        detail: 'ended on its own',
+      }),
+    ]
+    renderHome()
+    const user = userEvent.setup()
+    await screen.findByText('alpha')
+
+    await user.selectOptions(screen.getByLabelText('Filter by state'), 'running')
+    expect(screen.getByRole('checkbox', { name: 'Select alpha for tiling' })).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: 'Select beta for tiling' })).toBeInTheDocument()
+    expect(
+      screen.queryByRole('checkbox', { name: 'Select gamma for tiling' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('keeps open interactions under the needs-input state', async () => {
+    sessionsReply = [
+      // the digest kind leads even when the listing lags behind at zero
+      session({ sessionId: '01A', title: 'digest' }),
+      // no digest row yet, the listing's open interactions stand in
+      session({ sessionId: '01B', title: 'fallback', openInteractions: 2 }),
+      session({ sessionId: '01C', title: 'quiet' }),
+      // a present kind wins over the listing count: one attention model
+      session({ sessionId: '01D', title: 'overridden', openInteractions: 3 }),
+    ]
+    attentionReply = [
+      attentionRow({ sessionId: '01A', kind: 'needs-input', openInteractions: 1, idle: false }),
+      attentionRow({ sessionId: '01D', kind: 'working', running: true, idle: false }),
+    ]
+    renderHome()
+    const user = userEvent.setup()
+    await screen.findByText('digest')
+
+    await user.selectOptions(screen.getByLabelText('Filter by state'), 'needs-input')
+    expect(screen.getByRole('checkbox', { name: 'Select digest for tiling' })).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: 'Select fallback for tiling' })).toBeInTheDocument()
+    expect(
+      screen.queryByRole('checkbox', { name: 'Select quiet for tiling' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('checkbox', { name: 'Select overridden for tiling' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('keeps only ended sessions under the ended state', async () => {
+    sessionsReply = [
+      session({ sessionId: '01A', title: 'alpha' }),
+      session({ sessionId: '01B', title: 'beta', running: true, idle: false }),
+      session({
+        sessionId: '01C',
+        title: 'gamma',
+        state: ChildState.Exited,
+        detail: 'ended on its own',
+      }),
+    ]
+    renderHome()
+    const user = userEvent.setup()
+    await screen.findByText('alpha')
+
+    await user.selectOptions(screen.getByLabelText('Filter by state'), 'ended')
+    expect(screen.getByRole('checkbox', { name: 'Select gamma for tiling' })).toBeInTheDocument()
+    expect(
+      screen.queryByRole('checkbox', { name: 'Select alpha for tiling' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('checkbox', { name: 'Select beta for tiling' }),
+    ).not.toBeInTheDocument()
+
+    // all reads as every row again
+    await user.selectOptions(screen.getByLabelText('Filter by state'), 'all')
+    expect(screen.getByRole('checkbox', { name: 'Select alpha for tiling' })).toBeInTheDocument()
+  })
+
+  it('sorts urgency first only when toggled on', async () => {
+    sessionsReply = [
+      session({ sessionId: '01A', title: 'worker', running: true, idle: false }),
+      // the needs rows sit mid-roster, off must keep that order
+      session({ sessionId: '01B', title: 'dialog' }),
+      session({ sessionId: '01C', title: 'review' }),
+      session({ sessionId: '01D', title: 'idler' }),
+      session({ sessionId: '01E', title: 'departed', state: ChildState.Exited }),
+    ]
+    attentionReply = [
+      attentionRow({ sessionId: '01A', kind: 'working', running: true, idle: false }),
+      attentionRow({ sessionId: '01B', kind: 'needs-input', openInteractions: 1, idle: false }),
+      attentionRow({ sessionId: '01C', kind: 'needs-review' }),
+    ]
+    renderHome()
+    const user = userEvent.setup()
+    await screen.findByText('worker')
+
+    const order = () =>
+      screen
+        .getAllByRole('checkbox', { name: /Select .* for tiling/ })
+        .map((box) => box.getAttribute('aria-label'))
+
+    // default off: the roster order stands untouched
+    expect(order()).toEqual([
+      'Select worker for tiling',
+      'Select dialog for tiling',
+      'Select review for tiling',
+      'Select idler for tiling',
+      'Select departed for tiling',
+    ])
+
+    await user.click(screen.getByRole('checkbox', { name: 'Urgency first' }))
+    // needs input, then review, then working; the rowless session ranks as
+    // waiting and the ended one trails every live kind
+    expect(order()).toEqual([
+      'Select dialog for tiling',
+      'Select review for tiling',
+      'Select worker for tiling',
+      'Select idler for tiling',
+      'Select departed for tiling',
+    ])
+  })
+
+  it('adds only visible keys from Select all visible', async () => {
+    sessionsReply = [
+      session({ sessionId: '01A', title: 'alpha' }),
+      session({ sessionId: '01B', title: 'beta' }),
+      session({ sessionId: '01C', title: 'zebra', running: true, idle: false }),
+    ]
+    renderHome()
+    const user = userEvent.setup()
+    await screen.findByText('alpha')
+
+    // the row a filter will hide is selected first, its key must survive
+    await user.click(screen.getByRole('checkbox', { name: 'Select zebra for tiling' }))
+    expect(screen.getByText('1 selected')).toBeInTheDocument()
+
+    await user.type(screen.getByRole('searchbox', { name: 'Filter sessions' }), 'alp')
+    expect(
+      screen.queryByRole('checkbox', { name: 'Select beta for tiling' }),
+    ).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Select all visible' }))
+    // alpha joined, zebra's hidden selection untouched
+    expect(screen.getByText('2 selected')).toBeInTheDocument()
+    // every visible row carries its key now, the action stands down
+    expect(screen.queryByRole('button', { name: 'Select all visible' })).not.toBeInTheDocument()
+
+    // clearing the query restores the roster with exactly those keys held
+    await user.clear(screen.getByRole('searchbox', { name: 'Filter sessions' }))
+    expect(screen.getByRole('checkbox', { name: 'Select alpha for tiling' })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: 'Select beta for tiling' })).not.toBeChecked()
+    expect(screen.getByRole('checkbox', { name: 'Select zebra for tiling' })).toBeChecked()
+
+    // the tile request carries every selected instance, hidden ones included
+    await user.click(screen.getByRole('button', { name: 'Tile 2 selected' }))
+    expect(await screen.findByText('tiled 01C,01A')).toBeInTheDocument()
+  })
+
+  it('resets the query and state filter together', async () => {
+    sessionsReply = [
+      session({ sessionId: '01A', title: 'alpha' }),
+      session({ sessionId: '01B', title: 'beta', running: true, idle: false }),
+    ]
+    renderHome()
+    const user = userEvent.setup()
+    await screen.findByText('alpha')
+
+    // both knobs active so only the combined reset recovers the rows
+    await user.selectOptions(screen.getByLabelText('Filter by state'), 'ended')
+    await user.type(screen.getByRole('searchbox', { name: 'Filter sessions' }), 'alpha')
+    expect(screen.getByText('No sessions match “alpha”.')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Clear filters' }))
+    expect(screen.getByLabelText('Filter by state')).toHaveValue('all')
+    expect(screen.getByRole('searchbox', { name: 'Filter sessions' })).toHaveValue('')
+    expect(screen.getByRole('checkbox', { name: 'Select alpha for tiling' })).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: 'Select beta for tiling' })).toBeInTheDocument()
+  })
+
+  it('names the state filter in the no-match copy', async () => {
+    sessionsReply = [session({ sessionId: '01A', title: 'alpha' })]
+    renderHome()
+    const user = userEvent.setup()
+    await screen.findByText('alpha')
+
+    // only the state filter empties the grid, so its name leads
+    await user.selectOptions(screen.getByLabelText('Filter by state'), 'ended')
+    expect(screen.getByText('No ended sessions.')).toBeInTheDocument()
+
+    // a query names itself, whichever state sits beside it
+    await user.type(screen.getByRole('searchbox', { name: 'Filter sessions' }), 'zzz')
+    expect(screen.getByText('No sessions match “zzz”.')).toBeInTheDocument()
+    expect(screen.queryByText('No ended sessions.')).not.toBeInTheDocument()
   })
 })

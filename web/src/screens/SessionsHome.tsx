@@ -13,32 +13,48 @@ import { useLaunchForm, type LaunchTarget } from '../hooks/useLaunchForm'
 import { useResume } from '../hooks/useResume'
 import { useSwarm } from '../providers/swarm'
 import { useAuth } from '../providers/auth'
+import { useWorkspace } from '../providers/workspace'
 import { AgentSettingsMenu } from '../session/AgentSettingsMenu'
 import { SessionContextMenu, useSessionMenu } from '../session/SessionContextMenu'
 import { RenameControl } from '../session/RenameControl'
 import { StatusBadge } from '../session/StatusBadge'
 import { displayName, shortID } from '../session/names'
-import { describeStop, instanceKey } from '../workspace/attention'
+import { sessionBusy } from '../state/eventApplier'
+import { describeStop, instanceKey, urgencyRank } from '../workspace/attention'
 import { ListFilter } from '../ui/ListFilter'
 import { matchesQuery, normalizeQuery } from '../ui/textMatch'
 import { ModelSelect, WorkspaceSelect } from '../ui/LaunchFormFields'
 
+type SessionStateFilter = 'all' | 'needs-input' | 'running' | 'ended'
+
+// no-match copy per state choice; 'all' never empties the grid on its own
+const stateEmptyCopy: Record<SessionStateFilter, string> = {
+  all: '',
+  'needs-input': 'No sessions need input.',
+  running: 'No sessions are running.',
+  ended: 'No ended sessions.',
+}
+
 // SessionsHome is the live instance grid: state, workspace and seat badges
 // beside quick actions per session, with a compact launch panel. Checkboxes
 // multi-select sessions for tiling, an exited card stays listed with one-click
-// resume and every live card keeps its explicit stop. The filter narrows the
-// grid locally only: hidden cards keep their selection, selection rides the
-// full roster.
+// resume and every live card keeps its explicit stop. The text and state
+// filters and the urgency-first sort narrow the grid locally only: hidden
+// cards keep their selection, selection rides the full roster.
 export default function SessionsHome() {
   const { sessions, sessionsLoaded } = useSwarm()
   const auth = useAuth()
   const home = auth.home
+  // the rail's attention model, read by the state filter and the urgency sort
+  const { needs, waiting, working } = useWorkspace()
   useDocumentTitle('Sessions')
   const [launching, setLaunching] = useState(false)
   // selection is by row key, Open workspace tiles them directly
   const [selected, setSelected] = useState<string[]>([])
   // local view state: the grid narrows, selection and actions never do
   const [filter, setFilter] = useState('')
+  const [stateFilter, setStateFilter] = useState<SessionStateFilter>('all')
+  const [urgencyFirst, setUrgencyFirst] = useState(false)
   const navigate = useNavigate()
 
   // selection keys ride instance identity and read through the live roster:
@@ -51,13 +67,52 @@ export default function SessionsHome() {
   }, [selected, sessions])
 
   const query = normalizeQuery(filter)
-  const visible = useMemo(
+
+  // digest items by instance key; a row the digest has not reached yet has no entry
+  const itemsByKey = useMemo(
     () =>
-      sessions.filter((s) =>
-        matchesQuery(query, displayName(s, home), s.sessionId, s.model, s.workspace),
+      new Map(
+        [...needs, ...waiting, ...working].map((item) => [
+          instanceKey(item.sessionId, item.pid),
+          item,
+        ]),
       ),
-    [sessions, query, home],
+    [needs, waiting, working],
   )
+
+  const visible = useMemo(() => {
+    const itemOf = (s: SessionStatus) => itemsByKey.get(instanceKey(s.sessionId, s.pid))
+    const matched = sessions.filter((s) => {
+      if (!matchesQuery(query, displayName(s, home), s.sessionId, s.model, s.workspace)) {
+        return false
+      }
+      const item = itemOf(s)
+      switch (stateFilter) {
+        case 'needs-input':
+          // the digest kind wins: an acked dialog still counts open on the listing
+          return item !== undefined ? item.kind === 'needs-input' : s.openInteractions > 0
+        case 'running':
+          return sessionBusy(s)
+        case 'ended':
+          return childEnded(s.state)
+        default:
+          return true
+      }
+    })
+    if (!urgencyFirst) return matched
+    const rank = (s: SessionStatus) => urgencyRank(childEnded(s.state), itemOf(s))
+    // stable sort: roster order holds inside a rank
+    return matched.sort((a, b) => rank(a) - rank(b))
+  }, [sessions, query, home, stateFilter, urgencyFirst, itemsByKey])
+
+  // Select all visible adds these keys to the selection, hidden rows keep theirs
+  const visibleKeys = visible.map((s) => instanceKey(s.sessionId, s.pid))
+  const canSelectVisible = visibleKeys.some((key) => !selectedKeys.includes(key))
+  const selectVisible = () => setSelected((sel) => [...new Set([...sel, ...visibleKeys])])
+  const clearFilters = () => {
+    setFilter('')
+    setStateFilter('all')
+  }
 
   // sessions listed twice carry a pid badge so the cards stay tellable apart
   const twinIds = useMemo(() => {
@@ -96,6 +151,11 @@ export default function SessionsHome() {
       <div className="session-header">
         <h1 className="page-title">Sessions</h1>
         <span className="spacer" style={{ flex: 1 }} />
+        {canSelectVisible && (
+          <button type="button" onClick={selectVisible}>
+            Select all visible
+          </button>
+        )}
         {selectedKeys.length > 0 && (
           <>
             <span className="muted">{selectedKeys.length} selected</span>
@@ -123,6 +183,24 @@ export default function SessionsHome() {
             hotkey
             resultCount={`${visible.length} of ${sessions.length} sessions`}
           />
+          <select
+            value={stateFilter}
+            aria-label="Filter by state"
+            onChange={(ev) => setStateFilter(ev.target.value as SessionStateFilter)}
+          >
+            <option value="all">All</option>
+            <option value="needs-input">Needs input</option>
+            <option value="running">Running</option>
+            <option value="ended">Ended</option>
+          </select>
+          <label className="toggle-row">
+            <input
+              type="checkbox"
+              checked={urgencyFirst}
+              onChange={(ev) => setUrgencyFirst(ev.target.checked)}
+            />
+            Urgency first
+          </label>
         </div>
       )}
 
@@ -138,9 +216,9 @@ export default function SessionsHome() {
         </p>
       ) : visible.length === 0 ? (
         <p className="muted">
-          No sessions match “{filter.trim()}”.{' '}
-          <button type="button" onClick={() => setFilter('')}>
-            Clear filter
+          {query !== '' ? `No sessions match “${filter.trim()}”.` : stateEmptyCopy[stateFilter]}{' '}
+          <button type="button" onClick={clearFilters}>
+            Clear filters
           </button>
         </p>
       ) : (

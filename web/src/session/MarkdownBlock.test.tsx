@@ -68,6 +68,29 @@ describe('MarkdownBlock prose elements', () => {
   })
 })
 
+describe('MarkdownBlock table columns', () => {
+  it('floors each column at its longest cell width', () => {
+    render(<MarkdownBlock text={'| id | name |\n|---|---|\n| 1 | Alexander |'} />)
+    // jsdom cannot lay out ch units, so the floor reads off the inline style
+    const cells = Array.from(document.querySelectorAll<HTMLElement>('th, td'))
+    expect(cells.map((cell) => cell.style.minWidth)).toEqual(['2ch', '9ch', '2ch', '9ch'])
+  })
+
+  it('caps the floor so one long column cannot dominate', () => {
+    render(<MarkdownBlock text={'| a | b |\n|---|---|\n| 1 | a very long cell body indeed |'} />)
+    const cells = Array.from(document.querySelectorAll<HTMLElement>('td'))
+    expect(cells.map((cell) => cell.style.minWidth)).toEqual(['1ch', '16ch'])
+  })
+
+  it('merges the floor beside alignment styles', () => {
+    render(<MarkdownBlock text={'| l | r |\n|:--|--:|\n| 1 | 2 |'} />)
+    const cells = Array.from(document.querySelectorAll<HTMLElement>('th'))
+    expect(cells[0]).toHaveStyle({ textAlign: 'left' })
+    expect(cells[1]).toHaveStyle({ textAlign: 'right' })
+    expect(cells.every((cell) => cell.style.minWidth !== '')).toBe(true)
+  })
+})
+
 describe('MarkdownBlock sanitize', () => {
   it('never renders raw HTML from model output', () => {
     render(

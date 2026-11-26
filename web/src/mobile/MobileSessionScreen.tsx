@@ -1,9 +1,14 @@
 import { useRef, useState } from 'react'
 import type { ReactElement } from 'react'
-import { Link, useParams } from 'react-router'
+import { Link, useNavigate, useParams } from 'react-router'
 
 import { sessionBusy } from '../state/eventApplier'
-import { headerBadgeOf, submitTurnEnd } from '../workspace/attention'
+import {
+  attendBadgeLabels,
+  attendBadgePath,
+  headerBadgeOf,
+  submitTurnEnd,
+} from '../workspace/attention'
 import { ChainStrip } from '../session/ChainStrip'
 import { Composer } from '../session/Composer'
 import { SeatBadge } from '../session/SeatBadge'
@@ -20,6 +25,7 @@ import { useInterruptStream } from '../session/useInterruptStream'
 import { useSessionCompose } from '../session/useSessionCompose'
 import { useSessionLabel, useSessionNamer } from '../session/useSessionLabel'
 import { Toasts } from '../hooks/Toasts'
+import { useCanGoBack } from '../hooks/useCanGoBack'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import { useSessionChannel } from '../hooks/useSessionChannel'
 import { ModelMenu } from '../ui/ModelMenu'
@@ -33,9 +39,11 @@ import { DialogDock } from '../session/DialogDock'
 
 // MobileSessionScreen drives one session on a phone. The component tree stays
 // shared with desktop (TranscriptView, notices, dialogs, queue chips, Composer,
-// StatusBar), only the chrome forks: a sticky one-line header carrying the
-// session label, the shared status badge, the model chip and mode menu, with
-// the secondary actions collapsed behind one menu button. The working turn's
+// StatusBar), only the chrome forks: this screen is immersive, the shell's top
+// bar stands down, so its sticky one-line header owns the top safe area and
+// carries the back control, the session label, the shared status badge, the
+// model chip, mode menu and attention badge, with rewind, tools and both
+// settings screens collapsed behind one menu button. The working turn's
 // Stop rides beside Send, and dialogs stack as full-width cards above the
 // composer, standing in for it and the status bar while one waits.
 //
@@ -51,8 +59,10 @@ export default function MobileSessionScreen(): ReactElement {
 // MobileSessionSurface is one session's mounted presentation, the key above
 // makes a session swap a remount, so local state never outlives its session.
 function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElement {
+  const navigate = useNavigate()
   const { state, phase, loadOlder, dispatch } = useSessionChannel(sessionId)
-  const { acknowledgeDialog, acknowledgeTurn, itemFor, setChainDraft } = useWorkspace()
+  const { acknowledgeDialog, acknowledgeTurn, itemFor, needs, needsInputCount, setChainDraft } =
+    useWorkspace()
   const nameFor = useSessionNamer()
   const snap = state.snapshot
 
@@ -94,12 +104,25 @@ function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElemen
   const label = useSessionLabel(sessionId)
   useDocumentTitle(label)
 
+  const canGoBack = useCanGoBack()
+
   return (
     <div className="session-screen mobile-session">
       <header className="mobile-session-header">
-        <Link to="/" aria-label="Back to launcher" className="back-link">
-          <ChevronLeftIcon />
-        </Link>
+        {canGoBack ? (
+          <button
+            type="button"
+            className="back-link"
+            aria-label="Back to launcher"
+            onClick={() => navigate(-1)}
+          >
+            <ChevronLeftIcon />
+          </button>
+        ) : (
+          <Link to="/" aria-label="Back to launcher" className="back-link">
+            <ChevronLeftIcon />
+          </Link>
+        )}
         <span className="session-title">{label}</span>
         {/* the same badge desktop's header renders, off the same derivation */}
         <StatusBadge status={headerBadgeOf(working, itemFor(sessionId))} />
@@ -109,10 +132,22 @@ function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElemen
           <span className={`badge ${phase === 'resyncing' ? 'warn' : ''}`}>{phase}</span>
         )}
         <SeatBadge sessionId={sessionId} seat={snap.seat} compact onToast={pushToast} />
+        {/* the shell top bar's badge, same derivation, placed ahead of the
+            menu trigger so the navigation controls keep their space */}
+        {needsInputCount > 0 && (
+          <Link
+            to={attendBadgePath(needs) ?? '/'}
+            className="attend-badge"
+            {...attendBadgeLabels(needsInputCount)}
+          >
+            {needsInputCount}
+          </Link>
+        )}
         <HeaderMenu
           onRewind={() => setShowRewind(true)}
           onTools={() => setShowTools(true)}
           onSettings={() => setShowSettings(true)}
+          onGlobalSettings={() => navigate('/m/settings')}
         />
       </header>
 
@@ -221,17 +256,20 @@ function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElemen
 }
 
 // HeaderMenu collapses the header's secondary actions behind one entry point:
-// Rewind, Tools and agent settings open from the menu, so the sticky row keeps
-// a single line while every target keeps its touch floor. The menu carries the
-// trigger's own name, a popup never inherits it.
+// Rewind, Tools and agent settings open from the menu, the global settings
+// screen is a route, so the sticky row keeps a single line while every target
+// keeps its touch floor. The menu carries the trigger's own name, a popup
+// never inherits it.
 function HeaderMenu({
   onRewind,
   onTools,
   onSettings,
+  onGlobalSettings,
 }: {
   onRewind: () => void
   onTools: () => void
   onSettings: () => void
+  onGlobalSettings: () => void
 }): ReactElement {
   const [open, setOpen] = useState(false)
   const triggerRef = useRef<HTMLButtonElement>(null)
@@ -268,6 +306,7 @@ function HeaderMenu({
           {item('Rewind', onRewind)}
           {item('Tools', onTools)}
           {item('Agent settings', onSettings)}
+          {item('Global settings', onGlobalSettings)}
         </OverlayMenu>
       )}
     </>

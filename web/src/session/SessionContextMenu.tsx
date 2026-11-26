@@ -56,19 +56,22 @@ export function useSessionMenu(): {
 // follow-up session behind this one, landing
 // the workspace provider's queue draft on the shared form shells, an optional
 // chain entry (mobile rows) opens the pushed target picker; queue and chain
-// show only while the session runs, an optional rename entry covers surfaces
-// without an inline pencil (mobile rows), and the armed stop is the same
-// guard the cards' stop buttons carry.
+// show only while the session runs, an optional agent settings entry (mobile
+// rows) opens that session's settings surface, an optional rename entry covers
+// surfaces without an inline pencil (mobile rows), and the armed stop is the
+// same guard the cards' stop buttons carry.
 export function SessionContextMenu({
   menu,
   onClose,
   onRename,
   onChain,
+  onSettings,
 }: {
   menu: SessionMenuPoint | null
   onClose: () => void
   onRename?: () => void
   onChain?: () => void
+  onSettings?: () => void
 }): ReactElement | null {
   if (menu === null) return null
   return (
@@ -78,6 +81,7 @@ export function SessionContextMenu({
       onClose={onClose}
       onRename={onRename}
       onChain={onChain}
+      onSettings={onSettings}
     />
   )
 }
@@ -87,13 +91,15 @@ function MenuBody({
   onClose,
   onRename,
   onChain,
+  onSettings,
 }: {
   menu: SessionMenuPoint
   onClose: () => void
   onRename?: () => void
   onChain?: () => void
+  onSettings?: () => void
 }): ReactElement {
-  const { sessions } = useSwarm()
+  const { sessions, refreshSessions } = useSwarm()
   const { pinnedSessionIds, togglePinnedSession, setQueueDraft } = useWorkspace()
   const anchorRef = useRef<HTMLSpanElement>(null)
   const [stopping, setStopping] = useState(false)
@@ -109,6 +115,7 @@ function MenuBody({
       // swarm children, so one call is the direct stop
       await sessionAPI.stop(menu.sessionId)
       onClose()
+      void refreshSessions() // rows re-badge now, not on the next poll
     } catch (err) {
       setError(describeError(err, 'Stop failed.'))
       setStopping(false)
@@ -173,6 +180,19 @@ function MenuBody({
             }}
           >
             Chain after…
+          </button>
+        )}
+        {onSettings && (
+          <button
+            type="button"
+            role="menuitem"
+            onClick={(ev) => {
+              ev.stopPropagation()
+              onSettings()
+              onClose()
+            }}
+          >
+            Agent settings…
           </button>
         )}
         {onRename && (

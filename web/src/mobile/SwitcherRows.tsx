@@ -1,18 +1,14 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactElement } from 'react'
 
-import { describeError } from '../api/errors'
-import { sessions as sessionAPI } from '../api/endpoints'
-import { useArmedConfirm } from '../hooks/useArmedConfirm'
-import { useAuth } from '../providers/auth'
-import { useResume } from '../hooks/useResume'
 import { RenameEditorModal } from '../session/RenameControl'
 import { tildePath } from '../session/names'
 import { SessionContextMenu, useSessionMenu } from '../session/SessionContextMenu'
 import { CheckIcon, MoreHorizontalIcon } from '../ui/icons'
 import { StatusBadge } from '../session/StatusBadge'
 import { useSessionNamer } from '../session/useSessionLabel'
-import { useSwarm } from '../providers/swarm'
+import { useResume } from '../hooks/useResume'
+import { useAuth } from '../providers/auth'
 import { useWorkspace } from '../providers/workspace'
 import { chainNoticeOf, instanceKey, isActionable } from '../workspace/attention'
 import { SettingsScreen } from './SettingsScreen'
@@ -22,19 +18,20 @@ import { useOverlayBack } from '../ui/useOverlayBack'
 import { groupSwitcherRows } from './switcher'
 import type { SwitcherRow } from './switcher'
 
-// SwitcherRows renders the launcher's large touch rows grouped under the
-// shared rail headings plus the Recent tail: status and needs-input badges
-// beside each label with the workspace path beneath like the desktop rail
-// row, a queued-prompt count when prompts wait, a
-// check-off on actionable attention states (never on neutral waiting or ended
-// rows), a trailing actions area carrying native Open, Settings/Stop or
-// Resume and a More actions trigger for the long-press menu (queue follow-up, chain
-// after, rename, stop) anchored at the press or the button. A held drag lifts
-// its row and chains it onto
-// the row released under the finger, the same drop the desktop rail takes;
-// rename edits the stored swarm title rather than ajent's own
-// session names, and platform back peels the editor alone, leaving the rows
-// beneath intact.
+// SwitcherRows renders the launcher's touch rows grouped under the shared rail
+// headings plus the Recent tail: the name, status and queued-count badges on
+// the first line with the workspace path and reason line beneath, a check-off
+// riding the reason line on actionable attention states (never on neutral
+// waiting or ended rows), and one ⋯ trigger holding the trailing edge, opening
+// the shared session menu at the button (agent settings, queue follow-up,
+// chain after, rename, stop) so none of them depend on a long press. The row
+// itself opens on tap; its Open control stays in the tree for keyboard and
+// screen reader users and reveals itself on keyboard focus. Ended rows keep an
+// inline Resume, the menu has none and it is the primary action there. A held
+// drag lifts its row and chains it onto the row released under the finger, the
+// same drop the desktop rail takes; rename edits the stored swarm title rather
+// than ajent's own session names, and platform back peels the editor alone,
+// leaving the rows beneath intact.
 export function SwitcherRows({
   rows,
   onOpen,
@@ -126,11 +123,11 @@ function RenameLayer({ row, onDone }: { row: SwitcherRow; onDone: () => void }):
   return <RenameEditorModal sessionId={row.sessionId} initial={row.label} onDone={onDone} />
 }
 
-// SwitchRow renders one launcher row: the row itself opens on tap while a
-// native Open button inside gives keyboard users the same activation, and the
-// trailing actions area pairs Settings and Stop or Resume with a More actions
-// trigger opening the shared session menu at the button, so Rename, Queue
-// follow-up and Chain never depend on a long press.
+// SwitchRow renders one launcher row: a shrinking text column (name, badges,
+// path, reason with its check-off) beside the trailing action edge. The row
+// itself opens on tap while the Open control inside gives keyboard users the
+// same activation, and the ⋯ trigger opens the shared session menu at the
+// button, carrying the row's agent settings, rename, queue, chain and stop.
 function SwitchRow({
   row,
   drag,
@@ -205,42 +202,43 @@ function SwitchRow({
       onClick={() => onOpen(row)}
       {...pressProps}
     >
-      <span className="switch-top">
-        <span className="switch-name">{row.label}</span>
-        <StatusBadge status={row.status} />
-        {row.queued > 0 && <span className="badge">{row.queued} queued</span>}
-      </span>
-      {/* the path sub-line mirrors the desktop rail row: full tilde-folded
-          workspace, hover title carries the absolute directory */}
-      {row.workspace && (
-        <span className="rail-path muted" title={row.workspace}>
-          {tildePath(row.workspace, auth.home)}
+      <span className="switch-main">
+        <span className="switch-top">
+          <span className="switch-name">{row.label}</span>
+          <StatusBadge status={row.status} />
+          {row.queued > 0 && <span className="badge">{row.queued} queued</span>}
         </span>
-      )}
-      <span className="switch-bottom">
-        {chain !== undefined ? (
-          <span className="muted switch-reason">{chain}</span>
-        ) : (
-          row.reason !== '' && <span className="muted switch-reason">{row.reason}</span>
+        {/* the path sub-line mirrors the desktop rail row: full tilde-folded
+            workspace, hover title carries the absolute directory */}
+        {row.workspace && (
+          <span className="rail-path muted" title={row.workspace}>
+            {tildePath(row.workspace, auth.home)}
+          </span>
         )}
-        {canCheckOff && (
-          <button
-            type="button"
-            className="rail-check icon-btn"
-            aria-label={`Mark ${row.label} reviewed`}
-            onClick={(ev) => {
-              ev.stopPropagation()
-              if (item) acknowledgeItem(item)
-            }}
-          >
-            <CheckIcon />
-          </button>
-        )}
+        <span className="switch-bottom">
+          {chain !== undefined ? (
+            <span className="muted switch-reason">{chain}</span>
+          ) : (
+            row.reason !== '' && <span className="muted switch-reason">{row.reason}</span>
+          )}
+          {canCheckOff && (
+            <button
+              type="button"
+              className="rail-check icon-btn"
+              aria-label={`Mark ${row.label} reviewed`}
+              onClick={(ev) => {
+                ev.stopPropagation()
+                if (item) acknowledgeItem(item)
+              }}
+            >
+              <CheckIcon />
+            </button>
+          )}
+        </span>
       </span>
       <RowActions
         row={row}
         onOpen={() => onOpen(row)}
-        onSettings={onSettings}
         onMenuAt={(x, y) => openSessionMenuAt(x, y, row.sessionId)}
       />
       <SessionContextMenu
@@ -248,66 +246,46 @@ function SwitchRow({
         onClose={closeSessionMenu}
         onRename={onRename}
         onChain={onChain}
+        onSettings={onSettings}
       />
     </div>
   )
 }
 
-// RowActions is the row's trailing action area: a native Open control, then
-// Settings and Stop for live rows, Resume for ended ones with a recorded
-// workspace, and a More actions trigger opening the long-press menu at the
-// button so its rename and chain entries never depend on a held gesture. Stop carries
-// the shared danger variant and arm/confirm guard, like the desktop card it
-// holds across listing polls, while a relaunch resets it by remounting this
-// row under a fresh instance key. It swallows clicks and pointer-downs so
-// tapping or holding an action never reads as the row's own open or long-press
-// gestures.
+// RowActions is the row's trailing edge: the keyboard entry's Open control in
+// its focus-reveal slot, Resume on ended rows with a recorded workspace (the
+// menu carries no resume), and the ⋯ trigger opening the shared session menu
+// at the button, so agent settings, rename, queue follow-up, chain and the
+// armed stop never depend on a held gesture. It swallows clicks and
+// pointer-downs so tapping or holding an action never reads as the row's own
+// open or long-press gestures. A refused resume reports on its own line under
+// the row, the menu owns every stop error itself.
 function RowActions({
   row,
   onOpen,
-  onSettings,
   onMenuAt,
 }: {
   row: SwitcherRow
   onOpen: () => void
-  onSettings: () => void
   onMenuAt: (x: number, y: number) => void
-}) {
-  const [busy, setBusy] = useState(false)
-  const [stopError, setStopError] = useState('')
-  const { refreshSessions } = useSwarm()
+}): ReactElement {
   const { resume, resumingId, error } = useResume()
-  const ended = row.status === 'ended'
-
-  const stop = async () => {
-    setBusy(true)
-    setStopError('')
-    try {
-      await sessionAPI.stop(row.sessionId)
-      await refreshSessions() // rows re-badge now, not on the next poll
-    } catch (err) {
-      setStopError(describeError(err, 'Stop failed.'))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  // no resetKey: polls rebuild row objects every couple of seconds, so an
-  // object key would void the arm between taps, instance swaps remount this
-  // row disarmed instead
-  const confirm = useArmedConfirm(() => void stop(), { disabled: busy })
 
   return (
-    <div
-      className="switch-actions"
-      onClick={(ev) => ev.stopPropagation()}
-      onPointerDown={(ev) => ev.stopPropagation()}
-    >
-      <button type="button" onClick={onOpen}>
-        Open
-      </button>
-      {ended ? (
-        row.workspace && (
+    <>
+      <div
+        className="switch-actions switch-trailing"
+        onClick={(ev) => ev.stopPropagation()}
+        onPointerDown={(ev) => ev.stopPropagation()}
+      >
+        {/* the slot reserves the pill's place, so its focus reveal never reflows
+            the row */}
+        <span className="switch-open-slot">
+          <button type="button" className="switch-open" onClick={onOpen}>
+            Open
+          </button>
+        </span>
+        {row.status === 'ended' && row.workspace && (
           <button
             type="button"
             disabled={resumingId !== null}
@@ -315,38 +293,23 @@ function RowActions({
           >
             {resumingId === row.sessionId ? 'Resuming…' : 'Resume'}
           </button>
-        )
-      ) : (
-        <>
-          <button type="button" onClick={onSettings}>
-            Settings
-          </button>
-          <button
-            type="button"
-            className={`danger${confirm.armed ? ' armed' : ''}`}
-            onClick={confirm.onClick}
-            onBlur={confirm.onBlur}
-            disabled={busy}
-          >
-            {busy ? 'Stopping…' : confirm.armed ? 'Stop?' : 'Stop'}
-          </button>
-        </>
-      )}
-      <button
-        type="button"
-        className="icon-btn"
-        aria-label={`More actions for ${row.label}`}
-        aria-haspopup="menu"
-        onClick={(ev) => {
-          // the menu anchors at the button's foot like a long press does at
-          // the finger, placeMenu adding its own gap and viewport flips
-          const box = ev.currentTarget.getBoundingClientRect()
-          onMenuAt(box.left, box.bottom)
-        }}
-      >
-        <MoreHorizontalIcon />
-      </button>
-      {(error || stopError) && <span className="error-text">{error || stopError}</span>}
-    </div>
+        )}
+        <button
+          type="button"
+          className="icon-btn"
+          aria-label={`More actions for ${row.label}`}
+          aria-haspopup="menu"
+          onClick={(ev) => {
+            // the menu anchors at the button's foot like a long press does at
+            // the finger, placeMenu adding its own gap and viewport flips
+            const box = ev.currentTarget.getBoundingClientRect()
+            onMenuAt(box.left, box.bottom)
+          }}
+        >
+          <MoreHorizontalIcon />
+        </button>
+      </div>
+      {error !== '' && <span className="error-text">{error}</span>}
+    </>
   )
 }

@@ -13,14 +13,14 @@ import { SwarmProvider } from '../providers/swarm'
 import { WorkspaceProvider } from '../providers/workspace'
 
 // The switcher's interactive contract at its breakpoint: rows group under
-// muted desktop-rail headings, long-press opens the shared session menu
-// (queue follow-up, chain after, rename, stop) carrying the row's rename and
-// chain actions, and the hold suppresses its release tap, a held
-// drag chains one row onto another, awaiting rows never offer a check-off,
-// live needs-input rows offer one backed by the digest, stop arms before it
-// fires and holds across listing polls of the same instance (a relaunch
-// swaps the row), and the trailing actions hit their endpoints and rebind a
-// single pushed settings screen without tripping the row's own gestures.
+// muted desktop-rail headings, a tap opens the row and the focus-revealed Open
+// control gives keyboard users the same activation, the ⋯ trigger opens the
+// shared session menu (agent settings, queue follow-up, chain after, rename,
+// armed stop) without a long press, a long press opens the same menu and
+// suppresses its release tap, a held drag chains one row onto another, and
+// awaiting rows never offer a check-off while live needs-input rows offer one
+// backed by the digest. Ended rows keep Resume inline, a refused resume
+// reports on the row.
 
 function row(overrides: Partial<SwitcherRow> = {}): SwitcherRow {
   return {
@@ -440,7 +440,20 @@ describe('SwitcherRows', () => {
     expect(screen.queryByText('Needs input')).not.toBeInTheDocument()
   })
 
-  it('stops through the endpoint and refreshes rows', async () => {
+  it('opens the row on tap', async () => {
+    stubFacts()
+    const onOpen = vi.fn()
+    renderRows([row()], onOpen)
+    await screen.findByText('project')
+
+    await userEvent.setup().click(screen.getByRole('listitem'))
+
+    // the row itself is the open target, once
+    expect(onOpen).toHaveBeenCalledTimes(1)
+    expect((onOpen.mock.calls[0]![0] as SwitcherRow).sessionId).toBe('01A')
+  })
+
+  it('stops through the menu and refreshes rows', async () => {
     let release: (() => void) | null = null
     const fetchSpy = vi.fn(async (url: string | URL, _init?: RequestInit) => {
       const path = String(url).split('?')[0]
@@ -459,12 +472,13 @@ describe('SwitcherRows', () => {
     await screen.findByText('project')
 
     const user = userEvent.setup()
-    await user.click(screen.getByRole('button', { name: 'Stop' }))
+    await user.click(screen.getByRole('button', { name: 'More actions for project' }))
     // the first click only arms, in the shared danger variant
-    const armed = screen.getByRole('button', { name: 'Stop?' })
+    await user.click(screen.getByRole('menuitem', { name: 'Stop session' }))
+    const armed = screen.getByRole('menuitem', { name: 'Stop?' })
     expect(armed).toHaveClass('danger', 'armed')
     await user.click(armed)
-    expect(await screen.findByRole('button', { name: 'Stopping…' })).toBeDisabled()
+    expect(await screen.findByRole('menuitem', { name: 'Stopping…' })).toBeDisabled()
 
     const listingGets = () =>
       fetchSpy.mock.calls.filter(([u]) => String(u).split('?')[0] === '/api/sessions').length
@@ -480,121 +494,30 @@ describe('SwitcherRows', () => {
       expect(stops).toHaveLength(1)
       expect(listingGets()).toBeGreaterThan(before)
     })
-    expect(screen.getByRole('button', { name: 'Stop' })).toBeEnabled()
+    // the menu closed behind the confirmed stop
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
   })
 
-  it('renders a refused stop inline on the row', async () => {
+  it('shows a refused resume on the row', async () => {
     const fetchSpy = vi.fn(async (url: string | URL, init?: RequestInit) => {
       const path = String(url).split('?')[0]
       if (path === '/api/me') return Response.json({ username: 'you', via: 'cookie' })
-      if (path === '/api/sessions/01A/stop' && init?.method === 'POST') {
-        return Response.json(
-          { error: 'unavailable', message: 'session is shutting down' },
-          {
-            status: 409,
-          },
-        )
+      if (path === '/api/sessions' && init?.method === 'POST') {
+        return Response.json({ error: 'unavailable', message: 'launch refused' }, { status: 409 })
       }
       return Response.json([])
     })
     vi.stubGlobal('fetch', fetchSpy)
 
-    renderRows([row()])
-    await screen.findByText('project')
+    renderRows([endedRow({ sessionId: '01C', label: 'old' })])
+    await screen.findByText('old')
 
     const user = userEvent.setup()
-    await user.click(screen.getByRole('button', { name: 'Stop' }))
-    await user.click(screen.getByRole('button', { name: 'Stop?' }))
+    await user.click(screen.getByRole('button', { name: 'Resume' }))
 
-    // desktop's error-text style, rendered inline on the row
-    expect(await screen.findByText('session is shutting down')).toHaveClass('error-text')
-    expect(screen.getByRole('button', { name: 'Stop' })).toBeEnabled()
-  })
-
-  it('keeps the armed stop across listing polls', async () => {
-    stubFacts()
-    const view = renderRows([row()])
-    await screen.findByText('project')
-
-    const user = userEvent.setup()
-    await user.click(screen.getByRole('button', { name: 'Stop' }))
-    expect(screen.getByRole('button', { name: 'Stop?' })).toBeInTheDocument()
-
-    // a listing poll rebuilds every row object, same instance included, the
-    // arm must survive it or no human taps twice within one poll cadence
-    view.rerender(tree([row()]))
-    expect(screen.getByRole('button', { name: 'Stop?' })).toBeInTheDocument()
-
-    await user.click(screen.getByRole('button', { name: 'Stop?' }))
-    expect(fetchSpyCalled('/api/sessions/01A/stop')).toBe(true)
-  })
-
-  it('resets the armed stop on an instance swap', async () => {
-    stubFacts()
-    const view = renderRows([row({ pid: 11 })])
-    await screen.findByText('project')
-
-    const user = userEvent.setup()
-    await user.click(screen.getByRole('button', { name: 'Stop' }))
-    expect(screen.getByRole('button', { name: 'Stop?' })).toBeInTheDocument()
-
-    // the same id relaunched under a fresh pid remounts the row disarmed
-    view.rerender(tree([row({ pid: 12 })]))
-    expect(screen.getByRole('button', { name: 'Stop' })).toBeInTheDocument()
-
-    await user.click(screen.getByRole('button', { name: 'Stop' }))
-    expect(screen.getByRole('button', { name: 'Stop?' })).toBeInTheDocument()
-    expect(fetchSpyCalled('/api/sessions/01A/stop')).toBe(false)
-  })
-
-  it('keeps the armed stop while the list scrolls it in view', async () => {
-    stubFacts()
-    const { container } = renderRows([row()])
-    await screen.findByText('project')
-
-    const user = userEvent.setup()
-    await user.click(screen.getByRole('button', { name: 'Stop' }))
-    expect(screen.getByRole('button', { name: 'Stop?' })).toBeInTheDocument()
-
-    // momentum tails and anchoring nudge the list without moving the row
-    // out of sight: the confirm must survive them
-    act(() => {
-      container.querySelector('.switcher-rows')!.dispatchEvent(new Event('scroll'))
-    })
-    expect(screen.getByRole('button', { name: 'Stop?' })).toBeInTheDocument()
-
-    await user.click(screen.getByRole('button', { name: 'Stop?' }))
-    expect(fetchSpyCalled('/api/sessions/01A/stop')).toBe(true)
-  })
-
-  it('resets the armed stop once the list scrolls it out of view', async () => {
-    stubFacts()
-    const { container } = renderRows([row()])
-    await screen.findByText('project')
-
-    const user = userEvent.setup()
-    await user.click(screen.getByRole('button', { name: 'Stop' }))
-    const armed = screen.getByRole('button', { name: 'Stop?' })
-    vi.spyOn(armed, 'getBoundingClientRect').mockReturnValue({
-      width: 60,
-      height: 40,
-      top: window.innerHeight + 50,
-      bottom: window.innerHeight + 90,
-      left: 10,
-      right: 70,
-      x: 10,
-      y: window.innerHeight + 50,
-      toJSON: () => ({}),
-    } as DOMRect)
-
-    act(() => {
-      container.querySelector('.switcher-rows')!.dispatchEvent(new Event('scroll'))
-    })
-    expect(screen.getByRole('button', { name: 'Stop' })).toBeInTheDocument()
-
-    await user.click(screen.getByRole('button', { name: 'Stop' }))
-    expect(screen.getByRole('button', { name: 'Stop?' })).toBeInTheDocument()
-    expect(fetchSpyCalled('/api/sessions/01A/stop')).toBe(false)
+    // the refusal names itself on the row, the resume offers itself again
+    expect(await screen.findByText('launch refused')).toHaveClass('error-text')
+    expect(screen.getByRole('button', { name: 'Resume' })).toBeEnabled()
   })
 
   it('shows the workspace path like the desktop rail', async () => {
@@ -612,21 +535,32 @@ describe('SwitcherRows', () => {
     expect(paths[0]).toHaveAttribute('title', '/home/you/proj')
   })
 
-  it('offers resume only on ended rows with a workspace', async () => {
+  it('keeps live rows to the ⋯ trigger and the focus-reveal Open', async () => {
     stubFacts()
-    renderRows([
+    const { container } = renderRows([
       row(),
       endedRow({ sessionId: '01C', label: 'old' }),
       endedRow({ sessionId: '01D', label: 'lost', workspace: undefined }),
     ])
     await screen.findByText('project')
 
-    // the live row acts, the recorded ended row resumes, the workspace-less
-    // one offers nothing, rename and chaining live in the long-press menu
-    expect(screen.queryByRole('button', { name: 'Rename' })).not.toBeInTheDocument()
-    expect(screen.getAllByRole('button', { name: 'Settings' })).toHaveLength(1)
-    expect(screen.getAllByRole('button', { name: 'Stop' })).toHaveLength(1)
+    // settings, stop and rename all live in the menu, nothing inline remains on
+    // a live row beside its ⋯ trigger
+    expect(screen.queryByRole('button', { name: 'Settings' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Stop' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Rename' })).toBeNull()
+
+    // every row carries the keyboard entry inside its reveal slot, and the
+    // trailing edge holds nothing else visible on live rows
+    expect(
+      container.querySelectorAll('.switch-trailing > .switch-open-slot > .switch-open'),
+    ).toHaveLength(3)
+    const live = document.querySelector('[data-session-id="01A"]')!
+    expect(live.querySelector('.switch-trailing')!.children).toHaveLength(2)
+
+    // the recorded ended row resumes, the workspace-less one offers nothing
     expect(screen.getAllByRole('button', { name: 'Resume' })).toHaveLength(1)
+    expect(screen.getAllByRole('button', { name: /^More actions for/ })).toHaveLength(3)
   })
 
   it('resumes an ended row into the live session', async () => {
@@ -660,7 +594,9 @@ describe('SwitcherRows', () => {
     await screen.findByText('project')
 
     const user = userEvent.setup()
-    await user.click(screen.getAllByRole('button', { name: 'Settings' })[1]!)
+    // the settings entry rides each row's menu
+    await user.click(screen.getAllByRole('button', { name: /^More actions for/ })[1]!)
+    await user.click(screen.getByRole('menuitem', { name: 'Agent settings…' }))
 
     // one pushed screen, riding the tapped row's session id
     expect(await screen.findByRole('dialog', { name: 'Agent settings' })).toBeInTheDocument()
@@ -670,15 +606,16 @@ describe('SwitcherRows', () => {
       expect(fetchSpyCalled('/api/sessions/01A/settings')).toBe(false)
     })
 
-    // tapping the other row rebinds the same pushed screen instead of stacking one
-    await user.click(screen.getAllByRole('button', { name: 'Settings' })[0]!)
+    await user.click(screen.getByRole('button', { name: '← Back' }))
+    expect(screen.queryByRole('dialog', { name: 'Agent settings' })).not.toBeInTheDocument()
+
+    // the other row's entry rebinds the same pushed screen instead of stacking one
+    await user.click(screen.getAllByRole('button', { name: /^More actions for/ })[0]!)
+    await user.click(screen.getByRole('menuitem', { name: 'Agent settings…' }))
     await vi.waitFor(() => {
       expect(fetchSpyCalled('/api/sessions/01A/settings')).toBe(true)
     })
     expect(screen.getAllByRole('dialog', { name: 'Agent settings' })).toHaveLength(1)
-
-    await user.click(screen.getByRole('button', { name: '← Back' }))
-    expect(screen.queryByRole('dialog', { name: 'Agent settings' })).not.toBeInTheDocument()
   })
 
   it('chains after a row through the pushed picker and editor', async () => {
@@ -927,18 +864,23 @@ describe('SwitcherRows', () => {
     await screen.findByText('queued behind 01P')
   })
 
-  it('opens through the native Open control', async () => {
+  it('opens through the focus-reveal Open control', async () => {
     stubFacts()
     const onOpen = vi.fn()
     renderRows([row()], onOpen)
     await screen.findByText('project')
 
-    // the row's own keyboard path: focus the visible control, press Enter,
-    // one open -- never the tap handler double-firing
+    // the row's own keyboard path: a tab stop in the reveal slot, focusing it
+    // shows the pill, Enter opens once -- never the tap handler double-firing
     const openButton = within(screen.getByRole('listitem')).getByRole('button', { name: 'Open' })
+    expect(openButton).toHaveClass('switch-open')
+    expect(openButton.parentElement).toHaveClass('switch-open-slot')
+    expect(openButton).toBeEnabled()
+    expect(openButton.tabIndex).toBe(0)
     act(() => {
       openButton.focus()
     })
+    expect(openButton).toHaveFocus()
     await userEvent.setup().keyboard('{Enter}')
 
     expect(onOpen).toHaveBeenCalledTimes(1)
@@ -950,17 +892,20 @@ describe('SwitcherRows', () => {
     renderRows([row()])
     await screen.findByText('project')
 
-    // the ⋯ trigger opens the shared session menu at the button, so rename,
-    // queue follow-up and chain are reachable with a keyboard alone
+    // the ⋯ trigger opens the shared session menu at the button, so agent
+    // settings, rename, queue follow-up, chain and stop are reachable with a
+    // keyboard alone
     const user = userEvent.setup()
     await user.click(screen.getByRole('button', { name: 'More actions for project' }))
 
     const menu = screen.getByRole('menu')
+    expect(within(menu).getByRole('menuitem', { name: 'Agent settings…' })).toBeInTheDocument()
     expect(within(menu).getByRole('menuitem', { name: 'Rename…' })).toBeInTheDocument()
     expect(
       within(menu).getByRole('menuitem', { name: 'Queue follow up session…' }),
     ).toBeInTheDocument()
     expect(within(menu).getByRole('menuitem', { name: 'Chain after…' })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: 'Stop session' })).toBeInTheDocument()
 
     // the rename entry still lands the same keyed editor the long press opens
     await user.click(within(menu).getByRole('menuitem', { name: 'Rename…' }))
@@ -983,8 +928,8 @@ describe('SwitcherRows', () => {
     await screen.findByText('project')
 
     const user = userEvent.setup()
-    await user.click(screen.getByRole('button', { name: 'Settings' }))
-    await user.click(screen.getByRole('button', { name: 'Stop' }))
+    await user.click(screen.getByRole('button', { name: 'More actions for project' }))
+    // the resume lands on the live session route, so it goes last
     await user.click(screen.getByRole('button', { name: 'Resume' }))
 
     expect(onOpen).not.toHaveBeenCalled()
@@ -996,7 +941,7 @@ describe('SwitcherRows', () => {
     renderRows([row()], onOpen)
     await screen.findByText('project')
 
-    await pressLong(screen.getByRole('button', { name: 'Stop' }))
+    await pressLong(screen.getByRole('button', { name: 'More actions for project' }))
 
     // the actions swallow the pointerdown, so no hold ever fires
     expect(screen.queryByRole('menu')).not.toBeInTheDocument()

@@ -1,11 +1,11 @@
 import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter, Route, Routes } from 'react-router'
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import MobileSessionScreen from './MobileSessionScreen'
+import MobileShell from './MobileShell'
 import type { ReactElement } from 'react'
-import { useNavigate } from 'react-router'
 import { AuthProvider } from '../providers/auth'
 import { SwarmProvider } from '../providers/swarm'
 import { WorkspaceProvider } from '../providers/workspace'
@@ -15,7 +15,9 @@ import { MockWebSocket } from '../test/mockWebSocket'
 
 // The mobile single-session screen over the real stream client: compact
 // chrome, keyboard-aware padding against a mocked visualViewport, tools as a
-// pushed sheet, and rewind as the shared picker in a sheet.
+// pushed sheet, and rewind as the shared picker in a sheet. The back control
+// pops or links home off the shared history rule, and under MobileShell the
+// screen reads immersive with the attention badge in its own header.
 
 const VIEW = '01MOBILEVIEW00000'
 const OTHER = '01MOBILEVIEW00001'
@@ -140,15 +142,28 @@ describe('MobileSessionScreen', () => {
     vi.unstubAllGlobals()
   })
 
-  function renderScreen() {
+  // PathProbe shows the route the router landed on, so navigation assertions
+  // read the URL instead of guessing what a bare MemoryRouter did.
+  function PathProbe(): ReactElement {
+    const location = useLocation()
+    return <span data-testid="path">{location.pathname}</span>
+  }
+
+  // renderScreen mounts the view alone, or inside the real MobileShell the
+  // way AuthGate routes it, so the two chrome layers compose like production
+  function renderScreen(inShell = false) {
+    const routes = (
+      <Routes>
+        <Route path="/s/:sessionId" element={<MobileSessionScreen />} />
+        <Route path="*" element={<PathProbe />} />
+      </Routes>
+    )
     return render(
       <MemoryRouter initialEntries={[`/s/${VIEW}`]}>
         <AuthProvider>
           <SwarmProvider>
             <WorkspaceProvider>
-              <Routes>
-                <Route path="/s/:sessionId" element={<MobileSessionScreen />} />
-              </Routes>
+              {inShell ? <MobileShell>{routes}</MobileShell> : routes}
             </WorkspaceProvider>
           </SwarmProvider>
         </AuthProvider>
@@ -185,6 +200,26 @@ describe('MobileSessionScreen', () => {
       <button type="button" onClick={() => navigate(to)}>
         {children}
       </button>
+    )
+  }
+
+  // renderFromLauncher starts on the launcher with a NavButton onto the view,
+  // the stack a launcher tap leaves behind the session
+  function renderFromLauncher() {
+    return render(
+      <MemoryRouter initialEntries={['/']}>
+        <AuthProvider>
+          <SwarmProvider>
+            <WorkspaceProvider>
+              <NavButton to={`/s/${VIEW}`}>open view</NavButton>
+              <Routes>
+                <Route path="/" element={<p>launcher</p>} />
+                <Route path="/s/:sessionId" element={<MobileSessionScreen />} />
+              </Routes>
+            </WorkspaceProvider>
+          </SwarmProvider>
+        </AuthProvider>
+      </MemoryRouter>,
     )
   }
 
@@ -987,7 +1022,7 @@ describe('MobileSessionScreen', () => {
     }
   })
 
-  it('collapses rewind, tools and settings behind one header menu entry', async () => {
+  it('collapses rewind, tools and both settings behind one header menu entry', async () => {
     renderScreen()
     const ws = await openSocket()
     act(() => {
@@ -1008,7 +1043,91 @@ describe('MobileSessionScreen', () => {
         .getAllByRole('menuitem')
         .map((el) => el.textContent)
         .sort(),
-    ).toEqual(['Agent settings', 'Rewind', 'Tools'])
+    ).toEqual(['Agent settings', 'Global settings', 'Rewind', 'Tools'])
+  })
+
+  it('opens global settings from the header menu', async () => {
+    renderScreen()
+    const ws = await openSocket()
+    act(() => {
+      ws.message({ type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
+    })
+    await screen.findByRole('button', { name: /sonnet/ })
+
+    // the per-session entry opens a pushed screen, the global one is a route
+    const user = userEvent.setup()
+    await openHeaderMenu(user, 'Global settings')
+    expect(await screen.findByTestId('path')).toHaveTextContent('/m/settings')
+  })
+
+  it('drops the shell top bar and keeps one session header', async () => {
+    renderScreen(true)
+    const ws = await openSocket()
+    act(() => {
+      ws.message({ type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
+    })
+
+    // the shell stands down its bar on /s/*, the session header is the chrome
+    expect(await screen.findByRole('button', { name: /sonnet/ })).toBeInTheDocument()
+    expect(screen.queryByRole('navigation', { name: 'Primary' })).toBeNull()
+    expect(document.querySelector('.mobile-shell')).toHaveClass('immersive')
+    expect(document.querySelectorAll('.mobile-session-header')).toHaveLength(1)
+    expect(screen.getByLabelText('Back to launcher')).toBeInTheDocument()
+  })
+
+  it('carries the attention badge in the session header', async () => {
+    fetcher.on('/api/attention', () =>
+      Response.json([
+        {
+          sessionId: OTHER,
+          openInteractions: 1,
+          dialogId: 5,
+          running: false,
+          idle: true,
+          kind: 'needs-input',
+          reason: 'allow write?',
+          since: 100,
+        },
+      ]),
+    )
+    renderScreen(true)
+    const ws = await openSocket()
+    act(() => {
+      ws.message({ type: 'init', sessionId: VIEW, state: snapshotFor(VIEW), entries: [] })
+    })
+
+    // the same badge derivation the shell top bar renders, now in the header
+    const badge = await screen.findByRole('link', { name: '1 sessions need input' })
+    expect(badge).toHaveClass('attend-badge')
+    expect(badge).toHaveAttribute('href', `/s/${OTHER}`)
+    expect(badge.closest('.mobile-session-header')).not.toBeNull()
+    // the top bar stood down, so the badge renders exactly once
+    expect(screen.getAllByRole('link', { name: /sessions need input/ })).toHaveLength(1)
+  })
+
+  it('links home on a cold entry', async () => {
+    // lone initial entry carries react-router's 'default' key, like a bookmark
+    renderScreen()
+
+    const back = screen.getByRole('link', { name: 'Back to launcher' })
+    expect(back).toHaveAttribute('href', '/')
+
+    const user = userEvent.setup()
+    await user.click(back)
+    expect(await screen.findByTestId('path')).toHaveTextContent('/')
+  })
+
+  it('pops history on an in-app entry', async () => {
+    renderFromLauncher()
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'open view' }))
+
+    // the launcher entry sits behind the session, so the arrow pops instead
+    // of stacking another home entry
+    const back = await screen.findByRole('button', { name: 'Back to launcher' })
+    expect(screen.queryByRole('link', { name: 'Back to launcher' })).toBeNull()
+    await user.click(back)
+    expect(await screen.findByText('launcher')).toBeInTheDocument()
   })
 
   it('badges the header off the shared desktop derivation', async () => {

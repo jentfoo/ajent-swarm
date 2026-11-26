@@ -154,6 +154,87 @@ describe('theme menu body', () => {
   })
 })
 
+describe('theme switcher rows', () => {
+  it('lays each row out as a shrinking text column beside a fixed trailing edge', () => {
+    // the text column takes the leftover width and may shrink to nothing, the
+    // trailing edge never shrinks, so the ⋯ trigger holds its place at 320px
+    const row = bareCss.match(/(?:^|\})\s*\.switch-row \{[^}]*\}/)![0]
+    expect(row).toContain('display: flex;')
+    expect(row).toContain('flex-wrap: wrap;')
+
+    const main = bareCss.match(/\.switch-main \{[^}]*\}/)![0]
+    expect(main).toContain('flex: 1 1 0;')
+    expect(main).toContain('min-width: 0;')
+
+    const trailing = bareCss.match(/\.switch-trailing \{[^}]*\}/)![0]
+    expect(trailing).toContain('flex: none;')
+    expect(trailing).toContain('flex-wrap: nowrap;')
+    // the gaps around the buttons fall through to the row's own open, only
+    // the buttons take the pointer
+    expect(trailing).toContain('pointer-events: none;')
+    expect(bareCss).toContain('.switch-trailing > button { pointer-events: auto; }')
+  })
+
+  it('reveals the Open pill on keyboard focus without reflowing the row', () => {
+    // a reserved slot holds the pill's place, the pill itself sits outside flow
+    const slot = bareCss.match(/\.switch-open-slot \{[^}]*\}/)![0]
+    expect(slot).toContain('position: relative;')
+    expect(slot).toContain('flex: none;')
+    // phones hand the slot's width back to the name, a hardware keyboard's
+    // reveal overlays
+    expect(css).toMatch(/@media \(pointer: coarse\) \{ \.switch-open-slot \{ width: 0; \} \}/)
+
+    const pill = bareCss.match(/(?:^|\})\s*\.switch-open \{[^}]*\}/)![0]
+    expect(pill).toContain('position: absolute;')
+    expect(pill).toContain('opacity: 0;')
+    expect(pill).toContain('pointer-events: none;')
+
+    // focus-visible, not focus: a pointer tap on the row never flashes the pill
+    const reveal = bareCss.match(/\.switch-open:focus-visible \{[^}]*\}/)![0]
+    expect(reveal).toContain('opacity: 1;')
+    expect(bareCss).not.toMatch(/\.switch-open:focus \{/)
+  })
+
+  it('keeps the shared action floors on the trailing edge', () => {
+    // job and run cards share .switch-actions, so the floor stays on the class
+    expect(bareCss).toMatch(/\.switch-actions button, \.switch-actions \.btn \{ min-height: 44px;/)
+    // the switcher's own refusal line spans the row under both columns
+    expect(bareCss).toContain('.switch-row > .error-text { flex-basis: 100%; }')
+  })
+})
+
+describe('theme immersive session chrome', () => {
+  it('hands the top safe area from the top bar to the session header', () => {
+    const header = bareCss.match(/\.mobile-session-header \{[^}]*\}/)![0]
+    expect(header).toContain('padding-top: calc(env(safe-area-inset-top, 0px) + var(--unit) * 2);')
+    // main adds no top padding of its own under an immersive shell, so the
+    // inset is never counted twice
+    expect(bareCss).toContain('.mobile-shell.immersive .mobile-content { padding-top: 0; }')
+  })
+
+  it('lets a banner or prompt above the header carry the inset instead', () => {
+    expect(bareCss).toContain(
+      '.mobile-shell.immersive:has(> .banner, > .notify-prompt) .mobile-session-header { padding-top: calc(var(--unit) * 2); }',
+    )
+    expect(bareCss).toContain(
+      '.mobile-shell.immersive > .banner { padding-top: calc(env(safe-area-inset-top, 0px) + var(--unit) * 2); }',
+    )
+    expect(bareCss).toContain(
+      '.mobile-shell.immersive > .notify-prompt { padding-top: calc(env(safe-area-inset-top, 0px) + var(--unit) * 3); }',
+    )
+  })
+
+  it('meets the touch floor for the attention badge in both chrome rows', () => {
+    const rule = bareCss.match(
+      /\.mobile-topbar \.attend-badge, \.mobile-session-header \.attend-badge \{[^}]*\}/,
+    )![0]
+    expect(rule).toContain('min-width: 44px;')
+    expect(rule).toContain('min-height: 44px;')
+    // the header badge yields no space to the shrinking chips either
+    expect(bareCss).toContain('.mobile-session-header .attend-badge,')
+  })
+})
+
 describe('theme dialog dock bounds', () => {
   const touchDock = css.match(/\.dialog-dock\.touch \{[^}]*\}/)![0]
 

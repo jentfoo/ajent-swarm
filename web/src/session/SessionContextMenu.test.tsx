@@ -12,19 +12,34 @@ import { WorkspaceProvider } from '../providers/workspace'
 // The right-click menu's contract: opening pins the menu to the pointer and
 // its queue entry lands the follow-up draft on the shared queue dialog while
 // the session runs, standing down once it ends. Held touches open the same
-// menu through a press point, and the optional rename and chain entries
-// report back for surfaces without inline controls.
+// menu through a press point, and the optional settings, rename and chain
+// entries report back for surfaces without inline controls. The armed stop
+// refreshes the listing once it lands and keeps a refusal inline.
 
 const SESSION = '01TARGETSESSION0000C'
 
 // MenuProbe carries a session row whose context menu a test opens like a
 // right-click on a tab, rail row or card does.
-function MenuProbe({ onChain }: { onChain?: () => void }) {
+function MenuProbe({
+  onChain,
+  onRename,
+  onSettings,
+}: {
+  onChain?: () => void
+  onRename?: () => void
+  onSettings?: () => void
+}) {
   const { menu, openSessionMenu, closeSessionMenu } = useSessionMenu()
   return (
     <>
       <div data-testid="row" onContextMenu={(ev) => openSessionMenu(ev, SESSION)} />
-      <SessionContextMenu menu={menu} onClose={closeSessionMenu} onChain={onChain} />
+      <SessionContextMenu
+        menu={menu}
+        onClose={closeSessionMenu}
+        onRename={onRename}
+        onChain={onChain}
+        onSettings={onSettings}
+      />
     </>
   )
 }
@@ -143,14 +158,17 @@ describe('SessionContextMenu', () => {
 
   it('stops through the armed two-step entry', async () => {
     const stops: string[] = []
+    let listingGets = 0
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string | URL, init?: RequestInit) => {
         const path = String(url).split('?')[0]
         const method = init?.method ?? 'GET'
         if (path === '/api/me') return Response.json({ username: 'you', via: 'cookie' })
-        if (path === '/api/sessions' && method === 'GET')
+        if (path === '/api/sessions' && method === 'GET') {
+          listingGets += 1
           return Response.json([{ sessionId: SESSION, name: 'target', state: 'online' }])
+        }
         if (path === `/api/sessions/${SESSION}/stop` && method === 'POST') {
           stops.push(path)
           return new Response(null, { status: 204 })
@@ -186,6 +204,75 @@ describe('SessionContextMenu', () => {
     await waitFor(() => {
       expect(screen.queryByRole('menu')).toBeNull()
     })
+    // rows re-badge now, not on the next poll
+    expect(listingGets).toBeGreaterThan(0)
+  })
+
+  it('keeps a refused stop inline with the menu open', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string | URL, init?: RequestInit) => {
+        const path = String(url).split('?')[0]
+        const method = init?.method ?? 'GET'
+        if (path === '/api/me') return Response.json({ username: 'you', via: 'cookie' })
+        if (path === '/api/sessions' && method === 'GET')
+          return Response.json([{ sessionId: SESSION, name: 'target', state: 'online' }])
+        if (path === `/api/sessions/${SESSION}/stop` && method === 'POST')
+          return Response.json(
+            { error: 'unavailable', message: 'session is shutting down' },
+            { status: 409 },
+          )
+        return Response.json([])
+      }),
+    )
+    const user = userEvent.setup()
+    render(
+      <MemoryRouter>
+        <AuthProvider>
+          <SwarmProvider>
+            <WorkspaceProvider>
+              <MenuProbe />
+            </WorkspaceProvider>
+          </SwarmProvider>
+        </AuthProvider>
+      </MemoryRouter>,
+    )
+
+    fireEvent.contextMenu(screen.getByTestId('row'), { clientX: 30, clientY: 40 })
+    await user.click(screen.getByRole('menuitem', { name: 'Stop session' }))
+    await user.click(screen.getByRole('menuitem', { name: 'Stop?' }))
+
+    // the refusal names itself inside the still-open menu, the entry re-arms
+    expect(await screen.findByText('session is shutting down')).toHaveClass('error-text')
+    expect(screen.getByRole('menu')).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Stop session' })).toBeEnabled()
+  })
+
+  it('opens agent settings from its entry and closes', async () => {
+    stubFetch()
+    const onSettings = vi.fn()
+    const user = userEvent.setup()
+    render(
+      <MemoryRouter>
+        <AuthProvider>
+          <SwarmProvider>
+            <WorkspaceProvider>
+              <MenuProbe onRename={vi.fn()} onSettings={onSettings} />
+            </WorkspaceProvider>
+          </SwarmProvider>
+        </AuthProvider>
+      </MemoryRouter>,
+    )
+
+    fireEvent.contextMenu(screen.getByTestId('row'), { clientX: 30, clientY: 40 })
+    const items = screen.getAllByRole('menuitem').map((el) => el.textContent)
+    // the entry sits before rename, the row's own inline order
+    expect(items.indexOf('Agent settings…')).toBe(items.indexOf('Rename…') - 1)
+    await user.click(screen.getByRole('menuitem', { name: 'Agent settings…' }))
+
+    // the entry reports back and the menu closes behind it
+    expect(onSettings).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('menu')).toBeNull()
   })
 
   it('offers chain after through the menu while running', async () => {

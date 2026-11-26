@@ -6,6 +6,7 @@ import { useKeyboardInset } from '../hooks/useKeyboardInset'
 import { useSwarm } from '../providers/swarm'
 import { useWorkspace } from '../providers/workspace'
 import { ConnectionBanner } from '../ui/ConnectionBanner'
+import { GearIcon } from '../ui/icons'
 import { attendBadgeLabels, attendBadgePath } from '../workspace/attention'
 import NotificationPrompt from './NotificationPrompt'
 
@@ -15,8 +16,10 @@ import NotificationPrompt from './NotificationPrompt'
 // the two shells.
 
 // MobileShell is the small-screen chrome: two destination tabs across the top
-// bar beside the attention badge, plus the shared connection banner. The
-// theme toggle and global settings live in the settings screen instead.
+// bar beside the attention badge and a settings shortcut, plus the shared
+// connection banner. The theme toggle lives in the settings screen. Session
+// screens go immersive: the top bar stands down and the session header carries
+// the back control, the attention badge and the settings entries itself.
 //
 // It publishes --keyboard-inset once at :root so every mobile surface shares
 // one value: .mobile-session pads its composer above the keyboard,
@@ -38,46 +41,51 @@ export default function MobileShell({ children }: { children: ReactNode }) {
     }
   }, [keyboardInset])
 
-  // Sessions lights on home itself, session views below it and read-only ended
-  // transcripts at /m/read/, any /jobs path lights Jobs. The remaining
-  // desktop-only paths (/focused, /tile, /sessions) redirect home in AuthGate
-  // before rendering, so no extra rules are needed.
-  const sessionsRoute =
-    location.pathname === '/' ||
-    location.pathname.startsWith('/s/') ||
-    location.pathname.startsWith('/m/read/')
+  // Sessions lights on home itself and read-only ended transcripts at /m/read/,
+  // any /jobs path lights Jobs. Session screens render no bar at all, and the
+  // remaining desktop-only paths (/focused, /tile, /sessions) redirect home in
+  // AuthGate before rendering, so no extra rules are needed.
+  const sessionsRoute = location.pathname === '/' || location.pathname.startsWith('/m/read/')
   const jobsRoute = location.pathname.startsWith('/jobs')
+  // a session screen brings its own top chrome, the shell's bar would stack
+  // a second one under the notch
+  const immersive = location.pathname.startsWith('/s/')
 
   return (
-    <div className="app-shell mobile-shell">
-      <header className="topbar mobile-topbar">
-        <nav aria-label="Primary">
-          <Link
-            to="/"
-            className={sessionsRoute ? 'active' : ''}
-            aria-current={sessionsRoute ? 'page' : undefined}
-          >
-            Sessions
+    <div className={`app-shell mobile-shell${immersive ? ' immersive' : ''}`}>
+      {!immersive && (
+        <header className="topbar mobile-topbar">
+          <nav aria-label="Primary">
+            <Link
+              to="/"
+              className={sessionsRoute ? 'active' : ''}
+              aria-current={sessionsRoute ? 'page' : undefined}
+            >
+              Sessions
+            </Link>
+            <Link
+              to="/jobs"
+              className={jobsRoute ? 'active' : ''}
+              aria-current={jobsRoute ? 'page' : undefined}
+            >
+              Jobs
+            </Link>
+          </nav>
+          <span className="spacer" />
+          {needsInputCount > 0 && (
+            <Link
+              to={attendBadgePath(needs) ?? '/'}
+              className="attend-badge"
+              {...attendBadgeLabels(needsInputCount)}
+            >
+              {needsInputCount}
+            </Link>
+          )}
+          <Link to="/m/settings" className="icon-btn" aria-label="Settings">
+            <GearIcon />
           </Link>
-          <Link
-            to="/jobs"
-            className={jobsRoute ? 'active' : ''}
-            aria-current={jobsRoute ? 'page' : undefined}
-          >
-            Jobs
-          </Link>
-        </nav>
-        <span className="spacer" />
-        {needsInputCount > 0 && (
-          <Link
-            to={attendBadgePath(needs) ?? '/'}
-            className="attend-badge"
-            {...attendBadgeLabels(needsInputCount)}
-          >
-            {needsInputCount}
-          </Link>
-        )}
-      </header>
+        </header>
+      )}
 
       <ConnectionBanner connection={connection} />
 

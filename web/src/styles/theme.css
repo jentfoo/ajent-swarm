@@ -2485,9 +2485,11 @@ label {
   align-items: center;
   min-height: 44px;
 }
-/* the badge is the phone's only needs-input affordance, so it meets the
-   touch floor. Desktop's compact topbar button keeps its own density */
-.mobile-topbar .attend-badge {
+/* the badge is the phone's needs-input affordance on the top bar and the
+   session header, so it meets the touch floor in both. Desktop's compact
+   topbar button keeps its own density */
+.mobile-topbar .attend-badge,
+.mobile-session-header .attend-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2504,6 +2506,18 @@ label {
      here keeps the browser's page-level refresh from stealing the gesture */
   overscroll-behavior-y: contain;
 }
+/* an immersive session screen renders no top bar: its sticky header owns the
+   top safe area, so main adds no top padding of its own, and a banner or
+   prompt stacked above the header carries the inset in its place */
+.mobile-shell.immersive .mobile-content {
+  padding-top: 0;
+}
+.mobile-shell.immersive > .banner {
+  padding-top: calc(env(safe-area-inset-top, 0px) + var(--unit) * 2);
+}
+.mobile-shell.immersive > .notify-prompt {
+  padding-top: calc(env(safe-area-inset-top, 0px) + var(--unit) * 3);
+}
 
 /* launcher and switcher rows: large targets with status beside the label */
 .switcher-rows {
@@ -2515,10 +2529,15 @@ label {
 .switcher-rows .rail-section-title {
   padding: calc(var(--unit) * 2) calc(var(--unit) * 3) 0;
 }
+/* one row reads as a shrinking text column beside a fixed trailing edge, so
+   name, badges, path and reason stack about 90px tall while the ⋯ trigger
+   holds the row's right side at the 320px floor; a refused resume wraps under
+   both columns */
 .switch-row {
   display: flex;
-  flex-direction: column;
-  gap: calc(var(--unit) * 1);
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--unit) * 2);
   padding: calc(var(--unit) * 3);
   background: var(--surface);
   border: 1px solid var(--border);
@@ -2538,10 +2557,22 @@ label {
 .switch-row.chain-source {
   opacity: 0.55;
 }
+.switch-main {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--unit) * 1);
+}
 .switch-top {
   display: flex;
   align-items: center;
   gap: calc(var(--unit) * 2);
+}
+/* the switcher's text column clips its badges line, so a long name or badge
+   never paints under the trailing edge */
+.switch-main .switch-top {
+  overflow: hidden;
 }
 .switch-name {
   font-weight: 550;
@@ -2561,9 +2592,8 @@ label {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* trailing action area per row: Rename everywhere, Settings and Stop on live
-   rows, Resume on ended ones with a workspace; refusals wrap onto their own
-   line */
+/* shared action row at the touch floor: the job and run cards' control rows
+   and the switcher row's trailing edge below */
 .switch-actions {
   display: flex;
   align-items: center;
@@ -2574,8 +2604,52 @@ label {
 .switch-actions .btn {
   min-height: 44px; /* touch target */
 }
-.switch-actions .error-text {
+/* the switcher row's trailing edge: one fixed column beside the text, so the
+   ⋯ trigger never leaves the row. Only its buttons take the pointer, the gaps
+   around them fall through to the row's own open */
+.switch-trailing {
+  flex: none;
+  flex-wrap: nowrap;
+  pointer-events: none;
+}
+.switch-trailing > button {
+  pointer-events: auto;
+}
+.switch-row > .error-text {
   flex-basis: 100%;
+}
+/* the keyboard entry's slot reserves the pill's width on fine pointers (a
+   narrowed desktop window is the keyboard case), so its reveal covers no
+   text; phones hand the width back to the name and a hardware keyboard's
+   reveal overlays. The pill sits outside flow either way, so the reveal never
+   reflows the row */
+.switch-open-slot {
+  position: relative;
+  flex: none;
+  width: 3.25rem;
+  height: 44px;
+}
+@media (pointer: coarse) {
+  .switch-open-slot {
+    width: 0;
+  }
+}
+/* hidden and untouchable at rest so the row takes every gesture; keyboard
+   focus reveals the sighted target while the accessible name stays for
+   screen readers */
+.switch-open {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 0 calc(var(--unit) * 1.5);
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+}
+.switch-open:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .mobile-home {
@@ -2801,8 +2875,16 @@ label {
      trailing menu button and the chips ellipsize before the row can overflow */
   gap: calc(var(--unit) * 2);
   padding: calc(var(--unit) * 2) calc(var(--unit) * 3);
+  /* the screen is immersive, no top bar above it, so the header carries the
+     top safe-area inset itself */
+  padding-top: calc(env(safe-area-inset-top, 0px) + var(--unit) * 2);
   background: var(--surface);
   border-bottom: 1px solid var(--border);
+}
+/* a connection banner or notification prompt stacked above the header already
+   cleared the notch */
+.mobile-shell.immersive:has(> .banner, > .notify-prompt) .mobile-session-header {
+  padding-top: calc(var(--unit) * 2);
 }
 /* 44px touch-target floor for the header buttons, matching the back link */
 .mobile-session-header button {
@@ -2810,6 +2892,7 @@ label {
 }
 /* navigation controls never yield space to the shrinking chips */
 .mobile-session-header .back-link,
+.mobile-session-header .attend-badge,
 .mobile-session-header .header-menu-trigger {
   flex: none;
 }

@@ -50,11 +50,14 @@ test('launch a session and drive one turn', async ({ page }) => {
   await prompt.fill('Say the smoke test phrase.')
   await prompt.press('Enter')
 
-  // the provider's streamed reply commits and renders; exact keeps the
+  // the provider's streamed reply commits and renders; scoped to the transcript
+  // because the auto-titler echoes the same sentence into the page title and the
+  // rail row (the fake provider answers every prompt alike), exact keeps the
   // turn-end status line, which quotes the same reply, out of the match
-  await expect(page.getByText('The smoke test reply.', { exact: true })).toBeVisible({
-    timeout: 30_000,
-  })
+  const reply = page
+    .getByRole('region', { name: 'Transcript' })
+    .getByText('The smoke test reply.', { exact: true })
+  await expect(reply).toBeVisible({ timeout: 30_000 })
 })
 
 test('the session card reports online with the reply visible after reload', async ({ page }) => {
@@ -65,9 +68,17 @@ test('the session card reports online with the reply visible after reload', asyn
   await expect(card.getByText('online')).toBeVisible()
   await expect(card.getByText('swarm', { exact: true })).toBeVisible()
 
-  // the committed history survives a fresh subscription
+  // the committed history survives a fresh subscription; scoped to the transcript
+  // and exact because the auto-titler lands the same sentence as the page title
+  // (the fake provider answers every prompt alike) and the turn-end status line
+  // quotes the reply
   await card.getByRole('link', { name: 'Open' }).click()
-  await expect(page.getByText('The smoke test reply.')).toBeVisible({ timeout: 30_000 })
+  const reply = page
+    .getByRole('region', { name: 'Transcript' })
+    .getByText('The smoke test reply.', {
+      exact: true,
+    })
+  await expect(reply).toBeVisible({ timeout: 30_000 })
 })
 
 test('the job editor keeps its action footer visible while the form scrolls', async ({ page }) => {

@@ -22,6 +22,8 @@ cleanup() {
   [ -n "${SWARM_PID:-}" ] && kill "$SWARM_PID" 2>/dev/null || true
   [ -n "${PROVIDER_PID:-}" ] && kill "$PROVIDER_PID" 2>/dev/null || true
   wait 2>/dev/null || true
+  # swarm has reaped its children by now, so the scratch dirs go too
+  rm -rf "${SWARM_WORKSPACE:-}" "${HOME_DIR:-}"
 }
 trap cleanup EXIT INT TERM
 

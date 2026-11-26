@@ -90,6 +90,16 @@ describe('RewindDialog', () => {
     vi.unstubAllGlobals()
   })
 
+  it('closes through a visible close button', async () => {
+    stubAPI(() => Response.json(tree))
+    const user = userEvent.setup()
+    const { onClose } = renderDialog()
+    await screen.findByText('create system monitor')
+
+    await user.click(screen.getByRole('button', { name: 'Close' }))
+    expect(onClose).toHaveBeenCalledOnce()
+  })
+
   it('renders the tree with tags, guides and ages', async () => {
     stubAPI(() => Response.json(tree))
 
@@ -190,9 +200,11 @@ describe('RewindDialog', () => {
     const { onClose } = renderDialog()
     await screen.findByText('create system monitor')
 
-    // the trap's first stop is the list's first row, a real button now, and
-    // its own Enter activation rewinds exactly once -- never double-firing
-    // against the cursor pick
+    // the trap's first stop is the corner close, then the list's first row, a
+    // real button now, and its own Enter activation rewinds exactly once --
+    // never double-firing against the cursor pick
+    await user.tab()
+    expect(screen.getByRole('button', { name: 'Close' })).toHaveFocus()
     await user.tab()
     expect(rowFor('create system monitor')).toHaveFocus()
     await user.keyboard('{Enter}')

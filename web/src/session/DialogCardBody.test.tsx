@@ -134,6 +134,18 @@ describe('DialogCardBody focus', () => {
     expect(document.activeElement).toBe(answerFor(7))
   })
 
+  it('takes the caret in a compact head secret too', () => {
+    const secretDialog = base({
+      id: 8,
+      kind: 'secret',
+      prompt: 'API key?',
+      text: true,
+      secret: true,
+    })
+    renderBody(secretDialog, 'compact', true)
+    expect(document.activeElement).toBe(answerFor(8))
+  })
+
   it('leaves stacked and background cards unfocused', () => {
     renderBody(textDialog, 'compact')
     expect(document.activeElement).toBe(document.body)
@@ -142,6 +154,43 @@ describe('DialogCardBody focus', () => {
   it('never takes the caret on touch', () => {
     renderBody(textDialog, 'touch')
     expect(document.activeElement).toBe(document.body)
+  })
+})
+
+// A permit card's digit keys answer its options even though a note input sits
+// beside them: the note never takes the caret at mount, so pressing 1 resolves
+// the first choice with no typed text riding it (dialogKeys.ts stands down
+// only once the user focuses an input themselves).
+describe('DialogCardBody permit digits', () => {
+  const permitDialog = base({
+    kind: 'decision',
+    prompt: 'Allow `rm` tool call?',
+    options: ['Allow', 'Allow with note', 'Deny'],
+  })
+
+  function pressDigit(key: string): boolean {
+    const ev = new KeyboardEvent('keydown', { key, cancelable: true })
+    let prevented = false
+    act(() => {
+      window.dispatchEvent(ev)
+      prevented = ev.defaultPrevented
+    })
+    return prevented
+  }
+
+  it('leaves the note unfocused so digits answer at once', () => {
+    renderBody(permitDialog, 'compact', true)
+    expect(document.activeElement).toBe(document.body)
+  })
+
+  it('answers the first option with 1 and keeps the note empty', async () => {
+    const bodies = stubFetch({ settled: false })
+    const { onNoteIntent } = renderBody(permitDialog, 'compact', true)
+
+    expect(pressDigit('1')).toBe(true) // claimed, so no workspace jump either
+    await waitFor(() => expect(bodies.at(-1)).toEqual({ dialogId: 42, index: 0 }))
+    expect(onNoteIntent).not.toHaveBeenCalled()
+    expect(screen.getByPlaceholderText('Note for the agent (optional)')).toHaveValue('')
   })
 })
 

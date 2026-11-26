@@ -566,14 +566,19 @@ describe('DialogDock digit answers', () => {
     expect(bodies).toHaveLength(0)
   })
 
-  it('keeps digits while the note input holds the caret', async () => {
+  it('answers by digit until a focused note holds the caret', async () => {
     const bodies = stubFetch({ settled: false })
     renderDock([permitDialog(7)])
     const note = screen.getByPlaceholderText('Note for the agent (optional)')
-    expect(document.activeElement).toBe(note) // the head card took the caret
 
+    // no autofocus: an untouched permit card answers by digit at once
+    expect(document.activeElement).toBe(document.body)
+    await digit('2')
+    expect(bodies[0]).toEqual({ dialogId: 7, index: 1 })
+
+    // a note the user focused keeps its digits for typing (dialogKeys.ts)
+    note.focus()
     expect(await digit('2', note)).toBe(false)
-    expect(bodies).toHaveLength(0)
   })
 
   it('never claims digits from a background pane', async () => {

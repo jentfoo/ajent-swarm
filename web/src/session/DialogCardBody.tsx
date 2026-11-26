@@ -155,12 +155,13 @@ function StandardDialogBody({
         )}
         {multi && <MultiPickList options={dialog.options!} picked={picked} onToggle={toggle} />}
         {permit && (
+          // no autofocus: a head card's digit keys answer its options, and a
+          // focused note would keep them for typing instead (dialogKeys.ts)
           <input
             className="dialog-note"
             placeholder={permitNoteLabel}
             aria-label={permitNoteLabel}
             value={note}
-            autoFocus={mayFocus}
             onChange={(ev) => setNote(ev.target.value)}
           />
         )}

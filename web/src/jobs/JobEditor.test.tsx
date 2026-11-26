@@ -589,4 +589,27 @@ describe('JobEditor', () => {
     expect(form.contains(screen.getByRole('button', { name: 'Create job' }))).toBe(true)
     expect(form.contains(screen.getByRole('button', { name: 'Cancel' }))).toBe(true)
   })
+
+  it('keeps the footer beside a long form and still saves', async () => {
+    const user = userEvent.setup()
+    const onSaved = vi.fn()
+    renderEditor({ onSaved })
+
+    // many prompt rows overflow the scroll body, never the action row; jsdom
+    // cannot lay out the card so the e2e smoke owns that geometry, and this
+    // pins that a filled form still saves from the mounted footer
+    fireEvent.change(screen.getByRole('textbox', { name: /^Prompt/ }), {
+      target: { value: 'line\n'.repeat(100) },
+    })
+    await user.type(screen.getByRole('textbox', { name: /^Name/ }), 'long-form')
+    await user.type(screen.getByLabelText(/Workspace directory/), '/repo')
+
+    const actions = document.querySelector('.modal.job-editor .editor-actions')!
+    expect(actions).toContainElement(screen.getByRole('button', { name: 'Create job' }))
+
+    await user.click(screen.getByRole('button', { name: 'Create job' }))
+    await waitFor(() =>
+      expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ name: 'long-form' })),
+    )
+  })
 })

@@ -92,6 +92,28 @@ describe('AgentSettingsMenu', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
+  it('offers a visible close button that dismisses the dialog', async () => {
+    stubFetch({
+      '/api/me': { username: 'you', via: 'cookie' },
+      '/api/sessions': [],
+      '/api/attention': [],
+      '/settings': { rows: [] },
+    })
+    const user = userEvent.setup()
+    render(tree(<AgentSettingsMenu sessionId="01S" />))
+
+    await user.click(screen.getByRole('button', { name: 'Agent settings' }))
+    const dialog = screen.getByRole('dialog', { name: 'Agent settings' })
+    expect(within(dialog).getByRole('button', { name: 'Close' })).toBeInTheDocument()
+
+    await user.click(within(dialog).getByRole('button', { name: 'Close' }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Agent settings' })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    )
+  })
+
   it('renders global settings through the same shell', async () => {
     stubFetch({
       '/api/me': { username: 'you', via: 'cookie' },

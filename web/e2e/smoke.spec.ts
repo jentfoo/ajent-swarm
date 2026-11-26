@@ -67,6 +67,36 @@ test('the session card reports online with the reply visible after reload', asyn
   await expect(page.getByText('The smoke test reply.')).toBeVisible({ timeout: 30_000 })
 })
 
+test('the job editor keeps its action footer visible while the form scrolls', async ({ page }) => {
+  // jsdom cannot lay out the sticky split, so this pins the real thing at
+  // both the desktop card and its inner scroll body
+  await signIn(page)
+  await page.goto(`${url}/jobs/new`)
+
+  const modal = page.locator('.modal.job-editor')
+  const scroll = modal.locator('.editor-scroll')
+  const actions = modal.locator('.editor-actions')
+  await expect(scroll).toBeVisible()
+
+  // the card never scrolls itself; the body owns overflow
+  await expect(modal).toHaveCSS('overflow-y', 'hidden')
+  await expect(scroll).toHaveCSS('overflow-y', 'auto')
+
+  // a short viewport guarantees the capped card overflows, then the footer
+  // still sits fully inside it instead of scrolling away with the fields
+  await page.setViewportSize({ width: 900, height: 480 })
+  expect(await scroll.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true)
+  const box = await actions.boundingBox()
+  expect(box).not.toBeNull()
+  expect(box!.y + box!.height).toBeLessThanOrEqual(await page.evaluate(() => window.innerHeight))
+
+  // and the save action still works from that always-visible footer
+  await page.getByRole('textbox', { name: /^Name/ }).fill('e2e-sticky')
+  await page.getByLabel(/Workspace directory/).fill(workspace)
+  await page.getByRole('button', { name: 'Create job' }).click()
+  await expect(page.getByText('Job “e2e-sticky” saved.')).toBeVisible({ timeout: 15_000 })
+})
+
 test('reduced motion leaves overlay entrances at zero duration', async ({ page }) => {
   // Playwright emulates the media feature before any stylesheet loads, so the
   // reduced-motion block is in force from the first paint

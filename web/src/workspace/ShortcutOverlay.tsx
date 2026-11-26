@@ -64,13 +64,15 @@ function BindingTable({ bindings }: { bindings: [string, string][] }) {
 // toggles it while Escape and clicks outside close it through ModalShell,
 // which also holds the workspace's own bindings down while it shows. The ?
 // press rides the shell's listener, so it answers only while this overlay is
-// the topmost layer, never as a chord or a press claimed elsewhere.
+// the topmost layer, never as a chord or a press claimed elsewhere. A visible
+// ✕ joins Escape for pointer users who never learned the convention.
 export function ShortcutOverlay({ mode, onClose }: { mode: WorkspaceMode; onClose: () => void }) {
   const bindings = mode === 'tile' ? tileBindings : focusBindings
   return (
     <ModalShell
       label="Keyboard shortcuts"
       className="shortcut-card"
+      showClose
       onClose={onClose}
       onKey={(ev) => {
         if (ev.key === '?') onClose()

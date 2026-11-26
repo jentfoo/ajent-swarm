@@ -1187,6 +1187,17 @@ label {
     color: var(--danger);
   }
 }
+/* flex-column cards cannot float the close, so these two pin it into their
+   corner instead; both are position: relative and their inner bodies own
+   scrolling, nothing rides past it. A new flex modal with a visible ✕ needs
+   this rule too */
+.modal.rewind-modal > .modal-close,
+.modal.job-editor > .modal-close {
+  position: absolute;
+  top: calc(var(--unit) * 2);
+  right: calc(var(--unit) * 1);
+  margin: 0;
+}
 @media (max-width: 48rem) {
   /* rename rides this modal on phones, so the ✕ meets the touch floor */
   .modal-close {
@@ -1199,6 +1210,7 @@ label {
 .modal.rewind-modal {
   display: flex;
   flex-direction: column;
+  position: relative; /* anchors its pinned corner close */
   overflow: hidden;
 }
 .rewind-modal > .rewind-list {
@@ -2025,6 +2037,28 @@ label {
 .job-editor {
   width: min(44rem, 94vw);
 }
+/* a bounded flex column: .editor-scroll owns scrolling and .editor-actions
+   stays visible at every breakpoint, so a long form never scrolls Save and
+   Cancel out of the card */
+.modal.job-editor {
+  display: flex;
+  flex-direction: column;
+  position: relative; /* anchors the pinned corner close */
+  overflow: hidden;
+}
+.modal.job-editor form {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.modal.job-editor .editor-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+.modal.job-editor .editor-actions {
+  flex-shrink: 0;
+}
 .form-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
@@ -2247,29 +2281,19 @@ label {
     border-radius: 0;
     overflow-y: auto;
   }
-  /* job and queue forms: bounded column, the fields scroll and the actions
-     stand still, so a focused field never pushes its buttons under the
-     keyboard. The safe area pads the footer while the keyboard inset stays on
-     the backdrop, so neither inset is counted twice */
+  /* job and queue forms keep the base scroll-body and footer split; this
+     override only fills the screen. The safe area pads the footer while the
+     keyboard inset stays on the backdrop, so neither inset is counted twice */
   .modal.job-editor {
     width: 100vw;
     height: 100%;
     max-height: 100%;
     border-radius: 0;
-    overflow: hidden;
   }
   .modal.job-editor form {
-    display: flex;
-    flex-direction: column;
     height: 100%;
   }
-  .modal.job-editor .editor-scroll {
-    flex: 1;
-    min-height: 0;
-    overflow-y: auto;
-  }
   .modal.job-editor .editor-actions {
-    flex-shrink: 0;
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }
 }
@@ -2821,7 +2845,10 @@ label {
   margin-bottom: calc(var(--unit) * 4);
 }
 .setting-row {
-  display: flex;
+  /* label | control (shrinks to zero) | action; the label track holds
+     9-14rem so controls stop trailing every row's ragged label width */
+  display: grid;
+  grid-template-columns: minmax(9rem, 14rem) minmax(0, 1fr) max-content;
   align-items: center;
   gap: calc(var(--unit) * 3);
   min-height: 44px;
@@ -2831,8 +2858,28 @@ label {
 .setting-row:last-child {
   border-bottom: none;
 }
+/* the text field fills the control column instead of flexing */
 .setting-row.text input {
-  flex: 1;
+  width: 100%;
+  min-width: 0;
+}
+/* controls keep their natural size, only fields stretch with the track */
+.setting-row > button {
+  justify-self: start;
+}
+/* an uneditable row's muted value reads across control and action */
+.setting-row.disabled .setting-value {
+  grid-column: span 2;
+}
+@media (max-width: 48rem) {
+  /* narrow screens wrap each row onto two lines: the label takes the first
+     line whole, control and action share the second at the 320px floor */
+  .setting-row {
+    grid-template-columns: minmax(0, 1fr) max-content;
+  }
+  .setting-label {
+    grid-column: 1 / -1;
+  }
 }
 .setting-label {
   font-weight: 550;

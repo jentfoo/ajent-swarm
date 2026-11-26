@@ -12,7 +12,8 @@ import { SettingsMenu } from './SettingsMenu'
 // HamburgerDialog is the open/close shell both hamburger settings menus
 // share: a trigger plus, when open, children in a centered modal so
 // edge-of-grid cards keep the menu on page. `label` names trigger and
-// dialog, `title` overrides the trigger hover text.
+// dialog, `title` overrides the trigger hover text. The dialog carries a
+// visible close beside its Escape convention, pointer users included.
 export function HamburgerDialog({
   label,
   title,
@@ -37,7 +38,12 @@ export function HamburgerDialog({
         <SettingsIcon />
       </button>
       {open && (
-        <ModalShell className="settings-modal" label={label} onClose={() => setOpen(false)}>
+        <ModalShell
+          className="settings-modal"
+          label={label}
+          showClose
+          onClose={() => setOpen(false)}
+        >
           {children}
         </ModalShell>
       )}

@@ -11,6 +11,15 @@ import { ShortcutOverlay } from './ShortcutOverlay'
 // never as a chord or a press claimed elsewhere.
 
 describe('ShortcutOverlay', () => {
+  it('closes through a visible close button', async () => {
+    const user = userEvent.setup()
+    const onClose = vi.fn()
+    render(<ShortcutOverlay mode="focused" onClose={onClose} />)
+
+    await user.click(screen.getByRole('button', { name: 'Close' }))
+    expect(onClose).toHaveBeenCalledOnce()
+  })
+
   it('closes on escape, ? and a click outside', async () => {
     const user = userEvent.setup()
     const onClose = vi.fn()

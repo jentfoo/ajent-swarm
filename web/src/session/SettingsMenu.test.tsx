@@ -38,6 +38,30 @@ const CHROME_ROWS = {
 }
 
 describe('SettingsMenu', () => {
+  it('keeps every row label before its control and action', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string | URL) => {
+        if (String(url).endsWith('/settings')) return Response.json(ROWS)
+        throw new Error(`unexpected fetch ${String(url)}`)
+      }),
+    )
+
+    render(<SettingsMenu sessionId="01S" />)
+    await screen.findByText('Verbose output')
+
+    // the grid tracks key off source order: label first, then control, then
+    // the row's action slot where one exists. The uneditable model row renders
+    // its muted value in the control slot (theme.css spans it to the action)
+    const toggleRow = document.querySelector('[data-setting-key="output.verbose"]')!
+    expect(toggleRow.children[0]).toHaveClass('setting-label')
+    expect(toggleRow.children[1]!.tagName).toBe('BUTTON')
+
+    const modelRow = document.querySelector('[data-setting-key="model"]')!
+    expect(modelRow.children[0]).toHaveClass('setting-label')
+    expect(modelRow.children[1]).toHaveClass('setting-value')
+  })
+
   it('renders rows and applies one change per toggle', async () => {
     const fetchSpy = vi.fn(async (url: string | URL, _init?: RequestInit) => {
       if (String(url).endsWith('/settings')) return Response.json(ROWS)
@@ -91,9 +115,16 @@ describe('SettingsMenu', () => {
 
     render(<SettingsMenu sessionId="01S" />)
     const input = await screen.findByRole('textbox', { name: 'Reasoning effort' })
+    // the untouched form renders no action; typing reveals Apply in the row's
+    // last slot behind its label and control (theme.css tracks source order)
     const userEdit = userEvent.setup()
     await userEdit.clear(input)
     await userEdit.type(input, '3')
+    const editor = input.closest('.setting-row')!
+    expect(editor.children[0]).toHaveClass('setting-label')
+    expect(editor.children[1]).toBe(input)
+    expect(editor.children[2]).toHaveTextContent('Apply')
+
     await userEdit.click(screen.getByRole('button', { name: 'Apply' }))
 
     await vi.waitFor(() => {

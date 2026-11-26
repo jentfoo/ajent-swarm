@@ -307,6 +307,81 @@ describe('theme native controls', () => {
   })
 })
 
+describe('theme settings rows', () => {
+  const rowRule = bareCss.match(/\.setting-row \{[^}]*\}/)![0]
+
+  it('lays each setting row out on a label-control-action grid', () => {
+    // the label track holds 9-14rem, the control shrinks to zero and the
+    // action hugs its content, so Apply buttons line up down the menu
+    expect(rowRule).toContain('display: grid;')
+    expect(rowRule).toContain(
+      'grid-template-columns: minmax(9rem, 14rem) minmax(0, 1fr) max-content;',
+    )
+  })
+
+  it('fills the text field across the control track instead of flexing', () => {
+    const input = bareCss.match(/\.setting-row\.text input \{[^}]*\}/)![0]
+    expect(input).toContain('width: 100%;')
+    expect(input).toContain('min-width: 0;')
+    // the old flex rule would fight the grid track
+    expect(bareCss).not.toContain('.setting-row.text input { flex: 1')
+  })
+
+  it('spans an uneditable row value across control and action', () => {
+    const disabled = bareCss.match(/\.setting-row\.disabled \.setting-value \{[^}]*\}/)![0]
+    expect(disabled).toContain('grid-column: span 2;')
+  })
+
+  it('wraps rows onto label-over-controls lines under the phone breakpoint', () => {
+    // two tracks replace the three: the label takes line one whole, control
+    // and action share line two at the 320px floor
+    expect(bareCss).toMatch(
+      /@media \(max-width: 48rem\) \{\s+\.setting-row \{ grid-template-columns: minmax\(0, 1fr\) max-content; \} \.setting-label \{ grid-column: 1 \/ -1; \}/,
+    )
+  })
+})
+
+describe('theme job editor split', () => {
+  it('bounds the card beside its scroll body and footer at every breakpoint', () => {
+    const modal = bareCss.match(/\.modal\.job-editor \{[^}]*\}/)![0]
+    expect(modal).toContain('display: flex;')
+    expect(modal).toContain('flex-direction: column;')
+    expect(modal).toContain('position: relative;')
+    expect(modal).toContain('overflow: hidden;')
+
+    const form = bareCss.match(/\.modal\.job-editor form \{[^}]*\}/)![0]
+    expect(form).toContain('display: flex;')
+    expect(form).toContain('min-height: 0;')
+
+    const scroll = bareCss.match(/\.modal\.job-editor \.editor-scroll \{[^}]*\}/)![0]
+    expect(scroll).toContain('flex: 1;')
+    expect(scroll).toContain('min-height: 0;')
+    expect(scroll).toContain('overflow-y: auto;')
+
+    const actions = bareCss.match(/\.modal\.job-editor \.editor-actions \{[^}]*\}/)![0]
+    expect(actions).toContain('flex-shrink: 0;')
+  })
+
+  it('keeps the mobile full-screen and safe-area overrides', () => {
+    expect(bareCss).toContain(
+      '.modal.job-editor { width: 100vw; height: 100%; max-height: 100%; border-radius: 0; }',
+    )
+    expect(bareCss).toContain('.modal.job-editor form { height: 100%; }')
+    expect(bareCss).toContain(
+      '.modal.job-editor .editor-actions { padding-bottom: env(safe-area-inset-bottom, 0px); }',
+    )
+  })
+
+  it('pins the corner close inside the flex-column cards', () => {
+    // floats die on flex items, so rewind and job cards position: relative
+    // anchor an absolute ✕ while their inner bodies own scrolling
+    const pinned = bareCss.match(
+      /\.modal\.rewind-modal > \.modal-close, \.modal\.job-editor > \.modal-close \{[^}]*\}/,
+    )![0]
+    expect(pinned).toContain('position: absolute;')
+  })
+})
+
 describe('theme tabular numerals', () => {
   it('aligns table digits through the shared class', () => {
     expect(bareCss).toContain('.tnum { font-variant-numeric: tabular-nums; }')

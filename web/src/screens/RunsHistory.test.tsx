@@ -502,6 +502,92 @@ describe('RunsHistory', () => {
     })
   })
 
+  it('narrows by job name, prompt and error text', async () => {
+    renderRuns()
+    const user = userEvent.setup()
+    await screen.findByTestId('run-11')
+
+    // the joined job's name
+    await user.type(screen.getByRole('searchbox', { name: 'Filter runs' }), 'WEEKLY')
+    expect(screen.queryByTestId('run-11')).not.toBeInTheDocument()
+    expect(screen.getByTestId('run-12')).toBeInTheDocument()
+    await user.clear(screen.getByRole('searchbox', { name: 'Filter runs' }))
+
+    // prompt text
+    await user.type(screen.getByRole('searchbox', { name: 'Filter runs' }), 'sweep now')
+    expect(await screen.findByTestId('run-11')).toBeInTheDocument()
+    expect(screen.queryByTestId('run-12')).not.toBeInTheDocument()
+    await user.clear(screen.getByRole('searchbox', { name: 'Filter runs' }))
+
+    // error text
+    await user.type(screen.getByRole('searchbox', { name: 'Filter runs' }), 'still active')
+    expect(await screen.findByTestId('run-13')).toBeInTheDocument()
+    expect(screen.queryByTestId('run-11')).not.toBeInTheDocument()
+  })
+
+  it('round-trips a query through the URL without refetching', async () => {
+    renderRuns('/jobs/runs?q=sweep')
+    const user = userEvent.setup()
+
+    // the first fetch already carries the job scope, no all-runs request runs
+    // first, and the text filter never asks for another
+    expect(runsFetches()).toHaveLength(1)
+    const box = await screen.findByRole('searchbox', { name: 'Filter runs' })
+    expect(box).toHaveValue('sweep')
+    expect(await screen.findByTestId('run-11')).toBeInTheDocument()
+    expect(screen.queryByTestId('run-12')).not.toBeInTheDocument()
+
+    // typing rewrites the parameter with replace, client-side only
+    await user.type(box, ' now')
+    expect(screen.getByRole('searchbox', { name: 'Filter runs' })).toHaveValue('sweep now')
+    expect(screen.getByTestId('search').textContent).toContain('q=sweep')
+    expect(screen.getByTestId('nav-type')).toHaveTextContent('REPLACE')
+    expect(runsFetches()).toHaveLength(1)
+  })
+
+  it('combines status and text filters in the count', async () => {
+    renderRuns()
+    const user = userEvent.setup()
+    await screen.findByTestId('run-11')
+
+    // the count waits out the first load, then reads every run
+    expect(await screen.findByText('3 of 3 runs')).toBeInTheDocument()
+
+    // status first, then the query: one combined scope
+    await user.selectOptions(screen.getByLabelText(/^Status/), 'failed')
+    await screen.findByText('1 of 3 runs')
+
+    await user.type(screen.getByRole('searchbox', { name: 'Filter runs' }), 'zzz')
+    await screen.findByText('0 of 3 runs')
+  })
+
+  it('names the query on a miss under one job', async () => {
+    renderRuns('/jobs/runs?job=6&q=zzz')
+
+    // weekly has runs, the query filtered them out, so the copy must not read
+    // as an untouched history
+    expect(
+      await screen.findByText('No runs match “zzz” in the latest history.'),
+    ).toBeInTheDocument()
+  })
+
+  it('offers clear filters on a miss and resets all three', async () => {
+    renderRuns('/jobs/runs?job=6&status=failed&q=zzz')
+    const user = userEvent.setup()
+
+    expect(
+      await screen.findByText('No failed runs for weekly in the latest history.'),
+    ).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Clear filters' }))
+    expect(await screen.findByTestId('run-11')).toBeInTheDocument()
+    expect(screen.getByLabelText(/Job/)).toHaveValue('')
+    expect(screen.getByLabelText(/^Status/)).toHaveValue('')
+    expect(screen.getByRole('searchbox', { name: 'Filter runs' })).toHaveValue('')
+    // the plain route returns, only non-defaults serialize
+    expect(screen.getByTestId('search').textContent).toBe('')
+  })
+
   it('initializes filters from a deep-linked URL', async () => {
     renderRuns('/jobs/runs?job=6&status=failed')
 

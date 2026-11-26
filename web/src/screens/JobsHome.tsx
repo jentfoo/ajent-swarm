@@ -272,7 +272,13 @@ export default function JobsHome() {
 
       {jobs !== null && jobs.length > 0 && (
         <div className="list-filter-row">
-          <ListFilter label="Filter jobs" value={filter} onChange={setFilter} />
+          <ListFilter
+            label="Filter jobs"
+            value={filter}
+            onChange={setFilter}
+            hotkey
+            resultCount={`${visibleJobs.length} of ${jobs.length} jobs`}
+          />
           <select
             value={stateFilter}
             aria-label="Filter by state"

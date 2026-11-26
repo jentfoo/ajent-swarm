@@ -116,7 +116,13 @@ export default function SessionsHome() {
 
       {sessions.length > 0 && (
         <div className="list-filter-row">
-          <ListFilter label="Filter sessions" value={filter} onChange={setFilter} />
+          <ListFilter
+            label="Filter sessions"
+            value={filter}
+            onChange={setFilter}
+            hotkey
+            resultCount={`${visible.length} of ${sessions.length} sessions`}
+          />
         </div>
       )}
 

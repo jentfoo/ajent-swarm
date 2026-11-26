@@ -17,18 +17,22 @@ import {
   relativeTimestamp,
 } from '../jobs/schedule'
 import { RunDetail } from '../jobs/RunDetail'
+import { ListFilter } from '../ui/ListFilter'
+import { matchesQuery, normalizeQuery } from '../ui/textMatch'
 import { useOverlayBack } from '../ui/useOverlayBack'
 
 const pollRunsMs = 10_000
 
 // RunsHistory is the filterable history over /api/runs: by job through the
-// backend's ?job= parameter, by status client-side. Both filters live in the
-// URL search parameters, so a filtered view reloads, bookmarks and shares, and
-// a job row's Last run cell deep-links straight into it. Each row's display
-// data derives once and renders twice: the desktop table above the shared 48rem
-// breakpoint (hooks/useMediaQuery.mobileLayout), stacked cards below it.
-// Clicking a row explains what happened without opening logs. The detail modal
-// resolves its run from the latest list, so each poll refreshes it in place.
+// backend's ?job= parameter, by status and a text query client-side, the query
+// matching each run's job name, prompt and error text. All three filters live
+// in the URL search parameters, so a filtered view reloads, bookmarks and
+// shares, and a job row's Last run cell deep-links straight into it. Each
+// row's display data derives once and renders twice: the desktop table above
+// the shared 48rem breakpoint (hooks/useMediaQuery.mobileLayout), stacked
+// cards below it. Clicking a row explains what happened without opening logs.
+// The detail modal resolves its run from the latest list, so each poll
+// refreshes it in place.
 export default function RunsHistory() {
   const mobile = useMediaQuery(mobileLayout)
   const [searchParams, setSearchParams] = useSearchParams()
@@ -42,6 +46,7 @@ export default function RunsHistory() {
   // neither request NaN nor filter on an unknown status
   const jobFilter = parseJobFilter(searchParams.get('job'))
   const statusFilter = parseStatusFilter(searchParams.get('status'))
+  const queryFilter = parseQueryFilter(searchParams.get('q'))
 
   // Each load aborts its predecessor and only the newest may commit state:
   // a poll tick racing a filter change would otherwise let last-resolved win
@@ -81,14 +86,16 @@ export default function RunsHistory() {
     [jobFilter],
   )
 
-  // setFilters rewrites the two params with replace: only non-defaults
-  // serialize so the plain route stays clean, and filter edits never grow the
-  // browser-back trail under the poll. The route defines no other parameters.
+  // setFilters rewrites the three params with replace: only non-defaults
+  // serialize so the plain route stays clean, a whitespace-only query never
+  // does either, and filter edits never grow the browser-back trail under the
+  // poll. The route defines no other parameters.
   const setFilters = useCallback(
-    (job: number | '', status: '' | RunStatus) => {
+    (job: number | '', status: '' | RunStatus, q: string) => {
       const next = new URLSearchParams()
       if (job !== '') next.set('job', String(job))
       if (status !== '') next.set('status', status)
+      if (q.trim() !== '') next.set('q', q)
       setSearchParams(next, { replace: true })
     },
     [setSearchParams],
@@ -125,14 +132,21 @@ export default function RunsHistory() {
 
   // One derivation filters and feeds both presentations, so a phone card can
   // never show a fact the table row would have rendered differently. The
-  // breakpoint swap is presentational only: state, polling and the modal live
-  // here.
+  // status filter reads first, the text query second over each run's job name,
+  // prompt and error: no refetch rides a q edit, the count under the filters
+  // already reads their combined scope. The breakpoint swap is presentational
+  // only: state, polling and the modal live here.
+  const query = normalizeQuery(queryFilter)
   const rows = useMemo(
     () =>
       (runs ?? [])
-        .filter((run) => statusFilter === '' || run.status === statusFilter)
+        .filter(
+          (run) =>
+            (statusFilter === '' || run.status === statusFilter) &&
+            matchesQuery(query, jobName(run), run.prompt, run.error),
+        )
         .map((run) => ({ run, facts: runRowFacts(run, jobName(run), now) })),
-    [runs, statusFilter, jobName, now],
+    [runs, statusFilter, query, jobName, now],
   )
 
   return (
@@ -141,12 +155,25 @@ export default function RunsHistory() {
 
       <div className="session-header">
         <h1 className="page-title">Run history</h1>
-        <span className="spacer" style={{ flex: 1 }} />
+      </div>
+
+      {/* the search leads and the selects follow, one row like the jobs list,
+          the count waiting out the load instead of reading a false 0 of 0 */}
+      <div className="list-filter-row">
+        <ListFilter
+          label="Filter runs"
+          value={queryFilter}
+          onChange={(q) => setFilters(jobFilter, statusFilter, q)}
+          hotkey
+          resultCount={runs === null ? undefined : `${rows.length} of ${runs.length} runs`}
+        />
         <label className="runs-filter">
           Job{' '}
           <select
             value={jobFilter}
-            onChange={(ev) => setFilters(parseJobFilter(ev.target.value), statusFilter)}
+            onChange={(ev) =>
+              setFilters(parseJobFilter(ev.target.value), statusFilter, queryFilter)
+            }
           >
             <option value="">All jobs</option>
             {jobs.map((j) => (
@@ -167,7 +194,9 @@ export default function RunsHistory() {
           Status{' '}
           <select
             value={statusFilter}
-            onChange={(ev) => setFilters(jobFilter, parseStatusFilter(ev.target.value))}
+            onChange={(ev) =>
+              setFilters(jobFilter, parseStatusFilter(ev.target.value), queryFilter)
+            }
           >
             <option value="">All</option>
             {runStatuses.map((s) => (
@@ -192,7 +221,11 @@ export default function RunsHistory() {
           Loading run history…
         </p>
       ) : runs !== null && rows.length === 0 ? (
-        <p className="muted">{runEmptyCopy(filterJobName, statusFilter)}</p>
+        <RunEmptyState
+          copy={runEmptyCopy(filterJobName, statusFilter, queryFilter)}
+          filtersActive={jobFilter !== '' || statusFilter !== '' || queryFilter.trim() !== ''}
+          onClear={() => setFilters('', '', '')}
+        />
       ) : rows.length > 0 ? (
         mobile ? (
           <div className="run-cards" role="list">
@@ -247,17 +280,53 @@ function parseStatusFilter(raw: string | null): '' | RunStatus {
   return raw !== null && (runStatuses as readonly string[]).includes(raw) ? (raw as RunStatus) : ''
 }
 
-// runEmptyCopy names the empty scope: global absence, one job's history, or a
-// status miss over the fetched rows. The client reads only the latest window,
-// so a filter miss never claims older matching runs do not exist.
-function runEmptyCopy(job: string | undefined, status: string): string {
+// parseQueryFilter reads ?q= back verbatim: any text is a valid substring
+// query, an absent one filters nothing.
+function parseQueryFilter(raw: string | null): string {
+  return raw ?? ''
+}
+
+// runEmptyCopy names the empty scope: a status or text-query miss over the
+// fetched rows, one job's untouched history, or global absence. The client
+// reads only the latest window, so a filter miss never claims older matching
+// runs do not exist.
+function runEmptyCopy(job: string | undefined, status: string, query: string): string {
   if (status !== '') {
     return job === undefined
       ? `No ${status} runs in the latest history.`
       : `No ${status} runs for ${job} in the latest history.`
   }
+  // a query miss outranks the bare job scope, whose "no runs yet" would lie
+  if (query.trim() !== '') return `No runs match “${query.trim()}” in the latest history.`
   if (job !== undefined) return `No runs for ${job} yet. Fire it or wait for its schedule.`
   return 'No runs yet. Fire a job or wait for its schedule.'
+}
+
+// RunEmptyState renders the filter-miss copy with a clear action beside it, so
+// a deep link or stray select never dead-ends. Only an active filter gets the
+// button, true absence keeps its plain line.
+function RunEmptyState({
+  copy,
+  filtersActive,
+  onClear,
+}: {
+  copy: string
+  filtersActive: boolean
+  onClear: () => void
+}): ReactElement {
+  return (
+    <p className="muted">
+      {copy}
+      {filtersActive && (
+        <>
+          {' '}
+          <button type="button" onClick={onClear}>
+            Clear filters
+          </button>
+        </>
+      )}
+    </p>
+  )
 }
 
 // RunRowFacts is one run's display data shared by the desktop table row and

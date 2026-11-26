@@ -2036,8 +2036,9 @@ label {
   border-bottom: 1px solid var(--border);
   vertical-align: top;
 }
-.run-row,
-.jobs-table tbody tr {
+/* the run row is the only clickable one: a jobs row carries a checkbox and
+   links, so its cursor must not promise a navigation it does not have */
+.run-row {
   cursor: pointer;
 }
 @media (hover: hover) {
@@ -3108,8 +3109,8 @@ label {
 .tile-menu .menu-filter-row {
   background: var(--surface-2);
 }
-.menu .menu-filter-row input,
-.tile-menu .menu-filter-row input {
+.menu .menu-filter-row .list-filter-field,
+.tile-menu .menu-filter-row .list-filter-field {
   width: 100%;
 }
 
@@ -3121,9 +3122,29 @@ label {
   gap: calc(var(--unit) * 2);
   margin-bottom: calc(var(--unit) * 3);
 }
-.list-filter-row input[type='search'] {
+.list-filter-row .list-filter-field {
   flex: 1;
   min-width: 0;
+}
+/* the filter box's relative shell: a decorative magnifier leads, the input's
+   padding keeps its placeholder clear of it */
+.list-filter-field {
+  position: relative;
+}
+.list-filter-field svg {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  left: calc(var(--unit) * 3);
+  color: var(--muted);
+  pointer-events: none; /* a click on the glyph lands in the field */
+}
+.list-filter-field input[type='search'] {
+  width: 100%;
+  padding-left: calc(var(--unit) * 10);
+}
+.list-filter-count {
+  white-space: nowrap;
 }
 
 .tool-row {

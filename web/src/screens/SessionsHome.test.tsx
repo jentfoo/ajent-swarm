@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes, useSearchParams } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -359,6 +359,34 @@ describe('SessionsHome', () => {
     await user.clear(box)
     await user.type(box, 'repo')
     expect(selected()).toEqual(['Select /home/you/Repo for tiling'])
+  })
+
+  it('focuses the filter on / outside an input', async () => {
+    sessionsReply = [session()]
+    renderHome()
+    await screen.findByText('01A')
+
+    fireEvent.keyDown(document.body, { key: '/' })
+
+    expect(screen.getByRole('searchbox', { name: 'Filter sessions' })).toHaveFocus()
+  })
+
+  it('reports the visible count as the query narrows', async () => {
+    sessionsReply = [
+      session({ sessionId: '01A', title: 'alpha' }),
+      session({ sessionId: '01B', title: 'beta' }),
+      session({ sessionId: '01C', title: 'gamma' }),
+    ]
+    renderHome()
+    const user = userEvent.setup()
+    await screen.findByText('alpha')
+
+    expect(screen.getByText('3 of 3 sessions')).toBeInTheDocument()
+
+    await user.type(screen.getByRole('searchbox', { name: 'Filter sessions' }), 'alph')
+    // the count trails the keystrokes through its announce debounce
+    await screen.findByText('1 of 3 sessions')
+    expect(screen.queryByText(/No sessions match/)).not.toBeInTheDocument()
   })
 
   it('treats a whitespace-only query as no filter', async () => {

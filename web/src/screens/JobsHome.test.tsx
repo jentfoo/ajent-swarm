@@ -441,6 +441,29 @@ describe('JobsHome', () => {
     expect(ids()).toEqual(['job-5'])
   })
 
+  it('focuses the filter on / outside an input', async () => {
+    renderJobs()
+    await screen.findByText('nightly sweep')
+
+    fireEvent.keyDown(document.body, { key: '/' })
+
+    expect(screen.getByRole('searchbox', { name: 'Filter jobs' })).toHaveFocus()
+  })
+
+  it('reports the visible count as the query narrows', async () => {
+    jobsReply = { rows: [job, onceJob] }
+    renderJobs()
+    const user = userEvent.setup()
+    await screen.findByText('nightly sweep')
+
+    expect(screen.getByText('2 of 2 jobs')).toBeInTheDocument()
+
+    // the count trails the keystrokes through its announce debounce
+    await user.type(screen.getByRole('searchbox', { name: 'Filter jobs' }), 'shot')
+    await screen.findByText('1 of 2 jobs')
+    expect(screen.queryByText(/No jobs match/)).not.toBeInTheDocument()
+  })
+
   it('matches queued rows through the same text rule', async () => {
     jobsReply = { rows: [job, queuedJob] }
     renderJobs()
@@ -783,7 +806,8 @@ describe('JobsHome', () => {
     await user.type(screen.getByRole('textbox', { name: /^Prompt/ }), 'review the diff')
     await user.click(screen.getByRole('button', { name: 'Queue prompt' }))
 
-    expect(await screen.findByRole('status')).toHaveTextContent('Queued “later”.')
+    const notice = await screen.findByText('Queued “later”.')
+    expect(notice).toHaveAttribute('role', 'status')
     expect(queueBodies).toHaveLength(1)
     expect(queueBodies[0]).toMatchObject({
       name: 'later',
@@ -853,7 +877,8 @@ describe('JobsHome', () => {
 
     fireReplies.push({ id: 20, ok: true })
     await user.click(screen.getByRole('button', { name: 'Run nightly sweep now' }))
-    expect(await screen.findByRole('status')).toHaveTextContent('Run #20 started.')
+    const notice = await screen.findByText('Run #20 started.')
+    expect(notice).toHaveAttribute('role', 'status')
 
     fireReplies.push({ id: 21, ok: false })
     await user.click(screen.getByRole('button', { name: 'Run nightly sweep now' }))
@@ -890,7 +915,8 @@ describe('JobsHome', () => {
     expect(fireCalls).toEqual([5])
 
     fireWaiters.shift()!(Response.json(manualRun(20)))
-    expect(await screen.findByRole('status')).toHaveTextContent('Run #20 started.')
+    const notice = await screen.findByText('Run #20 started.')
+    expect(notice).toHaveAttribute('role', 'status')
     await waitFor(() => expect(button).toBeEnabled())
   })
 
@@ -913,7 +939,8 @@ describe('JobsHome', () => {
 
     fireWaiters.shift()!(Response.json(manualRun(20)))
     fireWaiters.shift()!(Response.json(manualRun(21)))
-    expect(await screen.findByRole('status')).toHaveTextContent('Run #21 started.')
+    const notice = await screen.findByText('Run #21 started.')
+    expect(notice).toHaveAttribute('role', 'status')
     await waitFor(() => expect(nightly).toBeEnabled())
     expect(oneShot).toBeEnabled()
   })
@@ -1026,7 +1053,8 @@ describe('JobsHome', () => {
     await act(async () => {
       updateWaiters.shift()!(Response.json(digest))
     })
-    expect(await screen.findByRole('status')).toHaveTextContent('Job “weekly digest” saved.')
+    const notice = await screen.findByText('Job “weekly digest” saved.')
+    expect(notice).toHaveAttribute('role', 'status')
   })
 
   it('reseeds a duplicate create when the from job changes', async () => {

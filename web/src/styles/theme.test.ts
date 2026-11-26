@@ -417,3 +417,11 @@ describe('theme tabular numerals', () => {
     expect(carriers.join(' ')).toContain('.meter-count')
   })
 })
+
+describe('theme table row pointers', () => {
+  it('keeps the pointer on the clickable run row only', () => {
+    expect(bareCss).toMatch(/(?:^|\})\s*\.run-row \{ cursor: pointer; \}/)
+    // a jobs row has no click handler, so its cursor must not promise one
+    expect(bareCss).not.toContain('.jobs-table tbody tr')
+  })
+})

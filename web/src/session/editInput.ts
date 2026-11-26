@@ -4,6 +4,8 @@
 // would reject parses to undefined, so the caller falls back to pretty-printing
 // the raw input rather than rendering a half-read diff.
 
+import { unquoteJSON } from './toolInput'
+
 export interface EditOp {
   oldText: string
   newText: string
@@ -33,17 +35,6 @@ export function parseEditInput(input: unknown): EditInput | undefined {
     ops.push({ oldText: op.oldText, newText: op.newText, replaceAll: op.replace_all === true })
   }
   return ops.length > 0 ? { path: args.path, ops } : undefined
-}
-
-// unquoteJSON unwraps a JSON string that itself holds JSON, how a model
-// double-encodes an argument it should have sent as an object or array.
-function unquoteJSON(value: unknown): unknown {
-  if (typeof value !== 'string') return value
-  try {
-    return JSON.parse(value) as unknown
-  } catch {
-    return value
-  }
 }
 
 function asObject(value: unknown): Record<string, unknown> | undefined {

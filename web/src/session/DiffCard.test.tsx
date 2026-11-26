@@ -1,4 +1,5 @@
-import { render } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 
 import { DiffCard, EditOpDiff, gutterWidth, intralineSpans } from './DiffCard'
@@ -163,6 +164,80 @@ describe('DiffCard', () => {
     expect(document.querySelectorAll('.diff-em')).toHaveLength(0)
     expect(rows('del')).toEqual(['one', 'two'])
     expect(rows('add')).toEqual(['uno'])
+  })
+})
+
+// A file diff past the row limit shows its first rows behind a show-all control
+// under them, so a huge change never buries the conversation around it.
+describe('DiffCard collapse', () => {
+  // a 100-line file with its first 40 lines rewritten: one hunk header, 40
+  // deletions, 40 additions and 3 trailing context rows, 84 rows in all
+  const rewritten = {
+    path: 'src/big.go',
+    before: lines(100),
+    after: lines(100, (i) => (i < 40 ? `n${i + 1}` : undefined)),
+  }
+
+  const allRows = () => document.querySelectorAll('.diff-line')
+
+  const toggle = () => screen.queryByRole('button', { name: /Show (all|less)/ })
+
+  it('leaves a diff under the limit whole', () => {
+    render(
+      <DiffCard
+        path="f"
+        before={lines(10)}
+        after={lines(10, (i) => (i === 4 ? 'X' : undefined))}
+      />,
+    )
+    // one hunk: header, three context rows, the del and add pair, three more
+    expect(allRows()).toHaveLength(9)
+    expect(screen.queryByRole('button')).not.toBeInTheDocument()
+  })
+
+  it('shows the first rows over the limit behind a control', () => {
+    render(<DiffCard {...rewritten} />)
+    expect(allRows()).toHaveLength(24)
+    expect(toggle()).toHaveTextContent('Show all 84 lines')
+    expect(toggle()).toHaveAttribute('aria-expanded', 'false')
+  })
+
+  it('keeps the whole-file gutter width on the slice', () => {
+    render(<DiffCard {...rewritten} />)
+    const nums = Array.from(document.querySelectorAll('.diff-line .diff-num'))
+    expect(nums).toHaveLength(23) // the hunk header carries no number
+    for (const el of nums) expect(el.textContent).toHaveLength(3)
+  })
+
+  it('expands every row and relabels', async () => {
+    const user = userEvent.setup()
+    render(<DiffCard {...rewritten} />)
+    await user.click(toggle()!)
+    expect(allRows()).toHaveLength(84)
+    expect(toggle()).toHaveTextContent('Show less')
+    expect(toggle()).toHaveAttribute('aria-expanded', 'true')
+  })
+
+  it('collapses back to the slice', async () => {
+    const user = userEvent.setup()
+    render(<DiffCard {...rewritten} />)
+    await user.click(toggle()!)
+    await user.click(toggle()!)
+    expect(allRows()).toHaveLength(24)
+    expect(toggle()).toHaveTextContent('Show all 84 lines')
+  })
+
+  it('counts the added and deleted rows in the path header', () => {
+    render(<DiffCard path="f" before={'a\nb\nc\n'} after={'a\nB\nc\nd\n'} />)
+    expect(document.querySelector('.diff-count.add')?.textContent).toBe('+2')
+    expect(document.querySelector('.diff-count.del')?.textContent).toBe('-1')
+  })
+
+  it('never folds an edit op diff', () => {
+    // op fragments live inside a collapsible card already
+    render(<EditOpDiff op={op({ oldText: lines(30), newText: '' })} />)
+    expect(allRows()).toHaveLength(30)
+    expect(screen.queryByRole('button')).not.toBeInTheDocument()
   })
 })
 

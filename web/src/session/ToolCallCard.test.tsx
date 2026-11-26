@@ -7,10 +7,14 @@ import { SubAgentChips, ToolCallCard } from './ToolCallCard'
 import type { AgentJobs } from './useAgentJobs'
 import type { ActivityRow, AgentJob } from '../api/types'
 
-// Input rendering: edit calls render one diff per op instead of escaped JSON,
-// every other shape pretty-prints, and long committed outputs collapse behind
-// the header's line count. Open/close behavior is covered from the outside by
-// EntryBlock and LiveStreamBlock tests, this file pins the body itself.
+// A collapsed card shows its header alone, so input and output assertions open
+// the card first. Edit calls render one unnumbered diff per op instead of
+// escaped JSON, every other shape pretty-prints, and long committed outputs
+// collapse behind the header's line count. Open/close behavior is covered from
+// the outside by EntryBlock and LiveStreamBlock tests, this file pins the card.
+
+type CardCall = ComponentProps<typeof ToolCallCard>['call']
+type CardProps = ComponentProps<typeof ToolCallCard>
 
 function rows(kind: string): string[] {
   return Array.from(document.querySelectorAll(`.diff-line.${kind} .diff-text`)).map(
@@ -22,117 +26,123 @@ function longBody(lines: number): string {
   return Array.from({ length: lines }, (_, i) => `line ${i}`).join('\n')
 }
 
+// openCard renders a collapsed card and clicks its header, the state every
+// body assertion needs
+async function openCard(props: CardProps) {
+  const user = userEvent.setup()
+  const view = render(<ToolCallCard {...props} />)
+  await user.click(screen.getByRole('button'))
+  return view
+}
+
+const pathChip = (): string | undefined => document.querySelector('.diff-path')?.textContent
+
+const doneCall = (text: string): CardCall => ({
+  id: 'c1',
+  name: 'bash',
+  input: { command: 'go test' },
+  result: { callId: 'c1', text, images: [], isError: false },
+})
+
 describe('ToolCallCard inputs', () => {
-  it('renders edit input as per-op diffs', () => {
-    render(
-      <ToolCallCard
-        call={{
-          id: 'c1',
-          name: 'edit',
-          input: { path: 'a.go', edits: [{ oldText: 'one\n', newText: 'ONE\n' }] },
-        }}
-      />,
-    )
-    expect(screen.getByText('a.go')).toHaveClass('diff-path')
+  it('renders edit input as per-op diffs', async () => {
+    await openCard({
+      call: {
+        id: 'c1',
+        name: 'edit',
+        input: { path: 'a.go', edits: [{ oldText: 'one\n', newText: 'ONE\n' }] },
+      },
+    })
+    expect(pathChip()).toBe('a.go')
     expect(rows('del')).toEqual(['one'])
     expect(rows('add')).toEqual(['ONE'])
     // the escaped JSON never renders for a parseable edit
     expect(document.querySelector('pre.muted')).toBeNull()
   })
 
-  it('counts multi-op edits on the path chip', () => {
-    render(
-      <ToolCallCard
-        call={{
-          id: 'c1',
-          name: 'edit',
-          input: {
-            path: 'a.go',
-            edits: [
-              { oldText: 'one\n', newText: 'ONE\n' },
-              { oldText: 'two\n', newText: 'TWO\n' },
-            ],
-          },
-        }}
-      />,
-    )
-    expect(screen.getByText('a.go · 2 edits')).toBeInTheDocument()
+  it('counts multi-op edits on the path chip', async () => {
+    await openCard({
+      call: {
+        id: 'c1',
+        name: 'edit',
+        input: {
+          path: 'a.go',
+          edits: [
+            { oldText: 'one\n', newText: 'ONE\n' },
+            { oldText: 'two\n', newText: 'TWO\n' },
+          ],
+        },
+      },
+    })
+    expect(pathChip()).toBe('a.go · 2 edits')
     expect(document.querySelectorAll('.diff-pre')).toHaveLength(2)
   })
 
-  it('unwraps string-encoded edits', () => {
-    render(
-      <ToolCallCard
-        call={{
-          id: 'c1',
-          name: 'edit',
-          input: { path: 'a.go', edits: JSON.stringify([{ oldText: 'x\n', newText: 'y\n' }]) },
-        }}
-      />,
-    )
+  it('unwraps string-encoded edits', async () => {
+    await openCard({
+      call: {
+        id: 'c1',
+        name: 'edit',
+        input: { path: 'a.go', edits: JSON.stringify([{ oldText: 'x\n', newText: 'y\n' }]) },
+      },
+    })
     expect(rows('add')).toEqual(['y'])
   })
 
-  it('drops the op diffs on a gated edit, keeping the path', () => {
+  it('drops the op diffs on a gated edit, keeping the path', async () => {
     // the full-file diff rides above the dialog, an unnumbered fragment copy
     // would only repeat it
-    render(
-      <ToolCallCard
-        gated
-        call={{
-          id: 'c1',
-          name: 'edit',
-          input: { path: 'a.go', edits: [{ oldText: 'one\n', newText: 'ONE\n' }] },
-        }}
-      />,
-    )
-    expect(screen.getByText('a.go')).toHaveClass('diff-path')
+    await openCard({
+      gated: true,
+      call: {
+        id: 'c1',
+        name: 'edit',
+        input: { path: 'a.go', edits: [{ oldText: 'one\n', newText: 'ONE\n' }] },
+      },
+    })
+    expect(pathChip()).toBe('a.go')
     expect(document.querySelector('.diff-pre')).toBeNull()
   })
 
-  it('keeps op diffs on a failed edit', () => {
+  it('keeps op diffs on a failed edit', async () => {
     // the diff is the requested change, worth showing beside the fault's real
     // match lines in the body; fragment rows render unnumbered like anywhere else
-    render(
-      <ToolCallCard
-        call={{
-          id: 'c1',
-          name: 'edit',
-          input: { path: 'a.go', edits: [{ oldText: 'one\n', newText: 'ONE\n' }] },
-          result: {
-            callId: 'c1',
-            text: '',
-            images: [],
-            isError: true,
-            fault: 'old text not found near line 12',
-          },
-        }}
-      />,
-    )
+    await openCard({
+      call: {
+        id: 'c1',
+        name: 'edit',
+        input: { path: 'a.go', edits: [{ oldText: 'one\n', newText: 'ONE\n' }] },
+        result: {
+          callId: 'c1',
+          text: '',
+          images: [],
+          isError: true,
+          fault: 'old text not found near line 12',
+        },
+      },
+    })
     expect(document.querySelector('.tool-card')).toHaveClass('error')
     expect(rows('del')).toEqual(['one'])
     expect(rows('add')).toEqual(['ONE'])
     expect(document.querySelector('.diff-num')).toBeNull()
   })
 
-  it('pretty-prints unparseable edit input', () => {
-    render(
-      <ToolCallCard
-        call={{ id: 'c1', name: 'edit', input: { path: 'a.go', edits: [{ oldText: 4 }] } }}
-      />,
-    )
+  it('pretty-prints unparseable edit input', async () => {
+    await openCard({
+      call: { id: 'c1', name: 'edit', input: { path: 'a.go', edits: [{ oldText: 4 }] } },
+    })
     const pre = document.querySelector('pre.muted')
     expect(pre?.textContent).toContain('"path": "a.go"')
     expect(pre?.textContent).toContain('"oldText": 4')
   })
 
-  it('pretty-prints object inputs with two-space indent', () => {
-    render(<ToolCallCard call={{ id: 'c1', name: 'bash', input: { cmd: 'go build ./...' } }} />)
+  it('pretty-prints object inputs with two-space indent', async () => {
+    await openCard({ call: { id: 'c1', name: 'bash', input: { cmd: 'go build ./...' } } })
     expect(document.querySelector('pre.muted')?.textContent).toBe('{\n  "cmd": "go build ./..."\n}')
   })
 
-  it('keeps string inputs verbatim', () => {
-    render(<ToolCallCard call={{ id: 'c1', name: 'bash', input: 'go test ./...' }} />)
+  it('keeps string inputs verbatim', async () => {
+    await openCard({ call: { id: 'c1', name: 'bash', input: 'go test ./...' } })
     expect(document.querySelector('pre.muted')?.textContent).toBe('go test ./...')
   })
 })
@@ -147,6 +157,74 @@ describe('ToolCallCard headers', () => {
   it('keeps the tool name for agent calls', () => {
     render(<ToolCallCard call={{ id: 'c1', name: 'bash', input: { command: 'go build ./...' } }} />)
     expect(screen.getByText('bash')).toBeInTheDocument()
+  })
+})
+
+describe('ToolCallCard summary', () => {
+  const summary = (): string | undefined => document.querySelector('.tool-summary')?.textContent
+
+  it.each([
+    {
+      name: 'shell command',
+      tool: 'bash',
+      input: { command: 'go build ./...' },
+      want: 'go build ./...',
+    },
+    { name: 'shell cmd key', tool: 'bash', input: { cmd: 'ls' }, want: 'ls' },
+    { name: 'bare string input', tool: 'bash', input: 'ls -la', want: 'ls -la' },
+    { name: 'double-encoded input', tool: 'bash', input: '{"command":"ls"}', want: 'ls' },
+    { name: 'edit path', tool: 'edit', input: { path: 'a.go' }, want: 'a.go' },
+    { name: 'read path', tool: 'Read', input: { path: 'src/main.go' }, want: 'src/main.go' },
+    { name: 'write path', tool: 'write_file', input: { path: 'notes.md' }, want: 'notes.md' },
+    { name: 'grep pattern', tool: 'grep', input: { pattern: 'TODO', path: 'src' }, want: 'TODO' },
+    { name: 'grep prefers pattern', tool: 'grep', input: { pattern: 'a', query: 'b' }, want: 'a' },
+    { name: 'find pattern', tool: 'find', input: { pattern: '*.go', path: '.' }, want: '*.go' },
+    { name: 'search query', tool: 'repo_search', input: { query: 'retry' }, want: 'retry' },
+    {
+      name: 'first line only',
+      tool: 'bash',
+      input: { command: 'make test\nmake lint' },
+      want: 'make test',
+    },
+  ])('shows the $name', ({ tool, input, want }) => {
+    render(<ToolCallCard call={{ id: 'c1', name: tool, input }} />)
+    expect(summary()).toBe(want)
+  })
+
+  it.each([
+    { name: 'unknown tool with known keys', tool: 'ask_user', input: { path: 'x', pattern: 'y' } },
+    { name: 'prototype key as tool name', tool: 'constructor', input: { command: 'ls' } },
+    { name: 'known tool without known keys', tool: 'read', input: { file_path: 'x' } },
+    { name: 'blank value', tool: 'grep', input: { pattern: '   ' } },
+    { name: 'non-string value', tool: 'read', input: { path: 42 } },
+    { name: 'array input', tool: 'bash', input: ['ls'] },
+    { name: 'null input', tool: 'bash', input: null },
+    { name: 'no input yet', tool: 'bash', input: undefined },
+  ])('renders no summary for $name', ({ tool, input }) => {
+    render(<ToolCallCard call={{ id: 'c1', name: tool, input }} />)
+    expect(document.querySelector('.tool-summary')).toBeNull()
+  })
+
+  it('caps a long summary with an ellipsis', () => {
+    render(<ToolCallCard call={{ id: 'c1', name: 'bash', input: { command: 'x'.repeat(100) } }} />)
+    expect(summary()).toHaveLength(80)
+    expect(summary()).toMatch(/…$/)
+  })
+
+  it('keeps the shell label in place of a summary', () => {
+    render(
+      <ToolCallCard
+        call={{
+          id: 'c1',
+          name: 'bash',
+          shell: true,
+          label: '! make test',
+          input: { command: 'make test' },
+        }}
+      />,
+    )
+    expect(screen.getByText('! make test')).toBeInTheDocument()
+    expect(document.querySelector('.tool-summary')).toBeNull()
   })
 })
 
@@ -185,8 +263,6 @@ describe('ToolCallCard compose progress', () => {
 })
 
 describe('ToolCallCard shell lifecycle', () => {
-  type CardCall = ComponentProps<typeof ToolCallCard>['call']
-
   function shellCall(overrides: Partial<CardCall> = {}): CardCall {
     return {
       id: 'shell-1',
@@ -197,6 +273,9 @@ describe('ToolCallCard shell lifecycle', () => {
       ...overrides,
     }
   }
+
+  // the open body carries its own copy button, so the toggle is named
+  const header = () => screen.getByRole('button', { name: /! make test/ })
 
   it('paints a streaming shell body open', () => {
     const { container } = render(<ToolCallCard call={shellCall()} />)
@@ -214,15 +293,15 @@ describe('ToolCallCard shell lifecycle', () => {
       />,
     )
     expect(screen.getByText('staged - rides your next message')).toHaveClass('badge warn')
-    expect(container.querySelector('.tool-body pre')).toBeNull()
+    expect(container.querySelector('.tool-body')).toBeNull()
     expect(screen.getByText('ok')).toBeInTheDocument() // first-line preview
   })
 
   it('keeps a manual collapse across the finish', async () => {
     const user = userEvent.setup()
     const { container, rerender } = render(<ToolCallCard call={shellCall()} />)
-    await user.click(screen.getByRole('button'))
-    expect(container.querySelector('.tool-body pre')).toBeNull()
+    await user.click(header())
+    expect(container.querySelector('.tool-body')).toBeNull()
 
     rerender(
       <ToolCallCard
@@ -231,15 +310,15 @@ describe('ToolCallCard shell lifecycle', () => {
         })}
       />,
     )
-    expect(container.querySelector('.tool-body pre')).toBeNull()
+    expect(container.querySelector('.tool-body')).toBeNull()
     expect(screen.getByText('staged - rides your next message')).toBeInTheDocument()
   })
 
   it('keeps a manual open past the finish', async () => {
     const user = userEvent.setup()
     const { container, rerender } = render(<ToolCallCard call={shellCall()} />)
-    await user.click(screen.getByRole('button')) // collapse
-    await user.click(screen.getByRole('button')) // reopen
+    await user.click(header()) // collapse
+    await user.click(header()) // reopen
     rerender(
       <ToolCallCard
         call={shellCall({
@@ -318,15 +397,7 @@ describe('ToolCallCard output preview', () => {
   })
 
   it('previews a short output', () => {
-    render(
-      <ToolCallCard
-        call={{
-          id: 'c1',
-          name: 'bash',
-          result: { callId: 'c1', text: 'all good', images: [], isError: false },
-        }}
-      />,
-    )
+    render(<ToolCallCard call={doneCall('all good')} />)
     expect(screen.getByText('all good')).toBeInTheDocument()
   })
 
@@ -382,7 +453,23 @@ describe('ToolCallCard output preview', () => {
   })
 })
 
-describe('ToolCallCard disclosure state', () => {
+describe('ToolCallCard disclosure', () => {
+  it('keeps a collapsed card to its header', () => {
+    // the summary and the output preview stand in for the arguments until asked
+    const { container } = render(<ToolCallCard call={doneCall('all good')} />)
+    expect(container.querySelector('.tool-body')).toBeNull()
+    expect(screen.getByText('go test')).toHaveClass('tool-summary')
+    expect(screen.getByText('all good')).toHaveClass('tool-preview')
+  })
+
+  it('renders the input and output once opened', async () => {
+    const { container } = await openCard({ call: doneCall('all good') })
+    expect(container.querySelector('.tool-body pre.muted')?.textContent).toBe(
+      '{\n  "command": "go test"\n}',
+    )
+    expect(container.querySelector('.tool-body-bar + pre')?.textContent).toBe('all good')
+  })
+
   it('flips aria-expanded with the body', async () => {
     const user = userEvent.setup()
     render(
@@ -403,7 +490,41 @@ describe('ToolCallCard disclosure state', () => {
 
   it('announces a streaming shell body open', () => {
     render(<ToolCallCard call={{ id: 'c1', name: 'bash', shell: true, outputs: ['ok\n'] }} />)
-    expect(screen.getByRole('button')).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByRole('button', { name: /bash/ })).toHaveAttribute('aria-expanded', 'true')
+  })
+})
+
+describe('ToolCallCard output copy', () => {
+  // jsdom ships no clipboard, each file stubs it so the requirement stays
+  // visible at the call sites it covers
+  function stubClipboard(writeText: (text: string) => Promise<void>) {
+    const fn = vi.fn(writeText)
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: fn } })
+    return fn
+  }
+
+  // setup() installs user-event's own clipboard stub, so the explicit one
+  // above must land after it to stay what the component writes through
+  function setupCopyUser(writeText: (text: string) => Promise<void>) {
+    const user = userEvent.setup()
+    const writes = stubClipboard(writeText)
+    return { user, writes }
+  }
+
+  it('copies the open body text', async () => {
+    const { user, writes } = setupCopyUser(async () => {})
+    render(<ToolCallCard call={doneCall('all good\n')} />)
+    expect(screen.queryByRole('button', { name: 'Copy' })).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button')) // the header, the only button while closed
+    await user.click(screen.getByRole('button', { name: 'Copy' }))
+    expect(writes).toHaveBeenCalledWith('all good\n')
+  })
+
+  it('offers no copy without a body', async () => {
+    await openCard({ call: { id: 'c1', name: 'read', input: { path: 'a.go' } } })
+    expect(document.querySelector('.tool-body')).not.toBeNull()
+    expect(screen.queryByRole('button', { name: 'Copy' })).not.toBeInTheDocument()
   })
 })
 

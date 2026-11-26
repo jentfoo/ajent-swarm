@@ -922,9 +922,51 @@ label {
   /* long workspace paths wrap instead of widening the card on phones */
   overflow-wrap: anywhere;
 }
+/* file card header: path on the left, the added and deleted line counts on the
+   right. The sign names the side for every reader, the color only repeats it */
+.diff-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: calc(var(--unit) * 2);
+}
+.diff-file {
+  min-width: 0;
+}
+.diff-counts {
+  flex: none;
+  white-space: nowrap;
+}
+.diff-count.add {
+  color: var(--ok);
+}
+.diff-count.del {
+  color: var(--danger);
+  margin-left: calc(var(--unit) * 2);
+}
 .diff-pre {
   margin: 0;
   overflow-x: auto;
+}
+/* the show-all control under the visible rows: a block, so its full width
+   leaves no inline baseline gap, and expansion grows the card downward instead
+   of pushing what the reader is looking at */
+.diff-toggle {
+  display: block;
+  width: 100%;
+  padding: calc(var(--unit) * 1) calc(var(--unit) * 2);
+  border: none;
+  border-top: 1px solid var(--border);
+  border-radius: 0;
+  background: none;
+  color: var(--muted);
+  font-size: var(--fs-small);
+  text-align: left;
+}
+@media (hover: hover) {
+  .diff-toggle:hover {
+    color: var(--text);
+  }
 }
 .diff-line {
   white-space: pre;
@@ -989,10 +1031,37 @@ label {
   white-space: nowrap;
   flex: 1;
 }
+/* the header's one-line digest of the call beside the tool name: capped so the
+   output preview keeps room, ellipsizing whatever no longer fits */
+.tool-summary {
+  flex: 0 1 auto;
+  max-width: 50%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .tool-body pre {
   white-space: pre-wrap;
   word-break: break-word;
   margin: calc(var(--unit) * 1) 0 0;
+}
+/* the open body's output copy on its own end-aligned bar, never competing with
+   the header toggle */
+.tool-body-bar {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: calc(var(--unit) * 1);
+}
+.tool-copy {
+  padding: calc(var(--unit) * 0.5) calc(var(--unit) * 2);
+  border: none;
+  background: none;
+  color: var(--muted);
+}
+@media (hover: hover) {
+  .tool-copy:hover {
+    color: var(--text);
+  }
 }
 /* edit input preview: per-op fragment diffs under the path chip; rows keep
    their own nowrap so long hunks scroll inside the card */
@@ -1001,12 +1070,17 @@ label {
 }
 
 @media (max-width: 48rem) {
-  /* transcript disclosures answer taps: expansion headers, thinking panels
-     and injected-output toggles meet the touch floor, and the transcript's
-     dynamic row measurement absorbs the taller rows */
+  /* transcript disclosures answer taps: expansion headers, thinking panels,
+     injected-output toggles and the diff show-all meet the touch floor, and
+     the transcript's dynamic row measurement absorbs the taller rows */
   .tool-header,
   .thinking summary,
-  .injected-toggle {
+  .injected-toggle,
+  .diff-toggle {
+    min-height: 44px;
+  }
+  .tool-copy {
+    min-width: 44px;
     min-height: 44px;
   }
 }

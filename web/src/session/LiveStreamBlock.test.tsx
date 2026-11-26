@@ -339,9 +339,10 @@ describe('LiveStreamBlock tool cards', () => {
     expect(screen.queryByText(/held until the dialog/)).not.toBeInTheDocument()
   })
 
-  it('drops the gated edit op preview while the dialog holds it', () => {
+  it('drops the gated edit op preview while the dialog holds it', async () => {
     // upstream commits the full-file diff above the dialog before the ask, so
     // the gated card names the file instead of repeating it fragment-numbered
+    const user = userEvent.setup()
     const edit = {
       id: 'c1',
       name: 'edit',
@@ -355,6 +356,10 @@ describe('LiveStreamBlock tool cards', () => {
         live={liveFor({ tools: [edit] })}
       />,
     )
+    // the collapsed header names the file, the opened body keeps the path chip
+    // and drops the op diffs
+    expect(document.querySelector('[data-tool-id="c1"] .tool-summary')?.textContent).toBe('a.go')
+    await user.click(screen.getByRole('button', { name: /edit/ }))
     expect(document.querySelector('[data-tool-id="c1"] .diff-path')?.textContent).toBe('a.go')
     expect(document.querySelector('[data-tool-id="c1"] .diff-pre')).toBeNull()
 

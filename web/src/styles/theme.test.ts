@@ -128,7 +128,10 @@ describe('theme touch layout rules', () => {
   })
 
   it('floors transcript disclosures on phones', () => {
-    expect(css).toContain('.tool-header, .thinking summary, .injected-toggle { min-height: 44px;')
+    expect(css).toContain(
+      '.tool-header, .thinking summary, .injected-toggle, .diff-toggle { min-height: 44px;',
+    )
+    expect(css).toContain('.tool-copy { min-width: 44px; min-height: 44px;')
     expect(css).toContain('.jump-latest, .load-older { min-height: 44px;')
   })
 

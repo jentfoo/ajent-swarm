@@ -12,3 +12,15 @@ export function prettyInput(input: unknown): string {
     return String(input)
   }
 }
+
+// unquoteJSON unwraps a JSON string that itself holds JSON, how a model
+// double-encodes an argument it should have sent as an object or array. Any
+// other string comes back as is.
+export function unquoteJSON(value: unknown): unknown {
+  if (typeof value !== 'string') return value
+  try {
+    return JSON.parse(value) as unknown
+  } catch {
+    return value
+  }
+}

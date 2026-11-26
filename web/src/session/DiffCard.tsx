@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { diffChars, diffLines, structuredPatch } from 'diff'
 import type { StructuredPatchHunk } from 'diff'
@@ -16,18 +16,47 @@ const minIntralineSimilarity = 0.5
 // edits closer together than this many unchanged characters are joined, to
 // avoid speckled highlights
 const minSpanGap = 4
+// rows a file diff shows before it collapses the rest behind a show-all control
+const collapsedRows = 24
 
 // DiffCard renders one file change client-side: the wire carries only
 // {path, before, after} strings, never unified patch text, so jsdiff builds
-// the hunks here.
+// the hunks here. The path header carries the added and deleted line counts,
+// and a diff past the row limit shows its first rows behind a show-all control
+// under them, so expanding grows the card downward and never pushes the
+// reader's position.
 export function DiffCard({ path, before, after }: { path: string; before: string; after: string }) {
   const view = useMemo(() => fileDiffRows(before, after), [before, after])
-  if (view.rows.length === 0) return null
+  const [expanded, setExpanded] = useState(false)
+  const total = view.rows.length
+  if (total === 0) return null
+  const collapsible = total > collapsedRows
+  const collapsed = collapsible && !expanded
+  // the slice keeps the whole file's gutter width so numbers stay aligned
+  const shown = collapsed ? { gw: view.gw, rows: view.rows.slice(0, collapsedRows) } : view
+  const added = view.rows.filter((row) => row.kind === 'add').length
+  const deleted = view.rows.filter((row) => row.kind === 'del').length
 
   return (
     <div className="diff-card" data-testid="diff-card">
-      <div className="diff-path mono">{path}</div>
-      <DiffRows view={view} />
+      <div className="diff-path mono diff-head">
+        <span className="diff-file">{path}</span>
+        <span className="diff-counts">
+          <span className="diff-count add">+{added}</span>
+          <span className="diff-count del">-{deleted}</span>
+        </span>
+      </div>
+      <DiffRows view={shown} />
+      {collapsible && (
+        <button
+          type="button"
+          className="diff-toggle"
+          aria-expanded={expanded}
+          onClick={() => setExpanded((v) => !v)}
+        >
+          {expanded ? 'Show less' : `Show all ${total} lines`}
+        </button>
+      )}
     </div>
   )
 }

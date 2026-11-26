@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { applierReducer, initialSessionState } from '../state/eventApplier'
@@ -77,6 +78,7 @@ function mountTranscript(initial: AppliedSessionState, sessionId = '01TESTSESSIO
   })
   return {
     el,
+    unmount: view.unmount,
     apply(next: AppliedSessionState) {
       current = next
       view.rerender(draw())
@@ -536,6 +538,43 @@ describe('TranscriptView streaming burst', () => {
     expect(screen.getByText('auto allowed')).toBeInTheDocument()
     expect(screen.getByText('done')).toBeInTheDocument()
     expect(screen.queryByText('live')).not.toBeInTheDocument()
+  })
+})
+
+// A folded diff expands inside its virtual row: the row wrapper stays the same
+// measured element, nothing remounts, and tearing the view down mid-disclosure
+// leaves nothing behind.
+describe('TranscriptView diff disclosure', () => {
+  it('expands an anchored diff in place and unmounts cleanly', async () => {
+    const user = userEvent.setup()
+    const seeded = applierReducer(initialSessionState(), {
+      type: 'init',
+      frame: initFrame(testState({ head: 'e1' }), [
+        messageEntry('e1', undefined, 'user', 'edit the file'),
+      ]),
+    })
+    // a 100-line file with its first 40 lines rewritten: 84 diff rows
+    const file = (rewrite: boolean): string =>
+      Array.from({ length: 100 }, (_, i) =>
+        rewrite && i < 40 ? `n${i + 1}\n` : `l${i + 1}\n`,
+      ).join('')
+    const view = mountTranscript(
+      applierReducer(seeded, {
+        type: 'event',
+        event: ev('diff', 1, { path: 'src/main.go', before: file(false), after: file(true) }),
+      }),
+    )
+
+    const row = document.querySelector('[data-index="0"]')
+    expect(row?.querySelectorAll('.diff-line')).toHaveLength(24)
+    await user.click(screen.getByRole('button', { name: 'Show all 84 lines' }))
+    // the same wrapper carries the expanded card, so the virtualizer keeps its
+    // measured row instead of a remounted one
+    expect(document.querySelector('[data-index="0"]')).toBe(row)
+    expect(row?.querySelectorAll('.diff-line')).toHaveLength(84)
+
+    expect(() => view.unmount()).not.toThrow()
+    expect(document.querySelector('[data-testid="diff-card"]')).toBeNull()
   })
 })
 

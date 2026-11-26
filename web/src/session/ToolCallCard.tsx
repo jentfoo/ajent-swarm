@@ -4,11 +4,12 @@ import type { ImageView, ToolResultView } from '../state/derive'
 import { isRenderableImage } from '../state/derive'
 import type { ToolProgressView } from '../state/eventApplier'
 
+import { CopyButton } from './CopyButton'
 import { EditOpDiff, splitRows } from './DiffCard'
 import { parseEditInput } from './editInput'
 import { progressText } from './progressText'
 import { agentJobStatusClass, cardSubAgentRow, formatElapsed, stoppableJob } from './subAgents'
-import { prettyInput } from './toolInput'
+import { prettyInput, unquoteJSON } from './toolInput'
 import type { AgentJobs } from './useAgentJobs'
 
 // ToolCardView is what a card renders: a committed call's info or the live
@@ -31,6 +32,22 @@ interface ToolCardView {
 // Bodies past this many lines collapse behind the header's line count instead
 // of a first-line preview
 const longBodyLines = 30
+
+// Argument keys per tool word, tried in order. The word is looked up from the
+// tool name's own parts, so bash, Bash, read_file and repo_search all resolve
+// while a name without a known word renders the tool name alone.
+const summaryKeys = new Map<string, readonly string[]>([
+  ['bash', ['command', 'cmd']],
+  ['shell', ['command', 'cmd']],
+  ['edit', ['path']],
+  ['read', ['path']],
+  ['write', ['path']],
+  ['ls', ['path']],
+  ['grep', ['pattern', 'query']],
+  ['search', ['pattern', 'query']],
+  ['find', ['pattern']],
+  ['glob', ['pattern']],
+])
 
 export function ToolCallCard({
   call,
@@ -74,6 +91,8 @@ export function ToolCallCard({
   // upstream's TUI activity row. The done frame or the start takes over from here.
   const compose = !done && call.input === undefined ? progressText(call.progress ?? {}) : ''
   const label = call.label || call.name || call.progress?.path || call.id
+  // a shell card's label already is its command
+  const summary = shellCard ? undefined : toolSummary(call.name, call.input)
   const bodyLines = body === '' ? 0 : splitRows(body).length
   // Only a body nobody watched stream collapses behind a count: a streamed
   // body keeps its live first-line preview, and a fault keeps its head since
@@ -94,6 +113,7 @@ export function ToolCallCard({
         onClick={() => setUserOpen(!open)}
       >
         <span className="mono">{label}</span>
+        {summary !== undefined && <span className="mono muted tool-summary">{summary}</span>}
         {!done && <span className="badge accent">running</span>}
         {done &&
           (failedCard ? (
@@ -117,12 +137,19 @@ export function ToolCallCard({
           </span>
         )}
       </button>
-      {(call.input !== undefined || open) && (
+      {open && (
         <div className="tool-body">
           {call.input !== undefined && (
             <ToolInputView name={call.name} input={call.input} gated={gated} />
           )}
-          {open && body !== '' && <pre className="mono">{body}</pre>}
+          {body !== '' && (
+            <>
+              <div className="tool-body-bar">
+                <CopyButton text={body} className="tool-copy" />
+              </div>
+              <pre className="mono">{body}</pre>
+            </>
+          )}
           {images.map((img, i) => (
             <ToolImage key={i} image={img} />
           ))}
@@ -261,6 +288,38 @@ function ToolImage({ image }: { image: ImageView }) {
   }
   // Bodies are base64 media whose type passed the render allowlist.
   return <img alt="" src={`data:${image.mediaType};base64,${image.data}`} className="entry-image" />
+}
+
+// toolSummary is the header's one-line digest of what a call does: the shell
+// command, the path a read, write or edit touches, the grep or search
+// pattern. Best-effort on known tool words and argument keys, undefined
+// whenever nothing is recognized so the tool name stands alone.
+function toolSummary(name: string | undefined, input: unknown): string | undefined {
+  const keys = name
+    ?.toLowerCase()
+    .split(/[^a-z]+/)
+    .map((word) => summaryKeys.get(word))
+    .find((found) => found !== undefined)
+  if (keys === undefined) return undefined
+  const args = unquoteJSON(input)
+  // a bare string is the argument itself, how some models send a command
+  if (typeof args === 'string') return summaryText(args)
+  if (typeof args !== 'object' || args === null) return undefined
+  const fields = args as Record<string, unknown>
+  for (const key of keys) {
+    const value = fields[key]
+    if (typeof value !== 'string') continue
+    const text = summaryText(value)
+    if (text !== undefined) return text
+  }
+  return undefined
+}
+
+// summaryText keeps a value's first line for the header, undefined when the
+// value is blank
+function summaryText(value: string): string | undefined {
+  const line = oneLine(value)
+  return line === '' ? undefined : line
 }
 
 function oneLine(text: string): string {

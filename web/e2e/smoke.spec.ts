@@ -50,8 +50,11 @@ test('launch a session and drive one turn', async ({ page }) => {
   await prompt.fill('Say the smoke test phrase.')
   await prompt.press('Enter')
 
-  // the provider's streamed reply commits and renders
-  await expect(page.getByText('The smoke test reply.')).toBeVisible({ timeout: 30_000 })
+  // the provider's streamed reply commits and renders; exact keeps the
+  // turn-end status line, which quotes the same reply, out of the match
+  await expect(page.getByText('The smoke test reply.', { exact: true })).toBeVisible({
+    timeout: 30_000,
+  })
 })
 
 test('the session card reports online with the reply visible after reload', async ({ page }) => {
@@ -212,4 +215,38 @@ test('the phone session fits its width through a waiting dialog', async ({ brows
   } finally {
     await phone.close()
   }
+})
+
+test('a toast stacks clear of the composer', async ({ page }) => {
+  // jsdom lays nothing out, so the top-anchored stack is pinned against the
+  // real composer at the desktop viewport
+  await signIn(page)
+
+  const card = page.locator('.grid .card').first()
+  await expect(card).toBeVisible({ timeout: 30_000 })
+  // the grid opens into the focused workspace with that session selected
+  await card.getByRole('link', { name: 'Open' }).click()
+  await expect(page.getByRole('textbox', { name: 'Prompt' })).toBeEnabled({ timeout: 30_000 })
+
+  // a rewind pick reports through the toast stack, whatever the fake provider
+  // answers: the refusal path toasts too
+  await page.getByRole('button', { name: 'Rewind', exact: true }).click()
+  await page.locator('.rewind-row:not(.head)').first().click()
+
+  const toast = page.locator('.toast').first()
+  await expect(toast).toBeVisible()
+  const composer = page.locator('.composer')
+  await expect(composer).toBeVisible()
+
+  const [toastBox, composerBox] = await Promise.all([toast.boundingBox(), composer.boundingBox()])
+  expect(toastBox).not.toBeNull()
+  expect(composerBox).not.toBeNull()
+  // rows hang from the top of the viewport, so no stack height reaches the
+  // composer, the Send button or the status bar
+  const clear =
+    toastBox!.y + toastBox!.height <= composerBox!.y ||
+    composerBox!.y + composerBox!.height <= toastBox!.y ||
+    toastBox!.x + toastBox!.width <= composerBox!.x ||
+    composerBox!.x + composerBox!.width <= toastBox!.x
+  expect(clear).toBe(true)
 })

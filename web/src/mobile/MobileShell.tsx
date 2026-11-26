@@ -22,9 +22,8 @@ import NotificationPrompt from './NotificationPrompt'
 // the back control, the attention badge and the settings entries itself.
 //
 // It publishes --keyboard-inset once at :root so every mobile surface shares
-// one value: .mobile-session pads its composer above the keyboard,
-// .sheet-backdrop lifts fixed panels, and theme.css raises .toasts on screens
-// that publish nothing of their own (MobileHome's launcher).
+// one value: .mobile-session pads its composer above the keyboard, and
+// .sheet-backdrop lifts the fixed panels that would otherwise sit behind it.
 export default function MobileShell({ children }: { children: ReactNode }) {
   const { connection } = useSwarm()
   const { needs, needsInputCount } = useWorkspace()

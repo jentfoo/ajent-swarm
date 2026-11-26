@@ -69,4 +69,93 @@ describe('useToasts', () => {
     act(() => vi.advanceTimersByTime(2_001))
     expect(result.current.toasts.map((t) => t.text)).toEqual(['toast 4'])
   })
+
+  it('pauses the expiry until resumed', () => {
+    const { result } = renderHook(() => useToasts())
+    act(() => result.current.pushToast('held'))
+    act(() => vi.advanceTimersByTime(2_000))
+
+    act(() => result.current.pauseToast(1))
+    act(() => vi.advanceTimersByTime(30_000))
+    expect(result.current.toasts).toHaveLength(1)
+
+    // the window it still owes, not a fresh one
+    act(() => result.current.resumeToast(1))
+    act(() => vi.advanceTimersByTime(3_999))
+    expect(result.current.toasts).toHaveLength(1)
+    act(() => vi.advanceTimersByTime(1))
+    expect(result.current.toasts).toHaveLength(0)
+  })
+
+  it('keeps the first pause as the held window', () => {
+    const { result } = renderHook(() => useToasts())
+    act(() => result.current.pushToast('held'))
+    act(() => vi.advanceTimersByTime(1_000))
+    act(() => result.current.pauseToast(1))
+
+    // a repeat pause finds no timer, so the held time never resets
+    act(() => vi.advanceTimersByTime(10_000))
+    act(() => result.current.pauseToast(1))
+    act(() => result.current.resumeToast(1))
+    act(() => vi.advanceTimersByTime(4_999))
+    expect(result.current.toasts).toHaveLength(1)
+    act(() => vi.advanceTimersByTime(1))
+    expect(result.current.toasts).toHaveLength(0)
+  })
+
+  it('dismiss clears the timer and drops the row', () => {
+    const { result } = renderHook(() => useToasts())
+    act(() => result.current.pushToast('gone'))
+    act(() => result.current.dismissToast(1))
+    expect(result.current.toasts).toEqual([])
+
+    // the original expiry would have fired here without returning the row
+    act(() => vi.advanceTimersByTime(60_000))
+    expect(result.current.toasts).toEqual([])
+  })
+
+  it('dismisses one row without touching its peers', () => {
+    const { result } = renderHook(() => useToasts())
+    act(() => result.current.pushToast('gone'))
+    act(() => result.current.pushToast('stays'))
+    act(() => result.current.dismissToast(1))
+    expect(result.current.toasts.map((t) => t.text)).toEqual(['stays'])
+
+    act(() => vi.advanceTimersByTime(6_000))
+    expect(result.current.toasts).toEqual([])
+  })
+
+  it('ignores a resume on a running toast', () => {
+    const { result } = renderHook(() => useToasts())
+    act(() => result.current.pushToast('running'))
+    act(() => vi.advanceTimersByTime(1_000))
+
+    // no fresh window: the original expiry stands
+    act(() => result.current.resumeToast(1))
+    act(() => vi.advanceTimersByTime(4_999))
+    expect(result.current.toasts).toHaveLength(1)
+    act(() => vi.advanceTimersByTime(1))
+    expect(result.current.toasts).toHaveLength(0)
+  })
+
+  it('ignores holds and dismissals for unknown ids', () => {
+    const { result } = renderHook(() => useToasts())
+    act(() => {
+      result.current.pauseToast(7)
+      result.current.resumeToast(7)
+      result.current.dismissToast(7)
+    })
+    expect(result.current.toasts).toEqual([])
+  })
+
+  it('leaves nothing to hold once a toast expired', () => {
+    const { result } = renderHook(() => useToasts())
+    act(() => result.current.pushToast('gone'))
+    act(() => vi.advanceTimersByTime(6_000))
+
+    act(() => result.current.pauseToast(1))
+    act(() => result.current.resumeToast(1))
+    act(() => vi.advanceTimersByTime(6_000))
+    expect(result.current.toasts).toEqual([])
+  })
 })

@@ -353,6 +353,55 @@ describe('theme motion tokens', () => {
   })
 })
 
+describe('theme toast stack', () => {
+  // the base rule carries the anchor; the phone block below carries its own
+  const stack = bareCss.match(/(?:^|\})\s*\.toasts \{[^}]*\}/)![0]
+  const row = bareCss.match(/(?:^|\})\s*\.toast \{[^}]*\}/)![0]
+
+  it('anchors the stack at the top right below the top bar', () => {
+    expect(stack).toContain('top: var(--toast-top);')
+    expect(stack).toContain('right: calc(var(--unit) * 4);')
+    expect(stack).toContain('left: auto;')
+    expect(stack).toContain('align-items: flex-end;')
+    // the old bottom-center anchor is gone
+    expect(stack).not.toContain('bottom:')
+    expect(stack).not.toContain('transform:')
+  })
+
+  it('tokens the top offset in one place with the banner bump', () => {
+    expect(stack).toContain('--toast-top: 3rem;')
+    // a connection banner pushes the page down, so the stack clears it too
+    expect(bareCss).toContain('.app-shell:has(> .banner) .toasts { --toast-top: 5rem; }')
+  })
+
+  it('centers the stack on phones below the session header', () => {
+    const phone = bareCss.match(/@media \(max-width: 48rem\) \{ \.toasts \{[^}]*\}/)![0]
+    // px, not rem: the phone bars are pinned by the touch floor and px
+    // padding, so a font-size change must not open a gap under them
+    expect(phone).toContain('--toast-top: calc(env(safe-area-inset-top, 0px) + 61px);')
+    expect(phone).toContain('left: calc(var(--unit) * 3);')
+    expect(phone).toContain('right: calc(var(--unit) * 3);')
+    expect(phone).toContain('align-items: center;')
+    expect(bareCss).toContain(
+      '.mobile-shell:has(> .banner) .toasts { --toast-top: calc(env(safe-area-inset-top, 0px) + 92px); }',
+    )
+  })
+
+  it('enters each row alone through the motion tokens', () => {
+    expect(row).toContain('animation: toast-in var(--dur-base) var(--ease-out);')
+    // only the row animates, so an arrival never moves the rows above it
+    expect(stack).not.toContain('animation')
+    expect(bareCss).toContain('@keyframes toast-in')
+  })
+
+  it('lets taps through the strip while rows take the pointer', () => {
+    expect(stack).toContain('pointer-events: none;')
+    expect(row).toContain('pointer-events: auto;')
+    // the close glyph follows the row's severity instead of the muted idle
+    expect(bareCss).toContain('.toast-close { flex: none; color: inherit;')
+  })
+})
+
 describe('theme contrast tokens', () => {
   const fills = ['accent-fill', 'danger-fill']
   const texts = ['accent-fg', 'warn-fg']

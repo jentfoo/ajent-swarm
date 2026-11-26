@@ -38,6 +38,10 @@ interface SessionCompose {
   disabledReason: string
   toasts: ToastView[]
   pushToast: (text: string, level?: 'info' | 'error') => void
+  // the stack's row controls, passed straight through to <Toasts>
+  dismissToast: (id: number) => void
+  pauseToast: (id: number) => void
+  resumeToast: (id: number) => void
 }
 
 // useSessionCompose owns the session-compose glue every screen shares:
@@ -47,7 +51,7 @@ interface SessionCompose {
 export function useSessionCompose(sessionId: string): SessionCompose {
   const { state, phase, dispatch } = useSessionChannel(sessionId)
   const { draft, setDraft, prefill } = useComposerDraft(sessionId)
-  const { toasts, pushToast } = useToasts()
+  const { toasts, pushToast, dismissToast, pauseToast, resumeToast } = useToasts()
 
   // The workspace recall listing, best effort: a failed read just leaves
   // the session-local source serving, and a session swap remounts this hook's
@@ -173,6 +177,9 @@ export function useSessionCompose(sessionId: string): SessionCompose {
     disabledReason,
     toasts,
     pushToast,
+    dismissToast,
+    pauseToast,
+    resumeToast,
   }
 }
 

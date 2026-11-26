@@ -1390,28 +1390,75 @@ label {
 
 /* toasts */
 .toasts {
+  /* --toast-top clears the top chrome in one place: rem on desktop, where the
+     bar's height follows the text size, px on phones, where the 44px touch
+     floor pins it. A connection banner under either bar adds its own row. */
+  --toast-top: 3rem;
   position: fixed;
-  /* --keyboard-inset lifts notices above the OS keyboard, where ancestor
-     padding cannot reach a fixed element; MobileShell publishes it at :root,
-     so every mobile screen sees one value and desktop reads zero */
-  bottom: calc(var(--unit) * 6 + var(--keyboard-inset, 0px));
-  left: 50%;
-  transform: translateX(-50%);
+  top: var(--toast-top);
+  right: calc(var(--unit) * 4); /* the page's horizontal padding */
+  left: auto;
   display: flex;
   flex-direction: column;
+  align-items: flex-end;
   gap: calc(var(--unit) * 2);
+  /* above the modal and sheet backdrops at 30: a toast confirming a modal
+     action stays readable over the layer it came from */
   z-index: 40;
+  /* the strip spans only its rows on desktop and the full width on phones, so
+     taps between rows reach the chrome beneath */
+  pointer-events: none;
+}
+.app-shell:has(> .banner) .toasts {
+  --toast-top: 5rem;
+}
+@media (max-width: 48rem) {
+  .toasts {
+    /* top bar and session header share one height: 6px pad, a 44px row, 6px
+     pad and a 1px border, with 4px of air under it */
+    --toast-top: calc(env(safe-area-inset-top, 0px) + 61px);
+    left: calc(var(--unit) * 3);
+    right: calc(var(--unit) * 3);
+    align-items: center;
+  }
+  /* one small line at 1.5 plus its padding and border */
+  .mobile-shell:has(> .banner) .toasts {
+    --toast-top: calc(env(safe-area-inset-top, 0px) + 92px);
+  }
 }
 .toast {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--unit) * 2);
+  pointer-events: auto;
   background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: calc(var(--unit) * 2) calc(var(--unit) * 3);
+  padding: calc(var(--unit) * 2) calc(var(--unit) * 2) calc(var(--unit) * 2) calc(var(--unit) * 3);
   box-shadow: 0 2px 10px rgb(0 0 0 / 30%);
+  /* phones read the strip's own insets, so only the desktop row needs a cap */
+  max-width: 26rem;
+  /* each row enters alone: animating the stack would move every older row */
+  animation: toast-in var(--dur-base) var(--ease-out);
 }
 .toast.error {
   border-color: var(--danger);
   color: var(--danger);
+}
+.toast-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.toast-close {
+  flex: none;
+  color: inherit; /* the glyph follows the row's severity, not the muted idle */
+}
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(calc(var(--unit) * -2));
+  }
 }
 
 .block-notice.info {

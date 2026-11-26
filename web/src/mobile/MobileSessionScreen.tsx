@@ -78,6 +78,9 @@ function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElemen
     disabledReason,
     toasts,
     pushToast,
+    dismissToast,
+    pauseToast,
+    resumeToast,
   } = useSessionCompose(sessionId)
   const [showTools, setShowTools] = useState(false)
   const [showRewind, setShowRewind] = useState(false)
@@ -250,7 +253,12 @@ function MobileSessionSurface({ sessionId }: { sessionId: string }): ReactElemen
         onToast={pushToast}
       />
 
-      <Toasts toasts={toasts} />
+      <Toasts
+        toasts={toasts}
+        onDismiss={dismissToast}
+        onPause={pauseToast}
+        onResume={resumeToast}
+      />
     </div>
   )
 }

@@ -74,6 +74,9 @@ function SessionSurface({ sessionId, focused }: { sessionId: string; focused: bo
     disabledReason,
     toasts,
     pushToast,
+    dismissToast,
+    pauseToast,
+    resumeToast,
   } = useSessionCompose(sessionId)
   const [showRewind, setShowRewind] = useState(false)
 
@@ -196,7 +199,12 @@ function SessionSurface({ sessionId, focused }: { sessionId: string; focused: bo
 
       <StatusBar snap={snap} live={state.live} />
 
-      <Toasts toasts={toasts} />
+      <Toasts
+        toasts={toasts}
+        onDismiss={dismissToast}
+        onPause={pauseToast}
+        onResume={resumeToast}
+      />
     </div>
   )
 }

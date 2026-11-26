@@ -64,7 +64,7 @@ describe('MobileShell', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
     Reflect.deleteProperty(window, 'visualViewport')
-    document.body.innerHTML = '' // drops the seeded editable and toast probe
+    document.body.innerHTML = '' // drops the seeded editable and inset probe
   })
 
   // renderShell mounts the shell and lets the attention read settle inside
@@ -282,12 +282,12 @@ describe('MobileShell', () => {
     const input = openKeyboard(vv)
     expect(document.documentElement.style.getPropertyValue('--keyboard-inset')).toBe('300px')
 
-    // every fixed overlay inherits the root value, so a toast on home lifts
-    // above the keyboard exactly like one over an open session
-    const toasts = document.createElement('div')
-    toasts.className = 'toasts'
-    document.querySelector('.mobile-shell')!.appendChild(toasts)
-    expect(getComputedStyle(toasts).getPropertyValue('--keyboard-inset')).toBe('300px')
+    // every element under the shell inherits the root value, so a composer on
+    // home and a lifted sheet over an open session read the same number
+    const probe = document.createElement('div')
+    probe.className = 'inset-probe'
+    document.querySelector('.mobile-shell')!.appendChild(probe)
+    expect(getComputedStyle(probe).getPropertyValue('--keyboard-inset')).toBe('300px')
 
     // releasing the editable drops the lift back to zero
     act(() => {
@@ -304,7 +304,7 @@ describe('MobileShell', () => {
     expect(document.documentElement.style.getPropertyValue('--keyboard-inset')).toBe('300px')
 
     // crossing the breakpoint to AppShell unmounts this shell; a stale inset
-    // would lift desktop's own toasts off the bottom edge
+    // would lift the desktop chrome that reads none
     view.unmount()
     expect(document.documentElement.style.getPropertyValue('--keyboard-inset')).toBe('')
   })

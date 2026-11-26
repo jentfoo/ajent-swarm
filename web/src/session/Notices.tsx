@@ -10,7 +10,7 @@ const noticeTtlMs = 8_000
 // Notices renders a session's transient notice lines (sub-agent completions,
 // upstream warnings): lines expire noticeTtlMs after arrival and the newest
 // three show at once. Hosts mount it above the dialog dock. The wrapper stays
-// mounted as one polite live region like Toasts, so an arrival mutates existing
+// mounted as one polite live region, so an arrival mutates existing
 // live-region content instead of inserting a region already carrying text.
 export function Notices({ notices }: { notices: NoticeView[] }) {
   const [now, setNow] = useState(() => Date.now())

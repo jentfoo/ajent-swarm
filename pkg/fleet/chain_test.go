@@ -1034,7 +1034,9 @@ func TestChainPersistence(t *testing.T) {
 			assistantEntry(t, "01A1", "01U1", "old answer"),
 			finalPromptEntry(t, "01B1", "01A1", ch.ID, "summarize"),
 			assistantEntry(t, "01B2", "01B1", "fresh answer"))
-		m2 := startChainFleetAt(t, chainFleetConfig{store: store, grace: 250 * time.Millisecond}, home)
+		m2 := startChainFleetAt(t, chainFleetConfig{store: store, grace: time.Second}, home)
+		waitForState(t, m2, parent.SessionID(), ChildOnline)
+		waitForState(t, m2, child.SessionID(), ChildOnline)
 		waitChainState(t, m2, ch.ID, ChainDone)
 
 		submits := 0

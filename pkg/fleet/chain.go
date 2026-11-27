@@ -971,6 +971,9 @@ func (m *Manager) chainFinalWait(ctx context.Context, snap *chainSnap) bool {
 	if !m.chainFinalReview(ctx, snap, st) {
 		return true // the final turn still owes its answer or its review point
 	}
+	if st == nil && m.chainAdopting(snap) {
+		return true // discovery and re-adoption still race startup
+	}
 	if st == nil && !m.savedKnown(ch.ParentID) {
 		m.chainFail(snap, "parent exited")
 		return false

@@ -2,8 +2,6 @@ import { useCallback, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router'
 
-import { describeError } from '../api/errors'
-import { sessions as sessionAPI } from '../api/endpoints'
 import { ChildState, childEnded } from '../api/types'
 import type { SessionStatus } from '../api/types'
 import { useArmedConfirm } from '../hooks/useArmedConfirm'
@@ -11,6 +9,7 @@ import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import { useLaunchFacts } from '../hooks/useLaunchFacts'
 import { useLaunchForm, type LaunchTarget } from '../hooks/useLaunchForm'
 import { useResume } from '../hooks/useResume'
+import { useStop } from '../hooks/useStop'
 import { useSwarm } from '../providers/swarm'
 import { useAuth } from '../providers/auth'
 import { useWorkspace } from '../providers/workspace'
@@ -361,25 +360,9 @@ function ActionsBar({ status: s }: { status: SessionStatus }) {
 
 // StopButton is the explicit exit control on every live card, armed before
 // it fires: the first click asks "Stop?", a second within the window stops.
-// The stop endpoint escalates on its own: /exit first, then SIGTERM and
-// SIGKILL for swarm children, external sessions end through /exit alone.
 function StopButton({ sessionId }: { sessionId: string }) {
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
-
-  const stop = async () => {
-    setBusy(true)
-    setError('')
-    try {
-      await sessionAPI.stop(sessionId)
-    } catch (err) {
-      setError(describeError(err, 'Stop failed.'))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const confirm = useArmedConfirm(() => void stop(), { disabled: busy })
+  const { stop, stoppingId, error } = useStop()
+  const confirm = useArmedConfirm(() => void stop(sessionId), { disabled: stoppingId !== null })
 
   return (
     <>
@@ -388,7 +371,7 @@ function StopButton({ sessionId }: { sessionId: string }) {
         className={`danger${confirm.armed ? ' armed' : ''}`}
         onClick={confirm.onClick}
         onBlur={confirm.onBlur}
-        disabled={busy}
+        disabled={stoppingId !== null}
       >
         {confirm.armed ? 'Stop?' : 'Stop'}
       </button>

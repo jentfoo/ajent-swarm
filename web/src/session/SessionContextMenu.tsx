@@ -59,19 +59,22 @@ export function useSessionMenu(): {
 // show only while the session runs, an optional agent settings entry (mobile
 // rows) opens that session's settings surface, an optional rename entry covers
 // surfaces without an inline pencil (mobile rows), and the armed stop is the
-// same guard the cards' stop buttons carry.
+// same guard the cards' stop buttons carry. Surfaces that keep their own stop
+// button pass stop={false} to drop the entry (mobile rows).
 export function SessionContextMenu({
   menu,
   onClose,
   onRename,
   onChain,
   onSettings,
+  stop = true,
 }: {
   menu: SessionMenuPoint | null
   onClose: () => void
   onRename?: () => void
   onChain?: () => void
   onSettings?: () => void
+  stop?: boolean
 }): ReactElement | null {
   if (menu === null) return null
   return (
@@ -82,6 +85,7 @@ export function SessionContextMenu({
       onRename={onRename}
       onChain={onChain}
       onSettings={onSettings}
+      stop={stop}
     />
   )
 }
@@ -92,12 +96,14 @@ function MenuBody({
   onRename,
   onChain,
   onSettings,
+  stop: withStop,
 }: {
   menu: SessionMenuPoint
   onClose: () => void
   onRename?: () => void
   onChain?: () => void
   onSettings?: () => void
+  stop?: boolean
 }): ReactElement {
   const { sessions, refreshSessions } = useSwarm()
   const { pinnedSessionIds, togglePinnedSession, setQueueDraft } = useWorkspace()
@@ -208,7 +214,7 @@ function MenuBody({
             Rename…
           </button>
         )}
-        {!ended && (
+        {!ended && withStop && (
           <button
             type="button"
             role="menuitem"

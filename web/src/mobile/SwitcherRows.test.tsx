@@ -15,12 +15,12 @@ import { WorkspaceProvider } from '../providers/workspace'
 // The switcher's interactive contract at its breakpoint: rows group under
 // muted desktop-rail headings, a tap opens the row and the focus-revealed Open
 // control gives keyboard users the same activation, the ⋯ trigger opens the
-// shared session menu (agent settings, queue follow-up, chain after, rename,
-// armed stop) without a long press, a long press opens the same menu and
-// suppresses its release tap, a held drag chains one row onto another, and
-// awaiting rows never offer a check-off while live needs-input rows offer one
-// backed by the digest. Ended rows keep Resume inline, a refused resume
-// reports on the row.
+// shared session menu (agent settings, queue follow-up, chain after, rename)
+// without a long press, a long press opens the same menu and suppresses its
+// release tap, a held drag chains one row onto another, and awaiting rows
+// never offer a check-off while live needs-input rows offer one backed by the
+// digest. Stopping sits on the row: live rows carry an armed inline Stop, a
+// refusal reports on the row. Ended rows keep Resume inline instead.
 
 function row(overrides: Partial<SwitcherRow> = {}): SwitcherRow {
   return {
@@ -292,7 +292,6 @@ describe('SwitcherRows', () => {
     expect(within(menu).getByRole('menuitem', { name: 'Queue follow up session…' }))
     expect(within(menu).getByRole('menuitem', { name: 'Chain after…' }))
     expect(within(menu).getByRole('menuitem', { name: 'Rename…' }))
-    expect(within(menu).getByRole('menuitem', { name: 'Stop session' }))
 
     const user = userEvent.setup()
     await user.click(within(menu).getByRole('menuitem', { name: 'Queue follow up session…' }))
@@ -453,7 +452,7 @@ describe('SwitcherRows', () => {
     expect((onOpen.mock.calls[0]![0] as SwitcherRow).sessionId).toBe('01A')
   })
 
-  it('stops through the menu and refreshes rows', async () => {
+  it('stops through the armed row button and refreshes rows', async () => {
     let release: (() => void) | null = null
     const fetchSpy = vi.fn(async (url: string | URL, _init?: RequestInit) => {
       const path = String(url).split('?')[0]
@@ -472,13 +471,12 @@ describe('SwitcherRows', () => {
     await screen.findByText('project')
 
     const user = userEvent.setup()
-    await user.click(screen.getByRole('button', { name: 'More actions for project' }))
     // the first click only arms, in the shared danger variant
-    await user.click(screen.getByRole('menuitem', { name: 'Stop session' }))
-    const armed = screen.getByRole('menuitem', { name: 'Stop?' })
+    await user.click(screen.getByRole('button', { name: 'Stop' }))
+    const armed = screen.getByRole('button', { name: 'Stop?' })
     expect(armed).toHaveClass('danger', 'armed')
     await user.click(armed)
-    expect(await screen.findByRole('menuitem', { name: 'Stopping…' })).toBeDisabled()
+    expect(await screen.findByRole('button', { name: 'Stopping…' })).toBeDisabled()
 
     const listingGets = () =>
       fetchSpy.mock.calls.filter(([u]) => String(u).split('?')[0] === '/api/sessions').length
@@ -494,8 +492,6 @@ describe('SwitcherRows', () => {
       expect(stops).toHaveLength(1)
       expect(listingGets()).toBeGreaterThan(before)
     })
-    // the menu closed behind the confirmed stop
-    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
   })
 
   it('shows a refused resume on the row', async () => {
@@ -535,7 +531,7 @@ describe('SwitcherRows', () => {
     expect(paths[0]).toHaveAttribute('title', '/home/you/proj')
   })
 
-  it('keeps live rows to the ⋯ trigger and the focus-reveal Open', async () => {
+  it('carries stop inline on live rows and resume on ended ones', async () => {
     stubFacts()
     const { container } = renderRows([
       row(),
@@ -544,19 +540,20 @@ describe('SwitcherRows', () => {
     ])
     await screen.findByText('project')
 
-    // settings, stop and rename all live in the menu, nothing inline remains on
-    // a live row beside its ⋯ trigger
+    // settings and rename stay in the menu, nothing else inline on a live row
+    // beside its armed stop and ⋯ trigger
     expect(screen.queryByRole('button', { name: 'Settings' })).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Stop' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Rename' })).toBeNull()
 
-    // every row carries the keyboard entry inside its reveal slot, and the
-    // trailing edge holds nothing else visible on live rows
+    // every row carries the keyboard entry inside its reveal slot, the live
+    // one an armed Stop in the danger variant beside the ⋯ trigger
     expect(
       container.querySelectorAll('.switch-trailing > .switch-open-slot > .switch-open'),
     ).toHaveLength(3)
+    const stop = screen.getByRole('button', { name: 'Stop' })
+    expect(stop).toHaveClass('danger')
     const live = document.querySelector('[data-session-id="01A"]')!
-    expect(live.querySelector('.switch-trailing')!.children).toHaveLength(2)
+    expect(live.querySelectorAll('.switch-trailing > button')).toHaveLength(2)
 
     // the recorded ended row resumes, the workspace-less one offers nothing
     expect(screen.getAllByRole('button', { name: 'Resume' })).toHaveLength(1)
@@ -893,7 +890,7 @@ describe('SwitcherRows', () => {
     await screen.findByText('project')
 
     // the ⋯ trigger opens the shared session menu at the button, so agent
-    // settings, rename, queue follow-up, chain and stop are reachable with a
+    // settings, rename, queue follow-up and chain are reachable with a
     // keyboard alone
     const user = userEvent.setup()
     await user.click(screen.getByRole('button', { name: 'More actions for project' }))
@@ -905,7 +902,8 @@ describe('SwitcherRows', () => {
       within(menu).getByRole('menuitem', { name: 'Queue follow up session…' }),
     ).toBeInTheDocument()
     expect(within(menu).getByRole('menuitem', { name: 'Chain after…' })).toBeInTheDocument()
-    expect(within(menu).getByRole('menuitem', { name: 'Stop session' })).toBeInTheDocument()
+    // the row's own armed stop removed the entry from the shared menu
+    expect(within(menu).queryByRole('menuitem', { name: 'Stop session' })).toBeNull()
 
     // the rename entry still lands the same keyed editor the long press opens
     await user.click(within(menu).getByRole('menuitem', { name: 'Rename…' }))
@@ -929,6 +927,8 @@ describe('SwitcherRows', () => {
 
     const user = userEvent.setup()
     await user.click(screen.getByRole('button', { name: 'More actions for project' }))
+    // tapping the armed stop never reads as the row's own open
+    await user.click(screen.getByRole('button', { name: 'Stop' }))
     // the resume lands on the live session route, so it goes last
     await user.click(screen.getByRole('button', { name: 'Resume' }))
 

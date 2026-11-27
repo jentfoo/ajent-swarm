@@ -8,6 +8,8 @@ import { CheckIcon, MoreHorizontalIcon } from '../ui/icons'
 import { StatusBadge } from '../session/StatusBadge'
 import { useSessionNamer } from '../session/useSessionLabel'
 import { useResume } from '../hooks/useResume'
+import { useStop } from '../hooks/useStop'
+import { useArmedConfirm } from '../hooks/useArmedConfirm'
 import { useAuth } from '../providers/auth'
 import { useWorkspace } from '../providers/workspace'
 import { chainNoticeOf, instanceKey, isActionable } from '../workspace/attention'
@@ -24,14 +26,15 @@ import type { SwitcherRow } from './switcher'
 // riding the reason line on actionable attention states (never on neutral
 // waiting or ended rows), and one ⋯ trigger holding the trailing edge, opening
 // the shared session menu at the button (agent settings, queue follow-up,
-// chain after, rename, stop) so none of them depend on a long press. The row
+// chain after, rename) so none of them depend on a long press. The row
 // itself opens on tap; its Open control stays in the tree for keyboard and
-// screen reader users and reveals itself on keyboard focus. Ended rows keep an
-// inline Resume, the menu has none and it is the primary action there. A held
-// drag lifts its row and chains it onto the row released under the finger, the
-// same drop the desktop rail takes; rename edits the stored swarm title rather
-// than ajent's own session names, and platform back peels the editor alone,
-// leaving the rows beneath intact.
+// screen reader users and reveals itself on keyboard focus. Stopping is
+// common enough to sit on the row: live rows carry an armed inline Stop like
+// ended rows keep an inline Resume, the menu has neither and it is the
+// primary action there. A held drag lifts its row and chains it onto the row
+// released under the finger, the same drop the desktop rail takes; rename
+// edits the stored swarm title rather than ajent's own session names, and
+// platform back peels the editor alone, leaving the rows beneath intact.
 export function SwitcherRows({
   rows,
   onOpen,
@@ -127,7 +130,7 @@ function RenameLayer({ row, onDone }: { row: SwitcherRow; onDone: () => void }):
 // path, reason with its check-off) beside the trailing action edge. The row
 // itself opens on tap while the Open control inside gives keyboard users the
 // same activation, and the ⋯ trigger opens the shared session menu at the
-// button, carrying the row's agent settings, rename, queue, chain and stop.
+// button, carrying the row's agent settings, rename, queue and chain.
 function SwitchRow({
   row,
   drag,
@@ -247,19 +250,20 @@ function SwitchRow({
         onRename={onRename}
         onChain={onChain}
         onSettings={onSettings}
+        stop={false} // the row carries its own armed stop
       />
     </div>
   )
 }
 
 // RowActions is the row's trailing edge: the keyboard entry's Open control in
-// its focus-reveal slot, Resume on ended rows with a recorded workspace (the
-// menu carries no resume), and the ⋯ trigger opening the shared session menu
-// at the button, so agent settings, rename, queue follow-up, chain and the
-// armed stop never depend on a held gesture. It swallows clicks and
-// pointer-downs so tapping or holding an action never reads as the row's own
-// open or long-press gestures. A refused resume reports on its own line under
-// the row, the menu owns every stop error itself.
+// its focus-reveal slot, the state's own verb -- armed Stop on live rows,
+// Resume on ended ones with a recorded workspace (the menu carries neither) --
+// and the ⋯ trigger opening the shared session menu at the button, so agent
+// settings, rename, queue follow-up and chain never depend on a held gesture.
+// It swallows clicks and pointer-downs so tapping or holding an action never
+// reads as the row's own open or long-press gestures. A refused resume or stop
+// reports on its own line under the row.
 function RowActions({
   row,
   onOpen,
@@ -270,6 +274,12 @@ function RowActions({
   onMenuAt: (x: number, y: number) => void
 }): ReactElement {
   const { resume, resumingId, error } = useResume()
+  const { stop, stoppingId, error: stopError } = useStop()
+  // the same armed guard the cards' stop buttons carry: the first click asks,
+  // a second within the window stops
+  const confirm = useArmedConfirm(() => void stop(row.sessionId), {
+    disabled: stoppingId !== null,
+  })
 
   return (
     <>
@@ -285,13 +295,25 @@ function RowActions({
             Open
           </button>
         </span>
-        {row.status === 'ended' && row.workspace && (
+        {row.status === 'ended' ? (
+          row.workspace && (
+            <button
+              type="button"
+              disabled={resumingId !== null}
+              onClick={() => void resume(row.workspace!, row.sessionId)}
+            >
+              {resumingId === row.sessionId ? 'Resuming…' : 'Resume'}
+            </button>
+          )
+        ) : (
           <button
             type="button"
-            disabled={resumingId !== null}
-            onClick={() => void resume(row.workspace!, row.sessionId)}
+            className={`danger${confirm.armed ? ' armed' : ''}`}
+            onClick={confirm.onClick}
+            onBlur={confirm.onBlur}
+            disabled={stoppingId !== null}
           >
-            {resumingId === row.sessionId ? 'Resuming…' : 'Resume'}
+            {stoppingId === row.sessionId ? 'Stopping…' : confirm.armed ? 'Stop?' : 'Stop'}
           </button>
         )}
         <button
@@ -310,6 +332,7 @@ function RowActions({
         </button>
       </div>
       {error !== '' && <span className="error-text">{error}</span>}
+      {stopError !== '' && <span className="error-text">{stopError}</span>}
     </>
   )
 }

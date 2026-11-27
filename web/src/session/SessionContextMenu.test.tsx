@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -14,7 +14,8 @@ import { WorkspaceProvider } from '../providers/workspace'
 // the session runs, standing down once it ends. Held touches open the same
 // menu through a press point, and the optional settings, rename and chain
 // entries report back for surfaces without inline controls. The armed stop
-// refreshes the listing once it lands and keeps a refusal inline.
+// refreshes the listing once it lands and keeps a refusal inline; a surface
+// that carries its own stop button drops the entry with stop={false}.
 
 const SESSION = '01TARGETSESSION0000C'
 
@@ -24,10 +25,12 @@ function MenuProbe({
   onChain,
   onRename,
   onSettings,
+  stop = true,
 }: {
   onChain?: () => void
   onRename?: () => void
   onSettings?: () => void
+  stop?: boolean
 }) {
   const { menu, openSessionMenu, closeSessionMenu } = useSessionMenu()
   return (
@@ -39,6 +42,7 @@ function MenuProbe({
         onRename={onRename}
         onChain={onChain}
         onSettings={onSettings}
+        stop={stop}
       />
     </>
   )
@@ -246,6 +250,27 @@ describe('SessionContextMenu', () => {
     expect(await screen.findByText('session is shutting down')).toHaveClass('error-text')
     expect(screen.getByRole('menu')).toBeInTheDocument()
     expect(screen.getByRole('menuitem', { name: 'Stop session' })).toBeEnabled()
+  })
+
+  it('drops the stop entry when the surface keeps its own', async () => {
+    stubFetch()
+    render(
+      <MemoryRouter>
+        <AuthProvider>
+          <SwarmProvider>
+            <WorkspaceProvider>
+              <MenuProbe stop={false} />
+            </WorkspaceProvider>
+          </SwarmProvider>
+        </AuthProvider>
+      </MemoryRouter>,
+    )
+
+    fireEvent.contextMenu(screen.getByTestId('row'), { clientX: 30, clientY: 40 })
+    // the mobile rows carry their own armed stop, the menu keeps the rest
+    const menu = await screen.findByRole('menu')
+    expect(within(menu).queryByRole('menuitem', { name: 'Stop session' })).toBeNull()
+    expect(within(menu).getByRole('menuitem', { name: 'Queue follow up session…' }))
   })
 
   it('opens agent settings from its entry and closes', async () => {

@@ -49,9 +49,6 @@ type Options struct {
 	ParkIdleWindow time.Duration
 	// ChainPoll is the chain pump's tick cadence, zero takes 1 second.
 	ChainPoll time.Duration
-	// ChainMaxAge bounds one chain's whole life, past it the chain fails with
-	// "timed out". Zero takes 2 hours.
-	ChainMaxAge time.Duration
 	// ChainGrace bounds how long a restored chain waits out startup before a
 	// missing endpoint reads as an exit. Zero takes 30 seconds.
 	ChainGrace time.Duration
@@ -112,7 +109,6 @@ type Manager struct {
 	dialBackoffMax  time.Duration
 	parkWindow      time.Duration
 	chainPoll       time.Duration
-	chainMaxAge     time.Duration
 	chainGrace      time.Duration
 	optsOwned       func(ctl.Instance) bool
 	discover        func() ([]ctl.Instance, error)
@@ -170,7 +166,6 @@ func New(opts Options) *Manager {
 		dialBackoffMax:  cmpOr(opts.BackoffMax, dialBackoffMax),
 		parkWindow:      cmpOr(opts.ParkIdleWindow, parkIdleWindow),
 		chainPoll:       cmpOr(opts.ChainPoll, chainDefaultPoll),
-		chainMaxAge:     cmpOr(opts.ChainMaxAge, chainMaxAgeDefault),
 		chainGrace:      cmpOr(opts.ChainGrace, chainAdoptGraceDefault),
 		optsOwned:       opts.Owned,
 		discover:        opts.Discover,

@@ -79,11 +79,11 @@ wiring layer, and the frontend starts at `web/src/main.tsx` → `App.tsx` → pr
   "Prior session last message:" header block, without one the child runs its prompt alone; both forms wait
   for the parent's completed-turn review point, and gates are session-based, open dialogs,
   tool barriers, queued and parked prompts included, so the parent reads as in review before
-  the child starts; one parent runs one chain's final prompt at a time, and the whole chain
-  fails past a 2h age bound; a confirmed endpoint stop fails the chain component touching it
+  the child starts; one parent runs one chain's final prompt at a time, and chains wait out
+  every hold indefinitely; a confirmed endpoint stop fails the chain component touching it
   rather than letting a stopped parent hand off; a link stacked behind another holds until
   that link delivers,
-  and a link that dies without delivering (failed, canceled, timed out) cascades the break to
+  and a link that dies without delivering (failed or canceled) cascades the break to
   every link stacked behind it, restored rows reconcile the same cascade so a restart never
   re-arms a tail over a handoff that never landed; edits and cancels wait out the pump's
   in-flight tick before mutating; records

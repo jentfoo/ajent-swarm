@@ -46,12 +46,10 @@ const (
 	chainLineSep      = "\n\n----\n\n"
 )
 
-// Chain lifecycle policies. Any non-terminal chain older than ChainMaxAge
-// fails with "timed out", and a restored chain owes its endpoints the
+// Chain lifecycle policies. A restored chain owes its endpoints the
 // adoption grace before a missing session reads as an exit, since discovery
 // and child re-adoption race startup.
 const (
-	chainMaxAgeDefault     = 2 * time.Hour
 	chainAdoptGraceDefault = 30 * time.Second
 	chainSweepEvery        = time.Hour
 )
@@ -689,7 +687,7 @@ func (m *Manager) runChain(ctx context.Context, run *chainRun) {
 		if !chainLive(snap.ch.State) {
 			return
 		}
-		if m.chainExpired(&snap) || !m.chainStep(ctx, &snap) {
+		if !m.chainStep(ctx, &snap) {
 			return
 		}
 	}
@@ -700,17 +698,6 @@ type chainSnap struct {
 	ch         Chain
 	refusedAt  int64 // unix ms the last retryable refusal landed
 	restoredAt int64 // unix ms the pump re-armed after a restart, 0 live
-}
-
-// chainExpired fails one chain past its age bound, the backstop for every
-// hold: a stalled dialog, a seat swarm cannot reclaim, endpoints that never
-// settle. True answers that the chain landed terminally.
-func (m *Manager) chainExpired(snap *chainSnap) bool {
-	if time.Since(time.UnixMilli(snap.ch.CreatedAt)) <= m.chainMaxAge {
-		return false
-	}
-	m.chainFail(snap, "timed out")
-	return true
 }
 
 // chainAdopting reports whether a restored chain still owes its endpoints the
@@ -1096,8 +1083,7 @@ func (m *Manager) chainDelivering(ctx context.Context, snap *chainSnap) bool {
 
 // chainRetryable reports whether a submit refusal deserves a later tick: a
 // missing connection, a seat held against swarm, an observer's write or a
-// full queue all clear on their own, the age bound is the backstop. Every
-// other refusal fails the chain.
+// full queue all clear on their own. Every other refusal fails the chain.
 func chainRetryable(err error) bool {
 	var ce *ctl.Error
 	if errors.As(err, &ce) {

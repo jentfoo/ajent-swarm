@@ -677,40 +677,6 @@ func TestChainSequence(t *testing.T) {
 			5*chainWindow, chainTickEvery)
 	})
 
-	t.Run("upstream_timeout_breaks_the_tail", func(t *testing.T) {
-		home := testutil.IsolateHome(t)
-		m := startChainFleetAt(t, chainFleetConfig{store: newMemChainStore(), maxAge: 600 * time.Millisecond}, home)
-		parent := chainPersistStub(t, home, "01PARENTSESSION00000A", "parent.jsonl")
-		waitForState(t, m, parent.SessionID(), ChildOnline)
-		parent.Broadcast(ctl.EventTurnStart, nil) // the root never finishes
-		waitForRunning(t, m, parent, true)
-		mid := chainPersistStub(t, home, "01CHILDSESSION00000B", "mid.jsonl")
-		waitForState(t, m, mid.SessionID(), ChildOnline)
-		third := chainPersistStub(t, home, "01THIRDSESSION000000C", "third.jsonl")
-		waitForState(t, m, third.SessionID(), ChildOnline)
-
-		first, err := m.CreateChain(t.Context(), parent.SessionID(), mid.SessionID(),
-			ChainParams{ChildPrompt: "continue"})
-		require.NoError(t, err)
-		second, err := m.CreateChain(t.Context(), mid.SessionID(), third.SessionID(),
-			ChainParams{ChildPrompt: "pick it up"})
-		require.NoError(t, err)
-		// the head link ages out well before the tail's own bound, so the
-		// cascade is what lands the tail, not its own clock
-		m.mu.Lock()
-		if run := m.chains[first.ID]; run != nil {
-			run.ch.CreatedAt -= 1000
-		}
-		m.mu.Unlock()
-
-		// the age bound fails the first link while the root still works, the
-		// deep link must land terminal beside it instead of firing on the
-		// idle mid session
-		broken := waitChainState(t, m, second.ID, ChainFailed)
-		assert.Equal(t, "upstream timed out", broken.Reason)
-		assert.Empty(t, childSubmits(third))
-	})
-
 	t.Run("cascades_through_every_stacked_link", func(t *testing.T) {
 		m, parent := newChainFleet(t)
 		parent.Broadcast(ctl.EventTurnStart, nil) // the root never finishes
@@ -899,7 +865,6 @@ func (s *memChainStore) putRowOf(ch Chain) {
 // chainFleetConfig names the tuned fields every chain fleet shares.
 type chainFleetConfig struct {
 	store    *memChainStore
-	maxAge   time.Duration
 	grace    time.Duration
 	parkIdle time.Duration
 }
@@ -919,7 +884,6 @@ func startChainFleetAt(t *testing.T, cfg chainFleetConfig, home string) *Manager
 		ParkIdleWindow: park,
 		ChainPoll:      chainTickEvery,
 		ChainStore:     cfg.store,
-		ChainMaxAge:    cfg.maxAge,
 		ChainGrace:     cfg.grace,
 	})
 	m.Start(t.Context())
@@ -1243,20 +1207,17 @@ func TestChainPolicies(t *testing.T) {
 		assert.NotContains(t, lines[0], "old answer")
 	})
 
-	t.Run("age_bound_fails_a_stalled_chain", func(t *testing.T) {
+	t.Run("held_seat_retries_indefinitely", func(t *testing.T) {
 		home := testutil.IsolateHome(t)
 		parent := chainPersistStub(t, home, "01PARENTSESSION00000A", "parent.jsonl",
 			prompt(t, "01U1", "", "first question"),
 			assistantEntry(t, "01A1", "01U1", "recorded answer"))
 		child := chainPersistStub(t, home, "01CHILDSESSION00000B", "child.jsonl")
-		m := startChainFleetAt(t, chainFleetConfig{
-			store: newMemChainStore(), maxAge: 150 * time.Millisecond,
-		}, home)
+		m := startChainFleetAt(t, chainFleetConfig{store: newMemChainStore()}, home)
 		waitForState(t, m, parent.SessionID(), ChildOnline)
 		parent.Broadcast(ctl.EventTurnEnd, ctl.TurnEndData{Stop: "end_turn"})
 
-		// a held seat refuses every delivery attempt, the chain outlives the
-		// retry window but not the age bound
+		// a held seat refuses every delivery attempt, the chain retries forever
 		child.Refuse(ctl.MethodSubmit, ctl.CodeSeatHeld, "seat held by a human")
 		ch, err := m.CreateChain(t.Context(), parent.SessionID(), child.SessionID(),
 			ChainParams{ChildPrompt: "continue"})
@@ -1264,7 +1225,7 @@ func TestChainPolicies(t *testing.T) {
 
 		// the refusal retries within the quiet gate, never fails on its own
 		require.Never(t, func() bool { return chainStateOf(t, m, ch.ID) == ChainFailed },
-			2*chainWindow, chainTickEvery)
+			20*chainWindow, chainTickEvery)
 		require.Eventually(t, func() bool {
 			submits := 0
 			for _, req := range child.Received() {
@@ -1274,9 +1235,6 @@ func TestChainPolicies(t *testing.T) {
 			}
 			return submits >= 2
 		}, time.Second, chainTickEvery)
-
-		failed := waitChainState(t, m, ch.ID, ChainFailed)
-		assert.Equal(t, "timed out", failed.Reason)
 	})
 
 	t.Run("missing_child_fails_after_the_adoption_grace", func(t *testing.T) {
@@ -1323,7 +1281,7 @@ func TestChainPolicies(t *testing.T) {
 		now := time.Now().UnixMilli()
 		store.putRowOf(Chain{ID: "chn_dead0001", ParentID: parent.SessionID(),
 			ChildID: mid.SessionID(), ChildPrompt: "continue", PendingID: "pd1",
-			State: ChainFailed, Reason: "timed out", CreatedAt: now - 5000, UpdatedAt: now - 10})
+			State: ChainFailed, Reason: "child exited", CreatedAt: now - 5000, UpdatedAt: now - 10})
 		store.putRowOf(Chain{ID: "chn_tail0002", ParentID: mid.SessionID(),
 			ChildID: third.SessionID(), ChildPrompt: "pick it up", PendingID: "pd2",
 			State: ChainWaiting, CreatedAt: now - 4000, UpdatedAt: now - 10})
@@ -1336,7 +1294,7 @@ func TestChainPolicies(t *testing.T) {
 		// the tail reconciles against the broken upstream row instead of
 		// re-arming and firing on the idle mid session
 		broken := waitChainState(t, m, "chn_tail0002", ChainFailed)
-		assert.Equal(t, "upstream timed out", broken.Reason)
+		assert.Equal(t, "upstream child exited", broken.Reason)
 		assert.Equal(t, ChainFailed, store.rowOf("chn_tail0002").State)
 		require.Never(t, func() bool { return len(childSubmits(third)) > 0 },
 			5*chainWindow, chainTickEvery)

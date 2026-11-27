@@ -182,6 +182,34 @@ describe('attention ranking', () => {
     vi.useRealTimers()
   })
 
+  it('sinks parked sessions below live workers in park order', () => {
+    const worker = (sessionId: string) =>
+      deriveItem(row({ sessionId, running: true, idle: false, kind: 'working', reason: 'busy' }))
+    const queued = (sessionId: string, parkedAt: number) =>
+      deriveItem(
+        row({
+          sessionId,
+          kind: 'working',
+          reason: 'queued: follow-up',
+          parked: 1,
+          parkedAt,
+          since: parkedAt,
+        }),
+      )
+    const ranked = rankAttention([
+      queued('late-queued', 200),
+      worker('z-worker'),
+      queued('early-queued', 100),
+      worker('a-worker'),
+    ])
+    expect(ranked.working.map((i) => i.sessionId)).toEqual([
+      'a-worker',
+      'z-worker',
+      'early-queued',
+      'late-queued',
+    ])
+  })
+
   it('anchors deep chains below their parent through every hop', () => {
     const anchored = anchorChained([
       { sessionId: 'c', chainedOn: 'b' },
@@ -240,6 +268,7 @@ describe('session badge states', () => {
       }),
     )
     expect(queued.parked).toBe(true)
+    expect(queued.parkedAt).toBe(20)
     expect(sessionBadgeOf(false, queued)).toBe('queued')
     expect(headerBadgeOf(false, queued)).toBe('queued')
 
@@ -349,6 +378,21 @@ describe('shared attention ordering', () => {
       'b-idle',
       'aaa-plain', // digest-less reads as oldest within working
       'zzz-busy',
+    ])
+  })
+
+  it('sinks queued rows below live rows in park order', () => {
+    const rows: AttentionSort[] = [
+      { sessionId: 'late-queued', kind: 'working', parked: true, parkedAt: 500, queuedAt: 10 },
+      { sessionId: 'z-live', kind: 'working', queuedAt: 100 },
+      { sessionId: 'early-queued', kind: 'working', parked: true, parkedAt: 300, queuedAt: 200 },
+      { sessionId: 'a-live', kind: 'working', queuedAt: 400 },
+    ]
+    expect([...rows].sort(compareAttention).map((r) => r.sessionId)).toEqual([
+      'z-live', // live rows keep queue-entry order
+      'a-live',
+      'early-queued', // the queued tail orders by park time, not entry
+      'late-queued',
     ])
   })
 })

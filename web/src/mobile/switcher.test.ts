@@ -156,6 +156,25 @@ describe('buildSwitcherRows', () => {
     ])
   })
 
+  it('sinks parked working rows below live ones in park order', () => {
+    const rows = buildSwitcherRows(
+      [
+        session({ sessionId: 'b-queued', running: true, idle: false }),
+        session({ sessionId: 'a-live', running: true, idle: false }),
+        session({ sessionId: 'c-queued', running: true, idle: false }),
+      ],
+      labelFor,
+      [
+        { ...item('working'), sessionId: 'b-queued', parked: true, parkedAt: 200 },
+        { ...item('working'), sessionId: 'a-live' },
+        { ...item('working'), sessionId: 'c-queued', parked: true, parkedAt: 300 },
+      ],
+    )
+    expect(rows.map((r) => r.status)).toEqual(['running', 'queued', 'queued'])
+    // the queued badge rows append after the live worker, oldest park first
+    expect(rows.map((r) => r.sessionId)).toEqual(['a-live', 'b-queued', 'c-queued'])
+  })
+
   it('caps old exits beneath the alive ones', () => {
     const stale = Date.now() - 3 * 60 * 60 * 1000
     const exited = Array.from({ length: 6 }, (_, i) =>

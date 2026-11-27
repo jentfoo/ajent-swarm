@@ -100,6 +100,8 @@ export function buildSwitcherRows(
       kind: item?.kind,
       since: item?.since,
       queuedAt: item?.queuedAt,
+      parked: item?.parked,
+      parkedAt: item?.parkedAt,
       chainedOn: item?.chainedOn,
     }
     alive.push({

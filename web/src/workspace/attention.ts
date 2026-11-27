@@ -37,6 +37,7 @@ export interface AttentionItem {
   turnEnd?: number // present on needs-review rows; the ack watermark target
   running: boolean
   parked: boolean // a prompt waits in swarm for the session's next idle point
+  parkedAt?: number // unix ms the oldest parked, queue order inside Working
   // chain facts verbatim from the digest, ids only: one id per role so a
   // session chained in both directions keeps both links addressable
   chainedOn?: string // a live chain delivers into this session: the parent id
@@ -61,6 +62,7 @@ export function deriveItem(row: AttentionRow): AttentionItem {
     turnEnd: row.kind === 'needs-review' ? row.lastTurnEnd : undefined,
     running: sessionBusy(row),
     parked: (row.parked ?? 0) > 0,
+    parkedAt: row.parkedAt,
     chainedOn: row.chainedOn,
     chainedOnId: row.chainedOnId,
     deliveringTo: row.deliveringTo,
@@ -205,6 +207,8 @@ export interface AttentionSort {
   kind?: AttentionKind // absent shares the working class below
   since?: number // dialog wait or turn end, within-class order
   queuedAt?: number // queue entry, drives movers to the end
+  parked?: boolean // a prompt waits in swarm for the next idle point
+  parkedAt?: number // unix ms the oldest parked, order inside the queued tail
   chainedOn?: string // the session this one waits behind, from the chain fold
 }
 
@@ -256,7 +260,8 @@ export function attentionQueue(entry: AttentionSort): AttentionQueue {
 // compareAttention orders two rows the way rankAttention renders them: queue
 // first, then needs rows by oldest wait (dialogs and completions share one
 // order), waiting and working by queue entry so a row moving between queues
-// lands at the end of its new one. Everything else stable by session id.
+// lands at the end of its new one, with queued rows sinking below their
+// queue's live rows in park order. Everything else stable by session id.
 // Every surface sorting alive rows consumes it.
 export function compareAttention(a: AttentionSort, b: AttentionSort): number {
   const ra = attentionRank(a)
@@ -264,6 +269,17 @@ export function compareAttention(a: AttentionSort, b: AttentionSort): number {
   if (ra !== rb) return ra - rb
   if (ra === attentionRanks.needs) {
     return (a.since ?? 0) - (b.since ?? 0) || a.sessionId.localeCompare(b.sessionId)
+  }
+  const qa = a.parked ?? false
+  const qb = b.parked ?? false
+  if (qa !== qb) return qa ? 1 : -1
+  if (qa) {
+    // the digest's oldest-parked stamp reads queue entry, the client stamp
+    // only stands in until the next digest lands
+    return (
+      (a.parkedAt ?? a.queuedAt ?? 0) - (b.parkedAt ?? b.queuedAt ?? 0) ||
+      a.sessionId.localeCompare(b.sessionId)
+    )
   }
   return (a.queuedAt ?? 0) - (b.queuedAt ?? 0) || a.sessionId.localeCompare(b.sessionId)
 }
@@ -329,7 +345,8 @@ export function resetQueueEntries(): void {
 
 // rankAttention buckets the rail's queues: needs holds dialogs and unreviewed
 // completions together by oldest wait, waiting (new and settled idle agents)
-// and working follow by queue entry so movers append. Chained sessions anchor
+// and working follow by queue entry so movers append, and Working's queued
+// rows sink below its live rows in park order. Chained sessions anchor
 // directly below the session they wait behind within Working. needsInputCount
 // counts open dialogs only.
 export function rankAttention(items: readonly AttentionItem[]): {

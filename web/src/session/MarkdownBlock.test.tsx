@@ -20,9 +20,9 @@ describe('MarkdownBlock prose measure', () => {
   })
 
   it('keeps a long unbroken token from widening the container', () => {
-    // the cap sits on block children and the wrap guard breaks tokens that
-    // have no break point of their own
-    expect(css).toContain('.markdown.prose > * { max-width: min(72ch, 100%); }')
+    // block children stay clamped to the pane and the wrap guard breaks
+    // tokens that have no break point of their own
+    expect(css).toContain('.markdown.prose > * { max-width: 100%; }')
     expect(css).toMatch(/\.markdown\.prose \{[^}]*overflow-wrap: anywhere/)
     render(<MarkdownBlock text={'A'.repeat(400)} />)
     expect(document.querySelector('.markdown.prose > p')).toHaveTextContent('A'.repeat(400))

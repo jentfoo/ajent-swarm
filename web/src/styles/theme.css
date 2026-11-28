@@ -803,21 +803,17 @@ label {
 .markdown a {
   text-decoration: underline;
 }
-/* prose measure: message text reads at a book line length; the cap sits on
-   block children because code inside cannot outgrow its parent, so fences
-   and table scroll ports re-join the pane below */
+/* prose fills the pane: message text wraps rather than scrolling, so block
+   children carry no narrower measure; the clamp keeps stray replaced content,
+   an unsized image say, from spilling past the pane */
 .markdown.prose {
   font-size: var(--fs-prose);
   line-height: 1.6;
-  /* unbroken tokens break inside the measure instead of spilling past it */
+  /* unbroken tokens break instead of spilling past the pane */
   overflow-wrap: anywhere;
 }
 .markdown.prose > * {
-  max-width: min(72ch, 100%);
-}
-.markdown.prose > .fence-wrap,
-.markdown.prose > .table-scroll {
-  max-width: none;
+  max-width: 100%;
 }
 /* wide tables scroll inside their own port instead of widening the pane, no
    display change on the table itself, that would alter its layout */

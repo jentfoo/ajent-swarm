@@ -73,12 +73,9 @@ describe('theme type scale', () => {
     }
   })
 
-  it('caps prose at a book measure while code keeps the pane', () => {
-    expect(css).toContain('.markdown.prose > * { max-width: min(72ch, 100%); }')
-    // fences and table scroll ports re-join the full pane width past the cap
-    expect(css).toMatch(
-      /\.markdown\.prose > \.fence-wrap, \.markdown\.prose > \.table-scroll \{[^}]*max-width: none;/,
-    )
+  it('fills the pane with prose', () => {
+    // text wraps rather than scrolling, so block children run the full width
+    expect(css).toContain('.markdown.prose > * { max-width: 100%; }')
   })
 })
 
@@ -89,8 +86,8 @@ describe('theme markdown prose', () => {
   })
 
   it('gives wide tables their own scroll port', () => {
-    // the } boundary skips the measure's > .table-scroll exclusion above, and
-    // stripped comments leave space runs, so the gap stays flexible
+    // the } boundary anchors the match, and stripped comments leave space
+    // runs, so the gap stays flexible
     const rule = bareCss.match(/(?:^|\})\s*\.table-scroll \{[^}]*\}/)![0]
     expect(rule).toContain('overflow-x: auto;')
     expect(rule).toContain('max-width: 100%;')

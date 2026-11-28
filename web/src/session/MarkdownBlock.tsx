@@ -21,7 +21,7 @@ const sanitizeSchema = {
 
 export function MarkdownBlock({ text }: { text: string }) {
   return (
-    // prose carries the shared reading measure; user and assistant message
+    // prose carries the shared text styles; user and assistant message
     // text both render here, tool cards, diffs and code never do
     <div className="markdown prose">
       <ReactMarkdown
